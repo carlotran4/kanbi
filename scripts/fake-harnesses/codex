@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "FAKE_CODEX_START"
+echo "ARGS:$*"
+
+if (($# > 0)); then
+  last="${!#}"
+  echo "CODEX_PROMPT_BEGIN"
+  printf '%s\n' "$last"
+  echo "CODEX_PROMPT_END"
+fi
+
+while IFS= read -r line; do
+  printf 'CODEX_RECEIVED:%s\n' "$line"
+done

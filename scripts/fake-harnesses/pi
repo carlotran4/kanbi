@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:-start}"
+case "$mode" in
+  --session)
+    echo "RESUMED ${2:-missing-session-ref}"
+    ;;
+  resume)
+    echo "RESUMED ${2:-missing-session-ref}"
+    ;;
+  wait)
+    echo "WAITING_FOR_USER"
+    ;;
+  permission)
+    echo "NEEDS_PERMISSION"
+    ;;
+  exit)
+    echo "PROMPT_READY"
+    echo "SESSION_REF=fake-exit"
+    exit 0
+    ;;
+  *)
+    echo "STARTED"
+    ;;
+esac
+
+echo "SESSION_REF=fake-${mode}"
+echo "PROMPT_READY"
+
+if (($# > 0)); then
+  last="${!#}"
+  if [[ "$last" != "$mode" && "$last" != "start" ]]; then
+    echo "PI_PROMPT_BEGIN"
+    printf '%s\n' "$last"
+    echo "PI_PROMPT_END"
+  fi
+fi
+
+while IFS= read -r line; do
+  printf 'RECEIVED:%s\n' "$line"
+done

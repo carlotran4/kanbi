@@ -1,0 +1,323 @@
+package harness
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"time"
+
+	"agent-kanban/internal/config"
+)
+
+const (
+	PromptModePaste = "paste"
+	PromptModeArg   = "arg"
+
+	StateNotStarted      = "not_started"
+	StateStarting        = "starting"
+	StateRunning         = "running"
+	StateWaitingForUser  = "waiting_for_user"
+	StateNeedsPermission = "needs_permission"
+	StateIdleUnknown     = "idle_unknown"
+	StateClosing         = "closing"
+	StateClosed          = "closed"
+	StateExited          = "exited"
+	StateError           = "error"
+)
+
+func StartCommand(cfg config.Config, name string) ([]string, error) {
+	h, ok := cfg.Harnesses[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown harness %q", name)
+	}
+	if len(h.Start) == 0 {
+		return nil, fmt.Errorf("harness %q has no start command", name)
+	}
+	return append([]string(nil), h.Start...), nil
+}
+
+func StartCommandWithPrompt(cfg config.Config, name, prompt string, sendPrompt bool) ([]string, bool, error) {
+	cmd, err := StartCommand(cfg, name)
+	if err != nil {
+		return nil, false, err
+	}
+	if sendPrompt && PromptMode(cfg, name) == PromptModeArg {
+		cmd = append(cmd, prompt)
+		return cmd, true, nil
+	}
+	return cmd, false, nil
+}
+
+func ResumeCommand(cfg config.Config, name, sessionRef string) ([]string, error) {
+	h, ok := cfg.Harnesses[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown harness %q", name)
+	}
+	if len(h.Resume) == 0 {
+		return nil, fmt.Errorf("harness %q has no resume command", name)
+	}
+	out := append([]string(nil), h.Resume...)
+	for i := range out {
+		out[i] = strings.ReplaceAll(out[i], "{session_ref}", sessionRef)
+	}
+	return out, nil
+}
+
+func ExitKeys(cfg config.Config, name string) []string {
+	if h, ok := cfg.Harnesses[name]; ok && len(h.Exit) > 0 {
+		return append([]string(nil), h.Exit...)
+	}
+	return []string{"C-c", "exit", "Enter"}
+}
+
+func PromptMode(cfg config.Config, name string) string {
+	if h, ok := cfg.Harnesses[name]; ok && h.PromptMode != "" {
+		return h.PromptMode
+	}
+	return PromptModePaste
+}
+
+func DetectState(output string, previousExcerpt string, idleFor time.Duration) (state, source, reason, excerpt string, outputChanged bool) {
+	excerpt = LastExcerpt(output, 1800)
+	outputChanged = excerpt != "" && excerpt != previousExcerpt
+	lower := strings.ToLower(output)
+	switch {
+	case containsAny(lower, "permission", "approve", "allow this", "allow command", "escalat", "proceed?"):
+		return StateNeedsPermission, "pattern", "permission requested", excerpt, outputChanged
+	case containsAny(lower, "waiting for user", "needs input", "your response", "prompt_ready", "\n> "):
+		return StateWaitingForUser, "pattern", "waiting for user input", excerpt, outputChanged
+	case containsAny(lower, "error:", "failed", "panic:", "traceback"):
+		return StateError, "pattern", "error output observed", excerpt, outputChanged
+	case outputChanged:
+		return StateRunning, "pane", "", excerpt, true
+	case idleFor > 0:
+		return StateIdleUnknown, "idle", "no recent output", excerpt, false
+	default:
+		return StateRunning, "pane", "", excerpt, false
+	}
+}
+
+func LastExcerpt(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || max <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[len(r)-max:])
+}
+
+func containsAny(s string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(s, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func PromptReadyPattern(cfg config.Config, name string) string {
+	if h, ok := cfg.Harnesses[name]; ok && h.PromptReady != "" {
+		return h.PromptReady
+	}
+	return "PROMPT_READY"
+}
+
+func SessionRefPattern(cfg config.Config, name string) string {
+	if h, ok := cfg.Harnesses[name]; ok && h.SessionRef != "" {
+		return h.SessionRef
+	}
+	return "SESSION_REF="
+}
+
+func ParseSessionRef(output, marker string) (string, bool) {
+	if marker == "" {
+		marker = "SESSION_REF="
+	}
+	for _, line := range strings.Split(output, "\n") {
+		idx := strings.Index(line, marker)
+		if idx < 0 {
+			continue
+		}
+		ref := strings.TrimSpace(line[idx+len(marker):])
+		if ref == "" {
+			continue
+		}
+		fields := strings.Fields(ref)
+		if len(fields) > 0 {
+			ref = fields[0]
+		}
+		return ref, true
+	}
+	return "", false
+}
+
+func CaptureSessionRef(cfg config.Config, name, promptText string, since time.Time) (string, bool) {
+	if promptText == "" {
+		return "", false
+	}
+	switch name {
+	case "codex":
+		return latestCodexHistorySession(promptText, since)
+	case "pi":
+		return latestPiSession(promptText, since)
+	default:
+		return "", false
+	}
+}
+
+type codexHistoryEntry struct {
+	SessionID string  `json:"session_id"`
+	Timestamp float64 `json:"ts"`
+	Text      string  `json:"text"`
+}
+
+func latestCodexHistorySession(promptText string, since time.Time) (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "history.jsonl"))
+	if err != nil {
+		return "", false
+	}
+	var best codexHistoryEntry
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var entry codexHistoryEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.SessionID == "" || entry.Text != promptText {
+			continue
+		}
+		if entryTime(entry).Before(since.Add(-2 * time.Second)) {
+			continue
+		}
+		if best.SessionID == "" || entry.Timestamp > best.Timestamp {
+			best = entry
+		}
+	}
+	if best.SessionID == "" {
+		return "", false
+	}
+	return best.SessionID, true
+}
+
+func entryTime(entry codexHistoryEntry) time.Time {
+	sec := int64(entry.Timestamp)
+	nsec := int64((entry.Timestamp - float64(sec)) * 1_000_000_000)
+	return time.Unix(sec, nsec)
+}
+
+type piHeader struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Timestamp string `json:"timestamp"`
+	CWD       string `json:"cwd"`
+}
+
+type piEntry struct {
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	Message   struct {
+		Role    string `json:"role"`
+		Content any    `json:"content"`
+	} `json:"message"`
+}
+
+func latestPiSession(promptText string, since time.Time) (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	root := filepath.Join(home, ".pi", "agent", "sessions")
+	var bestID string
+	var bestTime time.Time
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		id, ts, ok := inspectPiSession(path, cwd, promptText, since)
+		if ok && (bestID == "" || ts.After(bestTime)) {
+			bestID = id
+			bestTime = ts
+		}
+		return nil
+	})
+	return bestID, bestID != ""
+}
+
+func inspectPiSession(path, cwd, promptText string, since time.Time) (string, time.Time, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return "", time.Time{}, false
+	}
+	var header piHeader
+	if err := json.Unmarshal([]byte(lines[0]), &header); err != nil {
+		return "", time.Time{}, false
+	}
+	if header.Type != "session" || header.ID == "" || header.CWD != cwd {
+		return "", time.Time{}, false
+	}
+	headerTime, err := time.Parse(time.RFC3339Nano, header.Timestamp)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	if headerTime.Before(since.Add(-2 * time.Second)) {
+		return "", time.Time{}, false
+	}
+	for _, line := range lines[1:] {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var entry piEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.Type == "message" && entry.Message.Role == "user" && contentText(entry.Message.Content) == promptText {
+			return header.ID, headerTime, true
+		}
+	}
+	return "", time.Time{}, false
+}
+
+func contentText(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []any:
+		var b strings.Builder
+		for _, item := range v {
+			m, ok := item.(map[string]any)
+			if !ok || m["type"] != "text" {
+				continue
+			}
+			if text, ok := m["text"].(string); ok {
+				b.WriteString(text)
+			}
+		}
+		return b.String()
+	default:
+		rv := reflect.ValueOf(content)
+		if rv.IsValid() && rv.Kind() == reflect.String {
+			return rv.String()
+		}
+		return ""
+	}
+}

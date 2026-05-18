@@ -1,0 +1,740 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+type Store struct {
+	db *sql.DB
+}
+
+type Board struct {
+	ID   int64
+	Name string
+}
+
+type Column struct {
+	ID       int64
+	BoardID  int64
+	Name     string
+	Position int
+	Tickets  []Ticket
+}
+
+type Ticket struct {
+	ID                  int64
+	BoardID             int64
+	ColumnID            int64
+	DisplayID           string
+	DisplayNum          int
+	Title               string
+	Body                string
+	Harness             string
+	Position            int
+	ArchivedAt          sql.NullTime
+	Runtime             string
+	SessionActive       bool
+	WindowID            sql.NullString
+	WindowName          sql.NullString
+	SessionID           sql.NullInt64
+	SessionRef          sql.NullString
+	LastOutputAt        sql.NullTime
+	LastStateChangeAt   sql.NullTime
+	LastDetectedState   sql.NullString
+	LastAttentionReason sql.NullString
+	LastDetectionSource sql.NullString
+	LastObservedExcerpt sql.NullString
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type Session struct {
+	ID                  int64
+	TicketID            int64
+	Harness             string
+	HarnessSessionRef   sql.NullString
+	HarnessSessionName  sql.NullString
+	TmuxSessionName     string
+	TmuxWindowID        sql.NullString
+	TmuxWindowName      string
+	Status              string
+	IsActive            bool
+	StartedAt           sql.NullTime
+	ClosedAt            sql.NullTime
+	LastSeenTmuxAt      sql.NullTime
+	LastOutputAt        sql.NullTime
+	LastStateChangeAt   sql.NullTime
+	LastDetectedState   sql.NullString
+	LastAttentionReason sql.NullString
+	LastDetectionSource sql.NullString
+	LastObservedExcerpt sql.NullString
+}
+
+type BoardView struct {
+	Board   Board
+	Columns []Column
+}
+
+func Open(path string) (*Store, error) {
+	if err := ensureParent(path); err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return &Store{db: db}, nil
+}
+
+func OpenMemory() (*Store, error) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return &Store{db: db}, nil
+}
+
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
+func (s *Store) Init(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+	if err := s.migrate(ctx); err != nil {
+		return err
+	}
+	return s.ensureDefaultBoard(ctx)
+}
+
+func (s *Store) DefaultBoard(ctx context.Context) (Board, error) {
+	var b Board
+	err := s.db.QueryRowContext(ctx, `select id, name from boards order by id limit 1`).Scan(&b.ID, &b.Name)
+	return b, err
+}
+
+func (s *Store) BoardView(ctx context.Context) (BoardView, error) {
+	board, err := s.DefaultBoard(ctx)
+	if err != nil {
+		return BoardView{}, err
+	}
+	rows, err := s.db.QueryContext(ctx, `select id, board_id, name, position from columns where board_id=? order by position`, board.ID)
+	if err != nil {
+		return BoardView{}, err
+	}
+	defer rows.Close()
+	view := BoardView{Board: board}
+	for rows.Next() {
+		var c Column
+		if err := rows.Scan(&c.ID, &c.BoardID, &c.Name, &c.Position); err != nil {
+			return BoardView{}, err
+		}
+		view.Columns = append(view.Columns, c)
+	}
+	if err := rows.Err(); err != nil {
+		return BoardView{}, err
+	}
+	if err := rows.Close(); err != nil {
+		return BoardView{}, err
+	}
+	for i := range view.Columns {
+		tickets, err := s.TicketsForColumn(ctx, view.Columns[i].ID)
+		if err != nil {
+			return BoardView{}, err
+		}
+		view.Columns[i].Tickets = tickets
+	}
+	return view, nil
+}
+
+func (s *Store) TicketsForColumn(ctx context.Context, columnID int64) ([]Ticket, error) {
+	return s.queryTickets(ctx, `where t.column_id=? and t.archived_at is null order by t.position`, columnID)
+}
+
+func (s *Store) ListTickets(ctx context.Context, includeArchived bool) ([]Ticket, error) {
+	where := `where t.archived_at is null`
+	if includeArchived {
+		where = ``
+	}
+	return s.queryTickets(ctx, where+` order by t.display_number`)
+}
+
+func (s *Store) TicketByDisplayID(ctx context.Context, displayID string) (Ticket, error) {
+	tickets, err := s.queryTickets(ctx, `where t.display_id=?`, strings.ToUpper(displayID))
+	if err != nil {
+		return Ticket{}, err
+	}
+	if len(tickets) == 0 {
+		return Ticket{}, sql.ErrNoRows
+	}
+	return tickets[0], nil
+}
+
+func (s *Store) TicketByID(ctx context.Context, id int64) (Ticket, error) {
+	tickets, err := s.queryTickets(ctx, `where t.id=?`, id)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if len(tickets) == 0 {
+		return Ticket{}, sql.ErrNoRows
+	}
+	return tickets[0], nil
+}
+
+func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, harnessName string) (Ticket, error) {
+	if title == "" {
+		return Ticket{}, errors.New("ticket title is required")
+	}
+	if harnessName == "" {
+		harnessName = "pi"
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Ticket{}, err
+	}
+	defer tx.Rollback()
+
+	var boardID int64
+	if columnID == 0 {
+		if err := tx.QueryRowContext(ctx, `select id from columns order by board_id, position limit 1`).Scan(&columnID); err != nil {
+			return Ticket{}, err
+		}
+	}
+	if err := tx.QueryRowContext(ctx, `select board_id from columns where id=?`, columnID).Scan(&boardID); err != nil {
+		return Ticket{}, err
+	}
+	var next int
+	if err := tx.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&next); err != nil {
+		return Ticket{}, err
+	}
+	var pos int
+	_ = tx.QueryRowContext(ctx, `select coalesce(max(position)+1, 0) from tickets where column_id=? and archived_at is null`, columnID).Scan(&pos)
+	displayID := fmt.Sprintf("T-%03d", next)
+	now := time.Now().UTC()
+	res, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,display_id,display_number,title,body,harness,position,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?)`,
+		boardID, columnID, displayID, next, title, body, harnessName, pos, now, now)
+	if err != nil {
+		return Ticket{}, err
+	}
+	_, _ = res.LastInsertId()
+	if _, err := tx.ExecContext(ctx, `update boards set next_ticket_number=next_ticket_number+1 where id=?`, boardID); err != nil {
+		return Ticket{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Ticket{}, err
+	}
+	return s.TicketByDisplayID(ctx, displayID)
+}
+
+func (s *Store) AddColumn(ctx context.Context, boardID int64, name string) (Column, error) {
+	if strings.TrimSpace(name) == "" {
+		return Column{}, errors.New("column name is required")
+	}
+	if boardID == 0 {
+		board, err := s.DefaultBoard(ctx)
+		if err != nil {
+			return Column{}, err
+		}
+		boardID = board.ID
+	}
+	var pos int
+	if err := s.db.QueryRowContext(ctx, `select coalesce(max(position)+1, 0) from columns where board_id=?`, boardID).Scan(&pos); err != nil {
+		return Column{}, err
+	}
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, strings.TrimSpace(name), pos, now, now)
+	if err != nil {
+		return Column{}, err
+	}
+	id, _ := res.LastInsertId()
+	return Column{ID: id, BoardID: boardID, Name: strings.TrimSpace(name), Position: pos}, nil
+}
+
+func (s *Store) RenameColumn(ctx context.Context, columnID int64, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("column name is required")
+	}
+	_, err := s.db.ExecContext(ctx, `update columns set name=?, updated_at=? where id=?`, strings.TrimSpace(name), time.Now().UTC(), columnID)
+	return err
+}
+
+func (s *Store) DeleteColumn(ctx context.Context, columnID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var boardID int64
+	var pos int
+	if err := tx.QueryRowContext(ctx, `select board_id, position from columns where id=?`, columnID).Scan(&boardID, &pos); err != nil {
+		return err
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, `select count(*) from tickets where column_id=? and archived_at is null`, columnID).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return errors.New("Cannot delete non-empty column. Move tickets first.")
+	}
+	var fallbackColumnID int64
+	if err := tx.QueryRowContext(ctx, `select id from columns where board_id=? and id<>? order by abs(position-?), position limit 1`, boardID, columnID, pos).Scan(&fallbackColumnID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("Cannot delete the last column.")
+		}
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update tickets set column_id=?, updated_at=? where column_id=?`, fallbackColumnID, time.Now().UTC(), columnID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `delete from columns where id=?`, columnID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update columns set position=position-1, updated_at=? where board_id=? and position>?`, time.Now().UTC(), boardID, pos); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ReorderColumn(ctx context.Context, columnID int64, delta int) error {
+	if delta == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var boardID int64
+	var pos int
+	if err := tx.QueryRowContext(ctx, `select board_id, position from columns where id=?`, columnID).Scan(&boardID, &pos); err != nil {
+		return err
+	}
+	target := pos + delta
+	var otherID int64
+	if err := tx.QueryRowContext(ctx, `select id from columns where board_id=? and position=?`, boardID, target).Scan(&otherID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `update columns set position=-1 where id=?`, columnID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update columns set position=? where id=?`, pos, otherID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update columns set position=? where id=?`, target, columnID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update columns set updated_at=? where id in (?,?)`, now, columnID, otherID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) UpdateTicket(ctx context.Context, id int64, title, body, harnessName string) error {
+	_, err := s.db.ExecContext(ctx, `update tickets set title=?, body=?, harness=?, updated_at=? where id=?`, title, body, harnessName, time.Now().UTC(), id)
+	return err
+}
+
+func (s *Store) ArchiveTicket(ctx context.Context, id int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var columnID int64
+	if err := tx.QueryRowContext(ctx, `select column_id from tickets where id=?`, id).Scan(&columnID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update tickets set archived_at=?, updated_at=? where id=?`, time.Now().UTC(), time.Now().UTC(), id); err != nil {
+		return err
+	}
+	if err := compactPositions(ctx, tx, columnID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) MoveTicket(ctx context.Context, ticketID, toColumnID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var fromColumnID int64
+	if err := tx.QueryRowContext(ctx, `select column_id from tickets where id=?`, ticketID).Scan(&fromColumnID); err != nil {
+		return err
+	}
+	var pos int
+	_ = tx.QueryRowContext(ctx, `select coalesce(max(position)+1, 0) from tickets where column_id=? and archived_at is null`, toColumnID).Scan(&pos)
+	if _, err := tx.ExecContext(ctx, `update tickets set column_id=?, position=?, updated_at=? where id=?`, toColumnID, pos, time.Now().UTC(), ticketID); err != nil {
+		return err
+	}
+	if err := compactPositions(ctx, tx, fromColumnID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ReorderTicket(ctx context.Context, ticketID int64, delta int) error {
+	if delta == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var columnID int64
+	var pos int
+	if err := tx.QueryRowContext(ctx, `select column_id, position from tickets where id=?`, ticketID).Scan(&columnID, &pos); err != nil {
+		return err
+	}
+	target := pos + delta
+	var otherID int64
+	if err := tx.QueryRowContext(ctx, `select id from tickets where column_id=? and archived_at is null and position=?`, columnID, target).Scan(&otherID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update tickets set position=? where id=?`, target, ticketID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update tickets set position=? where id=?`, pos, otherID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) UpsertActiveSession(ctx context.Context, ticketID int64, session Session) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `update sessions set is_active=0, updated_at=? where ticket_id=?`, time.Now().UTC(), ticketID); err != nil {
+		return 0, err
+	}
+	now := time.Now().UTC()
+	status := session.Status
+	if status == "" {
+		status = "running"
+	}
+	res, err := tx.ExecContext(ctx, `insert into sessions(ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,last_seen_tmux_at,last_state_change_at,last_detected_state,last_detection_source,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		ticketID, session.Harness, nullableString(session.HarnessSessionRef.String), nullableString(session.HarnessSessionName.String), session.TmuxSessionName, nullableString(session.TmuxWindowID.String), session.TmuxWindowName, status, 1, now, now, now, status, "system", now, now)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	return id, tx.Commit()
+}
+
+func (s *Store) ActiveSession(ctx context.Context, ticketID int64) (Session, bool, error) {
+	var ses Session
+	var active int
+	err := s.db.QueryRowContext(ctx, `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions where ticket_id=? and is_active=1 order by id desc limit 1`, ticketID).
+		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Session{}, false, nil
+	}
+	ses.IsActive = active == 1
+	return ses, true, err
+}
+
+func (s *Store) RenameSessionWindow(ctx context.Context, ticketID int64, name string) error {
+	_, err := s.db.ExecContext(ctx, `update sessions set tmux_window_name=?, updated_at=? where ticket_id=? and is_active=1`, name, time.Now().UTC(), ticketID)
+	return err
+}
+
+func (s *Store) UpdateSessionRef(ctx context.Context, sessionID int64, ref string) error {
+	_, err := s.db.ExecContext(ctx, `update sessions set harness_session_ref=?, updated_at=? where id=?`, nullableString(ref), time.Now().UTC(), sessionID)
+	return err
+}
+
+func (s *Store) MarkSessionMissing(ctx context.Context, sessionID int64) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `update sessions set status='error', is_active=0, closed_at=?, last_state_change_at=?, last_detected_state='error', last_attention_reason='tmux window missing', last_detection_source='tmux', updated_at=? where id=?`, now, now, now, sessionID)
+	return err
+}
+
+func (s *Store) MarkSessionClosed(ctx context.Context, sessionID int64, status, source, reason string) error {
+	if status == "" {
+		status = "closed"
+	}
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `update sessions set status=?, is_active=0, closed_at=?, last_state_change_at=?, last_detected_state=?, last_attention_reason=?, last_detection_source=?, updated_at=? where id=?`,
+		status, now, now, status, nullableString(reason), nullableString(source), now, sessionID)
+	return err
+}
+
+func (s *Store) MarkTicketRuntime(ctx context.Context, ticketID int64, status, source, reason string) error {
+	ses, ok, err := s.ActiveSession(ctx, ticketID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("ticket has no active session")
+	}
+	return s.UpdateSessionRuntime(ctx, ses.ID, status, source, reason, "", false)
+}
+
+func (s *Store) UpdateSessionRuntime(ctx context.Context, sessionID int64, status, source, reason, excerpt string, outputChanged bool) error {
+	if status == "" {
+		return errors.New("runtime status is required")
+	}
+	now := time.Now().UTC()
+	var currentStatus string
+	err := s.db.QueryRowContext(ctx, `select status from sessions where id=?`, sessionID).Scan(&currentStatus)
+	if err != nil {
+		return err
+	}
+	stateChanged := currentStatus != status
+	lastOutput := any(nil)
+	if outputChanged {
+		lastOutput = now
+	}
+	lastStateChange := any(nil)
+	if stateChanged {
+		lastStateChange = now
+	}
+	_, err = s.db.ExecContext(ctx, `update sessions set
+status=?,
+last_seen_tmux_at=?,
+last_output_at=coalesce(?, last_output_at),
+last_state_change_at=coalesce(?, last_state_change_at),
+last_detected_state=?,
+last_attention_reason=?,
+last_detection_source=?,
+last_observed_excerpt=coalesce(?, last_observed_excerpt),
+updated_at=?
+where id=?`,
+		status, now, lastOutput, lastStateChange, status, nullableString(reason), nullableString(source), nullableString(excerpt), now, sessionID)
+	return err
+}
+
+func (s *Store) queryTickets(ctx context.Context, suffix string, args ...any) ([]Ticket, error) {
+	query := `select t.id,t.board_id,t.column_id,t.display_id,t.display_number,t.title,t.body,t.harness,t.position,t.archived_at,
+coalesce(s.status,'not_started') runtime,coalesce(s.is_active,0),s.tmux_window_id,s.tmux_window_name,s.id,s.harness_session_ref,
+s.last_output_at,s.last_state_change_at,s.last_detected_state,s.last_attention_reason,s.last_detection_source,s.last_observed_excerpt,
+t.created_at,t.updated_at
+from tickets t
+left join sessions s on s.id=(
+  select id from sessions where ticket_id=t.id order by id desc limit 1
+) ` + suffix
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tickets []Ticket
+	for rows.Next() {
+		var t Ticket
+		var active int
+		if err := rows.Scan(&t.ID, &t.BoardID, &t.ColumnID, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.Runtime, &active, &t.WindowID, &t.WindowName, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		t.SessionActive = active == 1
+		tickets = append(tickets, t)
+	}
+	return tickets, rows.Err()
+}
+
+func (s *Store) ensureDefaultBoard(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var count int
+	if err := tx.QueryRowContext(ctx, `select count(*) from boards`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return tx.Commit()
+	}
+	now := time.Now().UTC()
+	res, err := tx.ExecContext(ctx, `insert into boards(name,next_ticket_number,created_at,updated_at) values('Default',1,?,?)`, now, now)
+	if err != nil {
+		return err
+	}
+	boardID, _ := res.LastInsertId()
+	for i, name := range []string{"Open", "In Progress", "Review", "Done"} {
+		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, i, now, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) migrate(ctx context.Context) error {
+	columns, err := tableColumns(ctx, s.db, "sessions")
+	if err != nil {
+		return err
+	}
+	add := func(name, typ string) error {
+		if columns[name] {
+			return nil
+		}
+		_, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table sessions add column %s %s`, name, typ))
+		return err
+	}
+	for _, col := range []struct {
+		name string
+		typ  string
+	}{
+		{"started_at", "datetime"},
+		{"closed_at", "datetime"},
+		{"last_output_at", "datetime"},
+		{"last_state_change_at", "datetime"},
+		{"last_detected_state", "text"},
+		{"last_attention_reason", "text"},
+		{"last_detection_source", "text"},
+		{"last_observed_excerpt", "text"},
+	} {
+		if err := add(col.name, col.typ); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `pragma table_info(`+table+`)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		cols[name] = true
+	}
+	return cols, rows.Err()
+}
+
+func compactPositions(ctx context.Context, tx *sql.Tx, columnID int64) error {
+	rows, err := tx.QueryContext(ctx, `select id from tickets where column_id=? and archived_at is null order by position,id`, columnID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for pos, id := range ids {
+		if _, err := tx.ExecContext(ctx, `update tickets set position=? where id=?`, pos, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureParent(path string) error {
+	if path == ":memory:" {
+		return nil
+	}
+	return os.MkdirAll(filepath.Dir(path), 0o755)
+}
+
+func nullableString(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+const schema = `
+pragma foreign_keys = on;
+
+create table if not exists boards (
+  id integer primary key autoincrement,
+  name text not null,
+  next_ticket_number integer not null default 1,
+  created_at datetime not null,
+  updated_at datetime not null
+);
+
+create table if not exists columns (
+  id integer primary key autoincrement,
+  board_id integer not null references boards(id) on delete cascade,
+  name text not null,
+  position integer not null,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique(board_id, position)
+);
+
+create table if not exists tickets (
+  id integer primary key autoincrement,
+  board_id integer not null references boards(id) on delete cascade,
+  column_id integer not null references columns(id) on delete restrict,
+  display_id text not null,
+  display_number integer not null,
+  title text not null,
+  body text not null default '',
+  harness text not null default 'pi',
+  position integer not null,
+  archived_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique(board_id, display_id),
+  unique(board_id, display_number)
+);
+
+create table if not exists sessions (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  harness text not null,
+  harness_session_ref text,
+  harness_session_name text,
+  tmux_session_name text not null,
+  tmux_window_id text,
+  tmux_window_name text not null,
+  status text not null,
+  is_active integer not null default 1,
+  started_at datetime,
+  closed_at datetime,
+  last_seen_tmux_at datetime,
+  last_output_at datetime,
+  last_state_change_at datetime,
+  last_detected_state text,
+  last_attention_reason text,
+  last_detection_source text,
+  last_observed_excerpt text,
+  created_at datetime not null,
+  updated_at datetime not null
+);
+`
