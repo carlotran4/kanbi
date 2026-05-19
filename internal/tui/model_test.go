@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -372,6 +373,7 @@ func TestCardRuntimeLabelsAndWindowIndicators(t *testing.T) {
 		{storage.Ticket{Harness: "pi", Runtime: "idle_unknown"}, "idle"},
 		{storage.Ticket{Harness: "pi", Runtime: "closed", SessionRef: sqlNullStr("abc")}, "resumable"},
 		{storage.Ticket{Harness: "pi", Runtime: "closed"}, "closed"},
+		{storage.Ticket{Harness: "pi", Runtime: "error", SessionRef: sqlNullStr("abc")}, "resumable"},
 		{storage.Ticket{Harness: "pi", Runtime: "error"}, "error"},
 	}
 	for _, tc := range cases {
@@ -387,10 +389,14 @@ func TestCardRuntimeLabelsAndWindowIndicators(t *testing.T) {
 		t.Errorf("windowIndicator for closed-no-ref = %q, want -", ind)
 	}
 
-	// windowIndicator: ○ for resumable
+	// windowIndicator: ○ for resumable, even when the previous tmux window went missing.
 	resumableTicket := storage.Ticket{SessionRef: sqlNullStr("abc"), Runtime: "closed"}
 	if ind := windowIndicator(resumableTicket); ind != "○" {
 		t.Errorf("windowIndicator for resumable = %q, want ○", ind)
+	}
+	resumableAfterMissingWindow := storage.Ticket{SessionRef: sqlNullStr("abc"), Runtime: "error"}
+	if ind := windowIndicator(resumableAfterMissingWindow); ind != "○" {
+		t.Errorf("windowIndicator for error-with-ref = %q, want ○", ind)
 	}
 }
 
@@ -673,6 +679,218 @@ func (s *closingStore) CloseTicketSession(ctx context.Context, ticket storage.Ti
 
 func sqlNullTime(t time.Time) sql.NullTime {
 	return sql.NullTime{Time: t, Valid: true}
+}
+
+// --- Scroll tests ---
+
+func TestVerticalScrollFollowsCursor(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	// Create enough tickets to overflow a small screen.
+	for i := 0; i < 10; i++ {
+		if _, err := store.CreateTicket(ctx, view.Columns[0].ID, fmt.Sprintf("Ticket %d", i), "", "pi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model := New(ctx, store)
+	// Force a small terminal so not all cards fit.
+	model.width = 80
+	model.height = 20
+	model.syncScrollDimensions()
+
+	// Initially scroll offset should be 0 and focused card is visible.
+	if model.colScroll[0] != 0 {
+		t.Fatalf("initial scroll should be 0, got %d", model.colScroll[0])
+	}
+
+	// Navigate down past the visible window; scroll offset must follow.
+	for i := 0; i < 9; i++ {
+		model, _ = mustUpdate(t, model, "j")
+	}
+	if model.card != 9 {
+		t.Fatalf("expected card=9, got %d", model.card)
+	}
+	// scroll offset must have advanced so focused card is within viewport.
+	if model.colScroll[0] == 0 {
+		t.Fatal("scroll offset should have advanced when navigating past viewport")
+	}
+	if model.card < model.colScroll[0] {
+		t.Fatalf("focused card %d is above scroll offset %d", model.card, model.colScroll[0])
+	}
+
+	// Navigate back to top; scroll offset must retreat.
+	for i := 0; i < 9; i++ {
+		model, _ = mustUpdate(t, model, "k")
+	}
+	if model.card != 0 {
+		t.Fatalf("expected card=0, got %d", model.card)
+	}
+	if model.colScroll[0] != 0 {
+		t.Fatalf("scroll offset should reset to 0, got %d", model.colScroll[0])
+	}
+}
+
+func TestScrollHintsAppearsWhenCardsHidden(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	for i := 0; i < 10; i++ {
+		if _, err := store.CreateTicket(ctx, view.Columns[0].ID, fmt.Sprintf("Ticket %d", i), "", "pi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model := New(ctx, store)
+	model.width = 80
+	model.height = 20
+	model.syncScrollDimensions()
+
+	// With a small height and 10 cards the "more ▼" hint should appear.
+	rendered := model.View()
+	if !strings.Contains(rendered, "more ▼") {
+		t.Fatalf("expected '+N more ▼' hint, got:\n%s", rendered)
+	}
+
+	// Scroll down so cards are hidden above; the "more ▲" hint should appear.
+	for i := 0; i < 9; i++ {
+		model, _ = mustUpdate(t, model, "j")
+	}
+	rendered = model.View()
+	if !strings.Contains(rendered, "more ▲") {
+		t.Fatalf("expected '+N more ▲' hint after scrolling down, got:\n%s", rendered)
+	}
+}
+
+func TestHorizontalScrollFollowsFocusedColumn(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Create extra columns beyond what fits on a narrow terminal.
+	view, _ := store.BoardView(ctx)
+	boardID := view.Columns[0].BoardID
+	for i := 0; i < 5; i++ {
+		if _, err := store.AddColumn(ctx, boardID, fmt.Sprintf("Extra%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model := New(ctx, store)
+	// Narrow terminal: fits at most 2 columns (each 32 chars wide).
+	model.width = 70
+	model.height = 40
+	model.syncScrollDimensions()
+
+	if model.colOffset != 0 {
+		t.Fatalf("initial colOffset should be 0, got %d", model.colOffset)
+	}
+
+	// Navigate right past the visible window.
+	totalCols := len(model.view.Columns)
+	for i := 0; i < totalCols-1; i++ {
+		model, _ = mustUpdate(t, model, "l")
+	}
+	// colOffset must have advanced to keep focused column visible.
+	if model.colOffset == 0 {
+		t.Fatal("colOffset should have advanced when focus moved beyond visible columns")
+	}
+	if model.col < model.colOffset {
+		t.Fatalf("focused col %d is left of colOffset %d", model.col, model.colOffset)
+	}
+
+	// Navigate back left; colOffset must retreat.
+	for i := 0; i < totalCols-1; i++ {
+		model, _ = mustUpdate(t, model, "h")
+	}
+	if model.col != 0 {
+		t.Fatalf("expected col=0, got %d", model.col)
+	}
+	if model.colOffset != 0 {
+		t.Fatalf("colOffset should reset to 0, got %d", model.colOffset)
+	}
+}
+
+func TestHorizontalScrollHintAppearsAndUpdates(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	boardID := view.Columns[0].BoardID
+	for i := 0; i < 5; i++ {
+		if _, err := store.AddColumn(ctx, boardID, fmt.Sprintf("Extra%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model := New(ctx, store)
+	// Narrow enough that not all columns fit.
+	model.width = 70
+	model.height = 40
+	model.syncScrollDimensions()
+
+	// At start: no columns hidden to the left, some hidden to the right.
+	rendered := model.View()
+	if !strings.Contains(rendered, "hidden ►") {
+		t.Fatalf("expected 'hidden ►' hint on initial render, got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "◄") {
+		t.Fatalf("should not show left hint at colOffset=0, got:\n%s", rendered)
+	}
+
+	// Navigate right past the visible window.
+	totalCols := len(model.view.Columns)
+	for i := 0; i < totalCols-1; i++ {
+		model, _ = mustUpdate(t, model, "l")
+	}
+	// Now there should be a left hint and no right hint.
+	rendered = model.View()
+	if !strings.Contains(rendered, "◄") {
+		t.Fatalf("expected '◄' left hint after scrolling to last column, got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "hidden ►") {
+		t.Fatalf("should not show right hint at last column, got:\n%s", rendered)
+	}
+}
+
+func TestWindowSizeMsgUpdatesTerminalDimensions(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, store)
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m := next.(Model)
+	if m.width != 120 || m.height != 30 {
+		t.Fatalf("expected 120x30, got %dx%d", m.width, m.height)
+	}
 }
 
 func mustUpdate(t *testing.T, m Model, key string) (Model, tea.Cmd) {

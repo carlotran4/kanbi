@@ -121,6 +121,13 @@ func (m *Manager) EnsureBoardWindow(ctx context.Context) error {
 }
 
 func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
+	var err error
+	if !sendPrompt {
+		ticket, err = m.recoverMissingSessionRef(ctx, ticket)
+		if err != nil {
+			return err
+		}
+	}
 	if sendPrompt && (ticket.SessionID.Valid || ticket.SessionRef.Valid || ticket.WindowName.Valid) {
 		return ErrPromptAlreadySent
 	}
@@ -239,6 +246,11 @@ func (m *Manager) StartFreshTicket(ctx context.Context, ticket storage.Ticket, s
 }
 
 func (m *Manager) SwitchToTicket(ctx context.Context, ticket storage.Ticket) error {
+	var err error
+	ticket, err = m.recoverMissingSessionRef(ctx, ticket)
+	if err != nil {
+		return err
+	}
 	name := WindowName(ticket.DisplayID, ticket.Title)
 	if ticket.SessionID.Valid && !ticket.SessionActive {
 		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
@@ -258,6 +270,26 @@ func (m *Manager) SwitchToTicket(ctx context.Context, ticket storage.Ticket) err
 	}
 	_, err = m.run(ctx, "switch-client", "-t", targetRef(m.Config.TmuxSession, ref))
 	return err
+}
+
+func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.Ticket) (storage.Ticket, error) {
+	if m.Store == nil || !ticket.SessionID.Valid || (ticket.SessionRef.Valid && ticket.SessionRef.String != "") {
+		return ticket, nil
+	}
+	ses, ok, err := m.Store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok || !ses.StartedAt.Valid || ses.HarnessSessionRef.Valid {
+		return ticket, err
+	}
+	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
+	ref, ok := harness.CaptureSessionRef(m.Config, ticket.Harness, promptText, ses.StartedAt.Time)
+	if !ok {
+		return ticket, nil
+	}
+	if err := m.Store.UpdateSessionRef(ctx, ses.ID, ref); err != nil {
+		return ticket, err
+	}
+	ticket.SessionRef = sql.NullString{String: ref, Valid: true}
+	return ticket, nil
 }
 
 func (m *Manager) RenameTicketWindow(ctx context.Context, ticket storage.Ticket, title string) error {
@@ -288,6 +320,10 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		return err
 	}
 	for _, ticket := range tickets {
+		ticket, err = m.recoverMissingSessionRef(ctx, ticket)
+		if err != nil {
+			return err
+		}
 		sessionID := ticket.SessionID
 		if !sessionID.Valid || !ticket.SessionActive || !ticket.WindowName.Valid {
 			continue

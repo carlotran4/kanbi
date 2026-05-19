@@ -3,7 +3,10 @@ package tmux
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -168,6 +171,57 @@ func TestOpenTicketResumesWithStoredRef(t *testing.T) {
 		}
 	}
 	t.Fatal("new-window not called for resume")
+}
+
+func TestOpenTicketRecoversMissingPiSessionRefFromHistory(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Recover Ref", "Body", "pi")
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "019e-recovered-ref"
+	promptText := "# T-001: Recover Ref\n\nBody"
+	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness: "pi", TmuxSessionName: "agent-kanban",
+		TmuxWindowName: "T-001-recover-ref", Status: "running",
+	})
+	ses, ok, err := store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok || !ses.StartedAt.Valid {
+		t.Fatalf("latest session ok=%v err=%v started=%v", ok, err, ses.StartedAt)
+	}
+	startedAt := ses.StartedAt.Time
+	sessionDir := filepath.Join(home, ".pi", "agent", "sessions", "--test--")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	session := `{"type":"session","version":3,"id":` + jsonQuote(ref) + `,"timestamp":` + jsonQuote(startedAt.Format(time.RFC3339Nano)) + `,"cwd":` + jsonQuote(cwd) + `}` + "\n" +
+		`{"type":"message","id":"m1","parentId":null,"timestamp":` + jsonQuote(startedAt.Add(time.Second).Format(time.RFC3339Nano)) + `,"message":{"role":"user","content":[{"type":"text","text":` + jsonQuote(promptText) + `}],"timestamp":0}}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(session), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.MarkSessionClosed(ctx, sessionID, "error", "tmux", "tmux window missing")
+
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner, ResumeCheckAfter: time.Millisecond}
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := store.TicketByID(ctx, ticket.ID)
+	if !updated.SessionRef.Valid || updated.SessionRef.String != ref {
+		t.Fatalf("session ref = %#v, want %q", updated.SessionRef, ref)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" && strings.Contains(strings.Join(c.args, " "), ref) {
+			return
+		}
+	}
+	t.Fatalf("resume command with recovered ref not called: %+v", runner.calls)
 }
 
 func TestOpenTicketResumeFailureReturnsResumeFailedError(t *testing.T) {
@@ -633,6 +687,11 @@ func newTmuxTestStore(t *testing.T) (*storage.Store, context.Context) {
 
 func sqlString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: true}
+}
+
+func jsonQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // evanescingRunner creates a window on new-window but then immediately removes it,

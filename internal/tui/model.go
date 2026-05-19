@@ -68,6 +68,10 @@ type Model struct {
 	view             storage.BoardView
 	col              int
 	card             int
+	width            int
+	height           int
+	colScroll        []int // per-column vertical scroll offset (index of first visible card)
+	colOffset        int   // horizontal scroll: index of first rendered column
 	status           string
 	err              error
 	editing          bool
@@ -93,8 +97,12 @@ type Model struct {
 	editorTicketID   int64
 }
 
+// defaultTermSize is used before a WindowSizeMsg arrives.
+const defaultTermWidth = 220
+const defaultTermHeight = 40
+
 func New(ctx context.Context, store Store) Model {
-	m := Model{ctx: ctx, store: store}
+	m := Model{ctx: ctx, store: store, width: defaultTermWidth, height: defaultTermHeight}
 	m.reload()
 	return m
 }
@@ -117,6 +125,11 @@ func runtimeTickCmd() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.syncScrollDimensions()
+		return m, nil
 	case runtimeTickMsg:
 		if refresher, ok := m.store.(RuntimeRefresher); ok {
 			if err := refresher.RefreshRuntime(m.ctx); err != nil {
@@ -225,6 +238,9 @@ func (m Model) View() string {
 	title := lipgloss.NewStyle().Bold(true).Render("Agent Kanban")
 	fmt.Fprintf(&b, "%s  %s\n\n", title, m.view.Board.Name)
 	b.WriteString(m.boardView())
+	if hint := m.hScrollHint(); hint != "" {
+		fmt.Fprintf(&b, "\n%s", hint)
+	}
 	b.WriteString("\n\n")
 	dim := lipgloss.NewStyle().Faint(true)
 	b.WriteString("o:open  s:send  x:close  n:new  e:edit  a:archive  m:state  Tab:attention  q:quit\n")
@@ -245,11 +261,65 @@ func (m Model) boardView() string {
 		return boxLines([]string{"No columns"}, boardColumnWidth)
 	}
 
-	columns := make([]string, 0, len(m.view.Columns))
-	for ci, col := range m.view.Columns {
-		columns = append(columns, m.columnView(ci, col))
+	colW := boardColumnWidth + boardColumnGap
+	var columns []string
+	usedWidth := 0
+	for ci := m.colOffset; ci < len(m.view.Columns); ci++ {
+		if usedWidth+colW > m.width {
+			break
+		}
+		columns = append(columns, m.columnView(ci, m.view.Columns[ci]))
+		usedWidth += colW
+	}
+	if len(columns) == 0 {
+		// Terminal too narrow to fit even one column; show it anyway.
+		columns = append(columns, m.columnView(m.colOffset, m.view.Columns[m.colOffset]))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, columns...)
+}
+
+// hScrollHint returns a one-line string like "◀ 2 hidden   3 hidden ▶" when
+// columns are clipped off either side, or "" when everything is visible.
+func (m Model) hScrollHint() string {
+	if len(m.view.Columns) == 0 {
+		return ""
+	}
+	hiddenLeft := m.colOffset
+
+	colW := boardColumnWidth + boardColumnGap
+	usedWidth := 0
+	lastVisible := m.colOffset - 1
+	for ci := m.colOffset; ci < len(m.view.Columns); ci++ {
+		if usedWidth+colW > m.width {
+			break
+		}
+		usedWidth += colW
+		lastVisible = ci
+	}
+	hiddenRight := len(m.view.Columns) - 1 - lastVisible
+
+	if hiddenLeft == 0 && hiddenRight <= 0 {
+		return ""
+	}
+
+	dim := lipgloss.NewStyle().Faint(true)
+	var left, right string
+	if hiddenLeft > 0 {
+		left = fmt.Sprintf("◄ %d hidden", hiddenLeft)
+	}
+	if hiddenRight > 0 {
+		right = fmt.Sprintf("%d hidden ►", hiddenRight)
+	}
+	var hint string
+	switch {
+	case left != "" && right != "":
+		hint = spaceBetween(left, right, m.width)
+	case left != "":
+		hint = left
+	default:
+		hint = right
+	}
+	return dim.Render(hint)
 }
 
 func (m Model) columnView(ci int, col storage.Column) string {
@@ -261,14 +331,61 @@ func (m Model) columnView(ci int, col storage.Column) string {
 	header := fmt.Sprintf("%s %s", focus, col.Name)
 	count := fmt.Sprintf("%d", len(col.Tickets))
 	lines := []string{spaceBetween(header, count, boardColumnWidth), mutedBorder.Render(strings.Repeat("─", boardColumnWidth))}
+
 	if len(col.Tickets) == 0 {
 		lines = append(lines, "", padLine("(empty)", boardColumnWidth))
+		return lipgloss.NewStyle().MarginRight(boardColumnGap).Render(strings.Join(lines, "\n"))
 	}
-	for ti, ticket := range col.Tickets {
-		if ti > 0 {
+
+	// Determine which cards are visible given the scroll offset and available height.
+	scrollTop := 0
+	if ci < len(m.colScroll) {
+		scrollTop = m.colScroll[ci]
+	}
+	if scrollTop < 0 {
+		scrollTop = 0
+	}
+	if scrollTop >= len(col.Tickets) {
+		scrollTop = len(col.Tickets) - 1
+	}
+
+	inner := boardColumnWidth - 2
+	avail := m.boardContentHeight()
+
+	// Walk forward from scrollTop accumulating cards until we run out of space.
+	usedLines := 0
+	visibleEnd := scrollTop - 1
+	for ti := scrollTop; ti < len(col.Tickets); ti++ {
+		h := cardHeight(col.Tickets[ti], inner)
+		if ti > scrollTop {
+			h++ // blank separator between cards
+		}
+		if usedLines+h > avail {
+			break
+		}
+		usedLines += h
+		visibleEnd = ti
+	}
+	if visibleEnd < scrollTop {
+		visibleEnd = scrollTop // always show at least the top card
+	}
+
+	hiddenAbove := scrollTop
+	hiddenBelow := len(col.Tickets) - 1 - visibleEnd
+
+	if hiddenAbove > 0 {
+		hint := fmt.Sprintf("(+%d more ▲)", hiddenAbove)
+		lines = append(lines, mutedBorder.Render(padLine(hint, boardColumnWidth)))
+	}
+	for ti := scrollTop; ti <= visibleEnd; ti++ {
+		if ti > scrollTop {
 			lines = append(lines, "")
 		}
-		lines = append(lines, cardView(ci == m.col && ti == m.card, ticket, boardColumnWidth)...)
+		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], boardColumnWidth)...)
+	}
+	if hiddenBelow > 0 {
+		hint := fmt.Sprintf("(+%d more ▼)", hiddenBelow)
+		lines = append(lines, mutedBorder.Render(padLine(hint, boardColumnWidth)))
 	}
 
 	return lipgloss.NewStyle().MarginRight(boardColumnGap).Render(strings.Join(lines, "\n"))
@@ -347,6 +464,9 @@ func runtimeLabel(ticket storage.Ticket) string {
 		}
 		return "closed"
 	case "error":
+		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" && !ticket.SessionActive {
+			return "resumable"
+		}
 		return "error"
 	case "exited":
 		return "exited"
@@ -357,12 +477,12 @@ func runtimeLabel(ticket storage.Ticket) string {
 
 func windowIndicator(ticket storage.Ticket) string {
 	switch {
-	case ticket.Runtime == "error":
-		return "!"
 	case ticket.SessionActive && ticket.WindowName.Valid:
 		return "●"
-	case ticket.SessionRef.Valid && ticket.SessionRef.String != "":
+	case ticket.SessionRef.Valid && ticket.SessionRef.String != "" && !ticket.SessionActive:
 		return "○"
+	case ticket.Runtime == "error":
+		return "!"
 	default:
 		return "-"
 	}
@@ -501,16 +621,142 @@ func (m *Model) reload() {
 	m.view = view
 	m.err = err
 	m.clamp()
+	m.syncScrollDimensions()
+	m.vScrollFollow()
+	m.hScrollFollow()
+}
+
+// syncScrollDimensions ensures colScroll has one entry per column, preserving
+// existing offsets and zeroing new ones.
+func (m *Model) syncScrollDimensions() {
+	n := len(m.view.Columns)
+	for len(m.colScroll) < n {
+		m.colScroll = append(m.colScroll, 0)
+	}
+	if len(m.colScroll) > n {
+		m.colScroll = m.colScroll[:n]
+	}
+}
+
+// boardContentHeight returns the number of terminal rows available for card
+// rendering (total height minus header, footer, and status line rows).
+func (m *Model) boardContentHeight() int {
+	// 2 header lines (title + blank) + 2 hint lines + 1 status line + 1 blank before hints = 6
+	headerFooter := 6
+	if m.status != "" {
+		headerFooter++
+	}
+	h := m.height - headerFooter
+	if h < 4 {
+		h = 4
+	}
+	return h
+}
+
+// cardHeight returns the number of rendered lines a single card occupies inside
+// a column (box top + title lines + meta line + box bottom).
+func cardHeight(ticket storage.Ticket, innerWidth int) int {
+	cardInnerWidth := innerWidth - 4
+	titleLines := wrapText(ticket.DisplayID+" "+ticket.Title, cardInnerWidth-2, 3)
+	if len(titleLines) == 0 {
+		titleLines = []string{ticket.DisplayID}
+	}
+	// top border + title lines + meta line + bottom border
+	return 2 + len(titleLines) + 1 + 1
+}
+
+// vScrollFollow adjusts the scroll offset for the focused column so the
+// focused card is always within the visible window.
+func (m *Model) vScrollFollow() {
+	if m.col < 0 || m.col >= len(m.view.Columns) {
+		return
+	}
+	col := m.view.Columns[m.col]
+	if len(col.Tickets) == 0 {
+		return
+	}
+	inner := boardColumnWidth - 2
+	avail := m.boardContentHeight()
+
+	if len(m.colScroll) <= m.col {
+		return
+	}
+
+	// Clamp scroll offset first.
+	if m.colScroll[m.col] > len(col.Tickets)-1 {
+		m.colScroll[m.col] = len(col.Tickets) - 1
+	}
+	if m.colScroll[m.col] < 0 {
+		m.colScroll[m.col] = 0
+	}
+
+	// Scroll down: advance offset until focused card is visible.
+	for {
+		usedLines := 0
+		visibleEnd := -1
+		for ti := m.colScroll[m.col]; ti < len(col.Tickets); ti++ {
+			h := cardHeight(col.Tickets[ti], inner)
+			if ti > m.colScroll[m.col] {
+				h++ // blank separator between cards
+			}
+			if usedLines+h > avail {
+				break
+			}
+			usedLines += h
+			visibleEnd = ti
+		}
+		if visibleEnd < 0 {
+			visibleEnd = m.colScroll[m.col]
+		}
+		if m.card <= visibleEnd {
+			break
+		}
+		m.colScroll[m.col]++
+	}
+	// Scroll up: retreat offset if focused card is above visible window.
+	for m.card < m.colScroll[m.col] {
+		m.colScroll[m.col]--
+	}
+}
+
+// hScrollFollow adjusts colOffset so the focused column is always visible.
+func (m *Model) hScrollFollow() {
+	if len(m.view.Columns) == 0 {
+		return
+	}
+	colW := boardColumnWidth + boardColumnGap
+	// Scroll left: retreat offset if focused column is left of window.
+	for m.col < m.colOffset {
+		m.colOffset--
+	}
+	// Scroll right: advance offset until focused column is visible.
+	for {
+		used := 0
+		lastVisible := m.colOffset - 1
+		for ci := m.colOffset; ci < len(m.view.Columns); ci++ {
+			if used+colW > m.width {
+				break
+			}
+			used += colW
+			lastVisible = ci
+		}
+		if m.col <= lastVisible {
+			break
+		}
+		m.colOffset++
+	}
 }
 
 func (m *Model) moveColumn(delta int) {
 	m.col += delta
 	m.clamp()
+	m.hScrollFollow()
 }
 
 func (m *Model) moveCard(delta int) {
 	m.card += delta
 	m.clamp()
+	m.vScrollFollow()
 }
 
 func (m *Model) selectedTicket() (storage.Ticket, bool) {

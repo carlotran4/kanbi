@@ -445,15 +445,26 @@ func (s *Store) UpsertActiveSession(ctx context.Context, ticketID int64, session
 }
 
 func (s *Store) ActiveSession(ctx context.Context, ticketID int64) (Session, bool, error) {
+	return s.sessionByQuery(ctx, `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions where ticket_id=? and is_active=1 order by id desc limit 1`, ticketID)
+}
+
+func (s *Store) LatestSession(ctx context.Context, ticketID int64) (Session, bool, error) {
+	return s.sessionByQuery(ctx, `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions where ticket_id=? order by id desc limit 1`, ticketID)
+}
+
+func (s *Store) sessionByQuery(ctx context.Context, query string, ticketID int64) (Session, bool, error) {
 	var ses Session
 	var active int
-	err := s.db.QueryRowContext(ctx, `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions where ticket_id=? and is_active=1 order by id desc limit 1`, ticketID).
+	err := s.db.QueryRowContext(ctx, query, ticketID).
 		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, false, nil
 	}
+	if err != nil {
+		return Session{}, false, err
+	}
 	ses.IsActive = active == 1
-	return ses, true, err
+	return ses, true, nil
 }
 
 func (s *Store) RenameSessionWindow(ctx context.Context, ticketID int64, name string) error {
