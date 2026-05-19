@@ -912,6 +912,15 @@ func (m *Model) moveTicketColumn(delta int) {
 	}
 	m.col = to
 	m.reload()
+	// Keep cursor on the ticket that was just moved.
+	for i, ticket := range m.view.Columns[m.col].Tickets {
+		if ticket.ID == t.ID {
+			m.card = i
+			break
+		}
+	}
+	// Re-run scroll follow now that m.card reflects the moved ticket's position.
+	m.vScrollFollow()
 }
 
 func (m *Model) reorderTicket(delta int) {

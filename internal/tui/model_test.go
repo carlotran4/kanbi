@@ -893,6 +893,147 @@ func TestWindowSizeMsgUpdatesTerminalDimensions(t *testing.T) {
 	}
 }
 
+// TestMoveTicketCursorFollowsTicket verifies that after moving a ticket to
+// another column, the cursor remains focused on that same ticket in the
+// destination column (T-016).
+func TestMoveTicketCursorFollowsTicket(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed: 3 tickets in "In Progress" (col index 1) and 1 in "Review" (col
+	// index 2) so the destination column already has a ticket before the move.
+	view, _ := store.BoardView(ctx)
+	inProgress := view.Columns[1].ID
+	review := view.Columns[2].ID
+	store.CreateTicket(ctx, inProgress, "Alpha", "", "")
+	store.CreateTicket(ctx, inProgress, "Beta", "", "")  // we will move this one
+	store.CreateTicket(ctx, inProgress, "Gamma", "", "")
+	store.CreateTicket(ctx, review, "Already Here", "", "")
+
+	model := New(ctx, store)
+
+	// Navigate to "In Progress" (col 1)
+	model, _ = mustUpdate(t, model, "l")
+	if model.col != 1 {
+		t.Fatalf("expected col 1, got %d", model.col)
+	}
+
+	// Navigate down to "Beta" (card index 1)
+	model, _ = mustUpdate(t, model, "j")
+	if model.card != 1 {
+		t.Fatalf("expected card 1, got %d", model.card)
+	}
+	movedID := model.view.Columns[model.col].Tickets[model.card].DisplayID
+
+	// Move "Beta" right into "Review" which already has "Already Here" at index 0.
+	// Beta will be appended at index 1. Without the fix, cursor stays at card=1
+	// which still points to index 1 — but that happens to be correct here.
+	// The real failure is when Beta lands at the END (len=1 → index 1) but
+	// clamp would have left card=1 too. Let's instead move from card=0 where
+	// clamp leaves it at 0, pointing to the wrong ticket.
+	model, _ = mustUpdate(t, model, "k") // back to card=0, "Alpha"
+	movedID = model.view.Columns[model.col].Tickets[model.card].DisplayID // "Alpha"
+
+	// Dest col "Review" has [Already Here]. Moving Alpha there appends it at
+	// index 1. m.card=0 after clamp → focuses "Already Here", not Alpha.
+	model, _ = mustUpdate(t, model, "L") // move Alpha to Review
+
+	// After the move, the cursor must still point to the moved ticket
+	focusedTicket, ok := model.selectedTicket()
+	if !ok {
+		t.Fatalf("no ticket selected after move")
+	}
+	if focusedTicket.DisplayID != movedID {
+		t.Fatalf("cursor lost: expected focus on %s (%s), got %s (%s)",
+			movedID, "Alpha", focusedTicket.DisplayID, focusedTicket.Title)
+	}
+}
+
+// TestMoveTicketScrollFollowsTicket verifies that when a ticket is moved into
+// a destination column that requires scrolling to see it, the scroll offset is
+// adjusted so the ticket is visible (T-016 follow-up).
+func TestMoveTicketScrollFollowsTicket(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	view, _ := store.BoardView(ctx)
+	srcCol := view.Columns[0].ID
+	dstCol := view.Columns[1].ID
+
+	// Fill the destination column with enough tickets to overflow a small screen.
+	for i := 0; i < 10; i++ {
+		if _, err := store.CreateTicket(ctx, dstCol, fmt.Sprintf("Dest %d", i), "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One ticket in the source column — the one we will move.
+	movedTicket, err := store.CreateTicket(ctx, srcCol, "Traveller", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	model := New(ctx, store)
+	model.width = 80
+	model.height = 20
+	model.syncScrollDimensions()
+
+	// Move the source ticket right into the destination column.
+	// It will be appended at the end (index 10), well past the visible window.
+	model, _ = mustUpdate(t, model, "L")
+
+	// The focused ticket must be "Traveller".
+	focused, ok := model.selectedTicket()
+	if !ok {
+		t.Fatal("no ticket selected after move")
+	}
+	if focused.ID != movedTicket.ID {
+		t.Fatalf("cursor lost: expected %s (Traveller), got %s (%s)", movedTicket.DisplayID, focused.DisplayID, focused.Title)
+	}
+
+	// The scroll offset of the destination column must have advanced so the
+	// focused card is within the visible window.
+	scroll := model.colScroll[model.col]
+	if model.card < scroll {
+		t.Fatalf("focused card %d is above scroll offset %d — ticket not visible", model.card, scroll)
+	}
+
+	// Verify the focused card is actually within the rendered viewport.
+	inner := boardColumnWidth - 2
+	avail := model.boardContentHeight()
+	usedLines := 0
+	visible := false
+	for ti := scroll; ti < len(model.view.Columns[model.col].Tickets); ti++ {
+		h := cardHeight(model.view.Columns[model.col].Tickets[ti], inner)
+		if ti > scroll {
+			h++
+		}
+		if usedLines+h > avail {
+			break
+		}
+		usedLines += h
+		if ti == model.card {
+			visible = true
+		}
+	}
+	if !visible {
+		t.Fatalf("focused card %d is not within viewport (scroll=%d)", model.card, scroll)
+	}
+}
+
 func mustUpdate(t *testing.T, m Model, key string) (Model, tea.Cmd) {
 	t.Helper()
 	return mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key), Alt: false})
