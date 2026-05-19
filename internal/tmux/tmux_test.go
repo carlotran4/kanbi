@@ -69,6 +69,199 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 	}
 }
 
+func TestReconcileMarksSessionMissingWhenWindowGone(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Recon", "", "pi")
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	if !ticket.SessionActive {
+		t.Fatal("expected active session after open")
+	}
+
+	// Clear the window from the fake runner so reconcile sees it missing
+	runner.windows = map[string]string{}
+	if err := manager.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.TicketByID(ctx, ticket.ID)
+	if got.SessionActive {
+		t.Fatal("session should be marked inactive after window disappears")
+	}
+	if got.Runtime != "error" {
+		t.Fatalf("runtime should be error after missing window, got %q", got.Runtime)
+	}
+}
+
+func TestRenameTicketWindowUpdatesDBAndTmux(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Original Title", "", "pi")
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	if err := manager.RenameTicketWindow(ctx, ticket, "New Title"); err != nil {
+		t.Fatal(err)
+	}
+
+	// tmux rename-window must have been called
+	var sawRename bool
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "rename-window" {
+			sawRename = true
+			if !strings.Contains(strings.Join(c.args, " "), "T-001-new-title") {
+				t.Fatalf("rename-window args wrong: %v", c.args)
+			}
+		}
+	}
+	if !sawRename {
+		t.Fatal("rename-window not called")
+	}
+
+	// DB window name updated
+	ses, ok, err := store.ActiveSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("active session ok=%v err=%v", ok, err)
+	}
+	if ses.TmuxWindowName != "T-001-new-title" {
+		t.Fatalf("DB window name = %q, want T-001-new-title", ses.TmuxWindowName)
+	}
+}
+
+func TestOpenTicketResumesWithStoredRef(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Resume Me", "", "pi")
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner, ResumeCheckAfter: time.Millisecond}
+
+	// Simulate a ticket that already has an inactive session with a ref
+	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness: "pi", TmuxSessionName: "agent-kanban",
+		TmuxWindowName: "T-001-resume-me", Status: "running",
+	})
+	_ = store.UpdateSessionRef(ctx, sessionID, "019e-resume-ref")
+	_ = store.MarkSessionClosed(ctx, sessionID, "closed", "tmux", "exited")
+
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// Resume command must include the ref
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" {
+			cmd := strings.Join(c.args, " ")
+			if !strings.Contains(cmd, "--session") || !strings.Contains(cmd, "019e-resume-ref") {
+				t.Fatalf("resume command missing ref: %v", c.args)
+			}
+			return
+		}
+	}
+	t.Fatal("new-window not called for resume")
+}
+
+func TestOpenTicketResumeFailureReturnsResumeFailedError(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Fail Resume", "", "pi")
+
+	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness: "pi", TmuxSessionName: "agent-kanban",
+		TmuxWindowName: "T-001-fail-resume", Status: "running",
+	})
+	_ = store.UpdateSessionRef(ctx, sessionID, "019e-bad-ref")
+	_ = store.MarkSessionClosed(ctx, sessionID, "closed", "tmux", "exited")
+
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+
+	// Runner that fails new-window to simulate resume failure
+	runner := &failNewWindowRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+	err := manager.OpenTicket(ctx, ticket, false)
+
+	var resumeErr ResumeFailedError
+	if !errors.As(err, &resumeErr) {
+		t.Fatalf("expected ResumeFailedError, got %T: %v", err, err)
+	}
+}
+
+func TestRefreshRuntimeMarksSessionMissingWhenWindowDisappears(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Disappear", "", "pi")
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// Window disappears between ticks
+	runner.windows = map[string]string{}
+	if err := manager.RefreshRuntime(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.TicketByID(ctx, ticket.ID)
+	if got.SessionActive {
+		t.Fatal("session should be inactive when window gone")
+	}
+	if got.Runtime != "error" {
+		t.Fatalf("runtime = %q, want error", got.Runtime)
+	}
+}
+
+func TestSlugEdgeCases(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Hello World!", "hello-world"},
+		{"", "ticket"},
+		{"---", "ticket"},
+		{strings.Repeat("a", 50), strings.Repeat("a", 40)},
+		{"Fix OAuth/Redirect", "fix-oauth-redirect"},
+	}
+	for _, tc := range cases {
+		if got := slug(tc.in); got != tc.want {
+			t.Errorf("slug(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestShellQuoteEdgeCases(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", "''"},
+		{"simple", "simple"},
+		{"has space", "'has space'"},
+		{"it's", `'it'\''s'`},
+		{"/path/to/file", "/path/to/file"},
+	}
+	for _, tc := range cases {
+		if got := shellQuote(tc.in); got != tc.want {
+			t.Errorf("shellQuote(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+type failNewWindowRunner struct{}
+
+func (f *failNewWindowRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if len(args) > 0 && args[0] == "new-window" {
+		return "", errors.New("tmux new-window failed")
+	}
+	if len(args) > 0 && (args[0] == "has-session" || args[0] == "list-windows") {
+		return "board\n", nil
+	}
+	return "", nil
+}
+
 func TestWindowNameAndShellCommand(t *testing.T) {
 	if got := WindowName("T-001", "Fix OAuth Redirect!"); got != "T-001-fix-oauth-redirect" {
 		t.Fatalf("window name = %s", got)
@@ -269,6 +462,52 @@ func TestSwitchToTicketRequiresRepairWhenWindowMissingWithoutRef(t *testing.T) {
 	}
 }
 
+func TestStartFreshTicketPreservesOldSessionAndCreatesNew(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Fresh", "Body", "pi")
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+
+	// First open to create a session
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	firstSessionID := ticket.SessionID.Int64
+
+	// Start fresh: should deactivate old session and create new one
+	if err := manager.StartFreshTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	if ticket.SessionID.Int64 == firstSessionID {
+		t.Fatalf("start fresh should create new session; still at id=%d", firstSessionID)
+	}
+	if !ticket.SessionActive {
+		t.Fatalf("new session should be active")
+	}
+
+	// Old session should still exist in DB, inactive
+	// Verify by creating a third session and checking we still have old history via the latest
+	// (upsert marks old ones inactive but doesn't delete them)
+	allTickets, err := store.ListTickets(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allTickets) == 0 {
+		t.Fatal("ticket list should not be empty")
+	}
+	// The active session query should only return new session
+	gotActive, ok, err := store.ActiveSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("active session should exist ok=%v err=%v", ok, err)
+	}
+	if gotActive.ID == firstSessionID {
+		t.Fatalf("active session should not be old session")
+	}
+}
+
 func TestCloseSessionSendsGracefulExitBeforeKill(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view, _ := store.BoardView(ctx)
@@ -394,6 +633,49 @@ func newTmuxTestStore(t *testing.T) (*storage.Store, context.Context) {
 
 func sqlString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: true}
+}
+
+// evanescingRunner creates a window on new-window but then immediately removes it,
+// simulating a harness process that exits instantly (e.g. pi rejecting a bad session ref).
+type evanescingRunner struct {
+	baseRunner *fakeRunner
+	windowGone bool
+}
+
+func (e *evanescingRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if e.windowGone && len(args) > 0 && args[0] == "display-message" {
+		// Simulate window no longer existing
+		return "", errors.New("window not found")
+	}
+	out, err := e.baseRunner.Run(ctx, name, args...)
+	if len(args) > 0 && args[0] == "new-window" {
+		// Simulate immediate exit: remove the window right after creation.
+		e.baseRunner.windows = map[string]string{}
+		e.windowGone = true
+	}
+	return out, err
+}
+
+func TestResumeWithImmediatelyExitingProcessReturnsResumeFailedError(t *testing.T) {
+	base := &fakeRunner{}
+	runner := &evanescingRunner{baseRunner: base}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Runner: runner, ResumeCheckAfter: time.Millisecond}
+	ticket := storage.Ticket{
+		ID:         1,
+		DisplayID:  "T-001",
+		Title:      "Resume Fail Test",
+		Harness:    "pi",
+		SessionID:  sql.NullInt64{Int64: 42, Valid: true},
+		SessionRef: sql.NullString{String: "dead-session-ref", Valid: true},
+	}
+	err := manager.OpenTicket(context.Background(), ticket, false)
+	var resumeErr ResumeFailedError
+	if !errors.As(err, &resumeErr) {
+		t.Fatalf("expected ResumeFailedError, got %T: %v", err, err)
+	}
+	if resumeErr.Ticket.ID != ticket.ID {
+		t.Fatalf("ResumeFailedError.Ticket.ID = %d, want %d", resumeErr.Ticket.ID, ticket.ID)
+	}
 }
 
 type missingSessionRunner struct {

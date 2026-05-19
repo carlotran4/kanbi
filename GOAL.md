@@ -1,140 +1,168 @@
 # GOAL
-Implement Agent Kanban foundation, static TUI board, and tmux session/window
- orchestration from design-spec.md.
 
-   Read these files first:
-   - design-spec.md
-   - docs/autonomous-verification.md
-   - README.md
+Harden Agent Kanban from MVP skeleton into a trustworthy alpha for real
+ticket/session lifecycle management across multiple agent harnesses.
 
-   Objective:
-   Build a working local MVP skeleton of Agent Kanban with SQLite persistence, a Bubble Tea
- Kanban board, and real tmux-backed ticket windows. Use fake harnesses/smoke commands for
- verification instead of real agent CLIs.
+Read these files first:
 
-   Scope:
+- `design-spec.md`
+- `docs/autonomous-verification.md`
+- `docs/state-management.md`
+- `docs/ticket-session-lifecycle.md`
+- `PROGRESS.md`
+- `README.md`
 
-   1. CLI/config/storage
-   - Implement the `agent-kanban` CLI.
-   - Add subcommands:
-     - `agent-kanban`
-     - `agent-kanban doctor`
-     - `agent-kanban add "title" --body "..." --harness pi`
-     - `agent-kanban list`
-   - Implement XDG config/data/state path resolution.
-   - Implement YAML config loading with defaults.
-   - Implement SQLite schema/migrations for boards, columns, tickets, and sessions.
-   - On first run, create one default board with columns: Open, In Progress, Review, Done.
-   - Implement ticket creation/listing with sequential display IDs like T-001.
+## Current Baseline
 
-   2. Static Bubble Tea board
-   - Implement a TUI board that loads columns/tickets from SQLite.
-   - Display compact cards with:
-     - display ID
-     - title
-     - harness
-     - tmux window indicator placeholder/real indicator where available
-     - runtime state
-   - Implement keyboard navigation:
-     - h/j/k/l and arrows move focus
-     - H/L move selected ticket between columns
-     - J/K reorder ticket within a column
-     - n creates a title-only ticket in the current column with default harness pi
-     - e edits ticket title/body/harness
-     - a archives selected ticket
-     - q quits
-   - Launching from the TUI can be minimal if needed, but service methods for open/switch
- ticket session should exist.
+The original MVP foundation is implemented:
 
-   3. Tmux manager
-   - Implement a tmux manager that:
-     - ensures dedicated tmux session `agent-kanban`
-     - ensures board window `board`
-     - creates one tmux window per active ticket
-     - names ticket windows like `T-001-title-slug`
-     - switches to existing ticket windows
-     - renames ticket windows when ticket title changes
-     - records tmux session/window metadata in SQLite sessions
-     - reconciles missing tmux windows on startup
-   - If `agent-kanban` is run outside tmux, auto-create/attach to the dedicated tmux session
- using an inner env guard like `AGENT_KANBAN_INNER=1`.
+- CLI/config/storage with SQLite persistence and default board setup.
+- Bubble Tea kanban board with ticket navigation, movement, editing, archiving, column operations, and session actions.
+- tmux-backed board/ticket windows with session metadata and startup reconciliation.
+- fake harness smoke testing.
+- real command wiring for Pi, Codex, and Copilot command surfaces.
+- runtime polling, conservative state detection, manual state marking, repair/start-fresh flows, graceful close, and autoclose plumbing.
 
-   4. Fake/smoke harness support
-   - Do not integrate real `pi`, `codex`, or `gh copilot` behavior yet.
-   - Add test/smoke harness scripts under a safe test path, e.g. `scripts/fake-harnesses/`.
-   - Fake harnesses should simulate:
-     - start
-     - prompt-ready output
-     - session ref output
-     - resume with explicit session ref
-     - waiting for user
-     - permission prompt
-     - graceful exit if feasible
-   - Add a config or env-supported way for smoke tests to point harness commands to fake
- harnesses.
+## Objective
 
-   5. Prompt rendering and tmux paste
-   - Implement first prompt rendering:
-     # T-001: Ticket title
+Make the real harness lifecycle boring and reliable:
 
-     Ticket body
-   - Implement tmux paste-buffer prompt injection into a ticket window.
-   - Add a timeout for prompt-ready detection; if not ready, fail gracefully or skip paste in
- smoke mode.
+- starting a ticket creates exactly one active session attempt;
+- opening an active ticket switches to the right tmux window;
+- closed/error sessions remain visible as meaningful ticket state;
+- stale tmux window ids never attach one ticket to another ticket's session;
+- resumable sessions use the correct harness-native resume command;
+- unresumable sessions route through repair/start-fresh without corrupting history;
+- each harness has clearly documented behavior and verification coverage.
 
-   6. Tests
-   - Add tests for:
-     - config defaults/overrides
-     - XDG path resolution
-     - SQLite migrations/default board
-     - ticket display ID generation
-     - ticket create/list/archive
-     - ticket move/reorder
-     - prompt rendering
-     - tmux command construction
-     - tmux manager behavior where possible
-     - fake harness command construction
+## Scope
 
-   Do not implement:
-   - real Pi/Codex/Copilot detection logic
-   - real harness session-ref parsing beyond fake harness path
-   - runtime watcher/polling
-   - flashing based on process output
-   - auto-close
-   - background daemon
-   - full transcript storage
-   - custom user-defined harness adapters
-   - multi-board UI
+### 1. Real-Harness Lifecycle Verification
 
-   Validation:
-   Run:
-   - go fmt ./...
-   - go test ./...
-   - go vet ./...
+Add an opt-in real-harness integration script separate from `scripts/smoke.sh`,
+for example `scripts/real-harness-lifecycle.sh`.
 
-   Also create and run a smoke script, e.g.:
-   - ./scripts/smoke.sh
+The script should:
 
-   Smoke script should:
-   - use temporary AGENT_KANBAN_DB/config/state paths
-   - point harness commands at fake harness scripts
-   - run `agent-kanban doctor`
-   - add a ticket
-   - list tickets
-   - create/verify the dedicated tmux session
-   - create/verify a ticket tmux window
-   - inject a prompt into the fake harness using tmux paste-buffer
-   - capture pane output to verify the fake harness received the prompt
-   - clean up the test tmux session afterward
+- use temporary `AGENT_KANBAN_DB`, config, data, and state paths;
+- use a uniquely named tmux session;
+- run `agent-kanban doctor`;
+- add one ticket for each enabled real harness;
+- open/send prompt for each ticket;
+- verify a managed tmux window exists for each ticket;
+- verify the prompt appears in the agent pane or the harness starts with the prompt argument;
+- capture the resulting session row from SQLite;
+- close the session and confirm it becomes inactive;
+- reopen/resume when a `session_ref` exists;
+- clean up the tmux session and temp files.
 
-   Stop when:
-   - the app has working persistent board data
-   - the TUI can display and manipulate tickets
-   - tmux session/window creation works
-   - fake harness prompt injection works through tmux
-   - smoke test passes
-   - all validation commands pass
-   - any incomplete TUI niceties are documented in PROGRESS.md
+This script must be opt-in because real harnesses can consume model quota, depend on auth, and may alter local harness histories.
 
-   Work in checkpoints and keep a short progress log in PROGRESS.md. If blocked by ambiguous
- product decisions, pause and explain the decision needed.
+Suggested controls:
+
+- `AGENT_KANBAN_REAL_HARNESS_TESTS=1` must be set.
+- `AGENT_KANBAN_REAL_HARNESSES=pi,codex,copilot` selects harnesses.
+- Default to no-op with a clear message when the opt-in variable is absent.
+
+### 2. Harness-Specific Contracts
+
+Keep hardcoded Go adapters, but document and test each adapter's actual contract.
+
+Pi:
+
+- start/send prompt: `pi <prompt>`
+- resume: `pi --session <session_ref>`
+- session ref capture: scan `~/.pi/agent/sessions` for a matching prompt
+- verification must include start, ref capture when available, close, and resume
+
+Codex:
+
+- start/send prompt: `codex --no-alt-screen <prompt>`
+- resume: `codex resume --no-alt-screen <session_ref>`
+- session ref capture: scan `~/.codex/history.jsonl` for a matching prompt
+- verification must include start, ref capture when available, close, and resume
+
+Copilot:
+
+- start/send prompt: `gh copilot -- -i <prompt>`
+- resume: `gh copilot -- --resume=<session_ref>`
+- session ref capture is not yet known to be automatic
+- until a stable ref source is found, Copilot should be treated as start-capable and manually repairable/resumable only when the user provides a ref
+
+Do not silently pretend Copilot has automatic resume refs. The UI/docs should make that limitation clear.
+
+### 3. Ticket/Session State Machine Hardening
+
+Use `docs/state-management.md` and `docs/ticket-session-lifecycle.md` as the target model.
+
+Verify and, if needed, fix:
+
+- no duplicate session rows when opening an already-active valid window;
+- inactive latest sessions project as `closed` or `error`, not `not_started`;
+- stale `tmux_window_id` values are validated against the expected window name before switch/close/capture;
+- `send prompt` is rejected for any ticket with prior session/window/ref metadata;
+- start-fresh preserves previous session history and creates a new active session;
+- repair flow handles missing window, missing ref, resume failure, and edited ref;
+- autoclose never closes on the same tick that first detects an eligible attention state;
+- manual state marks are not overwritten by weak heuristics.
+
+### 4. Verification Loops
+
+Every implementation checkpoint must run the deterministic loop:
+
+```bash
+go fmt ./...
+go test ./...
+go vet ./...
+./scripts/smoke.sh
+```
+
+For lifecycle or harness changes, also run targeted checks:
+
+```bash
+go test ./internal/harness ./internal/tmux ./internal/storage
+```
+
+For real harness work, run the opt-in loop only after deterministic tests pass:
+
+```bash
+AGENT_KANBAN_REAL_HARNESS_TESTS=1 AGENT_KANBAN_REAL_HARNESSES=pi,codex ./scripts/real-harness-lifecycle.sh
+```
+
+If Copilot is included, record whether the run verified only start/open behavior or also a real resume ref:
+
+```bash
+AGENT_KANBAN_REAL_HARNESS_TESTS=1 AGENT_KANBAN_REAL_HARNESSES=copilot ./scripts/real-harness-lifecycle.sh
+```
+
+Agents must record verification results in `PROGRESS.md` after meaningful checkpoints.
+
+### 5. TUI Alpha Polish After Lifecycle Stability
+
+Only after lifecycle behavior is stable:
+
+- make runtime state/repair/resumable status easier to read on cards;
+- reduce footer density without hiding critical controls;
+- improve repair and prompt fallback screens;
+- consider richer attention styling while preserving compact kanban layout.
+
+## Do Not Implement Yet
+
+- background daemon;
+- web UI;
+- multi-board UI;
+- full transcript storage;
+- generic user-defined harness adapters;
+- replacing tmux as the v1 runtime backend;
+- automatic Copilot session-ref capture unless a stable, locally verifiable source is found.
+
+## Stop Conditions
+
+Stop and explain the decision needed before:
+
+- changing `design-spec.md` scope;
+- deleting or rewriting ticket/session history;
+- making real harness behavior assumptions that cannot be tested locally;
+- adding a persistent background process;
+- changing supported harness command names;
+- making Copilot appear fully resumable without verified session refs.

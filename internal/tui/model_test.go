@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -23,10 +25,13 @@ func TestModelKeybindingsCreateMoveReorderArchive(t *testing.T) {
 	}
 	model := New(ctx, store)
 	model, _ = mustUpdate(t, model, "n")
+	model, _ = mustUpdate(t, model, "esc") // dismiss auto-edit
 	model, _ = mustUpdate(t, model, "n")
+	model, _ = mustUpdate(t, model, "esc") // dismiss auto-edit
 	if !strings.Contains(model.View(), "T-001") || !strings.Contains(model.View(), "T-002") {
 		t.Fatalf("new tickets missing:\n%s", model.View())
 	}
+	model, _ = mustUpdate(t, model, "k") // move to T-001
 	model, _ = mustUpdate(t, model, "J")
 	view, _ := store.BoardView(ctx)
 	if view.Columns[0].Tickets[0].DisplayID != "T-002" {
@@ -218,9 +223,6 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 	if !strings.Contains(rendered, "> T-001") {
 		t.Fatalf("focused card marker missing from card box:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "+ Add a card") {
-		t.Fatalf("add-card affordance missing:\n%s", rendered)
-	}
 }
 
 func TestModelOpenSelectedTicket(t *testing.T) {
@@ -317,13 +319,18 @@ type openingStore struct {
 	opened       []string
 	sentPrompt   []bool
 	openErr      error
+	openErrFn    func() error
 	pastedWindow string
 	pastedPrompt string
 	startedFresh bool
 }
 
 func (s *openingStore) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
-	if s.openErr != nil {
+	if s.openErrFn != nil {
+		if err := s.openErrFn(); err != nil {
+			return err
+		}
+	} else if s.openErr != nil {
 		return s.openErr
 	}
 	s.opened = append(s.opened, ticket.DisplayID)
@@ -351,6 +358,321 @@ func (s *openingStore) UpdateSessionRef(ctx context.Context, ticket storage.Tick
 		return s.Store.UpdateSessionRef(ctx, ticket.SessionID.Int64, ref)
 	}
 	return nil
+}
+
+func TestCardRuntimeLabelsAndWindowIndicators(t *testing.T) {
+	cases := []struct {
+		ticket   storage.Ticket
+		wantMeta string
+	}{
+		{storage.Ticket{Harness: "pi", Runtime: "not_started"}, "new"},
+		{storage.Ticket{Harness: "pi", Runtime: "running", SessionActive: true, WindowName: sqlNullStr("T-001-demo")}, "running"},
+		{storage.Ticket{Harness: "pi", Runtime: "waiting_for_user"}, "waiting"},
+		{storage.Ticket{Harness: "pi", Runtime: "needs_permission"}, "permission!"},
+		{storage.Ticket{Harness: "pi", Runtime: "idle_unknown"}, "idle"},
+		{storage.Ticket{Harness: "pi", Runtime: "closed", SessionRef: sqlNullStr("abc")}, "resumable"},
+		{storage.Ticket{Harness: "pi", Runtime: "closed"}, "closed"},
+		{storage.Ticket{Harness: "pi", Runtime: "error"}, "error"},
+	}
+	for _, tc := range cases {
+		if got := runtimeLabel(tc.ticket); !strings.Contains(got, tc.wantMeta) {
+			t.Errorf("runtimeLabel(%s runtime=%s ref=%v) = %q, want %q",
+				tc.ticket.Harness, tc.ticket.Runtime, tc.ticket.SessionRef.Valid, got, tc.wantMeta)
+		}
+	}
+
+	// windowIndicator: - for prior session without ref (cleanly closed, not repair-needed)
+	closedNoRef := storage.Ticket{SessionID: sqlNullInt64(5), Runtime: "closed"}
+	if ind := windowIndicator(closedNoRef); ind != "-" {
+		t.Errorf("windowIndicator for closed-no-ref = %q, want -", ind)
+	}
+
+	// windowIndicator: ○ for resumable
+	resumableTicket := storage.Ticket{SessionRef: sqlNullStr("abc"), Runtime: "closed"}
+	if ind := windowIndicator(resumableTicket); ind != "○" {
+		t.Errorf("windowIndicator for resumable = %q, want ○", ind)
+	}
+}
+
+func TestRepairViewShowsReasonAndOptions(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Repair me", "", "pi")
+	wrapped := &openingStore{
+		Store: store,
+		openErr: tmux.RepairNeededError{
+			Ticket: ticket,
+			Reason: "session started but no window or session ref is known",
+		},
+	}
+	model := New(ctx, wrapped)
+	model, _ = mustUpdate(t, model, "o")
+	if !model.repairing {
+		t.Fatalf("repair view not shown: %s", model.View())
+	}
+	v := model.View()
+	if !strings.Contains(v, "session started but no window") {
+		t.Fatalf("repair reason missing from repair view:\n%s", v)
+	}
+	if !strings.Contains(v, "retry") || !strings.Contains(v, "start fresh") {
+		t.Fatalf("repair options missing from repair view:\n%s", v)
+	}
+}
+
+func sqlNullStr(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: true}
+}
+
+func sqlNullInt64(n int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: n, Valid: true}
+}
+
+func TestModelEditTicketUpdatesStore(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Original", "body", "pi")
+
+	model := New(ctx, store)
+	// Enter edit mode
+	model, _ = mustUpdate(t, model, "e")
+	if !model.editing {
+		t.Fatal("should be editing")
+	}
+	// Clear title and type new one
+	for range "Original" {
+		model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	model, _ = mustUpdate(t, model, "Fixed")
+	// Tab to body field
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	// Tab to harness field
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	// Tab again to save
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+
+	if model.editing {
+		t.Fatal("should have left edit mode")
+	}
+	got, err := store.TicketByDisplayID(ctx, "T-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Fixed" {
+		t.Fatalf("title = %q, want Fixed", got.Title)
+	}
+}
+
+func TestModelCloseSessionCallsCloser(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Close Me", "", "pi")
+
+	var closed bool
+	wrapped := &closingStore{Store: store, onClose: func() { closed = true }}
+	model := New(ctx, wrapped)
+	model, _ = mustUpdate(t, model, "x")
+	if !closed {
+		t.Fatal("close was not called")
+	}
+}
+
+func TestModelRepairEditRefThenOpen(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Repair", "", "pi")
+
+	var repairCallCount int
+	wrapped := &openingStore{
+		Store: store,
+		openErrFn: func() error {
+			repairCallCount++
+			if repairCallCount == 1 {
+				return tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"}
+			}
+			return nil // second call is the resume after ref entry
+		},
+	}
+	model := New(ctx, wrapped)
+	model, _ = mustUpdate(t, model, "o") // first open → repair
+	if !model.repairing {
+		t.Fatalf("should be in repair mode: %s", model.View())
+	}
+	model, _ = mustUpdate(t, model, "e") // enter ref edit
+	if !model.repairEditingRef {
+		t.Fatal("should be editing ref")
+	}
+	model, _ = mustUpdate(t, model, "019e-manual-ref")                 // type ref
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // save
+
+	if model.repairing {
+		t.Fatal("should have left repair mode after successful ref entry")
+	}
+	// UpdateSessionRef must have been called, and OpenTicket with the ref
+	if len(wrapped.opened) == 0 {
+		t.Fatal("OpenTicket not called after ref edit")
+	}
+}
+
+func TestModelRepairRetryCallsOpen(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Retry", "", "pi")
+
+	callCount := 0
+	wrapped := &openingStore{
+		Store: store,
+		openErrFn: func() error {
+			callCount++
+			if callCount == 1 {
+				return tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"}
+			}
+			return nil // second call (retry) succeeds
+		},
+	}
+	model := New(ctx, wrapped)
+	model, _ = mustUpdate(t, model, "o") // first open → repair
+	if !model.repairing {
+		t.Fatal("should be repairing")
+	}
+	model, _ = mustUpdate(t, model, "r") // retry
+	if model.repairing {
+		t.Fatal("should have left repair after successful retry")
+	}
+}
+
+func TestModelEscCancelsRepair(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Cancel", "", "pi")
+
+	wrapped := &openingStore{
+		Store:   store,
+		openErr: tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"},
+	}
+	model := New(ctx, wrapped)
+	model, _ = mustUpdate(t, model, "o")
+	if !model.repairing {
+		t.Fatal("should be repairing")
+	}
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if model.repairing {
+		t.Fatal("esc should cancel repair")
+	}
+	if !strings.Contains(model.View(), "cancelled") {
+		t.Fatalf("status should say cancelled:\n%s", model.View())
+	}
+}
+
+func TestElapsedLabel(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		ticket storage.Ticket
+		want   string
+	}{
+		{storage.Ticket{}, ""},
+		{storage.Ticket{LastStateChangeAt: sqlNullTime(now.Add(-30 * time.Second))}, "now"},
+		{storage.Ticket{LastStateChangeAt: sqlNullTime(now.Add(-5 * time.Minute))}, "5m"},
+		{storage.Ticket{LastStateChangeAt: sqlNullTime(now.Add(-2 * time.Hour))}, "2h"},
+		{storage.Ticket{LastStateChangeAt: sqlNullTime(now.Add(-48 * time.Hour))}, "2d"},
+	}
+	for _, tc := range cases {
+		got := elapsedLabel(tc.ticket)
+		if got != tc.want {
+			t.Errorf("elapsedLabel = %q, want %q (ticket=%+v)", got, tc.want, tc.ticket)
+		}
+	}
+}
+
+func TestWrapText(t *testing.T) {
+	// Short text fits on one line
+	lines := wrapText("hello world", 20, 3)
+	if len(lines) != 1 || lines[0] != "hello world" {
+		t.Fatalf("lines = %v", lines)
+	}
+	// Long text wraps
+	lines = wrapText("one two three four five", 10, 3)
+	if len(lines) == 0 {
+		t.Fatal("expected wrapped lines")
+	}
+	for _, l := range lines {
+		if len([]rune(l)) > 10 {
+			t.Errorf("line too long: %q", l)
+		}
+	}
+	// Respects maxLines cap
+	lines = wrapText("a b c d e f g h", 3, 2)
+	if len(lines) > 2 {
+		t.Fatalf("expected max 2 lines, got %d: %v", len(lines), lines)
+	}
+	// Empty string returns nil
+	if wrapText("", 20, 3) != nil {
+		t.Fatal("empty wrapText should return nil")
+	}
+}
+
+// closingStore wraps storage.Store and records close calls.
+type closingStore struct {
+	*storage.Store
+	onClose func()
+}
+
+func (s *closingStore) CloseTicketSession(ctx context.Context, ticket storage.Ticket) error {
+	if s.onClose != nil {
+		s.onClose()
+	}
+	return nil
+}
+
+func sqlNullTime(t time.Time) sql.NullTime {
+	return sql.NullTime{Time: t, Valid: true}
 }
 
 func mustUpdate(t *testing.T, m Model, key string) (Model, tea.Cmd) {

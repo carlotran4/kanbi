@@ -20,6 +20,8 @@ import (
 
 var ErrPromptAlreadySent = errors.New("prompt already sent; open session instead")
 
+const defaultResumeCheckAfter = 2500 * time.Millisecond
+
 type RepairNeededError struct {
 	Ticket storage.Ticket
 	Reason string
@@ -81,10 +83,15 @@ type Manager struct {
 	Config config.Config
 	Store  *storage.Store
 	Runner Runner
+
+	// ResumeCheckAfter is how long to wait after launching a resume command
+	// before deciding whether the tmux window survived startup. Zero uses the
+	// production default.
+	ResumeCheckAfter time.Duration
 }
 
 func NewManager(cfg config.Config, store *storage.Store) *Manager {
-	return &Manager{Config: cfg, Store: store, Runner: ExecRunner{}}
+	return &Manager{Config: cfg, Store: store, Runner: ExecRunner{}, ResumeCheckAfter: defaultResumeCheckAfter}
 }
 
 func (m *Manager) EnsureSession(ctx context.Context) error {
@@ -163,6 +170,19 @@ func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPro
 			return err
 		}
 		windowID = strings.TrimSpace(out)
+		// When resuming, the harness may reject the session ref and exit immediately
+		// (e.g. "No session found matching '...'"). tmux new-window always succeeds
+		// even if the launched process exits instantly, so verify the window survived
+		// startup before registering the session as active.
+		if resuming {
+			checkAfter := m.ResumeCheckAfter
+			if checkAfter <= 0 {
+				checkAfter = defaultResumeCheckAfter
+			}
+			if liveErr := m.waitWindowLive(ctx, windowID, name, checkAfter); liveErr != nil {
+				return ResumeFailedError{Ticket: ticket, Err: liveErr}
+			}
+		}
 	} else {
 		var err error
 		windowID, err = m.windowIDByName(ctx, name)
@@ -435,6 +455,33 @@ func (m *Manager) PastePromptNow(ctx context.Context, windowName, text string) e
 	return err
 }
 
+// waitWindowLive waits a fixed interval after launching a resume window, then
+// checks whether the window is still present. tmux new-window succeeds regardless
+// of whether the launched process survives, so we must verify liveness separately.
+//
+// If the window is gone at check time, the harness rejected the session ref
+// (e.g. "No session found matching '...'") and we return an error so the
+// caller can surface a ResumeFailedError instead of recording a phantom session.
+//
+// The wait duration must exceed the typical time a failing harness takes to
+// display its error and exit. For pi, a bad --session ref causes exit in ~1.8s.
+func (m *Manager) waitWindowLive(ctx context.Context, windowID, windowName string, checkAfter time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(checkAfter):
+	}
+	exists, _ := m.windowRefExists(ctx, windowID)
+	if !exists {
+		// Fallback: check by name in case window ID is stale.
+		exists, _ = m.windowExists(ctx, windowName)
+	}
+	if !exists {
+		return fmt.Errorf("window exited immediately (harness may have rejected the session ref)")
+	}
+	return nil
+}
+
 func (m *Manager) capturePaneRef(ctx context.Context, ref string) (string, error) {
 	return m.run(ctx, "capture-pane", "-p", "-t", targetRef(m.Config.TmuxSession, ref))
 }
@@ -473,11 +520,12 @@ func (m *Manager) windowRefExists(ctx context.Context, ref string) (bool, error)
 		return false, nil
 	}
 	if strings.HasPrefix(ref, "@") {
-		_, err := m.run(ctx, "display-message", "-p", "-t", ref, "#{window_id}")
+		out, err := m.run(ctx, "display-message", "-p", "-t", ref, "#{window_id}")
 		if err != nil {
 			return false, nil
 		}
-		return true, nil
+		// tmux returns exit 0 with empty output when the window ID no longer exists.
+		return strings.TrimSpace(out) != "", nil
 	}
 	return m.windowExists(ctx, ref)
 }
@@ -514,24 +562,38 @@ func (m *Manager) windowNameByID(ctx context.Context, id string) (string, bool, 
 	return strings.TrimSpace(out), true, nil
 }
 
+// KillSession kills the entire tmux session, closing all windows.
+func (m *Manager) KillSession(ctx context.Context) error {
+	_, err := m.run(ctx, "kill-session", "-t", m.Config.TmuxSession)
+	return err
+}
+
 func (m *Manager) run(ctx context.Context, args ...string) (string, error) {
 	return m.Runner.Run(ctx, "tmux", args...)
 }
 
 func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText string, since time.Time) (string, bool) {
-	deadline := time.Now().Add(2 * time.Second)
+	// Copilot writes to session-store.db asynchronously and may take several
+	// seconds after process start. Pi writes its JSONL file asynchronously too.
+	// Use a longer deadline for these harnesses.
+	deadline := 2 * time.Second
+	switch harnessName {
+	case "copilot", "pi":
+		deadline = 8 * time.Second
+	}
+	end := time.Now().Add(deadline)
 	for {
 		ref, ok := harness.CaptureSessionRef(m.Config, harnessName, promptText, since)
 		if ok {
 			return ref, true
 		}
-		if time.Now().After(deadline) {
+		if time.Now().After(end) {
 			return "", false
 		}
 		select {
 		case <-ctx.Done():
 			return "", false
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
 }

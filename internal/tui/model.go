@@ -58,6 +58,10 @@ type SessionRepairer interface {
 	UpdateSessionRef(context.Context, storage.Ticket, string) error
 }
 
+type AllSessionKiller interface {
+	KillAllSessions(context.Context) error
+}
+
 type Model struct {
 	store            Store
 	ctx              context.Context
@@ -71,6 +75,7 @@ type Model struct {
 	editTitle        string
 	editBody         string
 	editHard         string
+	editCursor       int
 	stateMenu        bool
 	stateIndex       int
 	columnEditing    bool
@@ -123,7 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, runtimeTickCmd()
 	case editorFinishedMsg:
 		m.applyEditorResult(msg)
-		return m, nil
+		return m, tea.ClearScreen
 	}
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -146,6 +151,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch key.String() {
 	case "q", "ctrl+c":
+		if killer, ok := m.store.(AllSessionKiller); ok {
+			_ = killer.KillAllSessions(m.ctx)
+		}
 		return m, tea.Quit
 	case "tab":
 		m.moveAttention(1)
@@ -173,10 +181,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.startColumnEdit("add")
 	case "r":
 		m.startColumnEdit("rename")
-	case "<":
-		m.reorderColumn(-1)
-	case ">":
-		m.reorderColumn(1)
 	case "D":
 		m.deleteColumn()
 	case "a":
@@ -222,7 +226,9 @@ func (m Model) View() string {
 	fmt.Fprintf(&b, "%s  %s\n\n", title, m.view.Board.Name)
 	b.WriteString(m.boardView())
 	b.WriteString("\n\n")
-	b.WriteString("h/j/k/l move  H/L column  J/K reorder  n new  e edit  E body  s send  o open  m state  c/r/</>/D columns  Tab attention  x close  a archive  q quit\n")
+	dim := lipgloss.NewStyle().Faint(true)
+	b.WriteString("o:open  s:send  x:close  n:new  e:edit  a:archive  m:state  Tab:attention  q:quit\n")
+	b.WriteString(dim.Render("cols: c:add  r:rename  D:delete  │  move col: Shift+H/L  │  move ticket: H/L:col  J/K:reorder") + "\n")
 	if m.status != "" {
 		b.WriteString(m.status + "\n")
 	}
@@ -254,7 +260,7 @@ func (m Model) columnView(ci int, col storage.Column) string {
 
 	header := fmt.Sprintf("%s %s", focus, col.Name)
 	count := fmt.Sprintf("%d", len(col.Tickets))
-	lines := []string{spaceBetween(header, count, boardColumnWidth), strings.Repeat("─", boardColumnWidth)}
+	lines := []string{spaceBetween(header, count, boardColumnWidth), mutedBorder.Render(strings.Repeat("─", boardColumnWidth))}
 	if len(col.Tickets) == 0 {
 		lines = append(lines, "", padLine("(empty)", boardColumnWidth))
 	}
@@ -264,7 +270,6 @@ func (m Model) columnView(ci int, col storage.Column) string {
 		}
 		lines = append(lines, cardView(ci == m.col && ti == m.card, ticket, boardColumnWidth)...)
 	}
-	lines = append(lines, "", padLine("+ Add a card", boardColumnWidth))
 
 	return lipgloss.NewStyle().MarginRight(boardColumnGap).Render(strings.Join(lines, "\n"))
 }
@@ -289,7 +294,13 @@ func cardView(focused bool, ticket storage.Ticket, width int) []string {
 		content = append(content, padLine(prefix+line, cardInnerWidth))
 	}
 
-	meta := fmt.Sprintf("[%s] %s %s %s", ticket.Harness, windowIndicator(ticket), ticket.Runtime, elapsedLabel(ticket))
+	elapsed := elapsedLabel(ticket)
+	var meta string
+	if elapsed != "" {
+		meta = fmt.Sprintf("[%s] %s %s · %s", ticket.Harness, windowIndicator(ticket), runtimeLabel(ticket), elapsed)
+	} else {
+		meta = fmt.Sprintf("[%s] %s %s", ticket.Harness, windowIndicator(ticket), runtimeLabel(ticket))
+	}
 	content = append(content, padLine("  "+meta, cardInnerWidth))
 
 	lines := roundedBoxLines(content, width)
@@ -316,13 +327,41 @@ func cardView(focused bool, ticket storage.Ticket, width int) []string {
 	return lines
 }
 
+func runtimeLabel(ticket storage.Ticket) string {
+	switch ticket.Runtime {
+	case "not_started":
+		return "new"
+	case "running":
+		return "running"
+	case "waiting_for_user":
+		return "waiting"
+	case "needs_permission":
+		return "permission!"
+	case "idle_unknown":
+		return "idle"
+	case "closing":
+		return "closing"
+	case "closed":
+		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
+			return "resumable"
+		}
+		return "closed"
+	case "error":
+		return "error"
+	case "exited":
+		return "exited"
+	default:
+		return ticket.Runtime
+	}
+}
+
 func windowIndicator(ticket storage.Ticket) string {
 	switch {
 	case ticket.Runtime == "error":
 		return "!"
 	case ticket.SessionActive && ticket.WindowName.Valid:
 		return "●"
-	case ticket.SessionRef.Valid:
+	case ticket.SessionRef.Valid && ticket.SessionRef.String != "":
 		return "○"
 	default:
 		return "-"
@@ -350,24 +389,28 @@ func elapsedLabel(ticket storage.Ticket) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
+var mutedBorder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
 func roundedBoxLines(lines []string, width int) []string {
 	innerWidth := width - 2
+	top := mutedBorder.Render("╭" + strings.Repeat("─", innerWidth) + "╮")
+	bot := mutedBorder.Render("╰" + strings.Repeat("─", innerWidth) + "╯")
 	out := make([]string, 0, len(lines)+2)
-	out = append(out, "╭"+strings.Repeat("─", innerWidth)+"╮")
+	out = append(out, top)
 	for _, line := range lines {
-		out = append(out, "│ "+padLine(line, innerWidth-2)+" │")
+		out = append(out, mutedBorder.Render("│")+" "+padLine(line, innerWidth-2)+" "+mutedBorder.Render("│"))
 	}
-	out = append(out, "╰"+strings.Repeat("─", innerWidth)+"╯")
+	out = append(out, bot)
 	return out
 }
 
 func boxLines(lines []string, width int) string {
 	innerWidth := width - 2
-	border := "+" + strings.Repeat("-", innerWidth) + "+"
+	border := mutedBorder.Render("+" + strings.Repeat("-", innerWidth) + "+")
 	out := make([]string, 0, len(lines)+2)
 	out = append(out, border)
 	for _, line := range lines {
-		out = append(out, "|"+padLine(line, innerWidth)+"|")
+		out = append(out, mutedBorder.Render("|")+padLine(line, innerWidth)+mutedBorder.Render("|"))
 	}
 	out = append(out, border)
 	return strings.Join(out, "\n")
@@ -492,6 +535,16 @@ func (m *Model) createTicket() {
 	}
 	m.status = "created " + t.DisplayID
 	m.reload()
+	// Position cursor on new ticket then open edit immediately.
+	for ci, col := range m.view.Columns {
+		for ti, ticket := range col.Tickets {
+			if ticket.ID == t.ID {
+				m.col = ci
+				m.card = ti
+			}
+		}
+	}
+	m.startEdit()
 }
 
 func (m *Model) startColumnEdit(action string) {
@@ -638,6 +691,7 @@ func (m *Model) startEdit() {
 	m.editTitle = t.Title
 	m.editBody = t.Body
 	m.editHard = t.Harness
+	m.editCursor = len([]rune(t.Title))
 }
 
 func (m *Model) openTicket(sendPrompt bool) {
@@ -884,18 +938,48 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
 		m.editing = false
-	case "tab", "enter":
-		m.editField++
-		if m.editField > 2 {
+	case "tab":
+		newField := m.editField + 1
+		if newField > 2 {
 			m.saveEdit()
+		} else {
+			m.editField = newField
+			m.editCursor = len([]rune(m.currentEditField()))
+		}
+	case "enter":
+		if m.editField == 1 {
+			// newline in body
+			m.insertEdit("\n")
+		} else {
+			newField := m.editField + 1
+			if newField > 2 {
+				m.saveEdit()
+			} else {
+				m.editField = newField
+				m.editCursor = len([]rune(m.currentEditField()))
+			}
 		}
 	case "backspace":
 		m.backspaceEdit()
-	case "ctrl+e":
+	case "delete":
+		m.deleteEdit()
+	case "left":
+		if m.editCursor > 0 {
+			m.editCursor--
+		}
+	case "right":
+		if m.editCursor < len([]rune(m.currentEditField())) {
+			m.editCursor++
+		}
+	case "home", "ctrl+a":
+		m.editCursor = 0
+	case "end", "ctrl+e":
+		m.editCursor = len([]rune(m.currentEditField()))
+	case "ctrl+E":
 		return m, m.openBodyEditor()
 	default:
 		if len(key.Runes) > 0 {
-			m.appendEdit(string(key.Runes))
+			m.insertEdit(string(key.Runes))
 		}
 	}
 	return m, nil
@@ -919,37 +1003,103 @@ func (m *Model) saveEdit() {
 	m.reload()
 }
 
-func (m *Model) appendEdit(s string) {
+// currentEditField returns a pointer to the rune slice of the active field.
+func (m *Model) currentEditField() string {
 	switch m.editField {
 	case 0:
-		m.editTitle += s
+		return m.editTitle
 	case 1:
-		m.editBody += s
+		return m.editBody
 	case 2:
-		m.editHard += s
+		return m.editHard
 	}
+	return ""
+}
+
+func (m *Model) setEditField(s string) {
+	switch m.editField {
+	case 0:
+		m.editTitle = s
+	case 1:
+		m.editBody = s
+	case 2:
+		m.editHard = s
+	}
+}
+
+func (m *Model) insertEdit(s string) {
+	r := []rune(m.currentEditField())
+	ins := []rune(s)
+	new := make([]rune, 0, len(r)+len(ins))
+	new = append(new, r[:m.editCursor]...)
+	new = append(new, ins...)
+	new = append(new, r[m.editCursor:]...)
+	m.setEditField(string(new))
+	m.editCursor += len(ins)
 }
 
 func (m *Model) backspaceEdit() {
-	switch m.editField {
-	case 0:
-		m.editTitle = popRune(m.editTitle)
-	case 1:
-		m.editBody = popRune(m.editBody)
-	case 2:
-		m.editHard = popRune(m.editHard)
+	r := []rune(m.currentEditField())
+	if m.editCursor == 0 || len(r) == 0 {
+		return
 	}
+	new := make([]rune, 0, len(r)-1)
+	new = append(new, r[:m.editCursor-1]...)
+	new = append(new, r[m.editCursor:]...)
+	m.setEditField(string(new))
+	m.editCursor--
+}
+
+func (m *Model) deleteEdit() {
+	r := []rune(m.currentEditField())
+	if m.editCursor >= len(r) {
+		return
+	}
+	new := make([]rune, 0, len(r)-1)
+	new = append(new, r[:m.editCursor]...)
+	new = append(new, r[m.editCursor+1:]...)
+	m.setEditField(string(new))
+}
+
+func renderWithCursor(value string, cursor int) string {
+	r := []rune(value)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(r) {
+		cursor = len(r)
+	}
+	var b strings.Builder
+	b.WriteString(string(r[:cursor]))
+	if cursor < len(r) {
+		// highlight char under cursor
+		b.WriteString(lipgloss.NewStyle().Reverse(true).Render(string(r[cursor : cursor+1])))
+		b.WriteString(string(r[cursor+1:]))
+	} else {
+		// cursor at end: show block
+		b.WriteString(lipgloss.NewStyle().Reverse(true).Render(" "))
+	}
+	return b.String()
 }
 
 func (m Model) editView() string {
-	cursor := func(i int) string {
+	rowCursor := func(i int) string {
 		if m.editField == i {
 			return ">"
 		}
 		return " "
 	}
-	return fmt.Sprintf("Edit ticket\n\n%s title: %s\n%s body: %s\n%s harness: %s\n\nEnter/Tab next, Ctrl+E opens body in $EDITOR, Esc cancel\n",
-		cursor(0), m.editTitle, cursor(1), m.editBody, cursor(2), m.editHard)
+	render := func(i int, value string) string {
+		if m.editField == i {
+			return renderWithCursor(value, m.editCursor)
+		}
+		return value
+	}
+	// For body, show it inline but with newlines rendered visibly for multiline.
+	return fmt.Sprintf("Edit ticket\n\n%s title:   %s\n%s body:    %s\n%s harness: %s\n\nTab next field · Enter newline in body · ←/→ move · Home/End · Ctrl+E full editor · Esc cancel\n",
+		rowCursor(0), render(0, m.editTitle),
+		rowCursor(1), render(1, m.editBody),
+		rowCursor(2), render(2, m.editHard))
 }
 
 func (m Model) stateMenuView() string {
@@ -985,7 +1135,8 @@ func (m Model) repairView() string {
 	if m.repairEditingRef {
 		return fmt.Sprintf("Edit session ref for %s\n\n> ref: %s\n\nEnter save, Esc back\n", m.repairTicket.DisplayID, m.repairRef)
 	}
-	return fmt.Sprintf("Session repair needed for %s\n\n%s\n\nr retry\ne edit session ref\nf start fresh\nc cancel\n", m.repairTicket.DisplayID, m.repairReason)
+	return fmt.Sprintf("Session repair needed for %s\n\n%s\nr retry  e edit ref  f start fresh  c cancel\n",
+		m.repairTicket.DisplayID, m.repairReason)
 }
 
 func (m Model) openBodyEditor() tea.Cmd {

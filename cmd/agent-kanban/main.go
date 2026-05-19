@@ -286,6 +286,10 @@ func (b boardService) CloseTicketSession(ctx context.Context, ticket storage.Tic
 	return b.manager.CloseSession(ctx, ticket)
 }
 
+func (b boardService) KillAllSessions(ctx context.Context) error {
+	return b.manager.KillSession(ctx)
+}
+
 func (b boardService) StartFreshTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
 	return b.manager.StartFreshTicket(ctx, ticket, sendPrompt)
 }

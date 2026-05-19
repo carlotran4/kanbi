@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -166,6 +167,8 @@ func CaptureSessionRef(cfg config.Config, name, promptText string, since time.Ti
 		return latestCodexHistorySession(promptText, since)
 	case "pi":
 		return latestPiSession(promptText, since)
+	case "copilot":
+		return latestCopilotSession(promptText, since)
 	default:
 		return "", false
 	}
@@ -320,4 +323,47 @@ func contentText(content any) string {
 		}
 		return ""
 	}
+}
+
+// latestCopilotSession scans ~/.copilot/session-store.db for the most recent
+// Copilot CLI session whose first user turn matches promptText and whose cwd
+// matches the current working directory. The session ID is stable and can be
+// passed to `gh copilot -- --resume=<id>`.
+func latestCopilotSession(promptText string, since time.Time) (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	dbPath := filepath.Join(home, ".copilot", "session-store.db")
+	db, err := sql.Open("sqlite3", dbPath+"?mode=ro")
+	if err != nil {
+		return "", false
+	}
+	defer db.Close()
+
+	// Find sessions in this cwd created after since, whose first user turn (if already written)
+	// matches promptText, OR where no turn exists yet but the session cwd+time matches.
+	// The turn is written asynchronously when the model first responds, which can take
+	// several seconds. We accept a session with no turn yet and verify the prompt match
+	// opportunistically; if a turn is present it must match.
+	sinceStr := since.UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	query := `
+		SELECT s.id
+		FROM sessions s
+		LEFT JOIN turns t ON t.session_id = s.id AND t.turn_index = 0
+		WHERE s.cwd = ?
+		  AND s.created_at >= ?
+		  AND (t.user_message = ? OR t.user_message IS NULL)
+		ORDER BY s.created_at DESC
+		LIMIT 1`
+	var id string
+	err = db.QueryRow(query, cwd, sinceStr, promptText).Scan(&id)
+	if err != nil {
+		return "", false
+	}
+	return id, id != ""
 }
