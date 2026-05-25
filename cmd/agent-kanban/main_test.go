@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-kanban/internal/config"
 	"agent-kanban/internal/storage"
@@ -48,42 +50,42 @@ func setupCLI(t *testing.T) (runArgs func(args ...string) error, store func() *s
 // ---- parseAddArgs ----
 
 func TestParseAddArgsPositional(t *testing.T) {
-	title, body, harness, err := parseAddArgs([]string{"My ticket"})
+	title, body, harness, _, err := parseAddArgs([]string{"My ticket"})
 	if err != nil || title != "My ticket" || body != "" || harness != "pi" {
 		t.Fatalf("title=%q body=%q harness=%q err=%v", title, body, harness, err)
 	}
 }
 
 func TestParseAddArgsAllFlags(t *testing.T) {
-	title, body, harness, err := parseAddArgs([]string{"Title", "--body", "some body", "--harness", "codex"})
+	title, body, harness, _, err := parseAddArgs([]string{"Title", "--body", "some body", "--harness", "codex"})
 	if err != nil || title != "Title" || body != "some body" || harness != "codex" {
 		t.Fatalf("title=%q body=%q harness=%q err=%v", title, body, harness, err)
 	}
 }
 
 func TestParseAddArgsMissingBodyValue(t *testing.T) {
-	_, _, _, err := parseAddArgs([]string{"Title", "--body"})
+	_, _, _, _, err := parseAddArgs([]string{"Title", "--body"})
 	if err == nil {
 		t.Fatal("expected error for missing --body value")
 	}
 }
 
 func TestParseAddArgsMissingHarnessValue(t *testing.T) {
-	_, _, _, err := parseAddArgs([]string{"Title", "--harness"})
+	_, _, _, _, err := parseAddArgs([]string{"Title", "--harness"})
 	if err == nil {
 		t.Fatal("expected error for missing --harness value")
 	}
 }
 
 func TestParseAddArgsDoubleTitleRejected(t *testing.T) {
-	_, _, _, err := parseAddArgs([]string{"First", "Second"})
+	_, _, _, _, err := parseAddArgs([]string{"First", "Second"})
 	if err == nil {
 		t.Fatal("expected error for double positional title")
 	}
 }
 
 func TestParseAddArgsUnknownFlag(t *testing.T) {
-	_, _, _, err := parseAddArgs([]string{"Title", "--unknown"})
+	_, _, _, _, err := parseAddArgs([]string{"Title", "--unknown"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
 	}
@@ -92,30 +94,57 @@ func TestParseAddArgsUnknownFlag(t *testing.T) {
 // ---- parseOpenArgs ----
 
 func TestParseOpenArgsDisplayID(t *testing.T) {
-	id, send, err := parseOpenArgs([]string{"T-001"})
+	id, send, _, err := parseOpenArgs([]string{"T-001"})
 	if err != nil || id != "T-001" || send {
 		t.Fatalf("id=%q send=%v err=%v", id, send, err)
 	}
 }
 
 func TestParseOpenArgsSendPrompt(t *testing.T) {
-	id, send, err := parseOpenArgs([]string{"T-001", "--send-prompt"})
+	id, send, _, err := parseOpenArgs([]string{"T-001", "--send-prompt"})
 	if err != nil || id != "T-001" || !send {
 		t.Fatalf("id=%q send=%v err=%v", id, send, err)
 	}
 }
 
 func TestParseOpenArgsDoubleIDRejected(t *testing.T) {
-	_, _, err := parseOpenArgs([]string{"T-001", "T-002"})
+	_, _, _, err := parseOpenArgs([]string{"T-001", "T-002"})
 	if err == nil {
 		t.Fatal("expected error for double display ID")
 	}
 }
 
 func TestParseOpenArgsUnknownFlag(t *testing.T) {
-	_, _, err := parseOpenArgs([]string{"--foo"})
+	_, _, _, err := parseOpenArgs([]string{"--foo"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestParseBoardAddArgsCWD(t *testing.T) {
+	dir := t.TempDir()
+	name, workdir, err := parseBoardAddArgs([]string{"Client", "--cwd", dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "Client" || workdir != dir {
+		t.Fatalf("name=%q workdir=%q", name, workdir)
+	}
+}
+
+func TestRunBoardsAddPersistsWorkdir(t *testing.T) {
+	run, getStore := setupCLI(t)
+	workdir := t.TempDir()
+	if err := run("boards", "add", "Client", "--cwd", workdir); err != nil {
+		t.Fatal(err)
+	}
+	s := getStore()
+	boards, err := s.ListBoards(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(boards) == 0 || boards[0].Name != "Client" || boards[0].Workdir != workdir {
+		t.Fatalf("board workdir not persisted: %+v", boards)
 	}
 }
 
@@ -202,6 +231,141 @@ func TestRunUnknownCommandReturnsError(t *testing.T) {
 	}
 }
 
+func TestRunBoardsRenameAndSetCWD(t *testing.T) {
+	run, getStore := setupCLI(t)
+	oldDir := t.TempDir()
+	newDir := t.TempDir()
+	if err := run("boards", "add", "Client", "--cwd", oldDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("boards", "rename", "Client", "Renamed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("boards", "set-cwd", "Renamed", newDir); err != nil {
+		t.Fatal(err)
+	}
+	s := getStore()
+	b, err := s.BoardByName(context.Background(), "Renamed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Workdir != newDir {
+		t.Fatalf("workdir=%q want %q", b.Workdir, newDir)
+	}
+}
+
+func TestCLIRequiresBoardForAmbiguousDisplayID(t *testing.T) {
+	run, getStore := setupCLI(t)
+	if err := run("boards", "add", "Client"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("add", "Default task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("add", "Client task", "--board", "Client"); err != nil {
+		t.Fatal(err)
+	}
+	s := getStore()
+	if _, err := s.TicketByDisplayID(context.Background(), "T-001"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguous display id, got %v", err)
+	}
+	client, err := s.BoardByName(context.Background(), "Client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := s.TicketByDisplayIDInBoard(context.Background(), "T-001", client.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.Title != "Client task" {
+		t.Fatalf("board-specific ticket = %+v", ticket)
+	}
+}
+
+func TestRunBoardTUIIntegrationSwitchesBoards(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping TUI integration test in short mode")
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "agent-kanban")
+	build := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build agent-kanban: %v\n%s", err, out)
+	}
+
+	dbPath := filepath.Join(dir, "test.db")
+	cfgPath := filepath.Join(dir, "config.yaml")
+	sessionName := "agent-kanban-it-" + sanitizeName(t.Name())
+	runScript := filepath.Join(dir, "run-board.sh")
+	if err := os.WriteFile(runScript, []byte("#!/bin/sh\n"+
+		"export AGENT_KANBAN_DB="+shellQuote(dbPath)+"\n"+
+		"export AGENT_KANBAN_CONFIG="+shellQuote(cfgPath)+"\n"+
+		"export AGENT_KANBAN_DATA_DIR="+shellQuote(dir)+"\n"+
+		"export AGENT_KANBAN_STATE_DIR="+shellQuote(dir)+"\n"+
+		"export AGENT_KANBAN_TMUX_SESSION="+shellQuote(sessionName)+"\n"+
+		"export TERM=xterm-256color\n"+
+		"exec "+shellQuote(bin)+" --board\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	s, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defaultView, _ := s.BoardView(ctx)
+	if _, err := s.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	clientBoard, err := s.CreateBoard(ctx, "Client B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientView, _ := s.BoardViewByID(ctx, clientBoard.ID)
+	if _, err := s.CreateTicket(ctx, clientView.Columns[0].ID, "Client task", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drive the real binary in a real tmux pane. This exercises the compiled CLI,
+	// Bubble Tea input handling, startup picker, board switching, and rendering.
+	tmuxCmd(t, "kill-session", "-t", sessionName)
+	t.Cleanup(func() { tmuxCmd(t, "kill-session", "-t", sessionName) })
+	tmuxCmd(t, "new-session", "-d", "-s", sessionName, runScript)
+	output := waitForTmuxOutput(t, sessionName, "Select board")
+	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // select Master
+	output = waitForTmuxOutput(t, sessionName, "[Client B]")
+	tmuxCmd(t, "send-keys", "-t", sessionName, "n")
+	output = waitForTmuxOutput(t, sessionName, "Create ticket in which board?")
+	tmuxCmd(t, "send-keys", "-t", sessionName, "j")
+	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // create on Client B
+	output = waitForTmuxOutput(t, sessionName, "Edit ticket")
+	tmuxCmd(t, "send-keys", "-t", sessionName, "Escape")
+	tmuxCmd(t, "send-keys", "-t", sessionName, "b")
+	output = waitForTmuxOutput(t, sessionName, "Select board")
+	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // select Client B
+	output = waitForTmuxOutput(t, sessionName, "switched to Client B")
+	tmuxCmd(t, "send-keys", "-t", sessionName, "q")
+	for _, want := range []string{"New ticket", "Client task", "switched to Client B"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TUI output missing %q\n--- output ---\n%s", want, output)
+		}
+	}
+	clientView, err = s.BoardViewByID(ctx, clientBoard.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clientView.Columns[0].Tickets) != 2 {
+		t.Fatalf("Master create should add a ticket to Client B, got %+v", clientView.Columns[0].Tickets)
+	}
+}
+
 // ---- boardService wiring ----
 
 func TestBoardServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
@@ -223,7 +387,7 @@ func TestBoardServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
 	sessionID, _ := s.UpsertActiveSession(ctx, ticket.ID, storage.Session{
 		Harness:         "pi",
 		TmuxSessionName: cfg.TmuxSession,
-		TmuxWindowName:  tmux.WindowName(ticket.DisplayID, ticket.Title),
+		TmuxWindowName:  tmux.TicketWindowName(ticket),
 		Status:          "running",
 	})
 	_ = sessionID
@@ -238,8 +402,10 @@ func TestBoardServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
 		t.Fatalf("UpdateTicket failed: %v", err)
 	}
 
-	if renamedTo != tmux.WindowName(ticket.DisplayID, "Updated Title") {
-		t.Fatalf("tmux window renamed to %q, want %q", renamedTo, tmux.WindowName(ticket.DisplayID, "Updated Title"))
+	updated := ticket
+	updated.Title = "Updated Title"
+	if renamedTo != tmux.TicketWindowName(updated) {
+		t.Fatalf("tmux window renamed to %q, want %q", renamedTo, tmux.TicketWindowName(updated))
 	}
 
 	got, _ := s.TicketByID(ctx, ticket.ID)
@@ -310,7 +476,7 @@ func TestBoardServiceOpenTicketRoutesSendPromptVsSwitch(t *testing.T) {
 	manager.Store = s
 	_, _ = s.UpsertActiveSession(ctx, ticket.ID, storage.Session{
 		Harness: "pi", TmuxSessionName: cfg.TmuxSession,
-		TmuxWindowName: tmux.WindowName(ticket.DisplayID, ticket.Title),
+		TmuxWindowName: tmux.TicketWindowName(ticket),
 		TmuxWindowID:   sql.NullString{String: "@7", Valid: true},
 		Status:         "running",
 	})
@@ -391,6 +557,56 @@ func TestBoardServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 	}
 }
 
+func sanitizeName(s string) string {
+	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, " ", "-")
+	return s
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func tmuxCmd(t *testing.T, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("tmux", args...).CombinedOutput()
+	// kill-session is allowed to fail during cleanup / pre-clean when absent.
+	if err != nil && !(len(args) > 0 && args[0] == "kill-session") {
+		t.Fatalf("tmux %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
+}
+
+func waitForTmuxOutput(t *testing.T, sessionName, want string) string {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var output string
+	for time.Now().Before(deadline) {
+		output = stripANSI(tmuxCmd(t, "capture-pane", "-p", "-t", sessionName))
+		if strings.Contains(output, want) {
+			return output
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %q\n--- output ---\n%s", want, output)
+	return output
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && (s[i] < '@' || s[i] > '~') {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 // ---- fake runners for boardService tests ----
 
 type captureRenameRunner struct {
@@ -411,7 +627,7 @@ func (r *captureRenameRunner) Run(ctx context.Context, name string, args ...stri
 	}
 	// Simulate a window existing for the original name so ticketWindowRef finds it
 	if len(args) > 0 && args[0] == "list-windows" {
-		return "board\nT-001-original\n", nil
+		return "board\nb1-T-001-original\n", nil
 	}
 	if len(args) > 0 && args[0] == "display-message" {
 		return "@7\n", nil

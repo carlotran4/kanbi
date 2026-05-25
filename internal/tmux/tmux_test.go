@@ -26,6 +26,29 @@ type fakeRunner struct {
 	windows map[string]string
 }
 
+type piRefWritingRunner struct {
+	fakeRunner
+	ref string
+}
+
+func (r *piRefWritingRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if len(args) >= 1 && args[0] == "new-window" {
+		cmd := args[len(args)-1]
+		marker := "AGENT_KANBAN_SESSION_REF_FILE="
+		if idx := strings.Index(cmd, marker); idx >= 0 {
+			start := idx + len(marker)
+			end := start
+			for end < len(cmd) && cmd[end] != '\'' && cmd[end] != ' ' {
+				end++
+			}
+			refFile := cmd[start:end]
+			_ = os.MkdirAll(filepath.Dir(refFile), 0o755)
+			_ = os.WriteFile(refFile, []byte(`{"sessionId":"`+r.ref+`"}`+"\n"), 0o644)
+		}
+	}
+	return r.fakeRunner.Run(ctx, name, args...)
+}
+
 func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	f.calls = append(f.calls, call{name: name, args: append([]string(nil), args...)})
 	switch {
@@ -70,6 +93,51 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 	default:
 		return "", nil
 	}
+}
+
+func TestAttachCommandCreatesDistinctBoardClientSession(t *testing.T) {
+	cfg := config.Defaults(config.Paths{})
+	cfg.TmuxSession = "agent-kanban-main"
+	cfg.Tmux.BoardWindowName = "board"
+
+	cmd1 := AttachCommand(cfg, "/tmp/agent-kanban")
+	cmd2 := AttachCommand(cfg, "/tmp/agent-kanban")
+
+	if containsArg(cmd1.Args, "-A") || containsArg(cmd2.Args, "-A") {
+		t.Fatalf("AttachCommand must not use tmux -A; it should create an independent board client: %v", cmd1.Args)
+	}
+	s1 := argAfter(cmd1.Args, "-s")
+	s2 := argAfter(cmd2.Args, "-s")
+	if s1 == "" || s2 == "" {
+		t.Fatalf("AttachCommand missing tmux session names: %v / %v", cmd1.Args, cmd2.Args)
+	}
+	if s1 == cfg.TmuxSession || s2 == cfg.TmuxSession {
+		t.Fatalf("board client should not attach directly to shared ticket session %q: %v / %v", cfg.TmuxSession, cmd1.Args, cmd2.Args)
+	}
+	if s1 == s2 {
+		t.Fatalf("separate launches should get separate board client sessions, got %q", s1)
+	}
+	if !containsArg(cmd1.Args, "AGENT_KANBAN_INNER=1") || !containsArg(cmd1.Args, "--board") {
+		t.Fatalf("AttachCommand should launch inner board command: %v", cmd1.Args)
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
+}
+
+func argAfter(args []string, flag string) string {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 func TestReconcileMarksSessionMissingWhenWindowGone(t *testing.T) {
@@ -135,8 +203,11 @@ func TestRenameTicketWindowUpdatesDBAndTmux(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("active session ok=%v err=%v", ok, err)
 	}
-	if ses.TmuxWindowName != "T-001-new-title" {
-		t.Fatalf("DB window name = %q, want T-001-new-title", ses.TmuxWindowName)
+	updated := ticket
+	updated.Title = "New Title"
+	wantName := TicketWindowName(updated)
+	if ses.TmuxWindowName != wantName {
+		t.Fatalf("DB window name = %q, want %s", ses.TmuxWindowName, wantName)
 	}
 }
 
@@ -325,22 +396,93 @@ func TestWindowNameAndShellCommand(t *testing.T) {
 	}
 }
 
+func TestReadPiSessionRefFileRejectsMissingMalformedOrEmptyRefs(t *testing.T) {
+	dir := t.TempDir()
+	if _, ok := readPiSessionRefFile(filepath.Join(dir, "missing.json")); ok {
+		t.Fatal("missing file should not yield a ref")
+	}
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte(`not-json`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readPiSessionRefFile(bad); ok {
+		t.Fatal("malformed JSON should not yield a ref")
+	}
+	empty := filepath.Join(dir, "empty.json")
+	if err := os.WriteFile(empty, []byte(`{"sessionId":"   "}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readPiSessionRefFile(empty); ok {
+		t.Fatal("blank session id should not yield a ref")
+	}
+	valid := filepath.Join(dir, "valid.json")
+	if err := os.WriteFile(valid, []byte(`{"sessionId":"  019e-good  "}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ref, ok := readPiSessionRefFile(valid)
+	if !ok || ref != "019e-good" {
+		t.Fatalf("valid ref = %q ok=%v", ref, ok)
+	}
+}
+
+func TestOpenTicketWithPiPromptCapturesSessionRefFromBundledExtension(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, _ := store.BoardView(ctx)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Demo", "Body", "pi")
+	cfg := config.Defaults(config.Paths{StateDir: t.TempDir()})
+	runner := &piRefWritingRunner{ref: "019e-extension-ref"}
+	manager := &Manager{Config: cfg, Store: store, Runner: runner}
+
+	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.SessionRef.Valid || got.SessionRef.String != "019e-extension-ref" {
+		t.Fatalf("session ref = %#v, want extension ref", got.SessionRef)
+	}
+
+	var sawExtension bool
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" {
+			cmd := c.args[len(c.args)-1]
+			if strings.Contains(cmd, "env ") && strings.Contains(cmd, "AGENT_KANBAN_SESSION_REF_FILE=") && strings.Contains(cmd, " -e ") && strings.Contains(cmd, "pi-session-ref-extension.ts") {
+				sawExtension = true
+			}
+		}
+	}
+	if !sawExtension {
+		t.Fatalf("pi command did not load bundled session-ref extension: %+v", runner.calls)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Paths.StateDir, "pi-session-ref-extension.ts")); err != nil {
+		t.Fatalf("extension was not materialized in state dir: %v", err)
+	}
+}
+
 func TestOpenTicketCreatesWindowAndPastesPrompt(t *testing.T) {
 	cfg := config.Defaults(config.Paths{})
 	cfg.PromptReadyTimeout = time.Second
 	cfg.Harnesses["pi"] = config.Harness{Start: []string{"/tmp/fake-pi"}, PromptReady: "PROMPT_READY"}
 	runner := &fakeRunner{}
 	manager := &Manager{Config: cfg, Runner: runner}
-	ticket := storage.Ticket{ID: 1, DisplayID: "T-001", Title: "Demo", Body: "Body", Harness: "pi"}
+	workdir := t.TempDir()
+	ticket := storage.Ticket{ID: 1, DisplayID: "T-001", Title: "Demo", Body: "Body", Harness: "pi", BoardWorkdir: workdir}
 	if err := manager.OpenTicket(context.Background(), ticket, true); err != nil {
 		t.Fatal(err)
 	}
-	var sawNew, sawSetBuffer, sawPaste bool
+	var sawNew, sawSetBuffer, sawPaste, sawWorkdir bool
 	for _, c := range runner.calls {
 		if len(c.args) > 0 && c.args[0] == "new-window" {
 			sawNew = true
-			if !strings.Contains(strings.Join(c.args, " "), "T-001-demo") {
+			joined := strings.Join(c.args, " ")
+			if !strings.Contains(joined, "T-001-demo") {
 				t.Fatalf("new-window args = %#v", c.args)
+			}
+			if strings.Contains(joined, "-c "+workdir) {
+				sawWorkdir = true
 			}
 		}
 		if len(c.args) > 0 && c.args[0] == "set-buffer" {
@@ -350,8 +492,8 @@ func TestOpenTicketCreatesWindowAndPastesPrompt(t *testing.T) {
 			sawPaste = true
 		}
 	}
-	if !sawNew || !sawSetBuffer || !sawPaste {
-		t.Fatalf("calls missing new=%v set=%v paste=%v calls=%+v", sawNew, sawSetBuffer, sawPaste, runner.calls)
+	if !sawNew || !sawWorkdir || !sawSetBuffer || !sawPaste {
+		t.Fatalf("calls missing new=%v workdir=%v set=%v paste=%v calls=%+v", sawNew, sawWorkdir, sawSetBuffer, sawPaste, runner.calls)
 	}
 }
 
@@ -375,6 +517,29 @@ func TestPasteModeCapturesSessionRefFromPane(t *testing.T) {
 	}
 }
 
+func TestOpenTicketCreatesWindowAndSwitchesClient(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view, err := store.BoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Demo", "Body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t @7" {
+			return
+		}
+	}
+	t.Fatalf("switch-client @7 not called after open: %+v", runner.calls)
+}
+
 func TestOpenTicketRecordsWindowID(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view, err := store.BoardView(ctx)
@@ -395,7 +560,7 @@ func TestOpenTicketRecordsWindowID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.WindowID.String != "@7" || got.WindowName.String != "T-001-demo" {
+	if got.WindowID.String != "@7" || got.WindowName.String != TicketWindowName(ticket) {
 		t.Fatalf("window metadata = id:%q name:%q", got.WindowID.String, got.WindowName.String)
 	}
 }

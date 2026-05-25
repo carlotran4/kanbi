@@ -48,10 +48,12 @@ func run(args []string) error {
 		return runBoard(ctx, cfg)
 	case "doctor":
 		return runDoctor(ctx, cfg)
+	case "boards":
+		return runBoards(ctx, cfg, args[1:])
 	case "add":
 		return runAdd(ctx, cfg, args[1:])
 	case "list":
-		return runList(ctx, cfg)
+		return runList(ctx, cfg, args[1:])
 	case "open":
 		return runOpen(ctx, cfg, args[1:])
 	default:
@@ -67,7 +69,7 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 	defer store.Close()
 	manager := tmux.NewManager(cfg, store)
 	_ = manager.Reconcile(ctx)
-	_, err = tea.NewProgram(tui.New(ctx, boardService{store: store, manager: manager})).Run()
+	_, err = tea.NewProgram(tui.NewWithPicker(ctx, boardService{store: store, manager: manager})).Run()
 	return err
 }
 
@@ -124,8 +126,69 @@ func runDoctor(ctx context.Context, cfg config.Config) error {
 	return nil
 }
 
+func runBoards(ctx context.Context, cfg config.Config, args []string) error {
+	store, err := openStore(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if len(args) == 0 || args[0] == "list" {
+		boards, err := store.ListBoards(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Master\t(all boards)")
+		for _, b := range boards {
+			fmt.Printf("%d\t%s\t%s\n", b.ID, b.Name, b.Workdir)
+		}
+		return nil
+	}
+	if args[0] == "add" {
+		name, workdir, err := parseBoardAddArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		b, err := store.CreateBoardWithWorkdir(ctx, name, workdir)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%d\t%s\t%s\n", b.ID, b.Name, b.Workdir)
+		return nil
+	}
+	if args[0] == "rename" {
+		if len(args) != 3 {
+			return fmt.Errorf("usage: agent-kanban boards rename \"Old Name\" \"New Name\"")
+		}
+		b, err := store.BoardByName(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		if err := store.RenameBoard(ctx, b.ID, args[2]); err != nil {
+			return err
+		}
+		fmt.Printf("%d\t%s\n", b.ID, args[2])
+		return nil
+	}
+	if args[0] == "set-cwd" {
+		if len(args) != 3 {
+			return fmt.Errorf("usage: agent-kanban boards set-cwd \"Name\" /path")
+		}
+		b, err := store.BoardByName(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		if err := store.SetBoardWorkdir(ctx, b.ID, args[2]); err != nil {
+			return err
+		}
+		updated, _ := store.BoardByName(ctx, args[1])
+		fmt.Printf("%d\t%s\t%s\n", updated.ID, updated.Name, updated.Workdir)
+		return nil
+	}
+	return fmt.Errorf("usage: agent-kanban boards [list|add \"Name\" [--cwd /path]|rename OLD NEW|set-cwd NAME /path]")
+}
+
 func runAdd(ctx context.Context, cfg config.Config, args []string) error {
-	title, body, harnessName, err := parseAddArgs(args)
+	title, body, harnessName, boardName, err := parseAddArgs(args)
 	if err != nil {
 		return err
 	}
@@ -137,9 +200,21 @@ func runAdd(ctx context.Context, cfg config.Config, args []string) error {
 		return err
 	}
 	defer store.Close()
-	board, err := store.BoardView(ctx)
-	if err != nil {
-		return err
+	var board storage.BoardView
+	if boardName != "" {
+		b, err := store.BoardByName(ctx, boardName)
+		if err != nil {
+			return err
+		}
+		board, err = store.BoardViewByID(ctx, b.ID)
+		if err != nil {
+			return err
+		}
+	} else {
+		board, err = store.BoardView(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	if len(board.Columns) == 0 {
 		return fmt.Errorf("default board has no columns")
@@ -152,36 +227,64 @@ func runAdd(ctx context.Context, cfg config.Config, args []string) error {
 	return nil
 }
 
-func runList(ctx context.Context, cfg config.Config) error {
+func runList(ctx context.Context, cfg config.Config, args []string) error {
+	boardName, err := parseOptionalBoard(args)
+	if err != nil {
+		return err
+	}
 	store, err := openStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	tickets, err := store.ListTickets(ctx, false)
-	if err != nil {
-		return err
+	var tickets []storage.Ticket
+	if boardName != "" {
+		b, err := store.BoardByName(ctx, boardName)
+		if err != nil {
+			return err
+		}
+		view, err := store.BoardViewByID(ctx, b.ID)
+		if err != nil {
+			return err
+		}
+		for _, c := range view.Columns {
+			tickets = append(tickets, c.Tickets...)
+		}
+	} else {
+		tickets, err = store.ListTickets(ctx, false)
+		if err != nil {
+			return err
+		}
 	}
 	for _, t := range tickets {
-		fmt.Printf("%s\t%s\t%s\t%s\n", t.DisplayID, t.Harness, t.Runtime, t.Title)
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", t.BoardName, t.DisplayID, t.Harness, t.Runtime, t.Title)
 	}
 	return nil
 }
 
 func runOpen(ctx context.Context, cfg config.Config, args []string) error {
-	displayID, sendPrompt, err := parseOpenArgs(args)
+	displayID, sendPrompt, boardName, err := parseOpenArgs(args)
 	if err != nil {
 		return err
 	}
 	if displayID == "" {
-		return fmt.Errorf("usage: agent-kanban open T-001 [--send-prompt]")
+		return fmt.Errorf("usage: agent-kanban open T-001 [--board NAME] [--send-prompt]")
 	}
 	store, err := openStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	ticket, err := store.TicketByDisplayID(ctx, strings.ToUpper(displayID))
+	var ticket storage.Ticket
+	if boardName != "" {
+		b, err := store.BoardByName(ctx, boardName)
+		if err != nil {
+			return err
+		}
+		ticket, err = store.TicketByDisplayIDInBoard(ctx, strings.ToUpper(displayID), b.ID)
+	} else {
+		ticket, err = store.TicketByDisplayID(ctx, strings.ToUpper(displayID))
+	}
 	if err != nil {
 		return err
 	}
@@ -189,7 +292,7 @@ func runOpen(ctx context.Context, cfg config.Config, args []string) error {
 	if err := manager.OpenTicket(ctx, ticket, sendPrompt); err != nil {
 		return err
 	}
-	fmt.Println("opened", ticket.DisplayID, tmux.WindowName(ticket.DisplayID, ticket.Title))
+	fmt.Println("opened", ticket.BoardName, ticket.DisplayID, tmux.TicketWindowName(ticket))
 	return nil
 }
 
@@ -206,7 +309,7 @@ func openStore(ctx context.Context, cfg config.Config) (*storage.Store, error) {
 }
 
 func usageError(cmd string) error {
-	return fmt.Errorf("unknown command %q\nusage: agent-kanban [doctor|add|list|open|--board]", cmd)
+	return fmt.Errorf("unknown command %q\nusage: agent-kanban [doctor|boards|add|list|open|--board]", cmd)
 }
 
 type boardService struct {
@@ -216,6 +319,38 @@ type boardService struct {
 
 func (b boardService) BoardView(ctx context.Context) (storage.BoardView, error) {
 	return b.store.BoardView(ctx)
+}
+
+func (b boardService) ListBoards(ctx context.Context) ([]storage.Board, error) {
+	return b.store.ListBoards(ctx)
+}
+
+func (b boardService) BoardViewByID(ctx context.Context, boardID int64) (storage.BoardView, error) {
+	return b.store.BoardViewByID(ctx, boardID)
+}
+
+func (b boardService) MasterBoardView(ctx context.Context) (storage.BoardView, error) {
+	return b.store.MasterBoardView(ctx)
+}
+
+func (b boardService) CreateBoardWithWorkdir(ctx context.Context, name, workdir string) (storage.Board, error) {
+	return b.store.CreateBoardWithWorkdir(ctx, name, workdir)
+}
+
+func (b boardService) RenameBoard(ctx context.Context, boardID int64, name string) error {
+	return b.store.RenameBoard(ctx, boardID, name)
+}
+
+func (b boardService) SetBoardWorkdir(ctx context.Context, boardID int64, workdir string) error {
+	return b.store.SetBoardWorkdir(ctx, boardID, workdir)
+}
+
+func (b boardService) DeleteBoard(ctx context.Context, boardID int64) error {
+	return b.store.DeleteBoard(ctx, boardID)
+}
+
+func (b boardService) ColumnIDByBoardAndName(ctx context.Context, boardID int64, name string) (int64, error) {
+	return b.store.ColumnIDByBoardAndName(ctx, boardID, name)
 }
 
 func (b boardService) CreateTicket(ctx context.Context, columnID int64, title, body, harnessName string) (storage.Ticket, error) {
@@ -301,49 +436,106 @@ func (b boardService) UpdateSessionRef(ctx context.Context, ticket storage.Ticke
 	return fmt.Errorf("ticket has no session to repair")
 }
 
-func parseAddArgs(args []string) (title, body, harnessName string, err error) {
+func parseBoardAddArgs(args []string) (name, workdir string, err error) {
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		workdir = cwd
+	}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--cwd":
+			i++
+			if i >= len(args) {
+				return "", "", fmt.Errorf("--cwd requires a value")
+			}
+			workdir = args[i]
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				return "", "", fmt.Errorf("unknown boards add flag %s", args[i])
+			}
+			if name != "" {
+				return "", "", fmt.Errorf("boards add accepts one name")
+			}
+			name = args[i]
+		}
+	}
+	if name == "" {
+		return "", "", fmt.Errorf("usage: agent-kanban boards add \"Name\" [--cwd /path]")
+	}
+	return name, workdir, nil
+}
+
+func parseAddArgs(args []string) (title, body, harnessName, boardName string, err error) {
 	harnessName = "pi"
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--body":
 			i++
 			if i >= len(args) {
-				return "", "", "", fmt.Errorf("--body requires a value")
+				return "", "", "", "", fmt.Errorf("--body requires a value")
 			}
 			body = args[i]
 		case "--harness":
 			i++
 			if i >= len(args) {
-				return "", "", "", fmt.Errorf("--harness requires a value")
+				return "", "", "", "", fmt.Errorf("--harness requires a value")
 			}
 			harnessName = args[i]
+		case "--board":
+			i++
+			if i >= len(args) {
+				return "", "", "", "", fmt.Errorf("--board requires a value")
+			}
+			boardName = args[i]
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return "", "", "", fmt.Errorf("unknown add flag %s", args[i])
+				return "", "", "", "", fmt.Errorf("unknown add flag %s", args[i])
 			}
 			if title != "" {
-				return "", "", "", fmt.Errorf("add accepts one title")
+				return "", "", "", "", fmt.Errorf("add accepts one title")
 			}
 			title = args[i]
 		}
 	}
-	return title, body, harnessName, nil
+	return title, body, harnessName, boardName, nil
 }
 
-func parseOpenArgs(args []string) (displayID string, sendPrompt bool, err error) {
-	for _, arg := range args {
-		switch arg {
-		case "--send-prompt":
-			sendPrompt = true
+func parseOptionalBoard(args []string) (string, error) {
+	boardName := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--board":
+			i++
+			if i >= len(args) {
+				return "", fmt.Errorf("--board requires a value")
+			}
+			boardName = args[i]
 		default:
-			if strings.HasPrefix(arg, "-") {
-				return "", false, fmt.Errorf("unknown open flag %s", arg)
-			}
-			if displayID != "" {
-				return "", false, fmt.Errorf("open accepts one display id")
-			}
-			displayID = arg
+			return "", fmt.Errorf("unknown list flag %s", args[i])
 		}
 	}
-	return displayID, sendPrompt, nil
+	return boardName, nil
+}
+
+func parseOpenArgs(args []string) (displayID string, sendPrompt bool, boardName string, err error) {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--send-prompt":
+			sendPrompt = true
+		case "--board":
+			i++
+			if i >= len(args) {
+				return "", false, "", fmt.Errorf("--board requires a value")
+			}
+			boardName = args[i]
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				return "", false, "", fmt.Errorf("unknown open flag %s", args[i])
+			}
+			if displayID != "" {
+				return "", false, "", fmt.Errorf("open accepts one display id")
+			}
+			displayID = args[i]
+		}
+	}
+	return displayID, sendPrompt, boardName, nil
 }

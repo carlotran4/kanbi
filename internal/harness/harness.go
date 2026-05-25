@@ -86,7 +86,7 @@ func DetectState(output string, previousExcerpt string, idleFor time.Duration) (
 	outputChanged = excerpt != "" && excerpt != previousExcerpt
 	lower := strings.ToLower(output)
 	switch {
-	case containsAny(lower, "permission", "approve", "allow this", "allow command", "escalat", "proceed?"):
+	case containsAny(lower, "do you want to proceed", "approve", "allow this", "allow command", "escalat", "proceed?", "requires permission", "grant permission", "request permission"):
 		return StateNeedsPermission, "pattern", "permission requested", excerpt, outputChanged
 	case containsAny(lower, "waiting for user", "needs input", "your response", "prompt_ready", "\n> "):
 		return StateWaitingForUser, "pattern", "waiting for user input", excerpt, outputChanged

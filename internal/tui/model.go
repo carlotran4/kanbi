@@ -26,6 +26,23 @@ type Store interface {
 	ReorderTicket(context.Context, int64, int) error
 }
 
+type BoardSelector interface {
+	ListBoards(context.Context) ([]storage.Board, error)
+	BoardViewByID(context.Context, int64) (storage.BoardView, error)
+	MasterBoardView(context.Context) (storage.BoardView, error)
+}
+
+type BoardEditor interface {
+	CreateBoardWithWorkdir(context.Context, string, string) (storage.Board, error)
+	RenameBoard(context.Context, int64, string) error
+	SetBoardWorkdir(context.Context, int64, string) error
+	DeleteBoard(context.Context, int64) error
+}
+
+type ColumnResolver interface {
+	ColumnIDByBoardAndName(context.Context, int64, string) (int64, error)
+}
+
 type TicketOpener interface {
 	OpenTicket(context.Context, storage.Ticket, bool) error
 }
@@ -63,38 +80,59 @@ type AllSessionKiller interface {
 }
 
 type Model struct {
-	store            Store
-	ctx              context.Context
-	view             storage.BoardView
-	col              int
-	card             int
-	width            int
-	height           int
-	colScroll        []int // per-column vertical scroll offset (index of first visible card)
-	colOffset        int   // horizontal scroll: index of first rendered column
-	status           string
-	err              error
-	editing          bool
-	editField        int
-	editTitle        string
-	editBody         string
-	editHard         string
-	editCursor       int
-	stateMenu        bool
-	stateIndex       int
-	columnEditing    bool
-	columnAction     string
-	columnName       string
-	promptFallback   bool
-	promptWindow     string
-	promptText       string
-	promptTicket     storage.Ticket
-	repairing        bool
-	repairEditingRef bool
-	repairRef        string
-	repairTicket     storage.Ticket
-	repairReason     string
-	editorTicketID   int64
+	store                   Store
+	ctx                     context.Context
+	view                    storage.BoardView
+	boards                  []storage.Board
+	boardID                 int64
+	masterBoard             bool
+	boardPicker             bool
+	boardPickerMode         string // switch or create
+	boardIndex              int
+	boardRenaming           bool
+	boardRenameReturnPicker bool
+	boardRenameID           int64
+	boardRenameName         string
+	boardEditing            bool
+	boardEditAction         string // create or cwd
+	boardEditID             int64
+	boardEditName           string
+	boardEditCWD            string
+	boardEditField          int
+	boardDeleting           bool
+	boardDeleteID           int64
+	boardDeleteName         string
+	masterCreateCol         string
+	col                     int
+	card                    int
+	width                   int
+	height                  int
+	colScroll               []int // per-column vertical scroll offset (index of first visible card)
+	colOffset               int   // horizontal scroll: index of first rendered column
+	status                  string
+	err                     error
+	editing                 bool
+	editField               int
+	editTitle               string
+	editBody                string
+	editHard                string
+	editCursor              int
+	stateMenu               bool
+	stateIndex              int
+	columnEditing           bool
+	columnAction            string
+	columnName              string
+	promptFallback          bool
+	promptWindow            string
+	promptText              string
+	promptTicket            storage.Ticket
+	repairing               bool
+	repairEditingRef        bool
+	repairRef               string
+	repairTicket            storage.Ticket
+	repairReason            string
+	showHelp                bool
+	editorTicketID          int64
 }
 
 // defaultTermSize is used before a WindowSizeMsg arrives.
@@ -103,13 +141,33 @@ const defaultTermHeight = 40
 
 func New(ctx context.Context, store Store) Model {
 	m := Model{ctx: ctx, store: store, width: defaultTermWidth, height: defaultTermHeight}
+	m.reloadBoards()
 	m.reload()
+	return m
+}
+
+func NewWithPicker(ctx context.Context, store Store) Model {
+	m := New(ctx, store)
+	m.boardPicker = true
+	m.boardPickerMode = "switch"
+	m.status = "select a board"
 	return m
 }
 
 func (m Model) Init() tea.Cmd { return runtimeTickCmd() }
 
 type runtimeTickMsg time.Time
+
+type openTicketMsg struct {
+	ticket     storage.Ticket
+	sendPrompt bool
+	err        error
+}
+
+type closeSessionMsg struct {
+	displayID string
+	err       error
+}
 
 type editorFinishedMsg struct {
 	ticketID int64
@@ -142,13 +200,61 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorFinishedMsg:
 		m.applyEditorResult(msg)
 		return m, tea.ClearScreen
+	case openTicketMsg:
+		var promptErr tmux.PromptReadyError
+		switch {
+		case msg.err == nil:
+			if msg.sendPrompt {
+				m.status = "sent prompt " + msg.ticket.DisplayID
+			} else {
+				m.status = "opened " + msg.ticket.DisplayID
+			}
+			m.reload()
+		case errors.As(msg.err, &promptErr):
+			m.promptFallback = true
+			m.promptWindow = promptErr.WindowName
+			m.promptText = promptErr.Prompt
+			m.promptTicket = msg.ticket
+			m.status = msg.err.Error()
+		case errors.Is(msg.err, tmux.ErrPromptAlreadySent):
+			m.status = "Prompt already sent; open session instead?"
+		case isRepairError(msg.err):
+			m.startRepair(msg.ticket, msg.err)
+		default:
+			m.status = msg.err.Error()
+		}
+		return m, nil
+	case closeSessionMsg:
+		if msg.err != nil {
+			m.status = msg.err.Error()
+		} else {
+			m.status = "closed " + msg.displayID
+			m.reload()
+		}
+		return m, nil
 	}
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
+	// Clear stale status on any keypress (unless a modal is consuming input).
+	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.boardRenaming && !m.boardEditing && !m.boardDeleting {
+		m.status = ""
+	}
 	if m.promptFallback {
 		return m.updatePromptFallback(key)
+	}
+	if m.boardRenaming {
+		return m.updateBoardRename(key), nil
+	}
+	if m.boardEditing {
+		return m.updateBoardEdit(key), nil
+	}
+	if m.boardDeleting {
+		return m.updateBoardDelete(key), nil
+	}
+	if m.boardPicker {
+		return m.updateBoardPicker(key), nil
 	}
 	if m.repairing {
 		return m.updateRepair(key), nil
@@ -162,16 +268,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.editing {
 		return m.updateEdit(key)
 	}
+	if m.showHelp {
+		switch key.String() {
+		case "?", "esc", "q":
+			m.showHelp = false
+		}
+		return m, nil
+	}
 	switch key.String() {
+	case "?":
+		m.showHelp = true
+	case "b":
+		m.reloadBoards()
+		m.boardPicker = true
+		m.boardPickerMode = "switch"
 	case "q", "ctrl+c":
 		if killer, ok := m.store.(AllSessionKiller); ok {
 			_ = killer.KillAllSessions(m.ctx)
 		}
 		return m, tea.Quit
-	case "tab":
+	case "!":
 		m.moveAttention(1)
-	case "shift+tab", "backtab":
-		m.moveAttention(-1)
 	case "h", "left":
 		m.moveColumn(-1)
 	case "l", "right":
@@ -180,14 +297,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.moveCard(1)
 	case "k", "up":
 		m.moveCard(-1)
-	case "H":
+	case "H", "shift+left":
 		m.moveTicketColumn(-1)
-	case "L":
+	case "L", "shift+right":
 		m.moveTicketColumn(1)
-	case "J":
+	case "J", "shift+down":
 		m.reorderTicket(1)
-	case "K":
+	case "K", "shift+up":
 		m.reorderTicket(-1)
+	case "ctrl+shift+left":
+		m.reorderColumn(-1)
+	case "ctrl+shift+right":
+		m.reorderColumn(1)
 	case "n":
 		m.createTicket()
 	case "c":
@@ -205,11 +326,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "m":
 		m.startStateMenu()
 	case "s":
-		m.openTicket(true)
+		return m, m.openTicketCmd(true)
 	case "o", "enter":
-		m.openTicket(false)
+		return m, m.openTicketCmd(false)
 	case "x":
-		m.closeSession()
+		return m, m.closeSessionCmd()
 	}
 	return m, nil
 }
@@ -217,6 +338,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	if m.err != nil {
 		return "agent-kanban\n\n" + m.err.Error() + "\n\nq quit\n"
+	}
+	if m.showHelp {
+		return m.helpView()
+	}
+	if m.boardRenaming {
+		return m.boardRenameView()
+	}
+	if m.boardEditing {
+		return m.boardEditView()
+	}
+	if m.boardDeleting {
+		return m.boardDeleteView()
+	}
+	if m.boardPicker {
+		return m.boardPickerView()
 	}
 	if m.editing {
 		return m.editView()
@@ -235,25 +371,48 @@ func (m Model) View() string {
 	}
 
 	var b strings.Builder
-	title := lipgloss.NewStyle().Bold(true).Render("Agent Kanban")
-	fmt.Fprintf(&b, "%s  %s\n\n", title, m.view.Board.Name)
-	b.WriteString(m.boardView())
-	if hint := m.hScrollHint(); hint != "" {
-		fmt.Fprintf(&b, "\n%s", hint)
+	// Header bar: full-width background strip.
+	appName := headerBarStyle.Render("Agent Kanban")
+	boardName := boardNameStyle.Render(m.view.Board.Name)
+	barUsed := runeLen("Agent Kanban") + 2 + runeLen(m.view.Board.Name) + 1
+	barPad := ""
+	if m.width > barUsed {
+		barPad = lipgloss.NewStyle().Background(palette.header).Render(strings.Repeat(" ", m.width-barUsed))
 	}
-	b.WriteString("\n\n")
-	dim := lipgloss.NewStyle().Faint(true)
-	b.WriteString("o:open  s:send  x:close  n:new  e:edit  a:archive  m:state  Tab:attention  q:quit\n")
-	b.WriteString(dim.Render("cols: c:add  r:rename  D:delete  │  move col: Shift+H/L  │  move ticket: H/L:col  J/K:reorder") + "\n")
+	fmt.Fprintf(&b, "%s %s%s\n\n", appName, boardName, barPad)
+	board := m.boardView()
+	hint := ""
+	if h := m.hScrollHint(); h != "" {
+		hint = "\n" + h
+	}
+	// Footer lines: rule + hints + optional status.
+	footerLines := 2
 	if m.status != "" {
-		b.WriteString(m.status + "\n")
+		footerLines++
+	}
+	// Count lines used so far: header (2) + board + hint (0 or 1 extra).
+	contentLines := 2 + strings.Count(board, "\n")
+	if hint != "" {
+		contentLines++
+	}
+	pad := m.height - contentLines - footerLines
+	if pad < 1 {
+		pad = 1
+	}
+	fmt.Fprintf(&b, "%s%s%s", board, hint, strings.Repeat("\n", pad))
+	// Footer separator rule.
+	rule := footerRule.Render(strings.Repeat("─", m.width))
+	fmt.Fprintf(&b, "%s\n", rule)
+	b.WriteString("o:open  s:send  n:new  e:edit  a:archive  b:boards  !:attn  q:quit   ?:help\n")
+	if m.status != "" {
+		b.WriteString(statusStyle.Render(m.status) + "\n")
 	}
 	return b.String()
 }
 
 const (
 	boardColumnWidth = 30
-	boardColumnGap   = 2
+	boardColumnGap   = 1
 )
 
 func (m Model) boardView() string {
@@ -323,14 +482,25 @@ func (m Model) hScrollHint() string {
 }
 
 func (m Model) columnView(ci int, col storage.Column) string {
-	focus := " "
-	if ci == m.col {
-		focus = ">"
+	focused := ci == m.col
+	borderStyle := mutedBorder
+	if focused {
+		borderStyle = accentBorder
 	}
 
-	header := fmt.Sprintf("%s %s", focus, col.Name)
+	focus := " "
+	if focused {
+		focus = ">"
+	}
+	headerText := fmt.Sprintf("%s %s", focus, col.Name)
+	if focused {
+		headerText = accentBorder.Bold(true).Render(headerText)
+	}
 	count := fmt.Sprintf("%d", len(col.Tickets))
-	lines := []string{spaceBetween(header, count, boardColumnWidth), mutedBorder.Render(strings.Repeat("─", boardColumnWidth))}
+	lines := []string{
+		spaceBetween(headerText, count, boardColumnWidth),
+		borderStyle.Render(strings.Repeat("─", boardColumnWidth)),
+	}
 
 	if len(col.Tickets) == 0 {
 		lines = append(lines, "", padLine("(empty)", boardColumnWidth))
@@ -357,9 +527,6 @@ func (m Model) columnView(ci int, col storage.Column) string {
 	visibleEnd := scrollTop - 1
 	for ti := scrollTop; ti < len(col.Tickets); ti++ {
 		h := cardHeight(col.Tickets[ti], inner)
-		if ti > scrollTop {
-			h++ // blank separator between cards
-		}
 		if usedLines+h > avail {
 			break
 		}
@@ -378,10 +545,7 @@ func (m Model) columnView(ci int, col storage.Column) string {
 		lines = append(lines, mutedBorder.Render(padLine(hint, boardColumnWidth)))
 	}
 	for ti := scrollTop; ti <= visibleEnd; ti++ {
-		if ti > scrollTop {
-			lines = append(lines, "")
-		}
-		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], boardColumnWidth)...)
+		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], boardColumnWidth, m.masterBoard)...)
 	}
 	if hiddenBelow > 0 {
 		hint := fmt.Sprintf("(+%d more ▼)", hiddenBelow)
@@ -391,14 +555,18 @@ func (m Model) columnView(ci int, col storage.Column) string {
 	return lipgloss.NewStyle().MarginRight(boardColumnGap).Render(strings.Join(lines, "\n"))
 }
 
-func cardView(focused bool, ticket storage.Ticket, width int) []string {
+func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []string {
 	cardInnerWidth := width - 4
 	cursor := " "
 	if focused {
 		cursor = ">"
 	}
 
-	titleLines := wrapText(ticket.DisplayID+" "+ticket.Title, cardInnerWidth-2, 3)
+	title := ticket.DisplayID + " " + ticket.Title
+	if showBoard && ticket.BoardName != "" {
+		title = ticket.DisplayID + " [" + ticket.BoardName + "] " + ticket.Title
+	}
+	titleLines := wrapText(title, cardInnerWidth-2, 3)
 	if len(titleLines) == 0 {
 		titleLines = []string{ticket.DisplayID}
 	}
@@ -412,66 +580,66 @@ func cardView(focused bool, ticket storage.Ticket, width int) []string {
 	}
 
 	elapsed := elapsedLabel(ticket)
+	label := runtimeLabel(ticket)
+	// Color the label according to runtime state.
+	if label != "" {
+		var labelStyle lipgloss.Style
+		switch ticket.Runtime {
+		case "needs_permission":
+			labelStyle = lipgloss.NewStyle().Foreground(palette.error_).Bold(true)
+		case "error":
+			labelStyle = lipgloss.NewStyle().Foreground(palette.error_)
+		default:
+			labelStyle = lipgloss.NewStyle().Foreground(palette.muted)
+		}
+		label = labelStyle.Render(label)
+	}
 	var meta string
-	if elapsed != "" {
-		meta = fmt.Sprintf("[%s] %s %s · %s", ticket.Harness, windowIndicator(ticket), runtimeLabel(ticket), elapsed)
-	} else {
-		meta = fmt.Sprintf("[%s] %s %s", ticket.Harness, windowIndicator(ticket), runtimeLabel(ticket))
+	switch {
+	case label != "" && elapsed != "":
+		meta = fmt.Sprintf("[%s] %s %s · %s", ticket.Harness, windowIndicator(ticket), label, elapsed)
+	case label != "":
+		meta = fmt.Sprintf("[%s] %s %s", ticket.Harness, windowIndicator(ticket), label)
+	case elapsed != "":
+		meta = fmt.Sprintf("[%s] %s · %s", ticket.Harness, windowIndicator(ticket), elapsed)
+	default:
+		meta = fmt.Sprintf("[%s] %s", ticket.Harness, windowIndicator(ticket))
 	}
 	content = append(content, padLine("  "+meta, cardInnerWidth))
 
-	lines := roundedBoxLines(content, width)
-	style := lipgloss.NewStyle()
-	styled := false
-	switch ticket.Runtime {
-	case "needs_permission":
-		style = style.Foreground(lipgloss.Color("203")).Bold(true)
-		styled = true
-	case "waiting_for_user":
-		style = style.Foreground(lipgloss.Color("214"))
-		styled = true
-	case "error":
-		style = style.Foreground(lipgloss.Color("196")).Bold(true)
-		styled = true
+	// Choose border style: attention colors take priority, then accent for focused, else muted.
+	isResumable := ticket.SessionRef.Valid && ticket.SessionRef.String != ""
+	var borderStyle lipgloss.Style
+	switch {
+	case ticket.Runtime == "needs_permission":
+		borderStyle = lipgloss.NewStyle().Foreground(palette.error_)
+	case ticket.Runtime == "error" && !isResumable:
+		borderStyle = lipgloss.NewStyle().Foreground(palette.error_)
+	case ticket.Runtime == "waiting_for_user":
+		borderStyle = lipgloss.NewStyle().Foreground(palette.warning)
+	case focused:
+		borderStyle = accentBorder
+	default:
+		borderStyle = mutedBorder
 	}
+	lines := roundedBoxLines(content, width, borderStyle)
 	if focused {
-		style = style.Bold(true)
-		styled = true
-	}
-	if styled {
-		return strings.Split(style.Render(strings.Join(lines, "\n")), "\n")
+		return strings.Split(lipgloss.NewStyle().Bold(true).Render(strings.Join(lines, "\n")), "\n")
 	}
 	return lines
 }
 
 func runtimeLabel(ticket storage.Ticket) string {
 	switch ticket.Runtime {
-	case "not_started":
-		return "new"
-	case "running":
-		return "running"
-	case "waiting_for_user":
-		return "waiting"
-	case "needs_permission":
-		return "permission!"
-	case "idle_unknown":
-		return "idle"
-	case "closing":
-		return "closing"
-	case "closed":
-		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
-			return "resumable"
-		}
-		return "closed"
 	case "error":
-		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" && !ticket.SessionActive {
-			return "resumable"
+		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
+			return "" // resumable shown by ○
 		}
 		return "error"
-	case "exited":
-		return "exited"
+	case "needs_permission":
+		return "permission!"
 	default:
-		return ticket.Runtime
+		return ""
 	}
 }
 
@@ -509,16 +677,48 @@ func elapsedLabel(ticket storage.Ticket) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
-var mutedBorder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+// palette defines the app-wide color tokens.
+var palette = struct {
+	muted   lipgloss.Color // borders, separators, dim chrome
+	accent  lipgloss.Color // focused column header, focused card border
+	warning lipgloss.Color // waiting_for_user
+	error_  lipgloss.Color // error, needs_permission
+	success lipgloss.Color // resumable
+	header  lipgloss.Color // app header bar background
+}{
+	muted:   lipgloss.Color("240"),
+	accent:  lipgloss.Color("75"),  // soft blue
+	warning: lipgloss.Color("214"), // amber
+	error_:  lipgloss.Color("203"), // coral red
+	success: lipgloss.Color("71"),  // muted green
+	header:  lipgloss.Color("237"), // dark gray bar
+}
 
-func roundedBoxLines(lines []string, width int) []string {
+var (
+	mutedBorder    = lipgloss.NewStyle().Foreground(palette.muted)
+	accentBorder   = lipgloss.NewStyle().Foreground(palette.accent)
+	footerRule     = lipgloss.NewStyle().Foreground(palette.muted)
+	statusStyle    = lipgloss.NewStyle().Foreground(palette.muted).Italic(true)
+	headerBarStyle = lipgloss.NewStyle().
+			Bold(true).
+			Background(palette.header).
+			Foreground(lipgloss.Color("252")).
+			PaddingLeft(1).
+			PaddingRight(1)
+	boardNameStyle = lipgloss.NewStyle().
+			Background(palette.header).
+			Foreground(lipgloss.Color("244")).
+			PaddingRight(1)
+)
+
+func roundedBoxLines(lines []string, width int, border lipgloss.Style) []string {
 	innerWidth := width - 2
-	top := mutedBorder.Render("╭" + strings.Repeat("─", innerWidth) + "╮")
-	bot := mutedBorder.Render("╰" + strings.Repeat("─", innerWidth) + "╯")
+	top := border.Render("╭" + strings.Repeat("─", innerWidth) + "╮")
+	bot := border.Render("╰" + strings.Repeat("─", innerWidth) + "╯")
 	out := make([]string, 0, len(lines)+2)
 	out = append(out, top)
 	for _, line := range lines {
-		out = append(out, mutedBorder.Render("│")+" "+padLine(line, innerWidth-2)+" "+mutedBorder.Render("│"))
+		out = append(out, border.Render("│")+" "+padLine(line, innerWidth-2)+" "+border.Render("│"))
 	}
 	out = append(out, bot)
 	return out
@@ -537,12 +737,10 @@ func boxLines(lines []string, width int) string {
 }
 
 func spaceBetween(left, right string, width int) string {
-	left = trimToWidth(left, width)
-	right = trimToWidth(right, width)
-	leftWidth := runeLen(left)
-	rightWidth := runeLen(right)
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
 	if leftWidth+rightWidth+1 > width {
-		return padLine(left, width)
+		return left
 	}
 	return left + strings.Repeat(" ", width-leftWidth-rightWidth) + right
 }
@@ -594,8 +792,11 @@ func wrapText(text string, width int, maxLines int) []string {
 }
 
 func padLine(s string, width int) string {
-	s = trimToWidth(s, width)
-	return s + strings.Repeat(" ", width-runeLen(s))
+	visible := lipgloss.Width(s)
+	if visible >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-visible)
 }
 
 func trimToWidth(s string, width int) string {
@@ -616,8 +817,36 @@ func runeLen(s string) int {
 	return len([]rune(s))
 }
 
+func (m *Model) reloadBoards() {
+	selector, ok := m.store.(BoardSelector)
+	if !ok {
+		return
+	}
+	boards, err := selector.ListBoards(m.ctx)
+	if err != nil {
+		m.err = err
+		return
+	}
+	m.boards = boards
+	if m.boardID == 0 && len(boards) > 0 && !m.masterBoard {
+		m.boardID = boards[0].ID
+	}
+}
+
 func (m *Model) reload() {
-	view, err := m.store.BoardView(m.ctx)
+	var view storage.BoardView
+	var err error
+	if selector, ok := m.store.(BoardSelector); ok {
+		if m.masterBoard {
+			view, err = selector.MasterBoardView(m.ctx)
+		} else if m.boardID != 0 {
+			view, err = selector.BoardViewByID(m.ctx, m.boardID)
+		} else {
+			view, err = m.store.BoardView(m.ctx)
+		}
+	} else {
+		view, err = m.store.BoardView(m.ctx)
+	}
 	m.view = view
 	m.err = err
 	m.clamp()
@@ -639,10 +868,11 @@ func (m *Model) syncScrollDimensions() {
 }
 
 // boardContentHeight returns the number of terminal rows available for card
-// rendering (total height minus header, footer, and status line rows).
+// rendering (total height minus header and footer rows).
 func (m *Model) boardContentHeight() int {
-	// 2 header lines (title + blank) + 2 hint lines + 1 status line + 1 blank before hints = 6
-	headerFooter := 6
+	// 2 header lines (bar + blank) + 1 rule + 1 hints line = 4 fixed.
+	// Status line is conditional.
+	headerFooter := 4
 	if m.status != "" {
 		headerFooter++
 	}
@@ -696,9 +926,6 @@ func (m *Model) vScrollFollow() {
 		visibleEnd := -1
 		for ti := m.colScroll[m.col]; ti < len(col.Tickets); ti++ {
 			h := cardHeight(col.Tickets[ti], inner)
-			if ti > m.colScroll[m.col] {
-				h++ // blank separator between cards
-			}
 			if usedLines+h > avail {
 				break
 			}
@@ -774,7 +1001,31 @@ func (m *Model) createTicket() {
 	if len(m.view.Columns) == 0 {
 		return
 	}
-	t, err := m.store.CreateTicket(m.ctx, m.view.Columns[m.col].ID, "New ticket", "", "pi")
+	if m.masterBoard {
+		m.startMasterCreatePicker()
+		return
+	}
+	m.createTicketInColumn(m.view.Columns[m.col].ID)
+}
+
+func (m *Model) startMasterCreatePicker() {
+	if m.col < 0 || m.col >= len(m.view.Columns) {
+		return
+	}
+	m.reloadBoards()
+	if len(m.boards) == 0 {
+		m.status = "no boards available"
+		return
+	}
+	m.masterCreateCol = m.view.Columns[m.col].Name
+	m.boardPicker = true
+	m.boardPickerMode = "create"
+	m.boardIndex = 0 // Master is not a create target; user must choose a real board.
+	m.status = "choose board for new ticket"
+}
+
+func (m *Model) createTicketInColumn(columnID int64) {
+	t, err := m.store.CreateTicket(m.ctx, columnID, "New ticket", "", "pi")
 	if err != nil {
 		m.status = err.Error()
 		return
@@ -906,7 +1157,21 @@ func (m *Model) moveTicketColumn(delta int) {
 	if !ok || to < 0 || to >= len(m.view.Columns) {
 		return
 	}
-	if err := m.store.MoveTicket(m.ctx, t.ID, m.view.Columns[to].ID); err != nil {
+	toColumnID := m.view.Columns[to].ID
+	if m.masterBoard || toColumnID < 0 {
+		resolver, ok := m.store.(ColumnResolver)
+		if !ok {
+			m.status = "moving in master board unavailable"
+			return
+		}
+		var err error
+		toColumnID, err = resolver.ColumnIDByBoardAndName(m.ctx, t.BoardID, m.view.Columns[to].Name)
+		if err != nil {
+			m.status = "target column missing on ticket board"
+			return
+		}
+	}
+	if err := m.store.MoveTicket(m.ctx, t.ID, toColumnID); err != nil {
 		m.status = err.Error()
 		return
 	}
@@ -949,58 +1214,50 @@ func (m *Model) startEdit() {
 	m.editCursor = len([]rune(t.Title))
 }
 
-func (m *Model) openTicket(sendPrompt bool) {
+func (m *Model) openTicketCmd(sendPrompt bool) tea.Cmd {
 	t, ok := m.selectedTicket()
 	if !ok {
-		return
+		return nil
 	}
 	opener, ok := m.store.(TicketOpener)
 	if !ok {
 		m.status = "open unavailable"
-		return
-	}
-	if err := opener.OpenTicket(m.ctx, t, sendPrompt); err != nil {
-		var promptErr tmux.PromptReadyError
-		switch {
-		case errors.As(err, &promptErr):
-			m.promptFallback = true
-			m.promptWindow = promptErr.WindowName
-			m.promptText = promptErr.Prompt
-			m.promptTicket = t
-			m.status = err.Error()
-		case errors.Is(err, tmux.ErrPromptAlreadySent):
-			m.status = "Prompt already sent; open session instead?"
-		case isRepairError(err):
-			m.startRepair(t, err)
-		default:
-			m.status = err.Error()
-		}
-		return
+		return nil
 	}
 	if sendPrompt {
-		m.status = "sent prompt " + t.DisplayID
+		m.status = "sending prompt " + t.DisplayID + "…"
 	} else {
-		m.status = "opened " + t.DisplayID
+		m.status = "opening " + t.DisplayID + "…"
 	}
-	m.reload()
+	ctx := m.ctx
+	return func() tea.Msg {
+		return openTicketMsg{
+			ticket:     t,
+			sendPrompt: sendPrompt,
+			err:        opener.OpenTicket(ctx, t, sendPrompt),
+		}
+	}
 }
 
-func (m *Model) closeSession() {
+func (m *Model) closeSessionCmd() tea.Cmd {
 	t, ok := m.selectedTicket()
 	if !ok {
-		return
+		return nil
 	}
 	closer, ok := m.store.(SessionCloser)
 	if !ok {
 		m.status = "close unavailable"
-		return
+		return nil
 	}
-	if err := closer.CloseTicketSession(m.ctx, t); err != nil {
-		m.status = err.Error()
-		return
+	m.status = "closing " + t.DisplayID + "…"
+	ctx := m.ctx
+	displayID := t.DisplayID
+	return func() tea.Msg {
+		return closeSessionMsg{
+			displayID: displayID,
+			err:       closer.CloseTicketSession(ctx, t),
+		}
 	}
-	m.status = "closed " + t.DisplayID
-	m.reload()
 }
 
 func (m Model) updatePromptFallback(key tea.KeyMsg) (Model, tea.Cmd) {
@@ -1351,15 +1608,26 @@ func (m Model) editView() string {
 		return value
 	}
 	// For body, show it inline but with newlines rendered visibly for multiline.
+	body := m.editBody
+	if m.editField != 1 {
+		// Show a compact summary of the body when not editing it.
+		newlines := strings.Count(body, "\n")
+		if newlines > 0 {
+			body = strings.SplitN(body, "\n", 2)[0] + lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf(" (+%d lines)", newlines))
+		}
+	} else {
+		body = render(1, body)
+	}
 	return fmt.Sprintf("Edit ticket\n\n%s title:   %s\n%s body:    %s\n%s harness: %s\n\nTab next field · Enter newline in body · ←/→ move · Home/End · Ctrl+E full editor · Esc cancel\n",
 		rowCursor(0), render(0, m.editTitle),
-		rowCursor(1), render(1, m.editBody),
+		rowCursor(1), body,
 		rowCursor(2), render(2, m.editHard))
 }
 
 func (m Model) stateMenuView() string {
 	var b strings.Builder
-	b.WriteString("Mark runtime state\n\n")
+	t, _ := m.selectedTicket()
+	fmt.Fprintf(&b, "Mark state for %s\n\n", t.DisplayID)
 	for i, state := range manualStates {
 		cursor := " "
 		if i == m.stateIndex {
@@ -1379,19 +1647,334 @@ func (m Model) columnEditView() string {
 	if m.columnAction == "rename" {
 		title = "Rename column"
 	}
-	return fmt.Sprintf("%s\n\n> name: %s\n\nEnter save, Esc cancel\n", title, m.columnName)
+	return fmt.Sprintf("%s\n\n> name: %s\n\nEnter save, Esc cancel\n", title, renderWithCursor(m.columnName, len([]rune(m.columnName))))
+}
+
+func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
+	count := len(m.boards) + 1 // master + boards
+	if count > 0 && m.boardIndex >= count {
+		m.boardIndex = count - 1
+	}
+	if m.boardIndex < 0 {
+		m.boardIndex = 0
+	}
+	switch key.String() {
+	case "esc", "b":
+		m.boardPicker = false
+	case "c":
+		m.startBoardCreate()
+	case "r":
+		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+			m.status = "choose a real board to rename"
+			return m
+		}
+		b := m.boards[m.boardIndex-1]
+		m.boardRenaming = true
+		m.boardRenameReturnPicker = true
+		m.boardRenameID = b.ID
+		m.boardRenameName = b.Name
+	case "w":
+		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+			m.status = "choose a real board to set cwd"
+			return m
+		}
+		m.startBoardCWD(m.boards[m.boardIndex-1])
+	case "d":
+		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+			m.status = "choose a real board to delete"
+			return m
+		}
+		b := m.boards[m.boardIndex-1]
+		m.boardDeleting = true
+		m.boardDeleteID = b.ID
+		m.boardDeleteName = b.Name
+	case "j", "down":
+		if count > 0 {
+			m.boardIndex = (m.boardIndex + 1) % count
+		}
+	case "k", "up":
+		if count > 0 {
+			m.boardIndex--
+			if m.boardIndex < 0 {
+				m.boardIndex = count - 1
+			}
+		}
+	case "enter":
+		if m.boardPickerMode == "create" {
+			if m.boardIndex == 0 {
+				m.status = "choose a real board for new ticket"
+				return m
+			}
+			if m.boardIndex-1 >= len(m.boards) {
+				return m
+			}
+			resolver, ok := m.store.(ColumnResolver)
+			if !ok {
+				m.status = "board column lookup unavailable"
+				m.boardPicker = false
+				return m
+			}
+			b := m.boards[m.boardIndex-1]
+			columnID, err := resolver.ColumnIDByBoardAndName(m.ctx, b.ID, m.masterCreateCol)
+			if err != nil {
+				m.status = "target board has no " + m.masterCreateCol + " column"
+				m.boardPicker = false
+				return m
+			}
+			m.boardPicker = false
+			m.createTicketInColumn(columnID)
+			return m
+		}
+		if m.boardIndex == 0 {
+			m.masterBoard = true
+			m.boardID = 0
+			m.status = "switched to Master"
+		} else if m.boardIndex-1 < len(m.boards) {
+			b := m.boards[m.boardIndex-1]
+			m.masterBoard = false
+			m.boardID = b.ID
+			m.status = "switched to " + b.Name
+		}
+		m.col, m.card, m.colOffset = 0, 0, 0
+		m.colScroll = nil
+		m.boardPicker = false
+		m.reload()
+	}
+	return m
+}
+
+func (m Model) boardPickerView() string {
+	var b strings.Builder
+	title := "Select board"
+	if m.boardPickerMode == "create" {
+		title = "Create ticket in which board?"
+	}
+	fmt.Fprintf(&b, "%s\n\n", title)
+	row := func(i int, name string) {
+		cursor := " "
+		if i == m.boardIndex {
+			cursor = ">"
+		}
+		fmt.Fprintf(&b, "%s %s\n", cursor, name)
+	}
+	masterLabel := "Master (all boards)"
+	if m.boardPickerMode == "create" {
+		masterLabel = "Master (choose a real board below)"
+	}
+	row(0, masterLabel)
+	for i, board := range m.boards {
+		label := board.Name
+		if board.Workdir != "" {
+			label += "  " + lipgloss.NewStyle().Faint(true).Render(board.Workdir)
+		}
+		row(i+1, label)
+	}
+	if m.boardPickerMode == "create" {
+		b.WriteString("\nEnter create · j/k move · Esc cancel\n")
+	} else {
+		b.WriteString("\nEnter select · c create · r rename · w cwd · d delete · j/k move · Esc cancel\n")
+	}
+	return b.String()
+}
+
+func (m *Model) startCurrentBoardRename(returnPicker bool) {
+	if m.masterBoard || m.view.Board.ID == 0 {
+		m.status = "cannot rename Master"
+		return
+	}
+	m.boardRenaming = true
+	m.boardRenameReturnPicker = returnPicker
+	m.boardRenameID = m.view.Board.ID
+	m.boardRenameName = m.view.Board.Name
+}
+
+func (m Model) updateBoardRename(key tea.KeyMsg) Model {
+	switch key.String() {
+	case "esc":
+		m.boardRenaming = false
+	case "enter":
+		editor, ok := m.store.(BoardEditor)
+		if !ok {
+			m.status = "board rename unavailable"
+			m.boardRenaming = false
+			return m
+		}
+		name := strings.TrimSpace(m.boardRenameName)
+		if err := editor.RenameBoard(m.ctx, m.boardRenameID, name); err != nil {
+			m.status = err.Error()
+			return m
+		}
+		m.status = "renamed board " + name
+		m.boardRenaming = false
+		m.reloadBoards()
+		if !m.masterBoard && m.boardID == m.boardRenameID {
+			m.reload()
+		}
+		if m.boardRenameReturnPicker {
+			m.boardPicker = true
+		}
+	case "backspace":
+		m.boardRenameName = popRune(m.boardRenameName)
+	default:
+		if len(key.Runes) > 0 {
+			m.boardRenameName += string(key.Runes)
+		}
+	}
+	return m
+}
+
+func (m Model) boardRenameView() string {
+	return fmt.Sprintf("Rename board\n\n> name: %s\n\nEnter save · Esc cancel\n", renderWithCursor(m.boardRenameName, len([]rune(m.boardRenameName))))
+}
+
+func (m *Model) startBoardCreate() {
+	cwd, _ := os.Getwd()
+	m.boardEditing = true
+	m.boardEditAction = "create"
+	m.boardEditID = 0
+	m.boardEditName = ""
+	m.boardEditCWD = cwd
+	m.boardEditField = 0
+}
+
+func (m *Model) startBoardCWD(board storage.Board) {
+	m.boardEditing = true
+	m.boardEditAction = "cwd"
+	m.boardEditID = board.ID
+	m.boardEditName = board.Name
+	m.boardEditCWD = board.Workdir
+	m.boardEditField = 1
+}
+
+func (m Model) updateBoardEdit(key tea.KeyMsg) Model {
+	switch key.String() {
+	case "esc":
+		m.boardEditing = false
+	case "tab":
+		if m.boardEditAction == "create" {
+			m.boardEditField = (m.boardEditField + 1) % 2
+		}
+	case "enter":
+		editor, ok := m.store.(BoardEditor)
+		if !ok {
+			m.status = "board editing unavailable"
+			m.boardEditing = false
+			return m
+		}
+		switch m.boardEditAction {
+		case "create":
+			created, err := editor.CreateBoardWithWorkdir(m.ctx, strings.TrimSpace(m.boardEditName), strings.TrimSpace(m.boardEditCWD))
+			if err != nil {
+				m.status = err.Error()
+				return m
+			}
+			m.status = "created board " + created.Name
+		case "cwd":
+			if err := editor.SetBoardWorkdir(m.ctx, m.boardEditID, strings.TrimSpace(m.boardEditCWD)); err != nil {
+				m.status = err.Error()
+				return m
+			}
+			m.status = "updated cwd " + m.boardEditName
+		}
+		m.boardEditing = false
+		m.reloadBoards()
+		m.boardPicker = true
+	case "backspace":
+		if m.boardEditField == 0 {
+			m.boardEditName = popRune(m.boardEditName)
+		} else {
+			m.boardEditCWD = popRune(m.boardEditCWD)
+		}
+	default:
+		if len(key.Runes) > 0 {
+			if m.boardEditField == 0 {
+				m.boardEditName += string(key.Runes)
+			} else {
+				m.boardEditCWD += string(key.Runes)
+			}
+		}
+	}
+	return m
+}
+
+func (m Model) boardEditView() string {
+	status := ""
+	if m.status != "" {
+		status = "\n" + m.status + "\n"
+	}
+	if m.boardEditAction == "cwd" {
+		return fmt.Sprintf("Set board cwd for %s%s\n> cwd: %s\n\nEnter save · Esc cancel\n", m.boardEditName, status, renderWithCursor(m.boardEditCWD, len([]rune(m.boardEditCWD))))
+	}
+	cursor := func(field int) string {
+		if m.boardEditField == field {
+			return ">"
+		}
+		return " "
+	}
+	render := func(field int, value string) string {
+		if m.boardEditField == field {
+			return renderWithCursor(value, len([]rune(value)))
+		}
+		return value
+	}
+	return fmt.Sprintf("Create board%s\n%s name: %s\n%s cwd:  %s\n\nTab switch field · Enter save · Esc cancel\n", status, cursor(0), render(0, m.boardEditName), cursor(1), render(1, m.boardEditCWD))
+}
+
+func (m Model) updateBoardDelete(key tea.KeyMsg) Model {
+	switch key.String() {
+	case "esc", "n":
+		m.boardDeleting = false
+	case "y":
+		editor, ok := m.store.(BoardEditor)
+		if !ok {
+			m.status = "board delete unavailable"
+			m.boardDeleting = false
+			return m
+		}
+		if err := editor.DeleteBoard(m.ctx, m.boardDeleteID); err != nil {
+			m.status = err.Error()
+			return m
+		}
+		m.status = "deleted board " + m.boardDeleteName
+		m.boardDeleting = false
+		m.reloadBoards()
+		if m.boardID == m.boardDeleteID {
+			m.masterBoard = true
+			m.boardID = 0
+			m.reload()
+		}
+		m.boardPicker = true
+	}
+	return m
+}
+
+func (m Model) boardDeleteView() string {
+	return fmt.Sprintf("Delete board %q?\n\nThis deletes its tickets and sessions. Active sessions block deletion.\n\ny confirm · n/Esc cancel\n", m.boardDeleteName)
 }
 
 func (m Model) promptFallbackView() string {
-	return fmt.Sprintf("Prompt readiness was not detected for %s.\n\np paste now\no open without sending\nc cancel\n\n%s\n", m.promptTicket.DisplayID, m.status)
+	return fmt.Sprintf("Prompt readiness was not detected for %s.\n\np paste now\no open without sending\nc cancel\n", m.promptTicket.DisplayID)
 }
 
 func (m Model) repairView() string {
+	header := lipgloss.NewStyle().Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
 	if m.repairEditingRef {
-		return fmt.Sprintf("Edit session ref for %s\n\n> ref: %s\n\nEnter save, Esc back\n", m.repairTicket.DisplayID, m.repairRef)
+		return fmt.Sprintf("%s\n\n> ref: %s\n\nEnter save, Esc back\n",
+			header.Render("Edit session ref for "+m.repairTicket.DisplayID),
+			renderWithCursor(m.repairRef, len([]rune(m.repairRef))))
 	}
-	return fmt.Sprintf("Session repair needed for %s\n\n%s\nr retry  e edit ref  f start fresh  c cancel\n",
-		m.repairTicket.DisplayID, m.repairReason)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n\n", header.Render("Session repair needed for "+m.repairTicket.DisplayID))
+	fmt.Fprintf(&b, "%s\n\n", dim.Render(m.repairReason))
+	b.WriteString("r  retry\n")
+	b.WriteString("e  edit session ref\n")
+	b.WriteString("f  start fresh\n")
+	b.WriteString("c  cancel\n")
+	if m.repairTicket.Harness == "copilot" && (!m.repairTicket.SessionRef.Valid || m.repairTicket.SessionRef.String == "") {
+		fmt.Fprintf(&b, "\n%s\n", dim.Render("Note: Copilot does not expose a session ref; start fresh or edit ref manually."))
+	}
+	return b.String()
 }
 
 func (m Model) openBodyEditor() tea.Cmd {
@@ -1464,7 +2047,77 @@ func findTicketByID(view storage.BoardView, id int64) (storage.Ticket, error) {
 	return storage.Ticket{}, errors.New("ticket not found")
 }
 
+func (m Model) helpView() string {
+	dim := lipgloss.NewStyle().Faint(true)
+	var b strings.Builder
+
+	section := func(title string) {
+		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(palette.accent).Bold(true).Render(title))
+	}
+	row := func(key, desc string) {
+		keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
+		descStyle := lipgloss.NewStyle().Foreground(palette.muted)
+		fmt.Fprintf(&b, "  %s%s\n", keyStyle.Render(padLine(key, 28)), descStyle.Render(desc))
+	}
+
+	section("Navigation")
+	row("h/l  ←/→", "move focus between columns")
+	row("j/k  ↑/⊓", "move focus between tickets")
+	row("!", "jump to next attention ticket")
+
+	section("Tickets")
+	row("o  Enter", "open / switch to ticket session")
+	row("s", "send prompt and open (never-started only)")
+	row("x", "close ticket session")
+	row("n", "new ticket in current column")
+	row("e", "edit title / body / harness")
+	row("E", "open body in $EDITOR")
+	row("a", "archive ticket")
+	row("m", "manually mark runtime state")
+	row("H/L  Shift+←/→", "move ticket to adjacent column")
+	row("J/K  Shift+↑/⊓", "reorder ticket within column")
+
+	section("Columns")
+	row("c", "add column")
+	row("r", "rename column")
+	row("D", "delete column (must be empty)")
+	row("Ctrl+Shift+←/→", "reorder column")
+
+	section("Boards")
+	row("b", "switch board / open board picker")
+	row("c in board picker", "create board")
+	row("r in board picker", "rename selected board")
+	row("w in board picker", "set selected board cwd")
+	row("d in board picker", "delete selected board")
+
+	section("App")
+	row("q  Ctrl+C", "quit")
+	row("?", "toggle this help")
+
+	fmt.Fprintf(&b, "\n%s", dim.Render("Esc / ? to close"))
+
+	// Wrap in a border box.
+	body := b.String()
+	bodyLines := strings.Split(body, "\n")
+	// Find the widest visible line.
+	maxW := 0
+	for _, l := range bodyLines {
+		if w := runeLen(lipgloss.NewStyle().Render(l)); w > maxW { // strip styles for measurement
+			maxW = runeLen(l)
+		}
+	}
+	if maxW < 40 {
+		maxW = 40
+	}
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(0, 2).
+		Render("\n" + lipgloss.NewStyle().Bold(true).Render("Keybindings") + body)
+}
+
 func popRune(s string) string {
+
 	if s == "" {
 		return s
 	}

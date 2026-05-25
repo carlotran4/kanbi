@@ -3,8 +3,44 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+func TestBoardWorkdirExpandsTilde(t *testing.T) {
+	s, ctx := newTestStore(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	project := filepath.Join(home, "Developer", "personal_finance")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := s.CreateBoardWithWorkdir(ctx, "personal-finance", "~/Developer/personal_finance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Workdir != project {
+		t.Fatalf("created workdir = %q, want %q", b.Workdir, project)
+	}
+
+	other := filepath.Join(home, "Developer", "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetBoardWorkdir(ctx, b.ID, "~/Developer/other"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := s.BoardByName(ctx, "personal-finance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Workdir != other {
+		t.Fatalf("updated workdir = %q, want %q", updated.Workdir, other)
+	}
+}
 
 func newTestStore(t *testing.T) (*Store, context.Context) {
 	t.Helper()
@@ -414,5 +450,110 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	}
 	if listed.Runtime != "closed" || listed.SessionActive || listed.LastAttentionReason.String != "done" {
 		t.Fatalf("inactive closed should project to ticket: %+v", listed)
+	}
+}
+
+func TestMultipleBoardsAndMasterView(t *testing.T) {
+	s, ctx := newTestStore(t)
+	defaultView, err := s.BoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workdir := t.TempDir()
+	second, err := s.CreateBoardWithWorkdir(ctx, "Client B", workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondView, err := s.BoardViewByID(ctx, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTicket, err := s.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondTicket, err := s.CreateTicket(ctx, secondView.Columns[0].ID, "Other task", "", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondTicket.BoardWorkdir != workdir {
+		t.Fatalf("ticket should project board workdir %q, got %q", workdir, secondTicket.BoardWorkdir)
+	}
+	if firstTicket.DisplayID != "T-001" || secondTicket.DisplayID != "T-001" {
+		t.Fatalf("ticket numbering should be per-board: %s %s", firstTicket.DisplayID, secondTicket.DisplayID)
+	}
+	boards, err := s.ListBoards(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(boards) != 2 {
+		t.Fatalf("boards len=%d, want 2", len(boards))
+	}
+	if boards[0].Name != "Client B" || boards[0].Workdir != workdir {
+		t.Fatalf("board workdir not persisted: %+v", boards[0])
+	}
+	master, err := s.MasterBoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if master.Board.Name != "Master" {
+		t.Fatalf("master name=%q", master.Board.Name)
+	}
+	if len(master.Columns) == 0 || len(master.Columns[0].Tickets) != 2 {
+		t.Fatalf("master should aggregate open tickets: %+v", master.Columns)
+	}
+	if _, err := s.ColumnIDByBoardAndName(ctx, second.ID, "In Progress"); err != nil {
+		t.Fatalf("resolve column by board/name: %v", err)
+	}
+}
+
+func TestMigrateBackfillsBlankBoardWorkdir(t *testing.T) {
+	ctx := context.Background()
+	s, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	_, err = s.db.ExecContext(ctx, `create table boards (
+		id integer primary key autoincrement,
+		name text not null,
+		next_ticket_number integer not null default 1,
+		created_at datetime not null,
+		updated_at datetime not null
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := "2026-01-01T00:00:00Z"
+	if _, err := s.db.ExecContext(ctx, `insert into boards(name,next_ticket_number,created_at,updated_at) values('Old',1,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.BoardByName(ctx, "Old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Workdir == "" {
+		t.Fatal("migration should backfill existing board workdir")
+	}
+}
+
+func TestDeleteBoardRemovesBoardAndTickets(t *testing.T) {
+	s, ctx := newTestStore(t)
+	b, err := s.CreateBoard(ctx, "Delete Me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, _ := s.BoardViewByID(ctx, b.ID)
+	if _, err := s.CreateTicket(ctx, view.Columns[0].ID, "Gone", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteBoard(ctx, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BoardByName(ctx, "Delete Me"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected board gone, got %v", err)
 	}
 }

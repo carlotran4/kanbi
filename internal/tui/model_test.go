@@ -174,13 +174,14 @@ func TestModelSendPromptAndAttentionNavigation(t *testing.T) {
 	}
 	wrapped := &openingStore{Store: store}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "s")
+	model, cmd := mustUpdate(t, model, "s")
+	model = runCmd(t, model, cmd)
 	if len(wrapped.opened) != 1 || wrapped.opened[0] != first.DisplayID || !wrapped.sentPrompt[0] {
 		t.Fatalf("send prompt dispatch opened=%v sent=%v", wrapped.opened, wrapped.sentPrompt)
 	}
-	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = mustUpdate(t, model, "!")
 	if model.card != 1 {
-		t.Fatalf("tab did not jump to attention ticket: card=%d", model.card)
+		t.Fatalf("! did not jump to attention ticket: card=%d", model.card)
 	}
 	model, _ = mustUpdate(t, model, "m")
 	model, _ = mustUpdate(t, model, "j")
@@ -242,7 +243,8 @@ func TestModelOpenSelectedTicket(t *testing.T) {
 	}
 	wrapped := &openingStore{Store: store}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "o")
+	model, cmd := mustUpdate(t, model, "o")
+	model = runCmd(t, model, cmd)
 	if len(wrapped.opened) != 1 || wrapped.opened[0] != "T-001" {
 		t.Fatalf("opened = %#v", wrapped.opened)
 	}
@@ -275,7 +277,8 @@ func TestModelPromptFallbackCanPasteNow(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "s")
+	model, cmd := mustUpdate(t, model, "s")
+	model = runCmd(t, model, cmd)
 	if !model.promptFallback {
 		t.Fatalf("prompt fallback not shown: %s", model.View())
 	}
@@ -305,7 +308,8 @@ func TestModelRepairStartFresh(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "o")
+	model, cmd := mustUpdate(t, model, "o")
+	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatalf("repair view not shown: %s", model.View())
 	}
@@ -366,14 +370,14 @@ func TestCardRuntimeLabelsAndWindowIndicators(t *testing.T) {
 		ticket   storage.Ticket
 		wantMeta string
 	}{
-		{storage.Ticket{Harness: "pi", Runtime: "not_started"}, "new"},
-		{storage.Ticket{Harness: "pi", Runtime: "running", SessionActive: true, WindowName: sqlNullStr("T-001-demo")}, "running"},
-		{storage.Ticket{Harness: "pi", Runtime: "waiting_for_user"}, "waiting"},
+		{storage.Ticket{Harness: "pi", Runtime: "not_started"}, ""},
+		{storage.Ticket{Harness: "pi", Runtime: "running", SessionActive: true, WindowName: sqlNullStr("T-001-demo")}, ""},
+		{storage.Ticket{Harness: "pi", Runtime: "waiting_for_user"}, ""},
 		{storage.Ticket{Harness: "pi", Runtime: "needs_permission"}, "permission!"},
-		{storage.Ticket{Harness: "pi", Runtime: "idle_unknown"}, "idle"},
-		{storage.Ticket{Harness: "pi", Runtime: "closed", SessionRef: sqlNullStr("abc")}, "resumable"},
-		{storage.Ticket{Harness: "pi", Runtime: "closed"}, "closed"},
-		{storage.Ticket{Harness: "pi", Runtime: "error", SessionRef: sqlNullStr("abc")}, "resumable"},
+		{storage.Ticket{Harness: "pi", Runtime: "idle_unknown"}, ""},
+		{storage.Ticket{Harness: "pi", Runtime: "closed", SessionRef: sqlNullStr("abc")}, ""},
+		{storage.Ticket{Harness: "pi", Runtime: "closed"}, ""},
+		{storage.Ticket{Harness: "pi", Runtime: "error", SessionRef: sqlNullStr("abc")}, ""},
 		{storage.Ticket{Harness: "pi", Runtime: "error"}, "error"},
 	}
 	for _, tc := range cases {
@@ -420,7 +424,8 @@ func TestRepairViewShowsReasonAndOptions(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "o")
+	model, cmd := mustUpdate(t, model, "o")
+	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatalf("repair view not shown: %s", model.View())
 	}
@@ -500,7 +505,8 @@ func TestModelCloseSessionCallsCloser(t *testing.T) {
 	var closed bool
 	wrapped := &closingStore{Store: store, onClose: func() { closed = true }}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "x")
+	model, cmd := mustUpdate(t, model, "x")
+	model = runCmd(t, model, cmd)
 	if !closed {
 		t.Fatal("close was not called")
 	}
@@ -531,7 +537,8 @@ func TestModelRepairEditRefThenOpen(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "o") // first open → repair
+	model, cmd := mustUpdate(t, model, "o") // first open → repair
+	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatalf("should be in repair mode: %s", model.View())
 	}
@@ -576,7 +583,8 @@ func TestModelRepairRetryCallsOpen(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "o") // first open → repair
+	model, cmd := mustUpdate(t, model, "o") // first open → repair
+	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatal("should be repairing")
 	}
@@ -604,7 +612,8 @@ func TestModelEscCancelsRepair(t *testing.T) {
 		openErr: tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"},
 	}
 	model := New(ctx, wrapped)
-	model, _ = mustUpdate(t, model, "o")
+	model, cmd := mustUpdate(t, model, "o")
+	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatal("should be repairing")
 	}
@@ -735,6 +744,45 @@ func TestVerticalScrollFollowsCursor(t *testing.T) {
 	}
 	if model.colScroll[0] != 0 {
 		t.Fatalf("scroll offset should reset to 0, got %d", model.colScroll[0])
+	}
+}
+
+// TestScrollFocusedCardAlwaysRendered verifies that after navigating down,
+// the focused card actually appears in the rendered output (not just that
+// m.card >= m.colScroll). The bug was that vScrollFollow did not account for
+// the blank separator line between cards, so the scroll offset advanced one
+// step too late — the focused card was logically "in window" but the render
+// loop's tighter accounting meant it was actually cut off.
+func TestScrollFocusedCardAlwaysRendered(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardView(ctx)
+	for i := 0; i < 10; i++ {
+		if _, err := store.CreateTicket(ctx, view.Columns[0].ID, fmt.Sprintf("Ticket %d", i), "", "pi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model := New(ctx, store)
+	model.width = 80
+	model.height = 20
+	model.syncScrollDimensions()
+
+	// Navigate to each card one by one and verify it is present in the render.
+	for step := 0; step < 9; step++ {
+		model, _ = mustUpdate(t, model, "j")
+		ticket := model.view.Columns[0].Tickets[model.card]
+		rendered := model.View()
+		if !strings.Contains(rendered, ticket.DisplayID) {
+			t.Fatalf("step %d: focused card %d (%s) not found in rendered output (scroll=%d)\n%s",
+				step, model.card, ticket.DisplayID, model.colScroll[0], rendered)
+		}
 	}
 }
 
@@ -913,7 +961,7 @@ func TestMoveTicketCursorFollowsTicket(t *testing.T) {
 	inProgress := view.Columns[1].ID
 	review := view.Columns[2].ID
 	store.CreateTicket(ctx, inProgress, "Alpha", "", "")
-	store.CreateTicket(ctx, inProgress, "Beta", "", "")  // we will move this one
+	store.CreateTicket(ctx, inProgress, "Beta", "", "") // we will move this one
 	store.CreateTicket(ctx, inProgress, "Gamma", "", "")
 	store.CreateTicket(ctx, review, "Already Here", "", "")
 
@@ -938,7 +986,7 @@ func TestMoveTicketCursorFollowsTicket(t *testing.T) {
 	// The real failure is when Beta lands at the END (len=1 → index 1) but
 	// clamp would have left card=1 too. Let's instead move from card=0 where
 	// clamp leaves it at 0, pointing to the wrong ticket.
-	model, _ = mustUpdate(t, model, "k") // back to card=0, "Alpha"
+	model, _ = mustUpdate(t, model, "k")                                  // back to card=0, "Alpha"
 	movedID = model.view.Columns[model.col].Tickets[model.card].DisplayID // "Alpha"
 
 	// Dest col "Review" has [Already Here]. Moving Alpha there appends it at
@@ -1049,6 +1097,22 @@ func mustUpdateKey(t *testing.T, m Model, key tea.KeyMsg) (Model, tea.Cmd) {
 	return model, cmd
 }
 
+// runCmd executes a tea.Cmd synchronously and feeds the resulting message back
+// through Update. Use this after async dispatching actions (open, close, etc.).
+func runCmd(t *testing.T, m Model, cmd tea.Cmd) Model {
+	t.Helper()
+	if cmd == nil {
+		return m
+	}
+	msg := cmd()
+	next, _ := m.Update(msg)
+	model, ok := next.(Model)
+	if !ok {
+		t.Fatalf("model type %T", next)
+	}
+	return model
+}
+
 func firstLineContaining(s, needle string) string {
 	for _, line := range strings.Split(s, "\n") {
 		if strings.Contains(line, needle) {
@@ -1056,4 +1120,172 @@ func firstLineContaining(s, needle string) string {
 		}
 	}
 	return ""
+}
+
+func TestBoardPickerSwitchesToMasterAndNamedBoard(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.CreateBoard(ctx, "Client B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardViewByID(ctx, second.ID)
+	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Other task", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	model := NewWithPicker(ctx, store)
+	if !model.boardPicker || !strings.Contains(model.View(), "Master") || !strings.Contains(model.View(), "Client B") {
+		t.Fatalf("picker not shown:\n%s", model.View())
+	}
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.masterBoard || model.view.Board.Name != "Master" || !strings.Contains(model.View(), "Client B") {
+		t.Fatalf("did not switch to master:\n%s", model.View())
+	}
+	model, _ = mustUpdate(t, model, "b")
+	model, _ = mustUpdate(t, model, "j")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.masterBoard || model.view.Board.Name != "Client B" {
+		t.Fatalf("did not switch to Client B: master=%v board=%s", model.masterBoard, model.view.Board.Name)
+	}
+}
+
+func TestCreateTicketFromMasterPromptsForTargetBoard(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	client, err := store.CreateBoard(ctx, "Client B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, store)
+	model.masterBoard = true
+	model.reloadBoards()
+	model.reload()
+	model, _ = mustUpdate(t, model, "n")
+	if !model.boardPicker || model.boardPickerMode != "create" || !strings.Contains(model.View(), "Create ticket in which board?") {
+		t.Fatalf("create board picker not shown:\n%s", model.View())
+	}
+	// board list is sorted alphabetically: Client B is the first real board.
+	model, _ = mustUpdate(t, model, "j")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.editing {
+		t.Fatalf("new ticket should open edit form:\n%s", model.View())
+	}
+	clientView, err := store.BoardViewByID(ctx, client.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clientView.Columns[0].Tickets) != 1 || clientView.Columns[0].Tickets[0].Title != "New ticket" {
+		t.Fatalf("ticket not created on selected board: %+v", clientView.Columns[0].Tickets)
+	}
+}
+
+func TestRenameBoardFromTUIBoardPicker(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, store)
+	model, _ = mustUpdate(t, model, "b")
+	model, _ = mustUpdate(t, model, "j")
+	model, _ = mustUpdate(t, model, "r")
+	if !model.boardRenaming || !model.boardRenameReturnPicker {
+		t.Fatalf("picker rename modal not shown")
+	}
+	model.boardRenameName = "Again"
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.boardPicker || !strings.Contains(model.View(), "Again") {
+		t.Fatalf("should return to picker with renamed board:\n%s", model.View())
+	}
+}
+
+func TestBoardCreateShowsWorkdirErrorInModal(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, store)
+	model, _ = mustUpdate(t, model, "b")
+	model, _ = mustUpdate(t, model, "c")
+	model.boardEditName = "Client"
+	model.boardEditCWD = t.TempDir() + "/missing"
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.boardEditing {
+		t.Fatalf("modal should stay open after invalid cwd")
+	}
+	if !strings.Contains(model.View(), "no such file or directory") {
+		t.Fatalf("error not visible in board create modal:\n%s", model.View())
+	}
+}
+
+func TestBoardPickerCreateSetCWDAndDeleteBoard(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cwd := t.TempDir()
+	model := New(ctx, store)
+	model, _ = mustUpdate(t, model, "b")
+	model, _ = mustUpdate(t, model, "c")
+	if !model.boardEditing || model.boardEditAction != "create" {
+		t.Fatalf("create modal not shown")
+	}
+	model.boardEditName = "Client"
+	model.boardEditCWD = cwd
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.boardPicker || !strings.Contains(model.View(), "Client") {
+		t.Fatalf("created board missing from picker:\n%s", model.View())
+	}
+	b, err := store.BoardByName(ctx, "Client")
+	if err != nil || b.Workdir != cwd {
+		t.Fatalf("created board = %+v err=%v", b, err)
+	}
+	newCWD := t.TempDir()
+	model, _ = mustUpdate(t, model, "j")
+	model, _ = mustUpdate(t, model, "w")
+	if !model.boardEditing || model.boardEditAction != "cwd" {
+		t.Fatalf("cwd modal not shown")
+	}
+	model.boardEditCWD = newCWD
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	b, _ = store.BoardByName(ctx, "Client")
+	if b.Workdir != newCWD {
+		t.Fatalf("cwd=%q want %q", b.Workdir, newCWD)
+	}
+	model, _ = mustUpdate(t, model, "d")
+	if !model.boardDeleting {
+		t.Fatalf("delete confirmation not shown")
+	}
+	model, _ = mustUpdate(t, model, "y")
+	if _, err := store.BoardByName(ctx, "Client"); err == nil {
+		t.Fatal("board should be deleted")
+	}
 }

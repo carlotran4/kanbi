@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"agent-kanban/internal/config"
@@ -21,6 +25,11 @@ import (
 var ErrPromptAlreadySent = errors.New("prompt already sent; open session instead")
 
 const defaultResumeCheckAfter = 2500 * time.Millisecond
+
+var boardSessionSeq atomic.Uint64
+
+//go:embed pi_session_ref_extension.ts
+var piSessionRefExtension string
 
 type RepairNeededError struct {
 	Ticket storage.Ticket
@@ -116,7 +125,7 @@ func (m *Manager) EnsureBoardWindow(ctx context.Context) error {
 	if exists {
 		return nil
 	}
-	_, err = m.run(ctx, "new-window", "-d", "-t", m.Config.TmuxSession, "-n", name)
+	_, err = m.run(ctx, newWindowArgs(m.Config.TmuxSession, name, "")...)
 	return err
 }
 
@@ -137,10 +146,11 @@ func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPro
 	if err := m.EnsureSession(ctx); err != nil {
 		return err
 	}
-	name := WindowName(ticket.DisplayID, ticket.Title)
+	name := TicketWindowName(ticket)
 	var windowID string
 	var renderedPrompt string
 	var promptAlreadySent bool
+	var refFile string
 	launchStartedAt := time.Now().UTC()
 	if sendPrompt {
 		renderedPrompt = prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
@@ -166,7 +176,13 @@ func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPro
 				return err
 			}
 		}
-		out, err := m.run(ctx, append(newWindowArgs(m.Config.TmuxSession, name), ShellCommand(command))...)
+		if ticket.Harness == "pi" && promptAlreadySent {
+			command, refFile, err = m.commandWithPiSessionRefCapture(ticket, command)
+			if err != nil {
+				return err
+			}
+		}
+		out, err := m.run(ctx, append(newWindowArgs(m.Config.TmuxSession, name, ticket.BoardWorkdir), ShellCommand(command))...)
 		if err != nil {
 			if m.Store != nil && ticket.SessionID.Valid {
 				_ = m.Store.UpdateSessionRuntime(ctx, ticket.SessionID.Int64, "error", "tmux", err.Error(), "", false)
@@ -211,7 +227,7 @@ func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPro
 	if ticket.SessionRef.Valid {
 		ses.HarnessSessionRef = sql.NullString{String: ticket.SessionRef.String, Valid: true}
 	} else if promptAlreadySent && m.Store != nil {
-		if ref, ok := m.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchStartedAt); ok {
+		if ref, ok := m.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchStartedAt, refFile); ok {
 			ses.HarnessSessionRef = sql.NullString{String: ref, Valid: true}
 		}
 	}
@@ -234,7 +250,12 @@ func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPro
 			}
 		}
 	}
-	return nil
+	switchRef := windowID
+	if switchRef == "" {
+		switchRef = name
+	}
+	_, err = m.run(ctx, "switch-client", "-t", targetRef(m.Config.TmuxSession, switchRef))
+	return err
 }
 
 func (m *Manager) StartFreshTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
@@ -251,7 +272,7 @@ func (m *Manager) SwitchToTicket(ctx context.Context, ticket storage.Ticket) err
 	if err != nil {
 		return err
 	}
-	name := WindowName(ticket.DisplayID, ticket.Title)
+	name := TicketWindowName(ticket)
 	if ticket.SessionID.Valid && !ticket.SessionActive {
 		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
 			return m.OpenTicket(ctx, ticket, false)
@@ -293,8 +314,10 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 }
 
 func (m *Manager) RenameTicketWindow(ctx context.Context, ticket storage.Ticket, title string) error {
-	oldName := WindowName(ticket.DisplayID, ticket.Title)
-	newName := WindowName(ticket.DisplayID, title)
+	oldName := TicketWindowName(ticket)
+	updated := ticket
+	updated.Title = title
+	newName := TicketWindowName(updated)
 	ref, exists, err := m.ticketWindowRef(ctx, ticket, oldName)
 	if err != nil || !exists {
 		return err
@@ -608,7 +631,70 @@ func (m *Manager) run(ctx context.Context, args ...string) (string, error) {
 	return m.Runner.Run(ctx, "tmux", args...)
 }
 
-func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText string, since time.Time) (string, bool) {
+func (m *Manager) commandWithPiSessionRefCapture(ticket storage.Ticket, command []string) ([]string, string, error) {
+	extPath, err := m.ensurePiSessionRefExtension()
+	if err != nil {
+		return nil, "", err
+	}
+	refFile := filepath.Join(m.stateDir(), "pi-session-refs", fmt.Sprintf("ticket-%d-%d.json", ticket.ID, time.Now().UnixNano()))
+	out := make([]string, 0, len(command)+5)
+	out = append(out,
+		"env",
+		"AGENT_KANBAN_SESSION_REF_FILE="+refFile,
+		"AGENT_KANBAN_TICKET_ID="+fmt.Sprint(ticket.ID),
+	)
+	if len(command) == 0 {
+		return nil, "", errors.New("pi command is empty")
+	}
+	out = append(out, command[0], "-e", extPath)
+	out = append(out, command[1:]...)
+	return out, refFile, nil
+}
+
+func (m *Manager) ensurePiSessionRefExtension() (string, error) {
+	path := filepath.Join(m.stateDir(), "pi-session-ref-extension.ts")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(piSessionRefExtension), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (m *Manager) stateDir() string {
+	if m.Config.Paths.StateDir != "" {
+		return m.Config.Paths.StateDir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(os.TempDir(), "agent-kanban")
+	}
+	return filepath.Join(home, ".local", "state", "agent-kanban")
+}
+
+type piSessionRefPayload struct {
+	SessionID string `json:"sessionId"`
+}
+
+func readPiSessionRefFile(path string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var payload piSessionRefPayload
+	if err := json.Unmarshal(data, &payload); err != nil || strings.TrimSpace(payload.SessionID) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(payload.SessionID), true
+}
+
+func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText string, since time.Time, refFile string) (string, bool) {
+	if harnessName == "pi" && refFile != "" {
+		if ref, ok := readPiSessionRefFile(refFile); ok {
+			return ref, true
+		}
+	}
 	// Copilot writes to session-store.db asynchronously and may take several
 	// seconds after process start. Pi writes its JSONL file asynchronously too.
 	// Use a longer deadline for these harnesses.
@@ -619,6 +705,11 @@ func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText
 	}
 	end := time.Now().Add(deadline)
 	for {
+		if harnessName == "pi" && refFile != "" {
+			if ref, ok := readPiSessionRefFile(refFile); ok {
+				return ref, true
+			}
+		}
 		ref, ok := harness.CaptureSessionRef(m.Config, harnessName, promptText, since)
 		if ok {
 			return ref, true
@@ -638,6 +729,14 @@ func WindowName(displayID, title string) string {
 	return strings.Trim(displayID+"-"+slug(title), "-")
 }
 
+func TicketWindowName(ticket storage.Ticket) string {
+	prefix := ""
+	if ticket.BoardID != 0 {
+		prefix = fmt.Sprintf("b%d-", ticket.BoardID)
+	}
+	return strings.Trim(prefix+WindowName(ticket.DisplayID, ticket.Title), "-")
+}
+
 func ShellCommand(args []string) string {
 	quoted := make([]string, len(args))
 	for i, arg := range args {
@@ -646,9 +745,12 @@ func ShellCommand(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
-func newWindowArgs(session, name string) []string {
+func newWindowArgs(session, name, cwd string) []string {
 	args := []string{"new-window", "-d", "-P", "-F", "#{window_id}"}
-	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
 	args = append(args, "-t", session, "-n", name)
@@ -664,11 +766,18 @@ func AttachCommand(cfg config.Config, exe string) *exec.Cmd {
 	if board == "" {
 		board = "board"
 	}
-	cmd := exec.Command("tmux", "new-session", "-A", "-s", cfg.TmuxSession, "-n", board, "env", "AGENT_KANBAN_INNER=1", exe, "--board")
+	cmd := exec.Command("tmux", "new-session", "-s", boardClientSessionName(cfg.TmuxSession), "-n", board, "env", "AGENT_KANBAN_INNER=1", exe, "--board")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd
+}
+
+func boardClientSessionName(mainSession string) string {
+	if mainSession == "" {
+		mainSession = config.DefaultSession
+	}
+	return fmt.Sprintf("%s-board-%d-%d-%d", mainSession, os.Getpid(), time.Now().UnixNano(), boardSessionSeq.Add(1))
 }
 
 func isAutoCloseEligible(state string) bool {
