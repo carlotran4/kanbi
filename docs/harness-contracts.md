@@ -18,17 +18,18 @@ Hardcoded adapters live in `internal/config/config.go` (defaults) and `internal/
 
 ### Session Ref Capture
 
-Pi writes JSONL session files to `~/.pi/agent/sessions/**/*.jsonl`.
+Primary capture uses Agent Kanban's bundled Pi extension. When starting Pi with a prompt, Agent Kanban materializes `pi-session-ref-extension.ts` under its state directory and launches Pi with `-e <extension>`. The extension reads Pi's `ctx.sessionManager.getSessionId()` during `session_start` and writes it to the `AGENT_KANBAN_SESSION_REF_FILE` JSON handoff path. Agent Kanban stores that `sessionId` as `harness_session_ref`.
 
-Each file begins with a `{"type":"session","id":"<id>","cwd":"<cwd>",...}` header line.
-Subsequent lines are message entries, one of which will be the first user message with the prompt text.
+This avoids prompt-text, timestamp, or filesystem-history matching for normal starts.
 
-Capture logic in `harness.CaptureSessionRef` scans session files matching:
+Fallback capture still scans Pi JSONL session files under `~/.pi/agent/sessions/**/*.jsonl` for older sessions or extension handoff failure. Each file begins with a `{"type":"session","id":"<id>","cwd":"<cwd>",...}` header line. Subsequent lines are message entries, one of which will be the first user message with the prompt text.
+
+Fallback matching requires:
 - `header.CWD == os.Getwd()` (same working directory)
-- `header.Timestamp` is recent (within 2s of session start)
+- `header.Timestamp` is recent (within the capture window)
 - A `{"type":"message","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}` entry matches the rendered prompt
 
-**Verified:** start, ref capture, close, resume path. See `TestCapturePiSessionRefFromSessionFile`.
+**Verified:** start, extension ref capture, fallback ref capture, close, resume path. See `TestOpenTicketWithPiPromptCapturesSessionRefFromBundledExtension` and `TestCapturePiSessionRefFromSessionFile`.
 
 ### Exit Keys
 
