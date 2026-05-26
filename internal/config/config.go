@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"time"
 
+	"agent-kanban/internal/harness"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,14 +25,7 @@ type Paths struct {
 	DBFile     string
 }
 
-type Harness struct {
-	Start       []string `yaml:"start"`
-	Resume      []string `yaml:"resume"`
-	Exit        []string `yaml:"exit"`
-	PromptReady string   `yaml:"prompt_ready"`
-	PromptMode  string   `yaml:"prompt_mode"`
-	SessionRef  string   `yaml:"session_ref"`
-}
+type Harness = harness.Config
 
 type Tmux struct {
 	SessionName     string `yaml:"session_name"`
@@ -103,91 +98,54 @@ func ResolvePaths() Paths {
 	return Paths{ConfigFile: configFile, DataDir: dataDir, StateDir: stateDir, DBFile: dbFile}
 }
 
+type Env struct {
+	DBPath      string
+	TmuxSession string
+}
+
+type NormalizeOptions struct {
+	Env                  Env
+	LoadedNestedTimeouts bool
+}
+
 func Defaults(paths Paths) Config {
-	return Config{
-		Paths:                 paths,
-		DBPath:                paths.DBFile,
-		DefaultHarness:        "pi",
-		TmuxSession:           envDefault("AGENT_KANBAN_TMUX_SESSION", DefaultSession),
-		Tmux:                  Tmux{SessionName: envDefault("AGENT_KANBAN_TMUX_SESSION", DefaultSession), BoardWindowName: "board"},
-		PromptReadyTimeout:    5 * time.Second,
-		PromptReadyRaw:        "5s",
-		IdleUnknownAfter:      120 * time.Second,
-		AutoCloseWaitingAfter: 10 * time.Minute,
-		GracefulExitTimeout:   15 * time.Second,
-		Timeouts: Timeouts{
-			IdleUnknownAfterSeconds:      120,
-			AutoCloseWaitingAfterMinutes: 10,
-			GracefulExitTimeoutSeconds:   15,
-			PromptReadyTimeoutSeconds:    5,
-		},
-		Harnesses: map[string]Harness{
-			"pi": {
-				Start:       []string{"pi"},
-				Resume:      []string{"pi", "--session", "{session_ref}"},
-				Exit:        []string{"C-c", "exit", "Enter"},
-				PromptReady: "",
-				PromptMode:  "arg",
-				SessionRef:  "",
-			},
-			"codex": {
-				Start:       []string{"codex", "--no-alt-screen"},
-				Resume:      []string{"codex", "resume", "--no-alt-screen", "{session_ref}"},
-				Exit:        []string{"C-c", "exit", "Enter"},
-				PromptReady: "",
-				PromptMode:  "arg",
-				SessionRef:  "",
-			},
-			"copilot": {
-				Start:       []string{"gh", "copilot", "--", "-i"},
-				Resume:      []string{"gh", "copilot", "--", "--resume={session_ref}"},
-				Exit:        []string{"C-c", "exit", "Enter"},
-				PromptReady: "",
-				PromptMode:  "arg",
-				SessionRef:  "",
-			},
-		},
-	}
+	return defaultConfig(paths, readEnv())
 }
 
 func Load() (Config, error) {
 	paths := ResolvePaths()
-	cfg := Defaults(paths)
-	loadedNestedTimeouts := false
+	raw, loadedNestedTimeouts, err := LoadRaw(paths.ConfigFile)
+	if err != nil {
+		return Config{}, err
+	}
+	return Normalize(raw, paths, NormalizeOptions{Env: readEnv(), LoadedNestedTimeouts: loadedNestedTimeouts})
+}
 
-	if b, err := os.ReadFile(paths.ConfigFile); err == nil {
-		loadedNestedTimeouts = byteContains(b, []byte("timeouts:"))
-		if err := yaml.Unmarshal(b, &cfg); err != nil {
-			return Config{}, fmt.Errorf("load config %s: %w", paths.ConfigFile, err)
+func LoadRaw(path string) (Config, bool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Config{}, false, nil
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Config{}, fmt.Errorf("read config %s: %w", paths.ConfigFile, err)
+		return Config{}, false, fmt.Errorf("read config %s: %w", path, err)
 	}
+	var raw Config
+	if err := yaml.Unmarshal(b, &raw); err != nil {
+		return Config{}, false, fmt.Errorf("load config %s: %w", path, err)
+	}
+	return raw, byteContains(b, []byte("timeouts:")), nil
+}
 
-	cfg.Paths = paths
-	if cfg.DBPath == "" {
-		cfg.DBPath = paths.DBFile
+func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
+	cfg := defaultConfig(paths, opts.Env)
+	overlayRawConfig(&cfg, raw)
+	if opts.Env.DBPath != "" {
+		cfg.DBPath = opts.Env.DBPath
 	}
-	if cfg.DefaultHarness == "" {
-		cfg.DefaultHarness = "pi"
-	}
-	if envDB := os.Getenv("AGENT_KANBAN_DB"); envDB != "" {
-		cfg.DBPath = envDB
-	}
-	defaultSession := envDefault("AGENT_KANBAN_TMUX_SESSION", DefaultSession)
-	if cfg.Tmux.SessionName != "" && cfg.TmuxSession == defaultSession {
-		cfg.TmuxSession = cfg.Tmux.SessionName
-	}
-	if cfg.TmuxSession == "" {
-		cfg.TmuxSession = defaultSession
-	}
-	if envSession := os.Getenv("AGENT_KANBAN_TMUX_SESSION"); envSession != "" {
-		cfg.TmuxSession = envSession
+	if opts.Env.TmuxSession != "" {
+		cfg.TmuxSession = opts.Env.TmuxSession
 	}
 	cfg.Tmux.SessionName = cfg.TmuxSession
-	if cfg.Tmux.BoardWindowName == "" {
-		cfg.Tmux.BoardWindowName = "board"
-	}
 	if cfg.PromptReadyRaw == "" {
 		cfg.PromptReadyRaw = "5s"
 	}
@@ -196,7 +154,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("invalid prompt_ready_timeout %q: %w", cfg.PromptReadyRaw, err)
 	}
 	cfg.PromptReadyTimeout = timeout
-	applyTimeoutDefaults(&cfg, loadedNestedTimeouts)
+	applyTimeoutDefaults(&cfg, opts.LoadedNestedTimeouts)
 	mergeHarnessDefaults(&cfg)
 	return cfg, nil
 }
@@ -210,8 +168,73 @@ func (c Config) EnsureDirs() error {
 	return nil
 }
 
+func defaultConfig(paths Paths, env Env) Config {
+	tmuxSession := env.TmuxSession
+	if tmuxSession == "" {
+		tmuxSession = DefaultSession
+	}
+	return Config{
+		Paths:                 paths,
+		DBPath:                paths.DBFile,
+		DefaultHarness:        "pi",
+		TmuxSession:           tmuxSession,
+		Tmux:                  Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
+		PromptReadyTimeout:    5 * time.Second,
+		PromptReadyRaw:        "5s",
+		IdleUnknownAfter:      120 * time.Second,
+		AutoCloseWaitingAfter: 10 * time.Minute,
+		GracefulExitTimeout:   15 * time.Second,
+		Timeouts: Timeouts{
+			IdleUnknownAfterSeconds:      120,
+			AutoCloseWaitingAfterMinutes: 10,
+			GracefulExitTimeoutSeconds:   15,
+			PromptReadyTimeoutSeconds:    5,
+		},
+		Harnesses: harness.DefaultConfigs(),
+	}
+}
+
+func overlayRawConfig(cfg *Config, raw Config) {
+	if raw.DBPath != "" {
+		cfg.DBPath = raw.DBPath
+	}
+	if raw.DefaultHarness != "" {
+		cfg.DefaultHarness = raw.DefaultHarness
+	}
+	if raw.TmuxSession != "" {
+		cfg.TmuxSession = raw.TmuxSession
+	}
+	if raw.Tmux.SessionName != "" {
+		if raw.TmuxSession == "" {
+			cfg.TmuxSession = raw.Tmux.SessionName
+		}
+		cfg.Tmux.SessionName = raw.Tmux.SessionName
+	}
+	if raw.Tmux.BoardWindowName != "" {
+		cfg.Tmux.BoardWindowName = raw.Tmux.BoardWindowName
+	}
+	if raw.PromptReadyRaw != "" {
+		cfg.PromptReadyRaw = raw.PromptReadyRaw
+	}
+	if raw.Timeouts.IdleUnknownAfterSeconds > 0 {
+		cfg.Timeouts.IdleUnknownAfterSeconds = raw.Timeouts.IdleUnknownAfterSeconds
+	}
+	if raw.Timeouts.AutoCloseWaitingAfterMinutes > 0 {
+		cfg.Timeouts.AutoCloseWaitingAfterMinutes = raw.Timeouts.AutoCloseWaitingAfterMinutes
+	}
+	if raw.Timeouts.GracefulExitTimeoutSeconds > 0 {
+		cfg.Timeouts.GracefulExitTimeoutSeconds = raw.Timeouts.GracefulExitTimeoutSeconds
+	}
+	if raw.Timeouts.PromptReadyTimeoutSeconds > 0 {
+		cfg.Timeouts.PromptReadyTimeoutSeconds = raw.Timeouts.PromptReadyTimeoutSeconds
+	}
+	if raw.Harnesses != nil {
+		cfg.Harnesses = raw.Harnesses
+	}
+}
+
 func mergeHarnessDefaults(cfg *Config) {
-	defaults := Defaults(cfg.Paths).Harnesses
+	defaults := defaultConfig(cfg.Paths, Env{}).Harnesses
 	if cfg.Harnesses == nil {
 		cfg.Harnesses = defaults
 		return
@@ -281,9 +304,9 @@ func byteContains(b, sub []byte) bool {
 	return false
 }
 
-func envDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+func readEnv() Env {
+	return Env{
+		DBPath:      os.Getenv("AGENT_KANBAN_DB"),
+		TmuxSession: os.Getenv("AGENT_KANBAN_TMUX_SESSION"),
 	}
-	return fallback
 }

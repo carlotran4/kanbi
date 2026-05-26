@@ -77,7 +77,7 @@ flowchart TD
 | --- | --- | --- | --- | --- | --- |
 | Pi | `pi` | `pi <prompt>` | `pi --session <ref>` | arg | scan `~/.pi/agent/sessions` for matching prompt |
 | Codex | `codex --no-alt-screen` | `codex --no-alt-screen <prompt>` | `codex resume --no-alt-screen <ref>` | arg | scan `~/.codex/history.jsonl` for matching prompt |
-| Copilot | `gh copilot --` | `gh copilot -- -i <prompt>` | `gh copilot -- --resume=<ref>` | arg | currently manual/repair unless future Copilot logs expose stable refs |
+| Copilot | `gh copilot --` | `gh copilot -- -i <prompt>` | `gh copilot -- --resume=<ref>` | arg | query `~/.copilot/session-store.db` for matching cwd/prompt |
 | Fake/smoke paste harness | configured command | start, wait for ready, tmux paste | configured resume | paste | parse pane marker such as `SESSION_REF=` |
 
 ## Command Rules
@@ -114,7 +114,7 @@ flowchart TD
 
 ## Audit Findings Applied
 
-- Copilot was previously configured like a paste-mode fake harness. Current Copilot help exposes `-i <prompt>` for interactive prompt execution and `--resume=<id>` for resume, so the default adapter now uses arg mode through `gh copilot --`.
+- Copilot was previously configured like a paste-mode fake harness. Current Copilot help exposes `-i <prompt>` for interactive prompt execution and `--resume=<id>` for resume, so the default adapter now uses arg mode through `gh copilot --`; session refs are captured from `~/.copilot/session-store.db` when a matching cwd/prompt is found.
 - Active vs inactive session state now controls whether tmux window metadata is trusted.
 - A valid active open switches without writing a duplicate session row.
 - Inactive latest sessions remain visible as `closed` or `error`, not `not_started`.

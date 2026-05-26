@@ -11,24 +11,22 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-
-	"agent-kanban/internal/config"
 )
 
 func TestHarnessCommandConstruction(t *testing.T) {
-	cfg := config.Defaults(config.Paths{})
-	cfg.Harnesses["pi"] = config.Harness{
+	harnesses := DefaultConfigs()
+	harnesses["pi"] = Config{
 		Start:  []string{"/bin/pi"},
 		Resume: []string{"/bin/pi", "resume", "{session_ref}"},
 	}
-	start, err := StartCommand(cfg, "pi")
+	start, err := StartCommand(harnesses, "pi")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(start, []string{"/bin/pi"}) {
 		t.Fatalf("start = %#v", start)
 	}
-	resume, err := ResumeCommand(cfg, "pi", "abc123")
+	resume, err := ResumeCommand(harnesses, "pi", "abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,8 +36,8 @@ func TestHarnessCommandConstruction(t *testing.T) {
 }
 
 func TestCodexDefaultUsesPromptArgumentMode(t *testing.T) {
-	cfg := config.Defaults(config.Paths{})
-	start, sent, err := StartCommandWithPrompt(cfg, "codex", "# T-001: Demo\n\nBody", true)
+	harnesses := DefaultConfigs()
+	start, sent, err := StartCommandWithPrompt(harnesses, "codex", "# T-001: Demo\n\nBody", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +45,7 @@ func TestCodexDefaultUsesPromptArgumentMode(t *testing.T) {
 	if !sent || !reflect.DeepEqual(start, want) {
 		t.Fatalf("start=%#v sent=%v", start, sent)
 	}
-	resume, err := ResumeCommand(cfg, "codex", "019e-test")
+	resume, err := ResumeCommand(harnesses, "codex", "019e-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,8 +56,8 @@ func TestCodexDefaultUsesPromptArgumentMode(t *testing.T) {
 }
 
 func TestPiDefaultUsesPromptArgumentModeAndSessionResume(t *testing.T) {
-	cfg := config.Defaults(config.Paths{})
-	start, sent, err := StartCommandWithPrompt(cfg, "pi", "# T-001: Demo\n\nBody", true)
+	harnesses := DefaultConfigs()
+	start, sent, err := StartCommandWithPrompt(harnesses, "pi", "# T-001: Demo\n\nBody", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +65,7 @@ func TestPiDefaultUsesPromptArgumentModeAndSessionResume(t *testing.T) {
 	if !sent || !reflect.DeepEqual(start, want) {
 		t.Fatalf("start=%#v sent=%v", start, sent)
 	}
-	resume, err := ResumeCommand(cfg, "pi", "019e-test")
+	resume, err := ResumeCommand(harnesses, "pi", "019e-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +76,8 @@ func TestPiDefaultUsesPromptArgumentModeAndSessionResume(t *testing.T) {
 }
 
 func TestCopilotDefaultUsesInteractivePromptAndResumeFlag(t *testing.T) {
-	cfg := config.Defaults(config.Paths{})
-	start, sent, err := StartCommandWithPrompt(cfg, "copilot", "# T-001: Demo\n\nBody", true)
+	harnesses := DefaultConfigs()
+	start, sent, err := StartCommandWithPrompt(harnesses, "copilot", "# T-001: Demo\n\nBody", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,13 +85,64 @@ func TestCopilotDefaultUsesInteractivePromptAndResumeFlag(t *testing.T) {
 	if !sent || !reflect.DeepEqual(start, want) {
 		t.Fatalf("start=%#v sent=%v", start, sent)
 	}
-	resume, err := ResumeCommand(cfg, "copilot", "abc1234")
+	resume, err := ResumeCommand(harnesses, "copilot", "abc1234")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want = []string{"gh", "copilot", "--", "--resume=abc1234"}
 	if !reflect.DeepEqual(resume, want) {
 		t.Fatalf("resume=%#v", resume)
+	}
+}
+
+func TestFakePasteHarnessContractRemainsConfigurable(t *testing.T) {
+	harnesses := DefaultConfigs()
+	harnesses["fake"] = Config{
+		Start:       []string{"fake-harness"},
+		Resume:      []string{"fake-harness", "--session", "{session_ref}"},
+		Exit:        []string{"C-c", "exit", "Enter"},
+		PromptReady: "PROMPT_READY",
+		PromptMode:  PromptModePaste,
+		SessionRef:  "SESSION_REF=",
+	}
+
+	start, sent, err := StartCommandWithPrompt(harnesses, "fake", "prompt body", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent || !reflect.DeepEqual(start, []string{"fake-harness"}) {
+		t.Fatalf("start=%#v sent=%v", start, sent)
+	}
+	resume, err := ResumeCommand(harnesses, "fake", "fake-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(resume, []string{"fake-harness", "--session", "fake-123"}) {
+		t.Fatalf("resume=%#v", resume)
+	}
+	if got := PromptReadyPattern(harnesses, "fake"); got != "PROMPT_READY" {
+		t.Fatalf("prompt ready = %q", got)
+	}
+	if got := SessionRefPattern(harnesses, "fake"); got != "SESSION_REF=" {
+		t.Fatalf("session ref marker = %q", got)
+	}
+}
+
+func TestBuiltinContractsMapToHarnessDocs(t *testing.T) {
+	for _, name := range []string{"pi", "codex", "copilot"} {
+		contract, ok := BuiltinContract(name)
+		if !ok {
+			t.Fatalf("missing built-in contract %q", name)
+		}
+		if contract.DocsAnchor == "" || !strings.Contains(contract.DocsAnchor, "docs/harness-contracts.md#"+name) {
+			t.Fatalf("%s docs anchor = %q", name, contract.DocsAnchor)
+		}
+		if len(contract.Config.Start) == 0 || len(contract.Config.Resume) == 0 {
+			t.Fatalf("%s command config incomplete: %#v", name, contract.Config)
+		}
+		if contract.CaptureRef == nil {
+			t.Fatalf("%s missing capture function", name)
+		}
 	}
 }
 
@@ -207,7 +256,7 @@ func TestCodexHistoryPicksMostRecentMatchingSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".codex", "history.jsonl"), []byte(history), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ref, ok := CaptureSessionRef(config.Defaults(config.Paths{}), "codex", prompt, time.Unix(1999, 0))
+	ref, ok := CaptureSessionRef("codex", prompt, time.Unix(1999, 0))
 	if !ok || ref != "newest" {
 		t.Errorf("ref = %q ok = %v, want newest/true", ref, ok)
 	}
@@ -217,7 +266,7 @@ func TestCodexHistoryReturnsNothingWhenFileAbsent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// No ~/.codex/history.jsonl at all
-	_, ok := CaptureSessionRef(config.Defaults(config.Paths{}), "codex", "any prompt", time.Now())
+	_, ok := CaptureSessionRef("codex", "any prompt", time.Now())
 	if ok {
 		t.Error("should return false when history file absent")
 	}
@@ -240,7 +289,7 @@ func TestPiSessionIgnoresWrongCWD(t *testing.T) {
 		`{"type":"message","id":"m1","parentId":null,"timestamp":"2030-01-01T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":` + quote(promptText) + `}],"timestamp":1893456001000}}` + "\n"
 	_ = os.WriteFile(filepath.Join(sessionDir, "2030-01-01T00-00-00-000Z_wrong-id.jsonl"), []byte(wrongSession), 0o644)
 
-	ref, ok := CaptureSessionRef(config.Defaults(config.Paths{}), "pi", promptText, time.Unix(1893455999, 0))
+	ref, ok := CaptureSessionRef("pi", promptText, time.Unix(1893455999, 0))
 	if ok {
 		t.Errorf("should not capture session from wrong cwd, got ref=%q", ref)
 	}
@@ -263,7 +312,7 @@ func TestPiSessionIgnoresTooOldSessions(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(sessionDir, "2020-01-01T00-00-00-000Z_old-id.jsonl"), []byte(oldSession), 0o644)
 
 	// since = now — the old session is way before since-2s
-	ref, ok := CaptureSessionRef(config.Defaults(config.Paths{}), "pi", promptText, time.Now())
+	ref, ok := CaptureSessionRef("pi", promptText, time.Now())
 	if ok {
 		t.Errorf("should not capture session from before since window, got ref=%q", ref)
 	}
@@ -299,7 +348,7 @@ func TestCaptureCodexSessionRefFromHistory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".codex", "history.jsonl"), []byte(history), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ref, ok := CaptureSessionRef(config.Defaults(config.Paths{}), "codex", prompt, time.Unix(1999, 0))
+	ref, ok := CaptureSessionRef("codex", prompt, time.Unix(1999, 0))
 	if !ok || ref != "new" {
 		t.Fatalf("ref=%q ok=%v", ref, ok)
 	}
@@ -327,7 +376,7 @@ func TestCapturePiSessionRefFromSessionFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessionDir, "2030-01-01T00-00-00-000Z_019e-pi-test.jsonl"), []byte(session), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ref, ok := CaptureSessionRef(config.Defaults(config.Paths{}), "pi", prompt, time.Unix(1893455999, 0))
+	ref, ok := CaptureSessionRef("pi", prompt, time.Unix(1893455999, 0))
 	if !ok || ref != "019e-pi-test" {
 		t.Fatalf("ref=%q ok=%v", ref, ok)
 	}
@@ -406,7 +455,7 @@ func TestCaptureCopilotSessionRefFromSessionStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ref, ok := CaptureSessionRef(config.Defaults(config.Paths{}), "copilot", promptText, time.Unix(1893456000, 0))
+	ref, ok := CaptureSessionRef("copilot", promptText, time.Unix(1893456000, 0))
 	if !ok || ref != sessionID {
 		t.Fatalf("ref=%q ok=%v", ref, ok)
 	}

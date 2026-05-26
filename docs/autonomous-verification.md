@@ -278,7 +278,7 @@ Template:
 
 An autonomous agent should stop and ask before:
 
-- changing the product scope in `design-spec.md`
+- changing the product scope documented in current source-of-truth docs
 - adding a background daemon
 - adding a web UI
 - replacing tmux as v1 backend

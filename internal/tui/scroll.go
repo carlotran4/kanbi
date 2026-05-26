@@ -1,0 +1,145 @@
+package tui
+
+import "agent-kanban/internal/storage"
+
+func (m *Model) syncScrollDimensions() {
+	n := len(m.view.Columns)
+	for len(m.colScroll) < n {
+		m.colScroll = append(m.colScroll, 0)
+	}
+	if len(m.colScroll) > n {
+		m.colScroll = m.colScroll[:n]
+	}
+}
+
+// boardContentHeight returns the number of terminal rows available for card
+// rendering (total height minus header and footer rows).
+func (m *Model) boardContentHeight() int {
+	// 2 header lines (bar + blank) + 1 rule + 1 hints line = 4 fixed.
+	// Status line is conditional.
+	headerFooter := 4
+	if m.status != "" {
+		headerFooter++
+	}
+	h := m.height - headerFooter
+	if h < 4 {
+		h = 4
+	}
+	return h
+}
+
+// cardHeight returns the number of rendered lines a single card occupies inside
+// a column (box top + title lines + meta line + box bottom).
+func cardHeight(ticket storage.Ticket, innerWidth int) int {
+	cardInnerWidth := innerWidth - 4
+	titleLines := wrapText(ticket.DisplayID+" "+ticket.Title, cardInnerWidth-2, 3)
+	if len(titleLines) == 0 {
+		titleLines = []string{ticket.DisplayID}
+	}
+	// top border + title lines + meta line + bottom border
+	return 2 + len(titleLines) + 1 + 1
+}
+
+// vScrollFollow adjusts the scroll offset for the focused column so the
+// focused card is always within the visible window.
+func (m *Model) vScrollFollow() {
+	if m.col < 0 || m.col >= len(m.view.Columns) {
+		return
+	}
+	col := m.view.Columns[m.col]
+	if len(col.Tickets) == 0 {
+		return
+	}
+	inner := boardColumnWidth - 2
+	avail := m.boardContentHeight()
+
+	if len(m.colScroll) <= m.col {
+		return
+	}
+
+	// Clamp scroll offset first.
+	if m.colScroll[m.col] > len(col.Tickets)-1 {
+		m.colScroll[m.col] = len(col.Tickets) - 1
+	}
+	if m.colScroll[m.col] < 0 {
+		m.colScroll[m.col] = 0
+	}
+
+	// Scroll down: advance offset until focused card is visible.
+	for {
+		usedLines := 0
+		visibleEnd := -1
+		for ti := m.colScroll[m.col]; ti < len(col.Tickets); ti++ {
+			h := cardHeight(col.Tickets[ti], inner)
+			if usedLines+h > avail {
+				break
+			}
+			usedLines += h
+			visibleEnd = ti
+		}
+		if visibleEnd < 0 {
+			visibleEnd = m.colScroll[m.col]
+		}
+		if m.card <= visibleEnd {
+			break
+		}
+		m.colScroll[m.col]++
+	}
+	// Scroll up: retreat offset if focused card is above visible window.
+	for m.card < m.colScroll[m.col] {
+		m.colScroll[m.col]--
+	}
+}
+
+// hScrollFollow adjusts colOffset so the focused column is always visible.
+func (m *Model) hScrollFollow() {
+	if len(m.view.Columns) == 0 {
+		return
+	}
+	colW := boardColumnWidth + boardColumnGap
+	// Scroll left: retreat offset if focused column is left of window.
+	for m.col < m.colOffset {
+		m.colOffset--
+	}
+	// Scroll right: advance offset until focused column is visible.
+	for {
+		used := 0
+		lastVisible := m.colOffset - 1
+		for ci := m.colOffset; ci < len(m.view.Columns); ci++ {
+			if used+colW > m.width {
+				break
+			}
+			used += colW
+			lastVisible = ci
+		}
+		if m.col <= lastVisible {
+			break
+		}
+		m.colOffset++
+	}
+}
+
+func (m *Model) clamp() {
+	if len(m.view.Columns) == 0 {
+		m.col = 0
+		m.card = 0
+		return
+	}
+	if m.col < 0 {
+		m.col = 0
+	}
+	if m.col >= len(m.view.Columns) {
+		m.col = len(m.view.Columns) - 1
+	}
+	maxCard := len(m.view.Columns[m.col].Tickets) - 1
+	if maxCard < 0 {
+		m.card = 0
+		return
+	}
+	if m.card < 0 {
+		m.card = 0
+	}
+	if m.card > maxCard {
+		m.card = maxCard
+	}
+}

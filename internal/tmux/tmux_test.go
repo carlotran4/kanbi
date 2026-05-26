@@ -140,9 +140,75 @@ func argAfter(args []string, flag string) string {
 	return ""
 }
 
+func TestLifecycleDecideSwitchesActiveValidatedWindow(t *testing.T) {
+	ticket := storage.Ticket{
+		ID:            1,
+		DisplayID:     "T-001",
+		Title:         "Demo",
+		Harness:       "pi",
+		SessionID:     sql.NullInt64{Int64: 1, Valid: true},
+		SessionActive: true,
+		WindowID:      sqlString("@7"),
+		WindowName:    sqlString("T-001-demo"),
+	}
+	runner := &fakeRunner{windows: map[string]string{"@7": "T-001-demo"}}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Runner: runner}
+	decision, err := manager.lifecycle().Decide(context.Background(), lifecycleRequest{Ticket: ticket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != lifecycleActionSwitch || decision.Ref != "@7" {
+		t.Fatalf("decision = %+v, want switch @7", decision)
+	}
+}
+
+func TestLifecycleDecideRequiresRepairForStaleActiveWindowWithoutRef(t *testing.T) {
+	ticket := storage.Ticket{
+		ID:            1,
+		DisplayID:     "T-001",
+		Title:         "Demo",
+		Harness:       "pi",
+		SessionID:     sql.NullInt64{Int64: 1, Valid: true},
+		SessionActive: true,
+		WindowID:      sqlString("@7"),
+		WindowName:    sqlString("T-001-demo"),
+	}
+	runner := &fakeRunner{windows: map[string]string{"@7": "T-999-other"}}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Runner: runner}
+	decision, err := manager.lifecycle().Decide(context.Background(), lifecycleRequest{Ticket: ticket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != lifecycleActionRepair {
+		t.Fatalf("decision = %+v, want repair", decision)
+	}
+}
+
+func TestLifecycleDecideStartFreshIgnoresPriorSessionMetadata(t *testing.T) {
+	ticket := storage.Ticket{
+		ID:            1,
+		DisplayID:     "T-001",
+		Title:         "Demo",
+		Harness:       "pi",
+		SessionID:     sql.NullInt64{Int64: 99, Valid: true},
+		SessionActive: true,
+		SessionRef:    sqlString("old-ref"),
+		WindowID:      sqlString("@7"),
+		WindowName:    sqlString("T-001-demo"),
+	}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Runner: &fakeRunner{}}
+	decision, err := manager.lifecycle().Decide(context.Background(), lifecycleRequest{Ticket: ticket, StartFresh: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != lifecycleActionStart || decision.Ticket.SessionID.Valid || decision.Ticket.SessionRef.Valid || decision.Ticket.WindowID.Valid {
+		t.Fatalf("decision = %+v, want fresh start with cleared prior metadata", decision)
+	}
+}
+
 func TestReconcileMarksSessionMissingWhenWindowGone(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Recon", "", "pi")
 	runner := &fakeRunner{}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
@@ -171,7 +237,7 @@ func TestReconcileMarksSessionMissingWhenWindowGone(t *testing.T) {
 
 func TestRenameTicketWindowUpdatesDBAndTmux(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Original Title", "", "pi")
 	runner := &fakeRunner{}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
@@ -213,7 +279,7 @@ func TestRenameTicketWindowUpdatesDBAndTmux(t *testing.T) {
 
 func TestOpenTicketResumesWithStoredRef(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Resume Me", "", "pi")
 	runner := &fakeRunner{}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner, ResumeCheckAfter: time.Millisecond}
@@ -246,7 +312,7 @@ func TestOpenTicketResumesWithStoredRef(t *testing.T) {
 
 func TestOpenTicketRecoversMissingPiSessionRefFromHistory(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Recover Ref", "Body", "pi")
 
 	home := t.TempDir()
@@ -297,7 +363,7 @@ func TestOpenTicketRecoversMissingPiSessionRefFromHistory(t *testing.T) {
 
 func TestOpenTicketResumeFailureReturnsResumeFailedError(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Fail Resume", "", "pi")
 
 	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
@@ -322,7 +388,7 @@ func TestOpenTicketResumeFailureReturnsResumeFailedError(t *testing.T) {
 
 func TestRefreshRuntimeMarksSessionMissingWhenWindowDisappears(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Disappear", "", "pi")
 	runner := &fakeRunner{}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
@@ -427,7 +493,7 @@ func TestReadPiSessionRefFileRejectsMissingMalformedOrEmptyRefs(t *testing.T) {
 
 func TestOpenTicketWithPiPromptCapturesSessionRefFromBundledExtension(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Demo", "Body", "pi")
 	cfg := config.Defaults(config.Paths{StateDir: t.TempDir()})
 	runner := &piRefWritingRunner{ref: "019e-extension-ref"}
@@ -499,7 +565,7 @@ func TestOpenTicketCreatesWindowAndPastesPrompt(t *testing.T) {
 
 func TestPasteModeCapturesSessionRefFromPane(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Demo", "Body", "copilot")
 	cfg := config.Defaults(config.Paths{})
 	cfg.Harnesses["copilot"] = config.Harness{Start: []string{"/tmp/fake-copilot"}, PromptReady: "PROMPT_READY", PromptMode: "paste", SessionRef: "SESSION_REF="}
@@ -519,10 +585,7 @@ func TestPasteModeCapturesSessionRefFromPane(t *testing.T) {
 
 func TestOpenTicketCreatesWindowAndSwitchesClient(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, err := store.BoardView(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Demo", "Body", "pi")
 	if err != nil {
 		t.Fatal(err)
@@ -542,10 +605,7 @@ func TestOpenTicketCreatesWindowAndSwitchesClient(t *testing.T) {
 
 func TestOpenTicketRecordsWindowID(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, err := store.BoardView(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Demo", "Body", "pi")
 	if err != nil {
 		t.Fatal(err)
@@ -567,7 +627,7 @@ func TestOpenTicketRecordsWindowID(t *testing.T) {
 
 func TestOpenTicketExistingActiveWindowDoesNotCreateNewSessionRow(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Demo", "Body", "pi")
 	runner := &fakeRunner{}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
@@ -587,7 +647,7 @@ func TestOpenTicketExistingActiveWindowDoesNotCreateNewSessionRow(t *testing.T) 
 
 func TestRefreshRuntimeDetectsAttentionState(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Needs approval", "", "pi")
 	cfg := config.Defaults(config.Paths{})
 	runner := &fakeRunner{pane: "Approve command? yes/no\n"}
@@ -609,7 +669,7 @@ func TestRefreshRuntimeDetectsAttentionState(t *testing.T) {
 
 func TestRefreshRuntimePreservesManualStateFromHeuristics(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Manual", "", "pi")
 	runner := &fakeRunner{pane: "quiet output\n"}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
@@ -634,7 +694,7 @@ func TestRefreshRuntimePreservesManualStateFromHeuristics(t *testing.T) {
 
 func TestRefreshRuntimeDoesNotAutoCloseImmediatelyOnNewAttentionState(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Wait", "", "pi")
 	cfg := config.Defaults(config.Paths{})
 	cfg.AutoCloseWaitingAfter = 0
@@ -683,7 +743,7 @@ func TestSwitchToTicketRequiresRepairWhenWindowMissingWithoutRef(t *testing.T) {
 
 func TestStartFreshTicketPreservesOldSessionAndCreatesNew(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Fresh", "Body", "pi")
 	runner := &fakeRunner{}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
@@ -729,7 +789,7 @@ func TestStartFreshTicketPreservesOldSessionAndCreatesNew(t *testing.T) {
 
 func TestCloseSessionSendsGracefulExitBeforeKill(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Close me", "", "pi")
 	cfg := config.Defaults(config.Paths{})
 	cfg.GracefulExitTimeout = time.Millisecond
@@ -848,6 +908,24 @@ func newTmuxTestStore(t *testing.T) (*storage.Store, context.Context) {
 		t.Fatal(err)
 	}
 	return store, ctx
+}
+
+func defaultBoardView(t *testing.T, ctx context.Context, store *storage.Store) storage.BoardView {
+	t.Helper()
+	view, err := store.BoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return view
+}
+
+func createTicket(t *testing.T, ctx context.Context, store *storage.Store, columnID int64, title, body, harness string) storage.Ticket {
+	t.Helper()
+	ticket, err := store.CreateTicket(ctx, columnID, title, body, harness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ticket
 }
 
 func sqlString(s string) sql.NullString {

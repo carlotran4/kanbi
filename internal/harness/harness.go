@@ -10,27 +10,27 @@ import (
 	"strings"
 	"time"
 
-	"agent-kanban/internal/config"
+	"agent-kanban/internal/kanban"
 )
 
 const (
 	PromptModePaste = "paste"
 	PromptModeArg   = "arg"
 
-	StateNotStarted      = "not_started"
-	StateStarting        = "starting"
-	StateRunning         = "running"
-	StateWaitingForUser  = "waiting_for_user"
-	StateNeedsPermission = "needs_permission"
-	StateIdleUnknown     = "idle_unknown"
-	StateClosing         = "closing"
-	StateClosed          = "closed"
-	StateExited          = "exited"
-	StateError           = "error"
+	StateNotStarted      = kanban.StateNotStarted
+	StateStarting        = kanban.StateStarting
+	StateRunning         = kanban.StateRunning
+	StateWaitingForUser  = kanban.StateWaitingForUser
+	StateNeedsPermission = kanban.StateNeedsPermission
+	StateIdleUnknown     = kanban.StateIdleUnknown
+	StateClosing         = kanban.StateClosing
+	StateClosed          = kanban.StateClosed
+	StateExited          = kanban.StateExited
+	StateError           = kanban.StateError
 )
 
-func StartCommand(cfg config.Config, name string) ([]string, error) {
-	h, ok := cfg.Harnesses[name]
+func StartCommand(harnesses map[string]Config, name string) ([]string, error) {
+	h, ok := harnesses[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown harness %q", name)
 	}
@@ -40,20 +40,20 @@ func StartCommand(cfg config.Config, name string) ([]string, error) {
 	return append([]string(nil), h.Start...), nil
 }
 
-func StartCommandWithPrompt(cfg config.Config, name, prompt string, sendPrompt bool) ([]string, bool, error) {
-	cmd, err := StartCommand(cfg, name)
+func StartCommandWithPrompt(harnesses map[string]Config, name, prompt string, sendPrompt bool) ([]string, bool, error) {
+	cmd, err := StartCommand(harnesses, name)
 	if err != nil {
 		return nil, false, err
 	}
-	if sendPrompt && PromptMode(cfg, name) == PromptModeArg {
+	if sendPrompt && PromptMode(harnesses, name) == PromptModeArg {
 		cmd = append(cmd, prompt)
 		return cmd, true, nil
 	}
 	return cmd, false, nil
 }
 
-func ResumeCommand(cfg config.Config, name, sessionRef string) ([]string, error) {
-	h, ok := cfg.Harnesses[name]
+func ResumeCommand(harnesses map[string]Config, name, sessionRef string) ([]string, error) {
+	h, ok := harnesses[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown harness %q", name)
 	}
@@ -67,15 +67,15 @@ func ResumeCommand(cfg config.Config, name, sessionRef string) ([]string, error)
 	return out, nil
 }
 
-func ExitKeys(cfg config.Config, name string) []string {
-	if h, ok := cfg.Harnesses[name]; ok && len(h.Exit) > 0 {
+func ExitKeys(harnesses map[string]Config, name string) []string {
+	if h, ok := harnesses[name]; ok && len(h.Exit) > 0 {
 		return append([]string(nil), h.Exit...)
 	}
 	return []string{"C-c", "exit", "Enter"}
 }
 
-func PromptMode(cfg config.Config, name string) string {
-	if h, ok := cfg.Harnesses[name]; ok && h.PromptMode != "" {
+func PromptMode(harnesses map[string]Config, name string) string {
+	if h, ok := harnesses[name]; ok && h.PromptMode != "" {
 		return h.PromptMode
 	}
 	return PromptModePaste
@@ -122,15 +122,15 @@ func containsAny(s string, needles ...string) bool {
 	return false
 }
 
-func PromptReadyPattern(cfg config.Config, name string) string {
-	if h, ok := cfg.Harnesses[name]; ok && h.PromptReady != "" {
+func PromptReadyPattern(harnesses map[string]Config, name string) string {
+	if h, ok := harnesses[name]; ok && h.PromptReady != "" {
 		return h.PromptReady
 	}
 	return "PROMPT_READY"
 }
 
-func SessionRefPattern(cfg config.Config, name string) string {
-	if h, ok := cfg.Harnesses[name]; ok && h.SessionRef != "" {
+func SessionRefPattern(harnesses map[string]Config, name string) string {
+	if h, ok := harnesses[name]; ok && h.SessionRef != "" {
 		return h.SessionRef
 	}
 	return "SESSION_REF="
@@ -158,20 +158,15 @@ func ParseSessionRef(output, marker string) (string, bool) {
 	return "", false
 }
 
-func CaptureSessionRef(cfg config.Config, name, promptText string, since time.Time) (string, bool) {
+func CaptureSessionRef(name, promptText string, since time.Time) (string, bool) {
 	if promptText == "" {
 		return "", false
 	}
-	switch name {
-	case "codex":
-		return latestCodexHistorySession(promptText, since)
-	case "pi":
-		return latestPiSession(promptText, since)
-	case "copilot":
-		return latestCopilotSession(promptText, since)
-	default:
+	contract, ok := BuiltinContract(name)
+	if !ok || contract.CaptureRef == nil {
 		return "", false
 	}
+	return contract.CaptureRef(promptText, since)
 }
 
 type codexHistoryEntry struct {

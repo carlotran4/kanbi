@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -62,129 +61,76 @@ func run(args []string) error {
 }
 
 func runBoard(ctx context.Context, cfg config.Config) error {
-	store, err := openStore(ctx, cfg)
-	if err != nil {
+	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
+		manager := cli.Manager()
+		_ = manager.Reconcile(ctx)
+		_, err := tea.NewProgram(tui.NewWithPicker(ctx, tui.NewService(cli.store, manager))).Run()
 		return err
-	}
-	defer store.Close()
-	manager := tmux.NewManager(cfg, store)
-	_ = manager.Reconcile(ctx)
-	_, err = tea.NewProgram(tui.NewWithPicker(ctx, boardService{store: store, manager: manager})).Run()
-	return err
+	})
 }
 
 func runDoctor(ctx context.Context, cfg config.Config) error {
-	fmt.Println("agent-kanban doctor")
-	if path, err := exec.LookPath("tmux"); err != nil {
-		return fmt.Errorf("tmux is required: %w", err)
-	} else if out, err := exec.Command(path, "-V").CombinedOutput(); err == nil {
-		fmt.Println("ok tmux", strings.TrimSpace(string(out)))
-	} else {
-		fmt.Println("ok tmux")
-	}
-	store, err := openStore(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	fmt.Println("ok sqlite", cfg.DBPath)
-	if err := cfg.EnsureDirs(); err != nil {
-		return err
-	}
-	fmt.Println("ok config", cfg.Paths.ConfigFile)
-	if shell := os.Getenv("SHELL"); shell != "" {
-		fmt.Println("ok shell", shell)
-	} else {
-		fmt.Println("warn shell not detected")
-	}
-	if tmux.InsideTmux() {
-		fmt.Println("ok inside tmux")
-	} else {
-		fmt.Println("warn not inside tmux")
-	}
-	if os.Getenv("TERM") != "" {
-		fmt.Println("ok terminal", os.Getenv("TERM"))
-	} else {
-		fmt.Println("warn terminal unknown")
-	}
-	manager := tmux.NewManager(cfg, store)
-	if err := manager.EnsureSession(ctx); err != nil {
-		return fmt.Errorf("tmux session unusable: %w", err)
-	}
-	fmt.Println("ok tmux session", cfg.TmuxSession)
-	for name, h := range cfg.Harnesses {
-		if len(h.Start) == 0 {
-			fmt.Println("warn harness", name, "has no start command")
-			continue
-		}
-		if _, err := exec.LookPath(h.Start[0]); err != nil {
-			fmt.Println("warn harness", name, "not found:", h.Start[0])
-		} else {
-			fmt.Println("ok harness", name)
-		}
-	}
-	return nil
+	report := probeDoctor(ctx, cfg, defaultDoctorProber())
+	printDoctorReport(os.Stdout, report)
+	return report.FatalErr()
 }
 
 func runBoards(ctx context.Context, cfg config.Config, args []string) error {
-	store, err := openStore(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	if len(args) == 0 || args[0] == "list" {
-		boards, err := store.ListBoards(ctx)
-		if err != nil {
-			return err
+	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
+		if len(args) == 0 || args[0] == "list" {
+			boards, err := cli.store.ListBoards(ctx)
+			if err != nil {
+				return err
+			}
+			fmt.Println("Master\t(all boards)")
+			for _, b := range boards {
+				fmt.Printf("%d\t%s\t%s\n", b.ID, b.Name, b.Workdir)
+			}
+			return nil
 		}
-		fmt.Println("Master\t(all boards)")
-		for _, b := range boards {
+		if args[0] == "add" {
+			name, workdir, err := parseBoardAddArgs(args[1:])
+			if err != nil {
+				return err
+			}
+			b, err := cli.store.CreateBoardWithWorkdir(ctx, name, workdir)
+			if err != nil {
+				return err
+			}
 			fmt.Printf("%d\t%s\t%s\n", b.ID, b.Name, b.Workdir)
+			return nil
 		}
-		return nil
-	}
-	if args[0] == "add" {
-		name, workdir, err := parseBoardAddArgs(args[1:])
-		if err != nil {
-			return err
+		if args[0] == "rename" {
+			if len(args) != 3 {
+				return fmt.Errorf("usage: agent-kanban boards rename \"Old Name\" \"New Name\"")
+			}
+			b, err := cli.BoardByName(args[1])
+			if err != nil {
+				return err
+			}
+			if err := cli.store.RenameBoard(ctx, b.ID, args[2]); err != nil {
+				return err
+			}
+			fmt.Printf("%d\t%s\n", b.ID, args[2])
+			return nil
 		}
-		b, err := store.CreateBoardWithWorkdir(ctx, name, workdir)
-		if err != nil {
-			return err
+		if args[0] == "set-cwd" {
+			if len(args) != 3 {
+				return fmt.Errorf("usage: agent-kanban boards set-cwd \"Name\" /path")
+			}
+			b, err := cli.BoardByName(args[1])
+			if err != nil {
+				return err
+			}
+			if err := cli.store.SetBoardWorkdir(ctx, b.ID, args[2]); err != nil {
+				return err
+			}
+			updated, _ := cli.BoardByName(args[1])
+			fmt.Printf("%d\t%s\t%s\n", updated.ID, updated.Name, updated.Workdir)
+			return nil
 		}
-		fmt.Printf("%d\t%s\t%s\n", b.ID, b.Name, b.Workdir)
-		return nil
-	}
-	if args[0] == "rename" {
-		if len(args) != 3 {
-			return fmt.Errorf("usage: agent-kanban boards rename \"Old Name\" \"New Name\"")
-		}
-		b, err := store.BoardByName(ctx, args[1])
-		if err != nil {
-			return err
-		}
-		if err := store.RenameBoard(ctx, b.ID, args[2]); err != nil {
-			return err
-		}
-		fmt.Printf("%d\t%s\n", b.ID, args[2])
-		return nil
-	}
-	if args[0] == "set-cwd" {
-		if len(args) != 3 {
-			return fmt.Errorf("usage: agent-kanban boards set-cwd \"Name\" /path")
-		}
-		b, err := store.BoardByName(ctx, args[1])
-		if err != nil {
-			return err
-		}
-		if err := store.SetBoardWorkdir(ctx, b.ID, args[2]); err != nil {
-			return err
-		}
-		updated, _ := store.BoardByName(ctx, args[1])
-		fmt.Printf("%d\t%s\t%s\n", updated.ID, updated.Name, updated.Workdir)
-		return nil
-	}
-	return fmt.Errorf("usage: agent-kanban boards [list|add \"Name\" [--cwd /path]|rename OLD NEW|set-cwd NAME /path]")
+		return fmt.Errorf("usage: agent-kanban boards [list|add \"Name\" [--cwd /path]|rename OLD NEW|set-cwd NAME /path]")
+	})
 }
 
 func runAdd(ctx context.Context, cfg config.Config, args []string) error {
@@ -195,36 +141,21 @@ func runAdd(ctx context.Context, cfg config.Config, args []string) error {
 	if title == "" {
 		return fmt.Errorf("usage: agent-kanban add \"title\" --body \"...\" --harness pi")
 	}
-	store, err := openStore(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	var board storage.BoardView
-	if boardName != "" {
-		b, err := store.BoardByName(ctx, boardName)
+	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
+		board, err := cli.ResolveBoardView(boardName)
 		if err != nil {
 			return err
 		}
-		board, err = store.BoardViewByID(ctx, b.ID)
+		if len(board.Columns) == 0 {
+			return fmt.Errorf("board %q has no columns", board.Board.Name)
+		}
+		t, err := cli.store.CreateTicket(ctx, board.Columns[0].ID, title, body, harnessName)
 		if err != nil {
 			return err
 		}
-	} else {
-		board, err = store.BoardView(ctx)
-		if err != nil {
-			return err
-		}
-	}
-	if len(board.Columns) == 0 {
-		return fmt.Errorf("default board has no columns")
-	}
-	t, err := store.CreateTicket(ctx, board.Columns[0].ID, title, body, harnessName)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("%s %s [%s]\n", t.DisplayID, t.Title, t.Harness)
-	return nil
+		fmt.Printf("%s %s [%s]\n", t.DisplayID, t.Title, t.Harness)
+		return nil
+	})
 }
 
 func runList(ctx context.Context, cfg config.Config, args []string) error {
@@ -232,34 +163,16 @@ func runList(ctx context.Context, cfg config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	store, err := openStore(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	var tickets []storage.Ticket
-	if boardName != "" {
-		b, err := store.BoardByName(ctx, boardName)
+	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
+		tickets, err := cli.ResolveTickets(boardName)
 		if err != nil {
 			return err
 		}
-		view, err := store.BoardViewByID(ctx, b.ID)
-		if err != nil {
-			return err
+		for _, t := range tickets {
+			fmt.Printf("%s\t%s\t%s\t%s\t%s\n", t.BoardName, t.DisplayID, t.Harness, t.Runtime, t.Title)
 		}
-		for _, c := range view.Columns {
-			tickets = append(tickets, c.Tickets...)
-		}
-	} else {
-		tickets, err = store.ListTickets(ctx, false)
-		if err != nil {
-			return err
-		}
-	}
-	for _, t := range tickets {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", t.BoardName, t.DisplayID, t.Harness, t.Runtime, t.Title)
-	}
-	return nil
+		return nil
+	})
 }
 
 func runOpen(ctx context.Context, cfg config.Config, args []string) error {
@@ -270,30 +183,90 @@ func runOpen(ctx context.Context, cfg config.Config, args []string) error {
 	if displayID == "" {
 		return fmt.Errorf("usage: agent-kanban open T-001 [--board NAME] [--send-prompt]")
 	}
-	store, err := openStore(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	var ticket storage.Ticket
-	if boardName != "" {
-		b, err := store.BoardByName(ctx, boardName)
+	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
+		ticket, err := cli.ResolveTicket(displayID, boardName)
 		if err != nil {
 			return err
 		}
-		ticket, err = store.TicketByDisplayIDInBoard(ctx, strings.ToUpper(displayID), b.ID)
-	} else {
-		ticket, err = store.TicketByDisplayID(ctx, strings.ToUpper(displayID))
+		if err := cli.Manager().OpenTicket(ctx, ticket, sendPrompt); err != nil {
+			return err
+		}
+		fmt.Println("opened", ticket.BoardName, ticket.DisplayID, tmux.TicketWindowName(ticket))
+		return nil
+	})
+}
+
+type cliContext struct {
+	ctx   context.Context
+	cfg   config.Config
+	store *storage.Store
+}
+
+func newCLIContext(ctx context.Context, cfg config.Config) (*cliContext, error) {
+	store, err := openStore(ctx, cfg)
+	if err != nil {
+		return nil, err
 	}
+	return &cliContext{ctx: ctx, cfg: cfg, store: store}, nil
+}
+
+func withCLIContext(ctx context.Context, cfg config.Config, fn func(*cliContext) error) error {
+	cli, err := newCLIContext(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	manager := tmux.NewManager(cfg, store)
-	if err := manager.OpenTicket(ctx, ticket, sendPrompt); err != nil {
-		return err
+	defer cli.Close()
+	return fn(cli)
+}
+
+func (c *cliContext) Close() error {
+	return c.store.Close()
+}
+
+func (c *cliContext) Manager() *tmux.Manager {
+	return tmux.NewManager(c.cfg, c.store)
+}
+
+func (c *cliContext) BoardByName(name string) (storage.Board, error) {
+	return c.store.BoardByName(c.ctx, name)
+}
+
+func (c *cliContext) ResolveBoardView(boardName string) (storage.BoardView, error) {
+	if boardName == "" {
+		return c.store.BoardView(c.ctx)
 	}
-	fmt.Println("opened", ticket.BoardName, ticket.DisplayID, tmux.TicketWindowName(ticket))
-	return nil
+	board, err := c.BoardByName(boardName)
+	if err != nil {
+		return storage.BoardView{}, err
+	}
+	return c.store.BoardViewByID(c.ctx, board.ID)
+}
+
+func (c *cliContext) ResolveTickets(boardName string) ([]storage.Ticket, error) {
+	if boardName == "" {
+		return c.store.ListTickets(c.ctx, false)
+	}
+	view, err := c.ResolveBoardView(boardName)
+	if err != nil {
+		return nil, err
+	}
+	var tickets []storage.Ticket
+	for _, col := range view.Columns {
+		tickets = append(tickets, col.Tickets...)
+	}
+	return tickets, nil
+}
+
+func (c *cliContext) ResolveTicket(displayID, boardName string) (storage.Ticket, error) {
+	displayID = strings.ToUpper(displayID)
+	if boardName == "" {
+		return c.store.TicketByDisplayID(c.ctx, displayID)
+	}
+	board, err := c.BoardByName(boardName)
+	if err != nil {
+		return storage.Ticket{}, err
+	}
+	return c.store.TicketByDisplayIDInBoard(c.ctx, displayID, board.ID)
 }
 
 func openStore(ctx context.Context, cfg config.Config) (*storage.Store, error) {
@@ -310,130 +283,6 @@ func openStore(ctx context.Context, cfg config.Config) (*storage.Store, error) {
 
 func usageError(cmd string) error {
 	return fmt.Errorf("unknown command %q\nusage: agent-kanban [doctor|boards|add|list|open|--board]", cmd)
-}
-
-type boardService struct {
-	store   *storage.Store
-	manager *tmux.Manager
-}
-
-func (b boardService) BoardView(ctx context.Context) (storage.BoardView, error) {
-	return b.store.BoardView(ctx)
-}
-
-func (b boardService) ListBoards(ctx context.Context) ([]storage.Board, error) {
-	return b.store.ListBoards(ctx)
-}
-
-func (b boardService) BoardViewByID(ctx context.Context, boardID int64) (storage.BoardView, error) {
-	return b.store.BoardViewByID(ctx, boardID)
-}
-
-func (b boardService) MasterBoardView(ctx context.Context) (storage.BoardView, error) {
-	return b.store.MasterBoardView(ctx)
-}
-
-func (b boardService) CreateBoardWithWorkdir(ctx context.Context, name, workdir string) (storage.Board, error) {
-	return b.store.CreateBoardWithWorkdir(ctx, name, workdir)
-}
-
-func (b boardService) RenameBoard(ctx context.Context, boardID int64, name string) error {
-	return b.store.RenameBoard(ctx, boardID, name)
-}
-
-func (b boardService) SetBoardWorkdir(ctx context.Context, boardID int64, workdir string) error {
-	return b.store.SetBoardWorkdir(ctx, boardID, workdir)
-}
-
-func (b boardService) DeleteBoard(ctx context.Context, boardID int64) error {
-	return b.store.DeleteBoard(ctx, boardID)
-}
-
-func (b boardService) ColumnIDByBoardAndName(ctx context.Context, boardID int64, name string) (int64, error) {
-	return b.store.ColumnIDByBoardAndName(ctx, boardID, name)
-}
-
-func (b boardService) CreateTicket(ctx context.Context, columnID int64, title, body, harnessName string) (storage.Ticket, error) {
-	return b.store.CreateTicket(ctx, columnID, title, body, harnessName)
-}
-
-func (b boardService) UpdateTicket(ctx context.Context, id int64, title, body, harnessName string) error {
-	before, err := b.store.TicketByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	if before.Title != title && before.WindowName.Valid {
-		if err := b.manager.RenameTicketWindow(ctx, before, title); err != nil {
-			return err
-		}
-	}
-	return b.store.UpdateTicket(ctx, id, title, body, harnessName)
-}
-
-func (b boardService) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
-	if sendPrompt {
-		return b.manager.OpenTicket(ctx, ticket, true)
-	}
-	return b.manager.SwitchToTicket(ctx, ticket)
-}
-
-func (b boardService) ArchiveTicket(ctx context.Context, id int64) error {
-	return b.store.ArchiveTicket(ctx, id)
-}
-
-func (b boardService) MoveTicket(ctx context.Context, id, columnID int64) error {
-	return b.store.MoveTicket(ctx, id, columnID)
-}
-
-func (b boardService) ReorderTicket(ctx context.Context, id int64, delta int) error {
-	return b.store.ReorderTicket(ctx, id, delta)
-}
-
-func (b boardService) RefreshRuntime(ctx context.Context) error {
-	return b.manager.RefreshRuntime(ctx)
-}
-
-func (b boardService) MarkTicketState(ctx context.Context, ticketID int64, state string) error {
-	return b.store.MarkTicketRuntime(ctx, ticketID, state, "manual", "manual override")
-}
-
-func (b boardService) AddColumn(ctx context.Context, boardID int64, name string) (storage.Column, error) {
-	return b.store.AddColumn(ctx, boardID, name)
-}
-
-func (b boardService) RenameColumn(ctx context.Context, columnID int64, name string) error {
-	return b.store.RenameColumn(ctx, columnID, name)
-}
-
-func (b boardService) DeleteColumn(ctx context.Context, columnID int64) error {
-	return b.store.DeleteColumn(ctx, columnID)
-}
-
-func (b boardService) ReorderColumn(ctx context.Context, columnID int64, delta int) error {
-	return b.store.ReorderColumn(ctx, columnID, delta)
-}
-
-func (b boardService) PastePromptNow(ctx context.Context, windowName, text string) error {
-	return b.manager.PastePromptNow(ctx, windowName, text)
-}
-
-func (b boardService) CloseTicketSession(ctx context.Context, ticket storage.Ticket) error {
-	return b.manager.CloseSession(ctx, ticket)
-}
-
-func (b boardService) KillAllSessions(ctx context.Context) error {
-	return b.manager.KillSession(ctx)
-}
-
-func (b boardService) StartFreshTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
-	return b.manager.StartFreshTicket(ctx, ticket, sendPrompt)
-}
-
-func (b boardService) UpdateSessionRef(ctx context.Context, ticket storage.Ticket, ref string) error {
-	if ticket.SessionID.Valid {
-		return b.store.UpdateSessionRef(ctx, ticket.SessionID.Int64, ref)
-	}
-	return fmt.Errorf("ticket has no session to repair")
 }
 
 func parseBoardAddArgs(args []string) (name, workdir string, err error) {

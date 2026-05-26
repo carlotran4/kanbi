@@ -18,6 +18,7 @@ import (
 
 	"agent-kanban/internal/config"
 	"agent-kanban/internal/harness"
+	"agent-kanban/internal/kanban"
 	"agent-kanban/internal/prompt"
 	"agent-kanban/internal/storage"
 )
@@ -130,167 +131,15 @@ func (m *Manager) EnsureBoardWindow(ctx context.Context) error {
 }
 
 func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
-	var err error
-	if !sendPrompt {
-		ticket, err = m.recoverMissingSessionRef(ctx, ticket)
-		if err != nil {
-			return err
-		}
-	}
-	if sendPrompt && (ticket.SessionID.Valid || ticket.SessionRef.Valid || ticket.WindowName.Valid) {
-		return ErrPromptAlreadySent
-	}
-	if ticket.SessionID.Valid && !ticket.SessionRef.Valid && !ticket.SessionActive && !ticket.WindowName.Valid {
-		return RepairNeededError{Ticket: ticket, Reason: "session started but no window or session ref is known"}
-	}
-	if err := m.EnsureSession(ctx); err != nil {
-		return err
-	}
-	name := TicketWindowName(ticket)
-	var windowID string
-	var renderedPrompt string
-	var promptAlreadySent bool
-	var refFile string
-	launchStartedAt := time.Now().UTC()
-	if sendPrompt {
-		renderedPrompt = prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
-	}
-	launchedNew := false
-	if exists, err := m.windowExists(ctx, name); err != nil {
-		return err
-	} else if !exists {
-		launchedNew = true
-		command, err := harness.StartCommand(m.Config, ticket.Harness)
-		if err != nil {
-			return err
-		}
-		resuming := ticket.SessionRef.Valid && ticket.SessionRef.String != ""
-		if resuming {
-			command, err = harness.ResumeCommand(m.Config, ticket.Harness, ticket.SessionRef.String)
-			if err != nil {
-				return err
-			}
-		} else {
-			command, promptAlreadySent, err = harness.StartCommandWithPrompt(m.Config, ticket.Harness, renderedPrompt, sendPrompt)
-			if err != nil {
-				return err
-			}
-		}
-		if ticket.Harness == "pi" && promptAlreadySent {
-			command, refFile, err = m.commandWithPiSessionRefCapture(ticket, command)
-			if err != nil {
-				return err
-			}
-		}
-		out, err := m.run(ctx, append(newWindowArgs(m.Config.TmuxSession, name, ticket.BoardWorkdir), ShellCommand(command))...)
-		if err != nil {
-			if m.Store != nil && ticket.SessionID.Valid {
-				_ = m.Store.UpdateSessionRuntime(ctx, ticket.SessionID.Int64, "error", "tmux", err.Error(), "", false)
-			}
-			if resuming {
-				return ResumeFailedError{Ticket: ticket, Err: err}
-			}
-			return err
-		}
-		windowID = strings.TrimSpace(out)
-		// When resuming, the harness may reject the session ref and exit immediately
-		// (e.g. "No session found matching '...'"). tmux new-window always succeeds
-		// even if the launched process exits instantly, so verify the window survived
-		// startup before registering the session as active.
-		if resuming {
-			checkAfter := m.ResumeCheckAfter
-			if checkAfter <= 0 {
-				checkAfter = defaultResumeCheckAfter
-			}
-			if liveErr := m.waitWindowLive(ctx, windowID, name, checkAfter); liveErr != nil {
-				return ResumeFailedError{Ticket: ticket, Err: liveErr}
-			}
-		}
-	} else {
-		var err error
-		windowID, err = m.windowIDByName(ctx, name)
-		if err != nil {
-			return err
-		}
-	}
-
-	ses := storage.Session{
-		TicketID:        ticket.ID,
-		Harness:         ticket.Harness,
-		TmuxSessionName: m.Config.TmuxSession,
-		TmuxWindowName:  name,
-		Status:          "running",
-	}
-	if windowID != "" {
-		ses.TmuxWindowID = sql.NullString{String: windowID, Valid: true}
-	}
-	if ticket.SessionRef.Valid {
-		ses.HarnessSessionRef = sql.NullString{String: ticket.SessionRef.String, Valid: true}
-	} else if promptAlreadySent && m.Store != nil {
-		if ref, ok := m.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchStartedAt, refFile); ok {
-			ses.HarnessSessionRef = sql.NullString{String: ref, Valid: true}
-		}
-	}
-	if m.Store != nil && (launchedNew || !ticket.SessionID.Valid || !ticket.SessionActive) {
-		if _, err := m.Store.UpsertActiveSession(ctx, ticket.ID, ses); err != nil {
-			return err
-		}
-	}
-	if sendPrompt && !promptAlreadySent {
-		ready := harness.PromptReadyPattern(m.Config, ticket.Harness)
-		if err := m.WaitAndPastePrompt(ctx, name, renderedPrompt, ready, m.Config.PromptReadyTimeout); err != nil {
-			return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: err}
-		}
-		if m.Store != nil {
-			out, _ := m.CapturePane(ctx, name)
-			if ref, ok := harness.ParseSessionRef(out, harness.SessionRefPattern(m.Config, ticket.Harness)); ok {
-				if ses, active, err := m.Store.ActiveSession(ctx, ticket.ID); err == nil && active {
-					_ = m.Store.UpdateSessionRef(ctx, ses.ID, ref)
-				}
-			}
-		}
-	}
-	switchRef := windowID
-	if switchRef == "" {
-		switchRef = name
-	}
-	_, err = m.run(ctx, "switch-client", "-t", targetRef(m.Config.TmuxSession, switchRef))
-	return err
+	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt})
 }
 
 func (m *Manager) StartFreshTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
-	ticket.SessionID = sql.NullInt64{}
-	ticket.SessionRef = sql.NullString{}
-	ticket.WindowID = sql.NullString{}
-	ticket.WindowName = sql.NullString{}
-	return m.OpenTicket(ctx, ticket, sendPrompt)
+	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt, StartFresh: true})
 }
 
 func (m *Manager) SwitchToTicket(ctx context.Context, ticket storage.Ticket) error {
-	var err error
-	ticket, err = m.recoverMissingSessionRef(ctx, ticket)
-	if err != nil {
-		return err
-	}
-	name := TicketWindowName(ticket)
-	if ticket.SessionID.Valid && !ticket.SessionActive {
-		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
-			return m.OpenTicket(ctx, ticket, false)
-		}
-		return RepairNeededError{Ticket: ticket, Reason: "ticket has no active window and no session ref is known"}
-	}
-	ref, exists, err := m.ticketWindowRef(ctx, ticket, name)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		if ticket.SessionID.Valid && !ticket.SessionRef.Valid {
-			return RepairNeededError{Ticket: ticket, Reason: "tmux window is missing and no session ref is known"}
-		}
-		return m.OpenTicket(ctx, ticket, false)
-	}
-	_, err = m.run(ctx, "switch-client", "-t", targetRef(m.Config.TmuxSession, ref))
-	return err
+	return m.OpenTicket(ctx, ticket, false)
 }
 
 func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.Ticket) (storage.Ticket, error) {
@@ -302,7 +151,7 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 		return ticket, err
 	}
 	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
-	ref, ok := harness.CaptureSessionRef(m.Config, ticket.Harness, promptText, ses.StartedAt.Time)
+	ref, ok := harness.CaptureSessionRef(ticket.Harness, promptText, ses.StartedAt.Time)
 	if !ok {
 		return ticket, nil
 	}
@@ -398,7 +247,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		}
 		out, err := m.capturePaneRef(ctx, ref)
 		if err != nil {
-			if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, "error", "tmux", err.Error(), "", false); err != nil {
+			if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, "tmux", err.Error(), "", false); err != nil {
 				return err
 			}
 			continue
@@ -429,7 +278,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			}
 			if now.Sub(ageBase.Time) >= m.Config.AutoCloseWaitingAfter {
 				if err := m.CloseSession(ctx, ticket); err != nil {
-					_ = m.Store.UpdateSessionRuntime(ctx, ses.ID, "error", "tmux", err.Error(), excerpt, false)
+					_ = m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, "tmux", err.Error(), excerpt, false)
 				}
 			}
 		}
@@ -452,10 +301,10 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 	if !exists {
 		return m.Store.MarkSessionMissing(ctx, ses.ID)
 	}
-	if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, "closing", "system", "graceful close requested", "", false); err != nil {
+	if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateClosing, "system", "graceful close requested", "", false); err != nil {
 		return err
 	}
-	for _, key := range harness.ExitKeys(m.Config, ses.Harness) {
+	for _, key := range harness.ExitKeys(m.Config.Harnesses, ses.Harness) {
 		if _, err := m.run(ctx, "send-keys", "-t", targetRef(m.Config.TmuxSession, ref), key); err != nil {
 			return err
 		}
@@ -467,14 +316,14 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 			return err
 		}
 		if !exists {
-			return m.Store.MarkSessionClosed(ctx, ses.ID, "closed", "tmux", "window exited")
+			return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "tmux", "window exited")
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	if _, err := m.run(ctx, "kill-window", "-t", targetRef(m.Config.TmuxSession, ref)); err != nil {
 		return err
 	}
-	return m.Store.MarkSessionClosed(ctx, ses.ID, "closed", "tmux", "graceful exit timed out; window closed")
+	return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "tmux", "graceful exit timed out; window closed")
 }
 
 func (m *Manager) WaitAndPastePrompt(ctx context.Context, windowName, text, ready string, timeout time.Duration) error {
@@ -710,7 +559,7 @@ func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText
 				return ref, true
 			}
 		}
-		ref, ok := harness.CaptureSessionRef(m.Config, harnessName, promptText, since)
+		ref, ok := harness.CaptureSessionRef(harnessName, promptText, since)
 		if ok {
 			return ref, true
 		}
@@ -781,7 +630,7 @@ func boardClientSessionName(mainSession string) string {
 }
 
 func isAutoCloseEligible(state string) bool {
-	return state == "waiting_for_user" || state == "needs_permission" || state == "exited"
+	return state == kanban.StateWaitingForUser || state == kanban.StateNeedsPermission || state == kanban.StateExited
 }
 
 func target(session, window string) string {

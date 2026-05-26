@@ -79,15 +79,29 @@ Startup opens a board picker. While running, `b` reopens the picker and switches
 
 ```mermaid
 flowchart TD
-  A[Store.MasterBoardView] --> B[Query distinct column names from all boards]
+  A[Store.MasterBoardViewWithFilter] --> B[Query distinct column names from all boards]
   B --> C[Create synthetic columns ID < 0]
   C --> D[For each synthetic column name]
-  D --> E[Query active tickets whose real column has same exact name]
+  D --> E[Query matching tickets whose real column has same exact name]
   E --> F[Attach tickets ordered by board_id, position]
   F --> G[Render Master]
 ```
 
-Master groups tickets by exact column name. Example: every board's `Open` tickets appear in the synthetic `Open` column.
+Master groups tickets by exact column name. Example: every board's `Open` tickets appear in the synthetic `Open` column. By default it shows unarchived tickets only.
+
+## Master filters
+
+Press `f` in Master to open the filter panel. Filters apply only to Master; normal named-board views remain unchanged.
+
+Available filters:
+
+- Board: select one or more boards, or select none for the `All Boards` default.
+- Runtime/state: `not_started`, `running`, `waiting_for_user`, `needs_permission`, `error`, and `closed` (resumable closed tickets show when their latest session projects `closed`).
+- Harness: harness names present in tickets, including `pi`, `codex`, `copilot`, and any other stored harness name.
+- Search: case-insensitive text search over ticket display id, title, body, board name, and harness.
+- Archived: off by default; toggle `show archived` to include archived tickets in Master queries.
+
+Active filters are shown in the Master header as `filter: ...`. Press `C` in the filter panel to clear all filters. Filters are in-memory UI state: they reset on app restart, but persist while switching between Master and named boards during one run.
 
 Master cards include board context:
 
@@ -198,16 +212,17 @@ Needed:
 - Consider archive/export before delete.
 - Consider a stronger typed confirmation for destructive deletes.
 
-### 3. Master visibility and archived tickets
+### 3. Master filter scope
 
-Master currently shows active/unarchived tickets only. There is no Master archived view or per-board filters.
+Master has in-memory filters for board, harness, runtime, search text, and archived state. These filters intentionally apply only to the synthetic Master view.
 
 Needed if desired:
 
-- Filtering/search by board, harness, runtime, archived state.
+- Persist filter presets across restarts.
+- Extend equivalent filters to named board views.
 
 ## Recommended next implementation priorities
 
 1. Decide whether Master should use canonical column types instead of exact display-name matching.
 2. Add archive/export semantics for board deletion.
-3. Add filtering/search across Master by board, harness, runtime, archived state.
+3. Decide whether Master filter presets should persist across restarts or whether named-board views should gain equivalent filters.

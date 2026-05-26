@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-kanban/internal/kanban"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -85,6 +86,21 @@ type Session struct {
 type BoardView struct {
 	Board   Board
 	Columns []Column
+}
+
+// MasterFilter describes query controls for the cross-board Master view.
+// Empty slices mean "all" for that dimension. Filters are intentionally
+// runtime-only UI state; callers decide whether to persist them.
+type MasterFilter struct {
+	BoardIDs        []int64
+	Runtimes        []string
+	Harnesses       []string
+	Search          string
+	IncludeArchived bool
+}
+
+func (f MasterFilter) Empty() bool {
+	return len(f.BoardIDs) == 0 && len(f.Runtimes) == 0 && len(f.Harnesses) == 0 && strings.TrimSpace(f.Search) == "" && !f.IncludeArchived
 }
 
 func Open(path string) (*Store, error) {
@@ -277,8 +293,8 @@ func (s *Store) CreateBoardWithWorkdir(ctx context.Context, name, workdir string
 		return Board{}, err
 	}
 	boardID, _ := res.LastInsertId()
-	for i, col := range []string{"Open", "In Progress", "Review", "Done"} {
-		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, col, i, now, now); err != nil {
+	for _, col := range kanban.DefaultColumns() {
+		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, col.Name, col.Position, now, now); err != nil {
 			return Board{}, err
 		}
 	}
@@ -305,6 +321,10 @@ func (s *Store) BoardViewByID(ctx context.Context, boardID int64) (BoardView, er
 }
 
 func (s *Store) MasterBoardView(ctx context.Context) (BoardView, error) {
+	return s.MasterBoardViewWithFilter(ctx, MasterFilter{})
+}
+
+func (s *Store) MasterBoardViewWithFilter(ctx context.Context, filter MasterFilter) (BoardView, error) {
 	rows, err := s.db.QueryContext(ctx, `select name from columns group by name order by min(position), lower(name)`)
 	if err != nil {
 		return BoardView{}, err
@@ -324,7 +344,8 @@ func (s *Store) MasterBoardView(ctx context.Context) (BoardView, error) {
 		return BoardView{}, err
 	}
 	for i := range view.Columns {
-		tickets, err := s.queryTickets(ctx, `join columns c on c.id=t.column_id where c.name=? and t.archived_at is null order by t.board_id,t.position`, view.Columns[i].Name)
+		suffix, args := masterFilterQuery(view.Columns[i].Name, filter)
+		tickets, err := s.queryProjectedTickets(ctx, suffix, args...)
 		if err != nil {
 			return BoardView{}, err
 		}
@@ -363,8 +384,47 @@ func (s *Store) boardViewFor(ctx context.Context, board Board) (BoardView, error
 	return view, nil
 }
 
+func masterFilterQuery(columnName string, filter MasterFilter) (string, []any) {
+	clauses := []string{`c.name=?`}
+	args := []any{columnName}
+	if !filter.IncludeArchived {
+		clauses = append(clauses, `t.archived_at is null`)
+	}
+	if len(filter.BoardIDs) > 0 {
+		clauses = append(clauses, `t.board_id in (`+placeholders(len(filter.BoardIDs))+`)`)
+		for _, id := range filter.BoardIDs {
+			args = append(args, id)
+		}
+	}
+	if len(filter.Runtimes) > 0 {
+		clauses = append(clauses, ticketProjectionRuntimeSQL+` in (`+placeholders(len(filter.Runtimes))+`)`)
+		for _, runtime := range filter.Runtimes {
+			args = append(args, runtime)
+		}
+	}
+	if len(filter.Harnesses) > 0 {
+		clauses = append(clauses, `lower(t.harness) in (`+placeholders(len(filter.Harnesses))+`)`)
+		for _, harness := range filter.Harnesses {
+			args = append(args, strings.ToLower(harness))
+		}
+	}
+	if q := strings.ToLower(strings.TrimSpace(filter.Search)); q != "" {
+		like := "%" + q + "%"
+		clauses = append(clauses, `(lower(t.display_id) like ? or lower(t.title) like ? or lower(t.body) like ? or lower((select name from boards where id=t.board_id)) like ? or lower(t.harness) like ?)`)
+		args = append(args, like, like, like, like, like)
+	}
+	return `join columns c on c.id=t.column_id where ` + strings.Join(clauses, ` and `) + ` order by t.board_id,t.position`, args
+}
+
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimRight(strings.Repeat("?,", n), ",")
+}
+
 func (s *Store) TicketsForColumn(ctx context.Context, columnID int64) ([]Ticket, error) {
-	return s.queryTickets(ctx, `where t.column_id=? and t.archived_at is null order by t.position`, columnID)
+	return s.queryProjectedTickets(ctx, `where t.column_id=? and t.archived_at is null order by t.position`, columnID)
 }
 
 func (s *Store) ListTickets(ctx context.Context, includeArchived bool) ([]Ticket, error) {
@@ -372,11 +432,11 @@ func (s *Store) ListTickets(ctx context.Context, includeArchived bool) ([]Ticket
 	if includeArchived {
 		where = ``
 	}
-	return s.queryTickets(ctx, where+` order by t.display_number`)
+	return s.queryProjectedTickets(ctx, where+` order by t.display_number`)
 }
 
 func (s *Store) TicketByDisplayID(ctx context.Context, displayID string) (Ticket, error) {
-	tickets, err := s.queryTickets(ctx, `where t.display_id=?`, strings.ToUpper(displayID))
+	tickets, err := s.queryProjectedTickets(ctx, `where t.display_id=?`, strings.ToUpper(displayID))
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -390,7 +450,7 @@ func (s *Store) TicketByDisplayID(ctx context.Context, displayID string) (Ticket
 }
 
 func (s *Store) TicketByDisplayIDInBoard(ctx context.Context, displayID string, boardID int64) (Ticket, error) {
-	tickets, err := s.queryTickets(ctx, `where t.display_id=? and t.board_id=?`, strings.ToUpper(displayID), boardID)
+	tickets, err := s.queryProjectedTickets(ctx, `where t.display_id=? and t.board_id=?`, strings.ToUpper(displayID), boardID)
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -401,7 +461,7 @@ func (s *Store) TicketByDisplayIDInBoard(ctx context.Context, displayID string, 
 }
 
 func (s *Store) TicketByID(ctx context.Context, id int64) (Ticket, error) {
-	tickets, err := s.queryTickets(ctx, `where t.id=?`, id)
+	tickets, err := s.queryProjectedTickets(ctx, `where t.id=?`, id)
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -437,8 +497,10 @@ func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, h
 	if err := tx.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&next); err != nil {
 		return Ticket{}, err
 	}
-	var pos int
-	_ = tx.QueryRowContext(ctx, `select coalesce(max(position)+1, 0) from tickets where column_id=? and archived_at is null`, columnID).Scan(&pos)
+	pos, err := visibleTicketOrder.nextPosition(ctx, tx, columnID)
+	if err != nil {
+		return Ticket{}, err
+	}
 	displayID := fmt.Sprintf("T-%03d", next)
 	now := time.Now().UTC()
 	res, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,display_id,display_number,title,body,harness,position,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?)`,
@@ -467,8 +529,8 @@ func (s *Store) AddColumn(ctx context.Context, boardID int64, name string) (Colu
 		}
 		boardID = board.ID
 	}
-	var pos int
-	if err := s.db.QueryRowContext(ctx, `select coalesce(max(position)+1, 0) from columns where board_id=?`, boardID).Scan(&pos); err != nil {
+	pos, err := columnOrder.nextPosition(ctx, s.db, boardID)
+	if err != nil {
 		return Column{}, err
 	}
 	now := time.Now().UTC()
@@ -519,45 +581,19 @@ func (s *Store) DeleteColumn(ctx context.Context, columnID int64) error {
 	if _, err := tx.ExecContext(ctx, `delete from columns where id=?`, columnID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `update columns set position=position-1, updated_at=? where board_id=? and position>?`, time.Now().UTC(), boardID, pos); err != nil {
+	if err := columnOrder.compact(ctx, tx, boardID); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 func (s *Store) ReorderColumn(ctx context.Context, columnID int64, delta int) error {
-	if delta == 0 {
-		return nil
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	var boardID int64
-	var pos int
-	if err := tx.QueryRowContext(ctx, `select board_id, position from columns where id=?`, columnID).Scan(&boardID, &pos); err != nil {
-		return err
-	}
-	target := pos + delta
-	var otherID int64
-	if err := tx.QueryRowContext(ctx, `select id from columns where board_id=? and position=?`, boardID, target).Scan(&otherID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	now := time.Now().UTC()
-	if _, err := tx.ExecContext(ctx, `update columns set position=-1 where id=?`, columnID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `update columns set position=? where id=?`, pos, otherID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `update columns set position=? where id=?`, target, columnID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `update columns set updated_at=? where id in (?,?)`, now, columnID, otherID); err != nil {
+	if err := columnOrder.swapByDelta(ctx, tx, columnID, delta); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -581,7 +617,7 @@ func (s *Store) ArchiveTicket(ctx context.Context, id int64) error {
 	if _, err := tx.ExecContext(ctx, `update tickets set archived_at=?, updated_at=? where id=?`, time.Now().UTC(), time.Now().UTC(), id); err != nil {
 		return err
 	}
-	if err := compactPositions(ctx, tx, columnID); err != nil {
+	if err := visibleTicketOrder.compact(ctx, tx, columnID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -599,47 +635,19 @@ func (s *Store) MoveTicket(ctx context.Context, ticketID, toColumnID int64) erro
 		return err
 	}
 	defer tx.Rollback()
-	var fromColumnID int64
-	if err := tx.QueryRowContext(ctx, `select column_id from tickets where id=?`, ticketID).Scan(&fromColumnID); err != nil {
-		return err
-	}
-	var minPos int
-	_ = tx.QueryRowContext(ctx, `select coalesce(min(position)-1, 0) from tickets where column_id=? and archived_at is null`, toColumnID).Scan(&minPos)
-	if _, err := tx.ExecContext(ctx, `update tickets set column_id=?, position=?, updated_at=? where id=?`, toColumnID, minPos, time.Now().UTC(), ticketID); err != nil {
-		return err
-	}
-	if err := compactPositions(ctx, tx, fromColumnID); err != nil {
+	if err := visibleTicketOrder.moveToFront(ctx, tx, ticketID, toColumnID); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 func (s *Store) ReorderTicket(ctx context.Context, ticketID int64, delta int) error {
-	if delta == 0 {
-		return nil
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	var columnID int64
-	var pos int
-	if err := tx.QueryRowContext(ctx, `select column_id, position from tickets where id=?`, ticketID).Scan(&columnID, &pos); err != nil {
-		return err
-	}
-	target := pos + delta
-	var otherID int64
-	if err := tx.QueryRowContext(ctx, `select id from tickets where column_id=? and archived_at is null and position=?`, columnID, target).Scan(&otherID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `update tickets set position=? where id=?`, target, ticketID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `update tickets set position=? where id=?`, pos, otherID); err != nil {
+	if err := visibleTicketOrder.swapByDelta(ctx, tx, ticketID, delta); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -657,7 +665,7 @@ func (s *Store) UpsertActiveSession(ctx context.Context, ticketID int64, session
 	now := time.Now().UTC()
 	status := session.Status
 	if status == "" {
-		status = "running"
+		status = kanban.StateRunning
 	}
 	res, err := tx.ExecContext(ctx, `insert into sessions(ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,last_seen_tmux_at,last_state_change_at,last_detected_state,last_detection_source,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		ticketID, session.Harness, nullableString(session.HarnessSessionRef.String), nullableString(session.HarnessSessionName.String), session.TmuxSessionName, nullableString(session.TmuxWindowID.String), session.TmuxWindowName, status, 1, now, now, now, status, "system", now, now)
@@ -703,13 +711,13 @@ func (s *Store) UpdateSessionRef(ctx context.Context, sessionID int64, ref strin
 
 func (s *Store) MarkSessionMissing(ctx context.Context, sessionID int64) error {
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `update sessions set status='error', is_active=0, closed_at=?, last_state_change_at=?, last_detected_state='error', last_attention_reason='tmux window missing', last_detection_source='tmux', updated_at=? where id=?`, now, now, now, sessionID)
+	_, err := s.db.ExecContext(ctx, `update sessions set status=?, is_active=0, closed_at=?, last_state_change_at=?, last_detected_state=?, last_attention_reason='tmux window missing', last_detection_source='tmux', updated_at=? where id=?`, kanban.StateError, now, now, kanban.StateError, now, sessionID)
 	return err
 }
 
 func (s *Store) MarkSessionClosed(ctx context.Context, sessionID int64, status, source, reason string) error {
 	if status == "" {
-		status = "closed"
+		status = kanban.StateClosed
 	}
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `update sessions set status=?, is_active=0, closed_at=?, last_state_change_at=?, last_detected_state=?, last_attention_reason=?, last_detection_source=?, updated_at=? where id=?`,
@@ -762,33 +770,6 @@ where id=?`,
 	return err
 }
 
-func (s *Store) queryTickets(ctx context.Context, suffix string, args ...any) ([]Ticket, error) {
-	query := `select t.id,t.board_id,(select name from boards where id=t.board_id),(select coalesce(workdir,'') from boards where id=t.board_id),t.column_id,t.display_id,t.display_number,t.title,t.body,t.harness,t.position,t.archived_at,
-coalesce(s.status,'not_started') runtime,coalesce(s.is_active,0),s.tmux_window_id,s.tmux_window_name,s.id,s.harness_session_ref,
-s.last_output_at,s.last_state_change_at,s.last_detected_state,s.last_attention_reason,s.last_detection_source,s.last_observed_excerpt,
-t.created_at,t.updated_at
-from tickets t
-left join sessions s on s.id=(
-  select id from sessions where ticket_id=t.id order by id desc limit 1
-) ` + suffix
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var tickets []Ticket
-	for rows.Next() {
-		var t Ticket
-		var active int
-		if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardWorkdir, &t.ColumnID, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.Runtime, &active, &t.WindowID, &t.WindowName, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, err
-		}
-		t.SessionActive = active == 1
-		tickets = append(tickets, t)
-	}
-	return tickets, rows.Err()
-}
-
 func (s *Store) ensureDefaultBoard(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -809,8 +790,8 @@ func (s *Store) ensureDefaultBoard(ctx context.Context) error {
 		return err
 	}
 	boardID, _ := res.LastInsertId()
-	for i, name := range []string{"Open", "In Progress", "Review", "Done"} {
-		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, i, now, now); err != nil {
+	for _, col := range kanban.DefaultColumns() {
+		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, col.Name, col.Position, now, now); err != nil {
 			return err
 		}
 	}
@@ -882,34 +863,6 @@ func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]boo
 		cols[name] = true
 	}
 	return cols, rows.Err()
-}
-
-func compactPositions(ctx context.Context, tx *sql.Tx, columnID int64) error {
-	rows, err := tx.QueryContext(ctx, `select id from tickets where column_id=? and archived_at is null order by position,id`, columnID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for pos, id := range ids {
-		if _, err := tx.ExecContext(ctx, `update tickets set position=? where id=?`, pos, id); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func ensureParent(path string) error {

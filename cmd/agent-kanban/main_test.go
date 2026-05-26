@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"agent-kanban/internal/config"
 	"agent-kanban/internal/storage"
 	"agent-kanban/internal/tmux"
+	"agent-kanban/internal/tui"
 )
 
 // setupCLI wires an isolated DB + config for each test, returning a run function
@@ -265,6 +267,10 @@ func TestCLIRequiresBoardForAmbiguousDisplayID(t *testing.T) {
 	if err := run("add", "Client task", "--board", "Client"); err != nil {
 		t.Fatal(err)
 	}
+	err := run("open", "T-001")
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("open should require --board for ambiguous display id, got %v", err)
+	}
 	s := getStore()
 	if _, err := s.TicketByDisplayID(context.Background(), "T-001"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("expected ambiguous display id, got %v", err)
@@ -279,6 +285,41 @@ func TestCLIRequiresBoardForAmbiguousDisplayID(t *testing.T) {
 	}
 	if ticket.Title != "Client task" {
 		t.Fatalf("board-specific ticket = %+v", ticket)
+	}
+}
+
+func TestCLIContextResolvesBoardScopedTickets(t *testing.T) {
+	s, ctx := newMainTestStore(t)
+	defaultView, _ := s.BoardView(ctx)
+	client, _ := s.CreateBoard(ctx, "Client B")
+	clientView, _ := s.BoardViewByID(ctx, client.ID)
+	_, _ = s.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi")
+	_, _ = s.CreateTicket(ctx, clientView.Columns[0].ID, "Client task", "", "codex")
+
+	cli := &cliContext{ctx: ctx, store: s}
+	view, err := cli.ResolveBoardView("Client B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Board.ID != client.ID {
+		t.Fatalf("resolved board id=%d want %d", view.Board.ID, client.ID)
+	}
+	tickets, err := cli.ResolveTickets("Client B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tickets) != 1 || tickets[0].Title != "Client task" {
+		t.Fatalf("board-scoped tickets=%+v", tickets)
+	}
+	if _, err := cli.ResolveTicket("t-001", ""); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("unscoped duplicate display id should be ambiguous, got %v", err)
+	}
+	ticket, err := cli.ResolveTicket("t-001", "Client B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.Title != "Client task" || ticket.Harness != "codex" {
+		t.Fatalf("resolved ticket=%+v", ticket)
 	}
 }
 
@@ -366,9 +407,9 @@ func TestRunBoardTUIIntegrationSwitchesBoards(t *testing.T) {
 	}
 }
 
-// ---- boardService wiring ----
+// ---- TUI service wiring ----
 
-func TestBoardServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
+func TestTUIServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	t.Setenv("AGENT_KANBAN_DB", dbPath)
@@ -395,7 +436,7 @@ func TestBoardServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
 	var renamedTo string
 	runner := &captureRenameRunner{onRename: func(newName string) { renamedTo = newName }}
 	manager := &tmux.Manager{Config: cfg, Store: s, Runner: runner}
-	svc := boardService{store: s, manager: manager}
+	svc := tui.NewService(s, manager)
 
 	ticket, _ = s.TicketByID(ctx, ticket.ID)
 	if err := svc.UpdateTicket(ctx, ticket.ID, "Updated Title", "", "pi"); err != nil {
@@ -414,7 +455,7 @@ func TestBoardServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
 	}
 }
 
-func TestBoardServiceUpdateTicketSkipsRenameWhenNoWindow(t *testing.T) {
+func TestTUIServiceUpdateTicketSkipsRenameWhenNoWindow(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	t.Setenv("AGENT_KANBAN_DB", dbPath)
@@ -433,7 +474,7 @@ func TestBoardServiceUpdateTicketSkipsRenameWhenNoWindow(t *testing.T) {
 	var renamed bool
 	runner := &captureRenameRunner{onRename: func(_ string) { renamed = true }}
 	manager := &tmux.Manager{Config: cfg, Store: s, Runner: runner}
-	svc := boardService{store: s, manager: manager}
+	svc := tui.NewService(s, manager)
 
 	if err := svc.UpdateTicket(ctx, ticket.ID, "New Title", "", "pi"); err != nil {
 		t.Fatalf("UpdateTicket failed: %v", err)
@@ -443,7 +484,7 @@ func TestBoardServiceUpdateTicketSkipsRenameWhenNoWindow(t *testing.T) {
 	}
 }
 
-func TestBoardServiceOpenTicketRoutesSendPromptVsSwitch(t *testing.T) {
+func TestTUIServiceOpenTicketRoutesSendPromptVsSwitch(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	t.Setenv("AGENT_KANBAN_DB", dbPath)
@@ -462,7 +503,7 @@ func TestBoardServiceOpenTicketRoutesSendPromptVsSwitch(t *testing.T) {
 	// Use nil store on the manager so captureSessionRef is never attempted,
 	// keeping the test instant. Session row is created manually below.
 	manager := &tmux.Manager{Config: cfg, Store: nil, Runner: mock}
-	svc := boardService{store: s, manager: manager}
+	svc := tui.NewService(s, manager)
 
 	// sendPrompt=true → manager.OpenTicket → new-window
 	if err := svc.OpenTicket(ctx, ticket, true); err != nil {
@@ -535,7 +576,7 @@ func (m *mockOpener) Run(ctx context.Context, name string, args ...string) (stri
 	}
 }
 
-func TestBoardServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
+func TestTUIServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	t.Setenv("AGENT_KANBAN_DB", dbPath)
@@ -550,7 +591,7 @@ func TestBoardServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 	view, _ := s.BoardView(ctx)
 	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "No session", "", "pi")
 
-	svc := boardService{store: s, manager: tmux.NewManager(cfg, s)}
+	svc := tui.NewService(s, tmux.NewManager(cfg, s))
 	err := svc.UpdateSessionRef(ctx, ticket, "some-ref")
 	if err == nil {
 		t.Fatal("expected error updating session ref with no session")
@@ -607,7 +648,46 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// ---- fake runners for boardService tests ----
+func TestTUIServiceSupportsMasterFilterSelector(t *testing.T) {
+	var _ tui.Actions = (*tui.Service)(nil)
+	s, ctx := newMainTestStore(t)
+	defaultView, _ := s.BoardView(ctx)
+	client, _ := s.CreateBoard(ctx, "Client B")
+	clientView, _ := s.BoardViewByID(ctx, client.ID)
+	_, _ = s.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi")
+	_, _ = s.CreateTicket(ctx, clientView.Columns[0].ID, "Codex handoff", "", "codex")
+
+	service := tui.NewService(s, nil)
+	view, err := service.MasterBoardViewWithFilter(ctx, storage.MasterFilter{Harnesses: []string{"codex"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, col := range view.Columns {
+		for _, ticket := range col.Tickets {
+			titles = append(titles, ticket.Title)
+		}
+	}
+	if len(titles) != 1 || titles[0] != "Codex handoff" {
+		t.Fatalf("filtered titles=%v", titles)
+	}
+}
+
+func newMainTestStore(t *testing.T) (*storage.Store, context.Context) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return s, ctx
+}
+
+// ---- fake runners for TUI service tests ----
 
 type captureRenameRunner struct {
 	onRename func(string)
@@ -708,3 +788,114 @@ var _ interface {
 
 // Ensure os import is used.
 var _ = os.Getenv
+
+// ---- doctor probes ----
+
+type noopCloser struct{}
+
+func (noopCloser) Close() error { return nil }
+
+func TestProbeDoctorMissingTmuxIsFatal(t *testing.T) {
+	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
+	report := probeDoctor(context.Background(), cfg, doctorProber{
+		lookPath: func(name string) (string, error) {
+			return "", os.ErrNotExist
+		},
+	})
+
+	if err := report.FatalErr(); err == nil || !strings.Contains(err.Error(), "tmux is required") {
+		t.Fatalf("expected fatal missing tmux error, got %v", err)
+	}
+	if len(report.Results) != 1 || report.Results[0].Severity != doctorFatal || report.Results[0].Name != "tmux" {
+		t.Fatalf("unexpected report: %#v", report.Results)
+	}
+}
+
+func TestProbeDoctorMissingOptionalHarnessIsWarning(t *testing.T) {
+	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
+	cfg.TmuxSession = "agent-kanban-test"
+	cfg.Harnesses = map[string]config.Harness{
+		"pi":    {Start: []string{"pi"}},
+		"fake":  {Start: []string{"fake-harness"}},
+		"empty": {},
+	}
+	lookups := map[string]string{
+		"tmux":         "/bin/tmux",
+		"fake-harness": "/bin/fake-harness",
+	}
+	report := probeDoctor(context.Background(), cfg, doctorProber{
+		lookPath: func(name string) (string, error) {
+			if path, ok := lookups[name]; ok {
+				return path, nil
+			}
+			return "", os.ErrNotExist
+		},
+		commandOutput: func(string, ...string) ([]byte, error) { return []byte("tmux 3.4\n"), nil },
+		openStore:     func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs:    func(config.Config) error { return nil },
+		insideTmux:    func() bool { return true },
+		getenv: func(key string) string {
+			switch key {
+			case "SHELL":
+				return "/bin/sh"
+			case "TERM":
+				return "xterm-256color"
+			default:
+				return ""
+			}
+		},
+		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
+	})
+
+	if err := report.FatalErr(); err != nil {
+		t.Fatalf("expected no fatal error, got %v", err)
+	}
+	assertDoctorResult(t, report, doctorWarn, "harness empty", "has no start command")
+	assertDoctorResult(t, report, doctorWarn, "harness pi", "not found: pi")
+	assertDoctorResult(t, report, doctorOK, "harness", "fake")
+}
+
+func TestProbeDoctorCanSimulatePathAndTmuxStateFailures(t *testing.T) {
+	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
+	report := probeDoctor(context.Background(), cfg, doctorProber{
+		lookPath:      func(name string) (string, error) { return "/bin/" + name, nil },
+		commandOutput: func(string, ...string) ([]byte, error) { return []byte("tmux 3.4\n"), nil },
+		openStore:     func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs:    func(config.Config) error { return os.ErrPermission },
+	})
+
+	if err := report.FatalErr(); err == nil || !strings.Contains(err.Error(), "permission") {
+		t.Fatalf("expected fatal config permission error, got %v", err)
+	}
+	assertDoctorResult(t, report, doctorOK, "sqlite", cfg.DBPath)
+	assertDoctorResult(t, report, doctorFatal, "config", cfg.Paths.ConfigFile)
+}
+
+func TestProbeDoctorInsideOutsideTmuxResults(t *testing.T) {
+	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
+	base := doctorProber{
+		lookPath:          func(name string) (string, error) { return "/bin/" + name, nil },
+		commandOutput:     func(string, ...string) ([]byte, error) { return nil, os.ErrInvalid },
+		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs:        func(config.Config) error { return nil },
+		getenv:            func(string) string { return "" },
+		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
+	}
+	base.insideTmux = func() bool { return false }
+	outside := probeDoctor(context.Background(), cfg, base)
+	assertDoctorResult(t, outside, doctorWarn, "not inside tmux", "")
+
+	base.insideTmux = func() bool { return true }
+	inside := probeDoctor(context.Background(), cfg, base)
+	assertDoctorResult(t, inside, doctorOK, "inside tmux", "")
+}
+
+func assertDoctorResult(t *testing.T, report doctorReport, severity doctorSeverity, name, detail string) {
+	t.Helper()
+	for _, result := range report.Results {
+		if result.Severity == severity && result.Name == name && result.Detail == detail {
+			return
+		}
+	}
+	t.Fatalf("missing result severity=%s name=%q detail=%q in %#v", severity, name, detail, report.Results)
+}

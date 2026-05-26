@@ -54,15 +54,15 @@ go build -buildvcs=false -o "$BIN" ./cmd/agent-kanban
 
 tmux has-session -t "$SESSION"
 tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^board$'
-tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^T-001-smoke-test-ticket$'
-tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^T-002-codex-smoke-ticket$'
+tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-001-smoke-test-ticket$'
+tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-002-codex-smoke-ticket$'
 sqlite3 "$AGENT_KANBAN_DB" "select tmux_window_id from sessions where is_active=1" | grep -q '^@'
 
 sleep 0.5
-OUT="$(tmux capture-pane -p -t "$SESSION:T-001-smoke-test-ticket")"
+OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-001-smoke-test-ticket")"
 printf '%s\n' "$OUT" | grep -q '# T-001: Smoke test ticket'
 printf '%s\n' "$OUT" | grep -q 'Verify smoke path'
-CODEX_OUT="$(tmux capture-pane -p -t "$SESSION:T-002-codex-smoke-ticket")"
+CODEX_OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-002-codex-smoke-ticket")"
 printf '%s\n' "$CODEX_OUT" | grep -q '# T-002: Codex smoke ticket'
 printf '%s\n' "$CODEX_OUT" | grep -q 'Verify codex prompt arg'
 

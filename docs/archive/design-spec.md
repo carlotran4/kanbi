@@ -6,6 +6,9 @@ links:
   - "[[AI Kanban]]"
 ---
 
+> [!warning] Historical context
+> This file preserves the original product/design discussion and decision log. It is not the current implementation contract. When this file disagrees with current docs, prefer `AGENTS.md`, `docs/architecture.md`, `docs/state-management.md`, `docs/ticket-session-lifecycle.md`, `docs/harness-contracts.md`, `docs/multi-board-behavior.md`, and `README.md` in that order.
+
 ## Goal
 Agent Kanban is an agent-agnostic terminal orchestration system built around a Kanban board. It reduces cognitive load and lost sessions by giving the user one control center for all active agent work. Each ticket represents a unit of work and is tied to one or more resumable agent sessions.
 
@@ -29,21 +32,24 @@ Core experience: tickets live on a Kanban board, agent sessions run in tmux wind
 Each ticket/session can use one of:
 
 - **Pi**
-  - start: `pi`
-  - resume: `pi resume <session_ref>`
+  - start/open-only: `pi`
+  - start with prompt: `pi <prompt>`
+  - resume: `pi --session <session_ref>`
 - **Codex**
-  - start: `codex`
-  - resume: `codex resume <session_ref>`
+  - start/open-only: `codex --no-alt-screen`
+  - start with prompt: `codex --no-alt-screen <prompt>`
+  - resume: `codex resume --no-alt-screen <session_ref>`
 - **GitHub Copilot CLI**
-  - start: `gh copilot`
-  - resume: `gh copilot --resume <session_ref>`
+  - start/open-only: `gh copilot --`
+  - start with prompt: `gh copilot -- -i <prompt>`
+  - resume: `gh copilot -- --resume=<session_ref>`
 
 The app should be agent-agnostic through compiled Go harness adapters. Harness command paths and basic args should be configurable, but v1 should not support fully user-defined adapters.
 
 ## Board Model
 
 ### Boards
-v1 behaves as a **single-board app**, but the SQLite schema should support multiple boards later.
+Historical note: the original v1 plan allowed only one visible board while reserving schema room for multiple boards later. Current behavior is multi-board: startup opens a board picker, `Master` aggregates tickets from all boards, and named boards own columns, ticket numbering, and working directories. See `docs/multi-board-behavior.md`.
 
 Default board columns:
 
@@ -116,9 +122,9 @@ Structure:
 tmux session: agent-kanban
 windows:
   board
-  T-001-fix-oauth-redirect
-  T-002-review-api
-  T-003-write-tests
+  b1-T-001-fix-oauth-redirect
+  b1-T-002-review-api
+  b2-T-001-write-tests
 ```
 
 The board runs in a stable `board` window. Each active ticket gets one tmux window. Use windows, not panes, for ticket sessions.
@@ -201,34 +207,7 @@ Ticket title
 ```
 
 ### Prompt Injection
-Use tmux paste-buffer for multiline prompts.
-
-Flow:
-
-1. Create tmux window.
-2. Start harness.
-3. Wait up to a prompt-ready timeout for the harness adapter to detect readiness.
-4. If ready, paste prompt using tmux buffer.
-5. Send Enter.
-
-Implementation shape:
-
-```bash
-tmux set-buffer -- "$PROMPT"
-tmux paste-buffer -t target
-tmux send-keys -t target Enter
-```
-
-Default prompt-ready timeout: `5` seconds.
-
-If prompt readiness cannot be detected:
-
-- show modal with options:
-  - paste now
-  - open without sending
-  - cancel
-
-Known MVP risk: multiline paste may behave differently across harnesses. Trust paste behavior for v1 and add adapter-specific overrides later if needed.
+Historical note: the original plan used tmux paste-buffer for most multiline prompts. Current real harness adapters use argument-mode prompt injection where supported: Pi runs `pi <prompt>`, Codex runs `codex --no-alt-screen <prompt>`, and Copilot runs `gh copilot -- -i <prompt>`. Paste-mode remains useful for fake/smoke harnesses and fallback flows. See `docs/harness-contracts.md` and `docs/ticket-session-lifecycle.md`.
 
 ### Resuming a Session
 If a ticket has a known `session_ref`, opening it should create/switch to a tmux window and run the harness-native resume command.
@@ -551,15 +530,16 @@ harnesses:
   pi:
     command: pi
     start_args: []
-    resume_args: ["resume", "{session_ref}"]
+    resume_args: ["--session", "{session_ref}"]
   codex:
     command: codex
-    start_args: []
-    resume_args: ["resume", "{session_ref}"]
+    start_args: ["--no-alt-screen"]
+    resume_args: ["resume", "--no-alt-screen", "{session_ref}"]
   copilot:
     command: gh
-    start_args: ["copilot"]
-    resume_args: ["copilot", "--resume", "{session_ref}"]
+    start_args: ["copilot", "--"]
+    prompt_args: ["-i", "{prompt}"]
+    resume_args: ["copilot", "--", "--resume={session_ref}"]
 ```
 
 Harness adapters are hardcoded in Go, but command paths, args, environment variables, and timeouts should be configurable where safe.
@@ -630,7 +610,7 @@ Explicitly exclude from v1:
 - background daemon
 - full transcript storage
 - custom user-defined harness adapters
-- multi-board UI
+- historical only: multiple-board screens were deferred in the original plan; they are now implemented
 - external/desktop notifications
 - Obsidian/Markdown sync/export
 - web UI
@@ -645,7 +625,7 @@ Explicitly exclude from v1:
 - Pre-type prompt in harness without sending, if harness supports it
 - Additional harness support beyond Pi/Codex/Copilot
 - Fully user-defined harness adapters
-- Multi-board UI
+- Further multi-board polish, such as canonical column types and archive/export semantics
 - Optional Markdown/Obsidian export
 - Embedded terminal pane mode
 - Background watcher daemon
@@ -706,7 +686,7 @@ This section preserves the resolved 65-question design context.
 1. **Language/stack:** Go.
 2. **Go TUI framework:** Bubble Tea.
 3. **Persistence:** SQLite canonical state store.
-4. **Board count:** v1 single-board app, schema supports multi-board later.
+4. **Board count:** historical decision allowed only one visible board in v1 while reserving schema room for multiple boards later; current implementation is multi-board with a Master aggregate view.
 5. **Ticket fields:** title + body, not single text only.
 6. **Workflow vs runtime:** separate workflow column and runtime status.
 7. **Session hosting:** tmux backend for v1.
@@ -757,7 +737,7 @@ This section preserves the resolved 65-question design context.
 52. **Send prompt after start:** not allowed in v1; first-launch only.
 53. **Body edits after launch:** no automatic effect on agent session.
 54. **MVP exclusions:** exclude deferred features listed above.
-55. **Harness commands:** Pi/Codex resume as `resume <ref>`; Copilot is `gh copilot --resume <ref>`.
+55. **Harness commands:** historical commands were later corrected. Current commands are Pi `pi --session <ref>`, Codex `codex resume --no-alt-screen <ref>`, and Copilot `gh copilot -- --resume=<ref>`.
 56. **Copilot resume ref:** accepts explicit session ref.
 57. **Initial prompt injection:** use tmux paste-buffer.
 58. **Prompt-ready failure:** wait timeout, then modal: paste now/open without sending/cancel.

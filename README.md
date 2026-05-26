@@ -1,17 +1,22 @@
 # Agent Kanban
 
-Agent Kanban is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sessions through a Kanban board.
+Agent Kanban is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sessions across one or more Kanban boards.
 
 ## Project Documents
 
-- [`design-spec.md`](./design-spec.md) — full product/design specification and decision log
+- [`AGENTS.md`](./AGENTS.md) — onboarding instructions for autonomous coding agents
+- [`docs/architecture.md`](./docs/architecture.md) — current architecture, scope, invariants, and source-of-truth document order
+- [`docs/multi-board-behavior.md`](./docs/multi-board-behavior.md) — current multi-board and Master view behavior
+- [`docs/harness-contracts.md`](./docs/harness-contracts.md) — current supported harness commands/ref capture contracts
 - [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — how autonomous agents should verify their work
+- [`docs/archive/design-spec.md`](./docs/archive/design-spec.md) — historical product/design context; current docs win on conflicts
 
 ## Multi-board behavior
 
 - `agent-kanban` opens with a board picker. Choose `Master (all boards)` or a named board.
 - Press `b` inside the TUI to switch boards without restarting.
-- `Master` aggregates active tickets from every board by matching column name (for example, all `Open` tickets together).
+- `Master` aggregates unarchived tickets from every board by matching column name (for example, all `Open` tickets together).
+- Press `f` in `Master` to filter/search by board, runtime/state, harness, text, or archived tickets. Filters reset on app restart but persist while switching boards during one run; press `C` in the filter panel to clear them.
 - Pressing `n` in `Master` prompts for the target board, then creates the ticket in that board's matching column.
 - Each board has a working directory. Opening/sending a ticket starts its agent tmux window in the ticket's board directory, including from `Master`.
 - Board-local ticket numbers are preserved, so different boards may both have `T-001`; CLI ticket commands accept `--board NAME` when needed.
@@ -40,4 +45,4 @@ go vet ./...
 
 ## Status
 
-Local MVP skeleton implemented: CLI/config/storage, Bubble Tea board model, tmux-backed ticket windows, fake harnesses, tests, and smoke verification. See [`PROGRESS.md`](./PROGRESS.md) for current TUI limitations.
+Alpha lifecycle hardening is complete: multi-board TUI/CLI behavior, tmux-backed ticket sessions, Pi/Codex/Copilot command wiring and ref capture, fake and real harness verification, tests, and smoke verification are in place. Current follow-up work is tracked as tickets on the board.

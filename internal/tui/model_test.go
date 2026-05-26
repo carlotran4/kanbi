@@ -15,16 +15,8 @@ import (
 )
 
 func TestModelKeybindingsCreateMoveReorderArchive(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	model := New(ctx, store)
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
 	model, _ = mustUpdate(t, model, "n")
 	model, _ = mustUpdate(t, model, "esc") // dismiss auto-edit
 	model, _ = mustUpdate(t, model, "n")
@@ -34,33 +26,25 @@ func TestModelKeybindingsCreateMoveReorderArchive(t *testing.T) {
 	}
 	model, _ = mustUpdate(t, model, "k") // move to T-001
 	model, _ = mustUpdate(t, model, "J")
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	if view.Columns[0].Tickets[0].DisplayID != "T-002" {
 		t.Fatalf("reorder failed: %+v", view.Columns[0].Tickets)
 	}
 	model, _ = mustUpdate(t, model, "L")
-	view, _ = store.BoardView(ctx)
+	view = defaultBoardView(t, ctx, store)
 	if len(view.Columns[1].Tickets) != 1 {
 		t.Fatalf("move right failed: %+v", view.Columns)
 	}
 	model, _ = mustUpdate(t, model, "a")
-	view, _ = store.BoardView(ctx)
+	view = defaultBoardView(t, ctx, store)
 	if len(view.Columns[1].Tickets) != 0 {
 		t.Fatalf("archive failed: %+v", view.Columns[1].Tickets)
 	}
 }
 
 func TestModelColumnEditingKeybindings(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	model := New(ctx, store)
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
 	model, _ = mustUpdate(t, model, "c")
 	model, _ = mustUpdate(t, model, "Blocked")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
@@ -72,8 +56,7 @@ func TestModelColumnEditingKeybindings(t *testing.T) {
 	model, _ = mustUpdate(t, model, "l")
 	model, _ = mustUpdate(t, model, "l")
 	model, _ = mustUpdate(t, model, "r")
-	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlU})
-	model.columnName = ""
+	model.columnInput = NewInputBuffer("")
 	model, _ = mustUpdate(t, model, "Later")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	if !strings.Contains(model.View(), "Later") {
@@ -86,23 +69,11 @@ func TestModelColumnEditingKeybindings(t *testing.T) {
 }
 
 func TestModelVimAndArrowNavigationMoveFocus(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
-	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "First", "", "pi"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Second", "", "pi"); err != nil {
-		t.Fatal(err)
-	}
-	model := New(ctx, store)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	createTicket(t, ctx, store, view.Columns[0].ID, "First", "", "pi")
+	createTicket(t, ctx, store, view.Columns[0].ID, "Second", "", "pi")
+	model := New(ctx, NewService(store, nil))
 	if model.col != 0 || model.card != 0 {
 		t.Fatalf("initial focus col=%d card=%d", model.col, model.card)
 	}
@@ -148,16 +119,8 @@ func TestModelVimAndArrowNavigationMoveFocus(t *testing.T) {
 }
 
 func TestModelSendPromptAndAttentionNavigation(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	first, _ := store.CreateTicket(ctx, view.Columns[0].ID, "First", "", "pi")
 	second, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Second", "", "pi")
 	sessionID, err := store.UpsertActiveSession(ctx, second.ID, storage.Session{
@@ -172,7 +135,7 @@ func TestModelSendPromptAndAttentionNavigation(t *testing.T) {
 	if err := store.UpdateSessionRuntime(ctx, sessionID, "waiting_for_user", "manual", "waiting", "", false); err != nil {
 		t.Fatal(err)
 	}
-	wrapped := &openingStore{Store: store}
+	wrapped := &openingStore{Service: NewService(store, nil)}
 	model := New(ctx, wrapped)
 	model, cmd := mustUpdate(t, model, "s")
 	model = runCmd(t, model, cmd)
@@ -196,16 +159,8 @@ func TestModelSendPromptAndAttentionNavigation(t *testing.T) {
 }
 
 func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Unified approach to QMD", "", "pi"); err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +168,7 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	rendered := model.View()
 	headerLine := firstLineContaining(rendered, "Open")
 	if !strings.Contains(headerLine, "In Progress") || !strings.Contains(headerLine, "Review") || !strings.Contains(headerLine, "Done") {
@@ -228,20 +183,12 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 }
 
 func TestModelOpenSelectedTicket(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Open me", "", "pi"); err != nil {
 		t.Fatal(err)
 	}
-	wrapped := &openingStore{Store: store}
+	wrapped := &openingStore{Service: NewService(store, nil)}
 	model := New(ctx, wrapped)
 	model, cmd := mustUpdate(t, model, "o")
 	model = runCmd(t, model, cmd)
@@ -254,21 +201,13 @@ func TestModelOpenSelectedTicket(t *testing.T) {
 }
 
 func TestModelPromptFallbackCanPasteNow(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Send me", "", "pi"); err != nil {
 		t.Fatal(err)
 	}
 	wrapped := &openingStore{
-		Store: store,
+		Service: NewService(store, nil),
 		openErr: tmux.PromptReadyError{
 			WindowName: "T-001-send-me",
 			Prompt:     "# T-001: Send me\n\nSend me",
@@ -289,19 +228,11 @@ func TestModelPromptFallbackCanPasteNow(t *testing.T) {
 }
 
 func TestModelRepairStartFresh(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Repair me", "", "pi")
 	wrapped := &openingStore{
-		Store: store,
+		Service: NewService(store, nil),
 		openErr: tmux.RepairNeededError{
 			Ticket: ticket,
 			Reason: "missing ref",
@@ -320,7 +251,7 @@ func TestModelRepairStartFresh(t *testing.T) {
 }
 
 type openingStore struct {
-	*storage.Store
+	*Service
 	opened       []string
 	sentPrompt   []bool
 	openErr      error
@@ -344,7 +275,7 @@ func (s *openingStore) OpenTicket(ctx context.Context, ticket storage.Ticket, se
 }
 
 func (s *openingStore) MarkTicketState(ctx context.Context, ticketID int64, state string) error {
-	return s.Store.MarkTicketRuntime(ctx, ticketID, state, "manual", "manual override")
+	return s.Service.Store.MarkTicketRuntime(ctx, ticketID, state, "manual", "manual override")
 }
 
 func (s *openingStore) PastePromptNow(ctx context.Context, windowName, text string) error {
@@ -360,7 +291,7 @@ func (s *openingStore) StartFreshTicket(ctx context.Context, ticket storage.Tick
 
 func (s *openingStore) UpdateSessionRef(ctx context.Context, ticket storage.Ticket, ref string) error {
 	if ticket.SessionID.Valid {
-		return s.Store.UpdateSessionRef(ctx, ticket.SessionID.Int64, ref)
+		return s.Service.Store.UpdateSessionRef(ctx, ticket.SessionID.Int64, ref)
 	}
 	return nil
 }
@@ -405,19 +336,11 @@ func TestCardRuntimeLabelsAndWindowIndicators(t *testing.T) {
 }
 
 func TestRepairViewShowsReasonAndOptions(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Repair me", "", "pi")
 	wrapped := &openingStore{
-		Store: store,
+		Service: NewService(store, nil),
 		openErr: tmux.RepairNeededError{
 			Ticket: ticket,
 			Reason: "session started but no window or session ref is known",
@@ -447,19 +370,11 @@ func sqlNullInt64(n int64) sql.NullInt64 {
 }
 
 func TestModelEditTicketUpdatesStore(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Original", "body", "pi")
 
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	// Enter edit mode
 	model, _ = mustUpdate(t, model, "e")
 	if !model.editing {
@@ -489,21 +404,55 @@ func TestModelEditTicketUpdatesStore(t *testing.T) {
 	}
 }
 
-func TestModelCloseSessionCallsCloser(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
+func TestModelEditTicketUsesCursorAwareBuffer(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "abcd", "body", "pi")
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	model, _ = mustUpdate(t, model, "X")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyDelete})
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnd})
+	model, _ = mustUpdate(t, model, "Z")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+
+	got, err := store.TicketByDisplayID(ctx, "T-001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
+	if got.Title != "abXdZ" {
+		t.Fatalf("title = %q, want abXdZ", got.Title)
 	}
-	view, _ := store.BoardView(ctx)
+}
+
+func TestModelColumnEditUsesCursorAwareBuffer(t *testing.T) {
+	store, ctx := newTestStore(t)
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "c")
+	model, _ = mustUpdate(t, model, "Ac")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	model, _ = mustUpdate(t, model, "b")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnd})
+	model, _ = mustUpdate(t, model, "d")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(model.View(), "Abcd") {
+		t.Fatalf("added cursor-edited column missing:\n%s", model.View())
+	}
+}
+
+func TestModelCloseSessionCallsCloser(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Close Me", "", "pi")
 
 	var closed bool
-	wrapped := &closingStore{Store: store, onClose: func() { closed = true }}
+	wrapped := &closingStore{Service: NewService(store, nil), onClose: func() { closed = true }}
 	model := New(ctx, wrapped)
 	model, cmd := mustUpdate(t, model, "x")
 	model = runCmd(t, model, cmd)
@@ -513,21 +462,13 @@ func TestModelCloseSessionCallsCloser(t *testing.T) {
 }
 
 func TestModelRepairEditRefThenOpen(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Repair", "", "pi")
 
 	var repairCallCount int
 	wrapped := &openingStore{
-		Store: store,
+		Service: NewService(store, nil),
 		openErrFn: func() error {
 			repairCallCount++
 			if repairCallCount == 1 {
@@ -559,21 +500,13 @@ func TestModelRepairEditRefThenOpen(t *testing.T) {
 }
 
 func TestModelRepairRetryCallsOpen(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Retry", "", "pi")
 
 	callCount := 0
 	wrapped := &openingStore{
-		Store: store,
+		Service: NewService(store, nil),
 		openErrFn: func() error {
 			callCount++
 			if callCount == 1 {
@@ -595,20 +528,12 @@ func TestModelRepairRetryCallsOpen(t *testing.T) {
 }
 
 func TestModelEscCancelsRepair(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Cancel", "", "pi")
 
 	wrapped := &openingStore{
-		Store:   store,
+		Service: NewService(store, nil),
 		openErr: tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"},
 	}
 	model := New(ctx, wrapped)
@@ -673,9 +598,9 @@ func TestWrapText(t *testing.T) {
 	}
 }
 
-// closingStore wraps storage.Store and records close calls.
+// closingStore wraps Service and records close calls.
 type closingStore struct {
-	*storage.Store
+	*Service
 	onClose func()
 }
 
@@ -693,23 +618,15 @@ func sqlNullTime(t time.Time) sql.NullTime {
 // --- Scroll tests ---
 
 func TestVerticalScrollFollowsCursor(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	// Create enough tickets to overflow a small screen.
 	for i := 0; i < 10; i++ {
 		if _, err := store.CreateTicket(ctx, view.Columns[0].ID, fmt.Sprintf("Ticket %d", i), "", "pi"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	// Force a small terminal so not all cards fit.
 	model.width = 80
 	model.height = 20
@@ -754,22 +671,14 @@ func TestVerticalScrollFollowsCursor(t *testing.T) {
 // step too late — the focused card was logically "in window" but the render
 // loop's tighter accounting meant it was actually cut off.
 func TestScrollFocusedCardAlwaysRendered(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	for i := 0; i < 10; i++ {
 		if _, err := store.CreateTicket(ctx, view.Columns[0].ID, fmt.Sprintf("Ticket %d", i), "", "pi"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	model.width = 80
 	model.height = 20
 	model.syncScrollDimensions()
@@ -787,22 +696,14 @@ func TestScrollFocusedCardAlwaysRendered(t *testing.T) {
 }
 
 func TestScrollHintsAppearsWhenCardsHidden(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	for i := 0; i < 10; i++ {
 		if _, err := store.CreateTicket(ctx, view.Columns[0].ID, fmt.Sprintf("Ticket %d", i), "", "pi"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	model.width = 80
 	model.height = 20
 	model.syncScrollDimensions()
@@ -824,24 +725,16 @@ func TestScrollHintsAppearsWhenCardsHidden(t *testing.T) {
 }
 
 func TestHorizontalScrollFollowsFocusedColumn(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
+	store, ctx := newTestStore(t)
 	// Create extra columns beyond what fits on a narrow terminal.
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	boardID := view.Columns[0].BoardID
 	for i := 0; i < 5; i++ {
 		if _, err := store.AddColumn(ctx, boardID, fmt.Sprintf("Extra%d", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	// Narrow terminal: fits at most 2 columns (each 32 chars wide).
 	model.width = 70
 	model.height = 40
@@ -877,23 +770,15 @@ func TestHorizontalScrollFollowsFocusedColumn(t *testing.T) {
 }
 
 func TestHorizontalScrollHintAppearsAndUpdates(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	view, _ := store.BoardView(ctx)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
 	boardID := view.Columns[0].BoardID
 	for i := 0; i < 5; i++ {
 		if _, err := store.AddColumn(ctx, boardID, fmt.Sprintf("Extra%d", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	// Narrow enough that not all columns fit.
 	model.width = 70
 	model.height = 40
@@ -924,16 +809,8 @@ func TestHorizontalScrollHintAppearsAndUpdates(t *testing.T) {
 }
 
 func TestWindowSizeMsgUpdatesTerminalDimensions(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	model := New(ctx, store)
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m := next.(Model)
 	if m.width != 120 || m.height != 30 {
@@ -945,19 +822,11 @@ func TestWindowSizeMsgUpdatesTerminalDimensions(t *testing.T) {
 // another column, the cursor remains focused on that same ticket in the
 // destination column (T-016).
 func TestMoveTicketCursorFollowsTicket(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
+	store, ctx := newTestStore(t)
 
 	// Seed: 3 tickets in "In Progress" (col index 1) and 1 in "Review" (col
 	// index 2) so the destination column already has a ticket before the move.
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	inProgress := view.Columns[1].ID
 	review := view.Columns[2].ID
 	store.CreateTicket(ctx, inProgress, "Alpha", "", "")
@@ -965,7 +834,7 @@ func TestMoveTicketCursorFollowsTicket(t *testing.T) {
 	store.CreateTicket(ctx, inProgress, "Gamma", "", "")
 	store.CreateTicket(ctx, review, "Already Here", "", "")
 
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 
 	// Navigate to "In Progress" (col 1)
 	model, _ = mustUpdate(t, model, "l")
@@ -1008,17 +877,9 @@ func TestMoveTicketCursorFollowsTicket(t *testing.T) {
 // a destination column that requires scrolling to see it, the scroll offset is
 // adjusted so the ticket is visible (T-016 follow-up).
 func TestMoveTicketScrollFollowsTicket(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
+	store, ctx := newTestStore(t)
 
-	view, _ := store.BoardView(ctx)
+	view := defaultBoardView(t, ctx, store)
 	srcCol := view.Columns[0].ID
 	dstCol := view.Columns[1].ID
 
@@ -1034,7 +895,7 @@ func TestMoveTicketScrollFollowsTicket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	model.width = 80
 	model.height = 20
 	model.syncScrollDimensions()
@@ -1123,15 +984,7 @@ func firstLineContaining(s, needle string) string {
 }
 
 func TestBoardPickerSwitchesToMasterAndNamedBoard(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
+	store, ctx := newTestStore(t)
 	second, err := store.CreateBoard(ctx, "Client B")
 	if err != nil {
 		t.Fatal(err)
@@ -1140,7 +993,7 @@ func TestBoardPickerSwitchesToMasterAndNamedBoard(t *testing.T) {
 	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Other task", "", "pi"); err != nil {
 		t.Fatal(err)
 	}
-	model := NewWithPicker(ctx, store)
+	model := NewWithPicker(ctx, NewService(store, nil))
 	if !model.boardPicker || !strings.Contains(model.View(), "Master") || !strings.Contains(model.View(), "Client B") {
 		t.Fatalf("picker not shown:\n%s", model.View())
 	}
@@ -1157,20 +1010,12 @@ func TestBoardPickerSwitchesToMasterAndNamedBoard(t *testing.T) {
 }
 
 func TestCreateTicketFromMasterPromptsForTargetBoard(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
+	store, ctx := newTestStore(t)
 	client, err := store.CreateBoard(ctx, "Client B")
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	model.masterBoard = true
 	model.reloadBoards()
 	model.reload()
@@ -1194,16 +1039,8 @@ func TestCreateTicketFromMasterPromptsForTargetBoard(t *testing.T) {
 }
 
 func TestRenameBoardFromTUIBoardPicker(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	model := New(ctx, store)
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
 	model, _ = mustUpdate(t, model, "b")
 	model, _ = mustUpdate(t, model, "j")
 	model, _ = mustUpdate(t, model, "r")
@@ -1218,16 +1055,8 @@ func TestRenameBoardFromTUIBoardPicker(t *testing.T) {
 }
 
 func TestBoardCreateShowsWorkdirErrorInModal(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	model := New(ctx, store)
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
 	model, _ = mustUpdate(t, model, "b")
 	model, _ = mustUpdate(t, model, "c")
 	model.boardEditName = "Client"
@@ -1242,17 +1071,9 @@ func TestBoardCreateShowsWorkdirErrorInModal(t *testing.T) {
 }
 
 func TestBoardPickerCreateSetCWDAndDeleteBoard(t *testing.T) {
-	ctx := context.Background()
-	store, err := storage.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
+	store, ctx := newTestStore(t)
 	cwd := t.TempDir()
-	model := New(ctx, store)
+	model := New(ctx, NewService(store, nil))
 	model, _ = mustUpdate(t, model, "b")
 	model, _ = mustUpdate(t, model, "c")
 	if !model.boardEditing || model.boardEditAction != "create" {

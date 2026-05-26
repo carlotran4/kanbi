@@ -318,4 +318,4 @@ done
 echo ""
 echo "Result: PASS"
 echo ""
-echo "Record this result in PROGRESS.md."
+echo "Report this result in your final response."

@@ -2,7 +2,7 @@
 
 This document specifies the verified command surface, session ref capture method, and known limitations for each supported harness.
 
-Hardcoded adapters live in `internal/config/config.go` (defaults) and `internal/harness/harness.go` (ref capture logic).
+Built-in harness contracts are localized in `internal/harness/contracts.go`: command defaults, prompt mode, exit keys, ref capture function, and this document's anchor are grouped per harness. `internal/config/config.go` loads those defaults while still allowing YAML overrides.
 
 ## Pi
 
@@ -123,8 +123,8 @@ Fake harnesses let deterministic smoke tests verify the full lifecycle without r
 
 ## Adding a New Harness
 
-1. Add a default entry to `config.Defaults()` in `internal/config/config.go` with `start`, `resume`, `exit`, `prompt_mode`.
-2. If the harness writes a machine-readable session ref log, add a capture function in `internal/harness/harness.go` under `CaptureSessionRef`.
+1. Add a `Contract` entry in `internal/harness/contracts.go` with `start`, `resume`, `exit`, `prompt_mode`, `CaptureRef`, and `DocsAnchor`.
+2. If the harness writes a machine-readable session ref log, add a capture function in `internal/harness/harness.go` and wire it from that contract.
 3. Add unit tests in `internal/harness/harness_test.go` for command construction and ref capture.
 4. Document the contract in this file.
 5. Run `go fmt ./... && go test ./... && go vet ./... && ./scripts/smoke.sh`.
