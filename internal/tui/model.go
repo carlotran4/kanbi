@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"agent-kanban/internal/kanban"
@@ -56,6 +57,7 @@ type Model struct {
 	editing                 bool
 	editField               int
 	editInputs              [3]InputBuffer
+	bodyTA                  textarea.Model
 	stateMenu               bool
 	stateIndex              int
 	columnEditing           bool
@@ -478,6 +480,7 @@ func (m *Model) startEdit() {
 		NewInputBuffer(t.Body),
 		NewInputBuffer(t.Harness),
 	}
+	m.bodyTA = newBodyTextarea(t.Body, m.width)
 }
 
 func (m *Model) openTicketCmd(sendPrompt bool) tea.Cmd {
@@ -524,7 +527,7 @@ func (m Model) openBodyEditor() tea.Cmd {
 	body := t.Body
 	ticketID := t.ID
 	if m.editing {
-		body = m.editInputs[1].Value()
+		body = m.bodyTA.Value()
 	}
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
@@ -559,6 +562,7 @@ func (m *Model) applyEditorResult(msg editorFinishedMsg) {
 	}
 	if m.editing {
 		m.editInputs[1] = NewInputBuffer(msg.body)
+		m.bodyTA.SetValue(msg.body)
 		m.status = "body loaded from editor"
 		return
 	}

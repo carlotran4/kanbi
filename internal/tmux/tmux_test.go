@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,13 +74,33 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 		if f.windows == nil {
 			f.windows = map[string]string{}
 		}
-		f.windows["@7"] = windowName
-		return "@7\n", nil
+		id := "@7"
+		if len(f.windows) > 0 {
+			id = fmt.Sprintf("@%d", 7+len(f.windows))
+		}
+		f.windows[id] = windowName
+		return id + "\n", nil
 	case len(args) >= 1 && args[0] == "display-message":
-		if len(args) >= 5 && args[len(args)-1] == "#{window_name}" {
+		if len(args) >= 4 && args[len(args)-1] == "#{window_name}" {
 			if f.windows != nil {
 				if name, ok := f.windows[args[len(args)-2]]; ok {
 					return name + "\n", nil
+				}
+			}
+			return "", errors.New("missing")
+		}
+		if len(args) >= 4 && args[len(args)-1] == "#{window_id}" {
+			targetArg := args[len(args)-2]
+			windowName := targetArg
+			if idx := strings.Index(targetArg, ":"); idx >= 0 {
+				windowName = targetArg[idx+1:]
+			}
+			if windowName == "board" {
+				return "@0\n", nil
+			}
+			for id, name := range f.windows {
+				if targetArg == id || windowName == name {
+					return id + "\n", nil
 				}
 			}
 			return "", errors.New("missing")
@@ -120,6 +141,9 @@ func TestAttachCommandCreatesDistinctBoardClientSession(t *testing.T) {
 	if !containsArg(cmd1.Args, "AGENT_KANBAN_INNER=1") || !containsArg(cmd1.Args, "--board") {
 		t.Fatalf("AttachCommand should launch inner board command: %v", cmd1.Args)
 	}
+	if got := argWithPrefix(cmd1.Args, "AGENT_KANBAN_TMUX_SESSION="); got != "AGENT_KANBAN_TMUX_SESSION="+s1 {
+		t.Fatalf("AttachCommand should make the board client session its ticket runtime session, got %q in %v", got, cmd1.Args)
+	}
 }
 
 func containsArg(args []string, want string) bool {
@@ -135,6 +159,15 @@ func argAfter(args []string, flag string) string {
 	for i, arg := range args {
 		if arg == flag && i+1 < len(args) {
 			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func argWithPrefix(args []string, prefix string) string {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, prefix) {
+			return arg
 		}
 	}
 	return ""
@@ -346,6 +379,45 @@ func TestOpenTicketRecoversMissingPiSessionRefFromHistory(t *testing.T) {
 	ticket, _ = store.TicketByID(ctx, ticket.ID)
 	runner := &fakeRunner{}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner, ResumeCheckAfter: time.Millisecond}
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := store.TicketByID(ctx, ticket.ID)
+	if !updated.SessionRef.Valid || updated.SessionRef.String != ref {
+		t.Fatalf("session ref = %#v, want %q", updated.SessionRef, ref)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" && strings.Contains(strings.Join(c.args, " "), ref) {
+			return
+		}
+	}
+	t.Fatalf("resume command with recovered ref not called: %+v", runner.calls)
+}
+
+func TestOpenTicketRecoversMissingPiSessionRefFromRefFile(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Recover From File", "Body", "pi")
+
+	stateDir := t.TempDir()
+	ref := "019e-file-recovered-ref"
+
+	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness: "pi", TmuxSessionName: "agent-kanban",
+		TmuxWindowName: "T-001-recover-from-file", Status: "running",
+	})
+	_ = store.MarkSessionClosed(ctx, sessionID, "error", "tmux", "tmux window missing")
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+
+	// Write the stable ref file (as the Pi extension would have, via piSessionRefFilePath).
+	refDir := filepath.Join(stateDir, "pi-session-refs")
+	_ = os.MkdirAll(refDir, 0o755)
+	refPath := filepath.Join(refDir, fmt.Sprintf("ticket-%d.json", ticket.ID))
+	_ = os.WriteFile(refPath, []byte(`{"sessionId":"`+ref+`"}`+"\n"), 0o644)
+
+	runner := &fakeRunner{}
+	cfg := config.Defaults(config.Paths{StateDir: stateDir})
+	manager := &Manager{Config: cfg, Store: store, Runner: runner, ResumeCheckAfter: time.Millisecond}
 	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
 		t.Fatal(err)
 	}
@@ -645,6 +717,34 @@ func TestOpenTicketExistingActiveWindowDoesNotCreateNewSessionRow(t *testing.T) 
 	}
 }
 
+func TestStartFreshWithExistingWindowCreatesSeparateWindow(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Demo", "Body", "pi")
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	firstWindowID := ticket.WindowID.String
+	firstWindowName := ticket.WindowName.String
+
+	if err := manager.StartFreshTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.TicketByID(ctx, ticket.ID)
+	if got.WindowID.String == firstWindowID {
+		t.Fatalf("start fresh reused existing window id %q", firstWindowID)
+	}
+	if got.WindowName.String == firstWindowName {
+		t.Fatalf("start fresh reused existing window name %q", firstWindowName)
+	}
+	if got.WindowName.String != firstWindowName+"-2" {
+		t.Fatalf("fresh window name = %q, want %q", got.WindowName.String, firstWindowName+"-2")
+	}
+}
+
 func TestRefreshRuntimeDetectsAttentionState(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -825,6 +925,8 @@ func TestSwitchToTicketPrefersStoredWindowID(t *testing.T) {
 	ticket := storage.Ticket{
 		DisplayID:     "T-001",
 		Title:         "Demo",
+		Harness:       "pi",
+		SessionID:     sql.NullInt64{Int64: 1, Valid: true},
 		WindowID:      sqlString("@7"),
 		WindowName:    sqlString("T-001-demo"),
 		SessionActive: true,
@@ -838,6 +940,29 @@ func TestSwitchToTicketPrefersStoredWindowID(t *testing.T) {
 		}
 	}
 	t.Fatalf("switch-client @7 not called: %+v", runner.calls)
+}
+
+func TestSwitchToTicketUsesStoredRuntimeSession(t *testing.T) {
+	runner := &fakeRunner{windows: map[string]string{"@7": "T-001-demo"}}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Runner: runner}
+	ticket := storage.Ticket{
+		DisplayID:       "T-001",
+		Title:           "Demo",
+		Harness:         "pi",
+		SessionID:       sql.NullInt64{Int64: 1, Valid: true},
+		TmuxSessionName: sqlString("agent-kanban-instance-b"),
+		WindowName:      sqlString("T-001-demo"),
+		SessionActive:   true,
+	}
+	if err := manager.SwitchToTicket(context.Background(), ticket); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t agent-kanban-instance-b:T-001-demo" {
+			return
+		}
+	}
+	t.Fatalf("switch-client did not target stored runtime session: %+v", runner.calls)
 }
 
 func TestSwitchToTicketRejectsStaleWindowIDWithWrongName(t *testing.T) {
@@ -958,6 +1083,76 @@ func (e *evanescingRunner) Run(ctx context.Context, name string, args ...string)
 	return out, err
 }
 
+func TestOpenTicketWithStaleActiveRuntimeSessionResumesWithStoredRef(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Stale Runtime", "", "pi")
+	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:         "pi",
+		TmuxSessionName: "old-missing-board-session",
+		TmuxWindowName:  "b1-T-001-stale-runtime",
+		Status:          "running",
+	})
+	_ = store.UpdateSessionRef(ctx, sessionID, "019e-stale-runtime-ref")
+
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	runner := &missingRuntimeSessionRunner{missingSession: "old-missing-board-session"}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner, ResumeCheckAfter: time.Millisecond}
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" {
+			cmd := strings.Join(c.args, " ")
+			if !strings.Contains(cmd, "--session") || !strings.Contains(cmd, "019e-stale-runtime-ref") {
+				t.Fatalf("resume command missing ref after stale runtime session: %v", c.args)
+			}
+			return
+		}
+	}
+	t.Fatal("expected resume new-window call")
+}
+
+func TestCopilotOpenOnlyDoesNotIncludeInteractiveFlag(t *testing.T) {
+	cfg := config.Defaults(config.Paths{})
+	runner := &fakeRunner{}
+	manager := &Manager{Config: cfg, Runner: runner}
+	ticket := storage.Ticket{ID: 1, DisplayID: "T-001", Title: "Copilot Demo", Body: "Body", Harness: "copilot"}
+	if err := manager.OpenTicket(context.Background(), ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" {
+			joined := strings.Join(c.args, " ")
+			if strings.Contains(joined, " -i") {
+				t.Fatalf("copilot open-only must not include -i flag: %+v", c.args)
+			}
+			return
+		}
+	}
+	t.Fatal("expected a new-window call")
+}
+
+func TestCopilotOpenTicketSendsPromptWithInteractiveFlag(t *testing.T) {
+	cfg := config.Defaults(config.Paths{})
+	runner := &fakeRunner{}
+	manager := &Manager{Config: cfg, Runner: runner}
+	ticket := storage.Ticket{ID: 1, DisplayID: "T-001", Title: "Copilot Demo", Body: "Body", Harness: "copilot"}
+	if err := manager.OpenTicket(context.Background(), ticket, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" {
+			joined := strings.Join(c.args, "\n")
+			if strings.Contains(joined, "gh copilot -- -i") && strings.Contains(joined, "# T-001: Copilot Demo\n\nBody") {
+				return
+			}
+			t.Fatalf("copilot new-window command missing '-- -i' and prompt: %+v", c.args)
+		}
+	}
+	t.Fatal("expected a new-window call")
+}
+
 func TestResumeWithImmediatelyExitingProcessReturnsResumeFailedError(t *testing.T) {
 	base := &fakeRunner{}
 	runner := &evanescingRunner{baseRunner: base}
@@ -978,6 +1173,18 @@ func TestResumeWithImmediatelyExitingProcessReturnsResumeFailedError(t *testing.
 	if resumeErr.Ticket.ID != ticket.ID {
 		t.Fatalf("ResumeFailedError.Ticket.ID = %d, want %d", resumeErr.Ticket.ID, ticket.ID)
 	}
+}
+
+type missingRuntimeSessionRunner struct {
+	fakeRunner
+	missingSession string
+}
+
+func (m *missingRuntimeSessionRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if len(args) >= 3 && args[0] == "list-windows" && args[1] == "-t" && args[2] == m.missingSession {
+		return "can't find session: " + m.missingSession + "\n", errors.New("exit status 1")
+	}
+	return m.fakeRunner.Run(ctx, name, args...)
 }
 
 type missingSessionRunner struct {

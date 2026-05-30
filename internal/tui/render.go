@@ -15,40 +15,48 @@ func (m Model) View() string {
 	if m.err != nil {
 		return "agent-kanban\n\n" + m.err.Error() + "\n\nq quit\n"
 	}
+
+	// Always render the base board first so modals can overlay it.
+	base := m.baseView()
+
 	if m.showHelp {
-		return m.helpView()
+		return overlayModal(base, m.helpView(), m.width, m.height)
 	}
 	if m.boardRenaming {
-		return m.boardRenameView()
+		return overlayModal(base, m.boardRenameView(), m.width, m.height)
 	}
 	if m.boardEditing {
-		return m.boardEditView()
+		return overlayModal(base, m.boardEditView(), m.width, m.height)
 	}
 	if m.boardDeleting {
-		return m.boardDeleteView()
+		return overlayModal(base, m.boardDeleteView(), m.width, m.height)
 	}
 	if m.boardPicker {
-		return m.boardPickerView()
+		return overlayModal(base, m.boardPickerView(), m.width, m.height)
 	}
 	if m.masterFilterOpen {
-		return m.masterFilterView()
+		return overlayModal(base, m.masterFilterView(), m.width, m.height)
 	}
 	if m.editing {
-		return m.editView()
+		return overlayModal(base, m.editView(), m.width, m.height)
 	}
 	if m.stateMenu {
-		return m.stateMenuView()
+		return overlayModal(base, m.stateMenuView(), m.width, m.height)
 	}
 	if m.columnEditing {
-		return m.columnEditView()
+		return overlayModal(base, m.columnEditView(), m.width, m.height)
 	}
 	if m.promptFallback {
-		return m.promptFallbackView()
+		return overlayModal(base, m.promptFallbackView(), m.width, m.height)
 	}
 	if m.repairing {
-		return m.repairView()
+		return overlayModal(base, m.repairView(), m.width, m.height)
 	}
 
+	return base
+}
+
+func (m Model) baseView() string {
 	var b strings.Builder
 	// Header bar: full-width background strip.
 	appName := headerBarStyle.Render("Agent Kanban")
@@ -211,7 +219,7 @@ func (m Model) columnView(ci int, col storage.Column) string {
 	usedLines := 0
 	visibleEnd := scrollTop - 1
 	for ti := scrollTop; ti < len(col.Tickets); ti++ {
-		h := cardHeight(col.Tickets[ti], inner)
+		h := cardHeightEx(col.Tickets[ti], inner, ci == m.col && ti == m.card)
 		if usedLines+h > avail {
 			break
 		}
@@ -291,6 +299,25 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 		meta = fmt.Sprintf("[%s] %s", ticket.Harness, windowIndicator(ticket))
 	}
 	content = append(content, padLine("  "+meta, cardInnerWidth))
+
+	// Body preview — only shown on the focused card.
+	if focused {
+		previewWidth := cardInnerWidth - 4
+		if previewWidth < 10 {
+			previewWidth = 10
+		}
+		preview := renderBodyPreview(ticket.Body, previewWidth)
+		for _, pl := range strings.Split(preview, "\n") {
+			if strings.TrimSpace(pl) == "" {
+				continue
+			}
+			// Use lipgloss.Width to check fit; glamour-style ANSI not present here since we use plain text.
+			if lipgloss.Width(pl) > cardInnerWidth-2 {
+				pl = pl[:len([]rune(pl))-1] // best-effort trim; glamour wraps to width so this rarely fires
+			}
+			content = append(content, padLine("  "+pl, cardInnerWidth))
+		}
+	}
 
 	// Choose border style: attention colors take priority, then accent for focused, else muted.
 	isResumable := ticket.SessionRef.Valid && ticket.SessionRef.String != ""
@@ -396,6 +423,32 @@ var (
 			PaddingRight(1)
 )
 
+// renderBodyPreview renders 1-2 lines of body preview for a card.
+// It skips glamour to avoid ANSI width measurement issues in card layout;
+// instead it word-wraps plain text and styles it faintly.
+func renderBodyPreview(body string, width int) string {
+	if strings.TrimSpace(body) == "" {
+		return lipgloss.NewStyle().Faint(true).Italic(true).Render("(no description)")
+	}
+	// Plain-text wrap: take up to 2 lines from the first paragraph.
+	plain := strings.TrimSpace(body)
+	// Strip markdown syntax chars for a cleaner preview.
+	plain = strings.NewReplacer(
+		"**", "", "__", "", "*", "", "_", "",
+		"##", "", "#", "", "`", "",
+	).Replace(plain)
+	// Use only the first paragraph (up to first blank line).
+	if idx := strings.Index(plain, "\n\n"); idx >= 0 {
+		plain = plain[:idx]
+	}
+	lines := wrapText(strings.ReplaceAll(plain, "\n", " "), width, 2)
+	if len(lines) == 0 {
+		return lipgloss.NewStyle().Faint(true).Italic(true).Render("(no description)")
+	}
+	result := strings.Join(lines, "\n")
+	return lipgloss.NewStyle().Faint(true).Render(result)
+}
+
 func roundedBoxLines(lines []string, width int, border lipgloss.Style) []string {
 	innerWidth := width - 2
 	top := border.Render("╭" + strings.Repeat("─", innerWidth) + "╮")
@@ -419,6 +472,98 @@ func boxLines(lines []string, width int) string {
 	}
 	out = append(out, border)
 	return strings.Join(out, "\n")
+}
+
+// popupWidth returns the width for a centered popup given terminal width.
+func popupWidth(termWidth int) int {
+	w := termWidth * 9 / 10
+	if w < 60 {
+		w = 60
+	}
+	if w > termWidth {
+		w = termWidth
+	}
+	return w
+}
+
+// overlayModal renders boardContent dimmed and composites popup centered on top.
+func overlayModal(boardContent string, popup string, termWidth, termHeight int) string {
+	// Strip existing ANSI from each board line before applying dim, so the faint
+	// style actually takes hold rather than being ignored by already-styled text.
+	dimStyle := lipgloss.NewStyle().Faint(true)
+	bgLines := strings.Split(boardContent, "\n")
+	for i, l := range bgLines {
+		bgLines[i] = dimStyle.Render(ansiStrip(l))
+	}
+	// Pad to termHeight.
+	for len(bgLines) < termHeight {
+		bgLines = append(bgLines, "")
+	}
+
+	// Split popup into lines.
+	popupLines := strings.Split(popup, "\n")
+	popupH := len(popupLines)
+	popupW := 0
+	for _, l := range popupLines {
+		if w := lipgloss.Width(l); w > popupW {
+			popupW = w
+		}
+	}
+
+	// Center position.
+	startRow := (termHeight - popupH) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+	startCol := (termWidth - popupW) / 2
+	if startCol < 0 {
+		startCol = 0
+	}
+
+	// Composite: replace the background region with the popup lines.
+	for i, pl := range popupLines {
+		row := startRow + i
+		if row >= len(bgLines) {
+			break
+		}
+		bg := bgLines[row]
+		// Strip ANSI from bg line to get plain runes for splicing.
+		visible := []rune(lipgloss.NewStyle().Render(strings.Repeat(" ", startCol)))
+		_ = visible
+		// Build: left-pad of startCol spaces + popup line + (background discarded).
+		left := ""
+		if startCol > 0 {
+			// Preserve the dimmed background on the left margin.
+			bgRunes := []rune(ansiStrip(bg))
+			if startCol <= len(bgRunes) {
+				left = dimStyle.Render(string(bgRunes[:startCol]))
+			} else {
+				left = dimStyle.Render(padLine("", startCol))
+			}
+		}
+		bgLines[row] = left + pl
+	}
+	return strings.Join(bgLines, "\n")
+}
+
+// ansiStrip removes ANSI escape sequences from a string.
+func ansiStrip(s string) string {
+	out := strings.Builder{}
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEsc = false
+			}
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 func spaceBetween(left, right string, width int) string {

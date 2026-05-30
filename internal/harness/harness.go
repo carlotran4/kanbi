@@ -41,13 +41,18 @@ func StartCommand(harnesses map[string]Config, name string) ([]string, error) {
 }
 
 func StartCommandWithPrompt(harnesses map[string]Config, name, prompt string, sendPrompt bool) ([]string, bool, error) {
+	if sendPrompt && PromptMode(harnesses, name) == PromptModeArg {
+		h := harnesses[name]
+		base := h.Start
+		if len(h.StartWithPrompt) > 0 {
+			base = h.StartWithPrompt
+		}
+		cmd := append(append([]string(nil), base...), prompt)
+		return cmd, true, nil
+	}
 	cmd, err := StartCommand(harnesses, name)
 	if err != nil {
 		return nil, false, err
-	}
-	if sendPrompt && PromptMode(harnesses, name) == PromptModeArg {
-		cmd = append(cmd, prompt)
-		return cmd, true, nil
 	}
 	return cmd, false, nil
 }

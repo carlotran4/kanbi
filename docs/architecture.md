@@ -69,19 +69,26 @@ Stop and ask before:
 
 ## Runtime Topology
 
-Agent Kanban uses one dedicated tmux session by default:
+Agent Kanban uses tmux sessions per board executable instance by default:
 
 ```text
-tmux session: agent-kanban
+tmux session: agent-kanban-board-<pid>-<time>-1
 windows:
   board
   <board-id>-T-001-some-ticket
   <board-id>-T-002-another-ticket
+
+tmux session: agent-kanban-board-<pid>-<time>-2
+windows:
+  board
+  <board-id>-T-003-other-ticket
 ```
 
-The board process runs in the stable `board` window. Each active ticket session gets its own tmux window. The app uses windows, not panes, for ticket sessions.
+The board process runs in the stable `board` window of its instance session. Each active ticket session gets its own tmux window in the runtime session owned by the board instance that launched it. The app uses windows, not panes, for ticket sessions.
 
-When launched outside tmux, the CLI attaches/creates the dedicated tmux session and starts the board inside it. `AGENT_KANBAN_INNER=1` prevents recursive launching.
+When launched outside tmux, the CLI creates a unique board/client tmux session and sets that same session as the ticket runtime for the inner board process. When launched directly inside tmux without an explicit `AGENT_KANBAN_TMUX_SESSION`, the current tmux session is used as that executable's runtime. `AGENT_KANBAN_INNER=1` prevents recursive launching.
+
+Session rows persist `tmux_session_name` as well as `tmux_window_id/name`. Other Agent Kanban instances can see these rows through SQLite and validate/switch/capture/close using the stored tmux session instead of assuming their own runtime session.
 
 ## Durable Data Relationships
 
@@ -111,7 +118,7 @@ These are core architecture rules, not optional implementation details:
 1. Only one active session per ticket is allowed.
 2. Starting fresh deactivates any old active session and creates a new session row; it must not delete old session history.
 3. Opening an already-active valid window switches to it without creating a new session row.
-4. A stored tmux window id is valid only when live tmux still reports that id with the expected ticket window name.
+4. A stored tmux window id is valid only when live tmux still reports that id with the expected ticket window name; name-based fallback must target the session row's stored tmux session name.
 5. Inactive latest sessions project as terminal states such as `closed` or `error`, not `not_started`.
 6. `send prompt` is allowed only for never-started tickets.
 7. Repair/start-fresh flows must preserve history and avoid silently attaching a ticket to the wrong live window.

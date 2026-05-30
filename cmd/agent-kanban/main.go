@@ -39,6 +39,12 @@ func run(args []string) error {
 			}
 			return tmux.AttachCommand(cfg, exe).Run()
 		}
+		if tmux.InsideTmux() && os.Getenv("AGENT_KANBAN_TMUX_SESSION") == "" {
+			if sessionName, err := tmux.CurrentSessionName(ctx); err == nil && sessionName != "" {
+				cfg.TmuxSession = sessionName
+				cfg.Tmux.SessionName = sessionName
+			}
+		}
 		return runBoard(ctx, cfg)
 	}
 

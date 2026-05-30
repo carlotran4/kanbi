@@ -47,6 +47,7 @@ type Ticket struct {
 	ArchivedAt          sql.NullTime
 	Runtime             string
 	SessionActive       bool
+	TmuxSessionName     sql.NullString
 	WindowID            sql.NullString
 	WindowName          sql.NullString
 	SessionID           sql.NullInt64

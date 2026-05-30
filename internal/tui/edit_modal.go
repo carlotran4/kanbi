@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"agent-kanban/internal/kanban"
@@ -126,28 +128,48 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
 		m.editing = false
+		m.bodyTA.Blur()
 	case "tab":
 		newField := m.editField + 1
 		if newField > 2 {
 			m.saveEdit()
 		} else {
+			if m.editField == 1 {
+				m.bodyTA.Blur()
+			}
 			m.editField = newField
+			if newField == 1 {
+				return m, m.bodyTA.Focus()
+			}
 		}
 	case "enter":
 		if m.editField == 1 {
-			// newline in body
-			m.currentEditBuffer().Insert("\n")
+			// Let textarea handle it (inserts newline).
+			var cmd tea.Cmd
+			m.bodyTA, cmd = m.bodyTA.Update(key)
+			return m, cmd
+		}
+		newField := m.editField + 1
+		if newField > 2 {
+			m.saveEdit()
 		} else {
-			newField := m.editField + 1
-			if newField > 2 {
-				m.saveEdit()
-			} else {
-				m.editField = newField
+			m.editField = newField
+			if newField == 1 {
+				return m, m.bodyTA.Focus()
 			}
 		}
 	case "ctrl+E":
+		if m.editField == 1 {
+			// sync textarea value back before opening editor
+			m.editInputs[1] = NewInputBuffer(m.bodyTA.Value())
+		}
 		return m, m.openBodyEditor()
 	default:
+		if m.editField == 1 {
+			var cmd tea.Cmd
+			m.bodyTA, cmd = m.bodyTA.Update(key)
+			return m, cmd
+		}
 		m.currentEditBuffer().HandleKey(key.String(), key.Runes)
 	}
 	return m, nil
@@ -160,7 +182,7 @@ func (m *Model) saveEdit() {
 		return
 	}
 	title := m.editInputs[0].Value()
-	body := m.editInputs[1].Value()
+	body := m.bodyTA.Value()
 	harness := m.editInputs[2].Value()
 	if strings.TrimSpace(harness) == "" {
 		harness = "pi"
@@ -170,6 +192,7 @@ func (m *Model) saveEdit() {
 	} else {
 		m.status = "updated " + t.DisplayID
 	}
+	m.bodyTA.Blur()
 	m.editing = false
 	m.reload()
 }
@@ -187,10 +210,28 @@ func renderWithCursor(value string, cursor int) string {
 	return buf.Render()
 }
 
+func newBodyTextarea(value string, termWidth int) textarea.Model {
+	ta := textarea.New()
+	ta.SetValue(value)
+	ta.Placeholder = "(no description)"
+	ta.ShowLineNumbers = false
+	// Width: popup inner width minus label prefix (~12 chars)
+	popupInner := popupWidth(termWidth) - 4
+	if popupInner < 20 {
+		popupInner = 20
+	}
+	ta.SetWidth(popupInner - 12)
+	ta.SetHeight(8)
+	return ta
+}
+
 func (m Model) editView() string {
+	popupW := popupWidth(m.width)
+	inner := popupW - 4
+
 	rowCursor := func(i int) string {
 		if m.editField == i {
-			return ">"
+			return lipgloss.NewStyle().Foreground(palette.accent).Render(">")
 		}
 		return " "
 	}
@@ -200,39 +241,101 @@ func (m Model) editView() string {
 		}
 		return m.editInputs[i].Value()
 	}
-	// For body, show it inline but with newlines rendered visibly for multiline.
-	body := m.editInputs[1].Value()
-	if m.editField != 1 {
-		// Show a compact summary of the body when not editing it.
-		newlines := strings.Count(body, "\n")
-		if newlines > 0 {
-			body = strings.SplitN(body, "\n", 2)[0] + lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf(" (+%d lines)", newlines))
-		}
+
+	var lines []string
+	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Edit ticket")
+	lines = append(lines, header, "")
+	lines = append(lines, fmt.Sprintf("%s title:   %s", rowCursor(0), render(0)))
+
+	// Body field: textarea when focused, compact summary otherwise.
+	if m.editField == 1 {
+		lines = append(lines, fmt.Sprintf("%s body:", rowCursor(1)))
+		lines = append(lines, m.bodyTA.View())
 	} else {
-		body = render(1)
+		body := m.bodyTA.Value()
+		var bodyPreview string
+		if strings.TrimSpace(body) == "" {
+			bodyPreview = lipgloss.NewStyle().Faint(true).Render("(no description)")
+		} else {
+			// Render markdown with glamour in the popup (safe here — not inside card layout).
+			previewWidth := inner - 14 // subtract label prefix
+			if previewWidth < 20 {
+				previewWidth = 20
+			}
+			grendered := ""
+			if gr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(previewWidth)); err == nil {
+				if out, err := gr.Render(body); err == nil {
+					grendered = strings.TrimSpace(out)
+				}
+			}
+			if grendered != "" {
+				// Show first 4 non-empty rendered lines inline.
+				var rendLines []string
+				for _, l := range strings.Split(grendered, "\n") {
+					if strings.TrimSpace(l) == "" {
+						continue
+					}
+					rendLines = append(rendLines, l)
+					if len(rendLines) == 4 {
+						break
+					}
+				}
+				newlines := strings.Count(body, "\n")
+				suffix := ""
+				if newlines > 0 {
+					suffix = lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf(" (+%d lines)", newlines))
+				}
+				bodyPreview = strings.Join(rendLines, "\n") + suffix
+			} else {
+				// Fallback: first line + line count.
+				first := strings.SplitN(body, "\n", 2)[0]
+				newlines := strings.Count(body, "\n")
+				if newlines > 0 {
+					bodyPreview = first + lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf(" (+%d lines)", newlines))
+				} else {
+					bodyPreview = first
+				}
+			}
+		}
+		lines = append(lines, fmt.Sprintf("%s body:", rowCursor(1)))
+		lines = append(lines, bodyPreview)
 	}
-	return fmt.Sprintf("Edit ticket\n\n%s title:   %s\n%s body:    %s\n%s harness: %s\n\nTab next field · Enter newline in body · ←/→ move · Home/End · Ctrl+E full editor · Esc cancel\n",
-		rowCursor(0), render(0),
-		rowCursor(1), body,
-		rowCursor(2), render(2))
+	lines = append(lines, fmt.Sprintf("%s harness: %s", rowCursor(2), render(2)))
+	lines = append(lines, "")
+	lines = append(lines, lipgloss.NewStyle().Faint(true).Render("Tab next · Enter newline in body · Ctrl+E editor · Esc cancel"))
+
+	content := strings.Join(lines, "\n")
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(inner).
+		Render(content)
 }
 
 func (m Model) stateMenuView() string {
-	var b strings.Builder
 	t, _ := m.selectedTicket()
-	fmt.Fprintf(&b, "Mark state for %s\n\n", t.DisplayID)
+	var lines []string
+	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Mark state for " + t.DisplayID)
+	lines = append(lines, header, "")
 	for i, state := range manualStates {
 		cursor := " "
 		if i == m.stateIndex {
-			cursor = ">"
+			cursor = lipgloss.NewStyle().Foreground(palette.accent).Render(">")
 		}
-		fmt.Fprintf(&b, "%s %s\n", cursor, state)
+		lines = append(lines, fmt.Sprintf("%s %s", cursor, state))
 	}
-	b.WriteString("\nEnter mark, Esc cancel\n")
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Enter mark · Esc cancel"))
 	if m.status != "" {
-		b.WriteString(m.status + "\n")
+		lines = append(lines, statusStyle.Render(m.status))
 	}
-	return b.String()
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) columnEditView() string {
@@ -240,5 +343,15 @@ func (m Model) columnEditView() string {
 	if m.columnAction == "rename" {
 		title = "Rename column"
 	}
-	return fmt.Sprintf("%s\n\n> name: %s\n\nEnter save, Esc cancel\n", title, m.columnInput.Render())
+	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render(title)
+	content := header + "\n\n" +
+		fmt.Sprintf("%s name: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), m.columnInput.Render()) +
+		"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel")
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(content)
 }

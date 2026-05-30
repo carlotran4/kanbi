@@ -1,10 +1,10 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"agent-kanban/internal/kanban"
 	"agent-kanban/internal/storage"
@@ -116,21 +116,21 @@ func (m *Model) toggleMasterFilterField() {
 }
 
 func (m Model) masterFilterView() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Master filters\n\n")
-	row := func(i int, text string) {
-		cursor := " "
+	var lines []string
+	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Master filters")
+	lines = append(lines, header, "")
+	row := func(i int, text string) string {
 		if i == m.masterFilterField {
-			cursor = ">"
+			return lipgloss.NewStyle().Foreground(palette.accent).Render(">") + " " + text
 		}
-		fmt.Fprintf(&b, "%s %s\n", cursor, text)
+		return "  " + text
 	}
-	row(0, "search: "+renderWithCursor(m.masterFilter.Search, len([]rune(m.masterFilter.Search))))
+	lines = append(lines, row(0, "search: "+renderWithCursor(m.masterFilter.Search, len([]rune(m.masterFilter.Search)))))
 	archived := "[ ] show archived"
 	if m.masterFilter.IncludeArchived {
 		archived = "[x] show archived"
 	}
-	row(1, archived)
+	lines = append(lines, row(1, archived))
 	idx := 2
 	rowText := func(checked bool, label string) string {
 		if checked {
@@ -138,26 +138,32 @@ func (m Model) masterFilterView() string {
 		}
 		return "[ ] " + label
 	}
-	b.WriteString("\nBoards (none = All Boards)\n")
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Boards (none = All Boards)"))
 	for _, board := range m.boards {
-		row(idx, rowText(hasInt64(m.masterFilter.BoardIDs, board.ID), board.Name))
+		lines = append(lines, row(idx, rowText(hasInt64(m.masterFilter.BoardIDs, board.ID), board.Name)))
 		idx++
 	}
-	b.WriteString("\nRuntime/state\n")
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Runtime/state"))
 	for _, runtime := range m.masterFilterRuntimes {
-		row(idx, rowText(hasString(m.masterFilter.Runtimes, runtime), runtime))
+		lines = append(lines, row(idx, rowText(hasString(m.masterFilter.Runtimes, runtime), runtime)))
 		idx++
 	}
-	b.WriteString("\nHarness\n")
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Harness"))
 	for _, harness := range m.masterFilterHarnesses {
-		row(idx, rowText(hasString(m.masterFilter.Harnesses, harness), harness))
+		lines = append(lines, row(idx, rowText(hasString(m.masterFilter.Harnesses, harness), harness)))
 		idx++
 	}
-	b.WriteString("\nType to search · Space toggle · Enter apply · C clear · Esc close\n")
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · C clear · Esc close"))
 	if summary := m.masterFilterSummary(); summary != "" {
-		b.WriteString("Active: " + summary + "\n")
+		lines = append(lines, lipgloss.NewStyle().Foreground(palette.warning).Render("Active: "+summary))
 	}
-	return b.String()
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) masterFilterSummary() string {

@@ -107,26 +107,52 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 }
 
 func (m Model) promptFallbackView() string {
-	return fmt.Sprintf("Prompt readiness was not detected for %s.\n\np paste now\no open without sending\nc cancel\n", m.promptTicket.DisplayID)
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Prompt readiness not detected"),
+		"",
+		lipgloss.NewStyle().Faint(true).Render("Ticket: ") + m.promptTicket.DisplayID,
+		"",
+		"p  paste now",
+		"o  open without sending",
+		"c  cancel",
+	}
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.warning).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) repairView() string {
-	header := lipgloss.NewStyle().Bold(true)
-	dim := lipgloss.NewStyle().Faint(true)
+	popupW := popupWidth(m.width)
 	if m.repairEditingRef {
-		return fmt.Sprintf("%s\n\n> ref: %s\n\nEnter save, Esc back\n",
-			header.Render("Edit session ref for "+m.repairTicket.DisplayID),
-			renderWithCursor(m.repairRef, len([]rune(m.repairRef))))
+		content := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Edit session ref for "+m.repairTicket.DisplayID) +
+			"\n\n" +
+			fmt.Sprintf("%s ref: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), renderWithCursor(m.repairRef, len([]rune(m.repairRef)))) +
+			"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc back")
+		return lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(palette.accent).
+			Padding(1, 2).
+			Width(popupW - 4).
+			Render(content)
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n\n", header.Render("Session repair needed for "+m.repairTicket.DisplayID))
-	fmt.Fprintf(&b, "%s\n\n", dim.Render(m.repairReason))
-	b.WriteString("r  retry\n")
-	b.WriteString("e  edit session ref\n")
-	b.WriteString("f  start fresh\n")
-	b.WriteString("c  cancel\n")
+	var lines []string
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Session repair needed: "+m.repairTicket.DisplayID))
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render(m.repairReason), "")
+	lines = append(lines, "r  retry")
+	lines = append(lines, "e  edit session ref")
+	lines = append(lines, "f  start fresh")
+	lines = append(lines, "c  cancel")
 	if m.repairTicket.Harness == "copilot" && (!m.repairTicket.SessionRef.Valid || m.repairTicket.SessionRef.String == "") {
-		fmt.Fprintf(&b, "\n%s\n", dim.Render("Note: Copilot does not expose a session ref; start fresh or edit ref manually."))
+		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Note: Copilot does not expose a session ref; start fresh or edit ref manually."))
 	}
-	return b.String()
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.warning).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
 }

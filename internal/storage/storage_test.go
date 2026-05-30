@@ -545,7 +545,7 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if listed.WindowID.String != "@7" || listed.WindowName.String != "T-001-a" {
+	if listed.TmuxSessionName.String != "agent-kanban" || listed.WindowID.String != "@7" || listed.WindowName.String != "T-001-a" {
 		t.Fatalf("ticket session metadata = %+v", listed)
 	}
 	if listed.Runtime != "waiting_for_user" || !listed.LastOutputAt.Valid || listed.LastAttentionReason.String != "waiting" {

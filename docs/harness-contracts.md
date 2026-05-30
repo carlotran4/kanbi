@@ -20,16 +20,16 @@ Built-in harness contracts are localized in `internal/harness/contracts.go`: com
 
 Primary capture uses Agent Kanban's bundled Pi extension. When starting Pi with a prompt, Agent Kanban materializes `pi-session-ref-extension.ts` under its state directory and launches Pi with `-e <extension>`. The extension reads Pi's `ctx.sessionManager.getSessionId()` during `session_start` and writes it to the `AGENT_KANBAN_SESSION_REF_FILE` JSON handoff path. Agent Kanban stores that `sessionId` as `harness_session_ref`.
 
-This avoids prompt-text, timestamp, or filesystem-history matching for normal starts.
+The handoff file uses a **stable per-ticket path** (`<stateDir>/pi-session-refs/ticket-<id>.json`, no timestamp) so that recovery can reconstruct the path from the ticket ID alone. A background goroutine continues polling the handoff file for up to 30 seconds after the session row is written, ensuring the ref is saved even when the Pi `session_start` event fires several seconds after launch.
 
-Fallback capture still scans Pi JSONL session files under `~/.pi/agent/sessions/**/*.jsonl` for older sessions or extension handoff failure. Each file begins with a `{"type":"session","id":"<id>","cwd":"<cwd>",...}` header line. Subsequent lines are message entries, one of which will be the first user message with the prompt text.
+Fallback capture still scans Pi JSONL session files under `~/.pi/agent/sessions/**/*.jsonl` for sessions where the handoff file is unavailable. Each file begins with a `{"type":"session","id":"<id>","cwd":"<cwd>",...}` header line. Subsequent lines are message entries, one of which will be the first user message with the prompt text.
 
 Fallback matching requires:
 - `header.CWD == os.Getwd()` (same working directory)
 - `header.Timestamp` is recent (within the capture window)
 - A `{"type":"message","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}` entry matches the rendered prompt
 
-**Verified:** start, extension ref capture, fallback ref capture, close, resume path. See `TestOpenTicketWithPiPromptCapturesSessionRefFromBundledExtension` and `TestCapturePiSessionRefFromSessionFile`.
+**Verified:** start, extension ref capture, fallback ref capture, close, resume path, recovery from handoff file. See `TestOpenTicketWithPiPromptCapturesSessionRefFromBundledExtension`, `TestCapturePiSessionRefFromSessionFile`, and `TestOpenTicketRecoversMissingPiSessionRefFromRefFile`.
 
 ### Exit Keys
 
@@ -84,6 +84,8 @@ Capture logic in `harness.CaptureSessionRef` scans for an entry where:
 | Start open-only | `gh copilot --` |
 | Start with prompt | `gh copilot -- -i <prompt>` |
 | Resume | `gh copilot -- --resume=<session_ref>` |
+
+Open-only and prompt-start use different base commands (`start` vs `start_with_prompt` in the contract) because `-i` requires a `<prompt>` argument and must not be included in open-only launches.
 
 ### Session Ref Capture
 

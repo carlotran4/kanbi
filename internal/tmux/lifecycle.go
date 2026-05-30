@@ -50,7 +50,7 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 	}
 	switch decision.Action {
 	case lifecycleActionSwitch:
-		_, err := l.manager.run(ctx, "switch-client", "-t", targetRef(l.manager.Config.TmuxSession, decision.Ref))
+		_, err := l.manager.run(ctx, "switch-client", "-t", targetRef(ticketRuntimeSessionName(l.manager.Config.TmuxSession, decision.Ticket), decision.Ref))
 		return err
 	case lifecycleActionRepair:
 		return RepairNeededError{Ticket: decision.Ticket, Reason: decision.Reason}
@@ -120,58 +120,51 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if sendPrompt {
 		renderedPrompt = prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
 	}
-	launchedNew := false
-	if exists, err := l.manager.windowExists(ctx, name); err != nil {
+	name, err := l.manager.availableWindowName(ctx, name)
+	if err != nil {
 		return err
-	} else if !exists {
-		launchedNew = true
-		command, err := harness.StartCommand(l.manager.Config.Harnesses, ticket.Harness)
+	}
+	launchedNew := true
+	command, err := harness.StartCommand(l.manager.Config.Harnesses, ticket.Harness)
+	if err != nil {
+		return err
+	}
+	resuming := decision.Action == lifecycleActionResume
+	if resuming {
+		command, err = harness.ResumeCommand(l.manager.Config.Harnesses, ticket.Harness, ticket.SessionRef.String)
 		if err != nil {
 			return err
-		}
-		resuming := decision.Action == lifecycleActionResume
-		if resuming {
-			command, err = harness.ResumeCommand(l.manager.Config.Harnesses, ticket.Harness, ticket.SessionRef.String)
-			if err != nil {
-				return err
-			}
-		} else {
-			command, promptAlreadySent, err = harness.StartCommandWithPrompt(l.manager.Config.Harnesses, ticket.Harness, renderedPrompt, sendPrompt)
-			if err != nil {
-				return err
-			}
-		}
-		if ticket.Harness == "pi" && promptAlreadySent {
-			command, refFile, err = l.manager.commandWithPiSessionRefCapture(ticket, command)
-			if err != nil {
-				return err
-			}
-		}
-		out, err := l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, ticket.BoardWorkdir), ShellCommand(command))...)
-		if err != nil {
-			if l.manager.Store != nil && ticket.SessionID.Valid {
-				_ = l.manager.Store.UpdateSessionRuntime(ctx, ticket.SessionID.Int64, kanban.StateError, "tmux", err.Error(), "", false)
-			}
-			if resuming {
-				return ResumeFailedError{Ticket: ticket, Err: err}
-			}
-			return err
-		}
-		windowID = strings.TrimSpace(out)
-		if resuming {
-			checkAfter := l.manager.ResumeCheckAfter
-			if checkAfter <= 0 {
-				checkAfter = defaultResumeCheckAfter
-			}
-			if liveErr := l.manager.waitWindowLive(ctx, windowID, name, checkAfter); liveErr != nil {
-				return ResumeFailedError{Ticket: ticket, Err: liveErr}
-			}
 		}
 	} else {
-		var err error
-		windowID, err = l.manager.windowIDByName(ctx, name)
+		command, promptAlreadySent, err = harness.StartCommandWithPrompt(l.manager.Config.Harnesses, ticket.Harness, renderedPrompt, sendPrompt)
 		if err != nil {
 			return err
+		}
+	}
+	if ticket.Harness == "pi" && promptAlreadySent {
+		command, refFile, err = l.manager.commandWithPiSessionRefCapture(ticket, command)
+		if err != nil {
+			return err
+		}
+	}
+	out, err := l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, ticket.BoardWorkdir), ShellCommand(command))...)
+	if err != nil {
+		if l.manager.Store != nil && ticket.SessionID.Valid {
+			_ = l.manager.Store.UpdateSessionRuntime(ctx, ticket.SessionID.Int64, kanban.StateError, "tmux", err.Error(), "", false)
+		}
+		if resuming {
+			return ResumeFailedError{Ticket: ticket, Err: err}
+		}
+		return err
+	}
+	windowID = strings.TrimSpace(out)
+	if resuming {
+		checkAfter := l.manager.ResumeCheckAfter
+		if checkAfter <= 0 {
+			checkAfter = defaultResumeCheckAfter
+		}
+		if liveErr := l.manager.waitWindowLive(ctx, l.manager.Config.TmuxSession, windowID, name, checkAfter); liveErr != nil {
+			return ResumeFailedError{Ticket: ticket, Err: liveErr}
 		}
 	}
 
@@ -189,6 +182,30 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if l.manager.Store != nil && (launchedNew || !ticket.SessionID.Valid || !ticket.SessionActive) {
 		if _, err := l.manager.Store.UpsertActiveSession(ctx, ticket.ID, ses); err != nil {
 			return err
+		}
+		// If we didn't capture the ref before upserting (e.g. Pi extension fires slowly),
+		// start a background goroutine to keep polling and update the DB once found.
+		if !ses.HarnessSessionRef.Valid && promptAlreadySent && refFile != "" {
+			ticketID := ticket.ID
+			store := l.manager.Store
+			go func() {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				end := time.Now().Add(30 * time.Second)
+				for time.Now().Before(end) {
+					select {
+					case <-bgCtx.Done():
+						return
+					case <-time.After(500 * time.Millisecond):
+					}
+					if ref, ok := readPiSessionRefFile(refFile); ok {
+						if activeSes, active, err := store.ActiveSession(bgCtx, ticketID); err == nil && active {
+							_ = store.UpdateSessionRef(bgCtx, activeSes.ID, ref)
+						}
+						return
+					}
+				}
+			}()
 		}
 	}
 	if sendPrompt && !promptAlreadySent {
@@ -209,6 +226,6 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if switchRef == "" {
 		switchRef = name
 	}
-	_, err := l.manager.run(ctx, "switch-client", "-t", targetRef(l.manager.Config.TmuxSession, switchRef))
+	_, err = l.manager.run(ctx, "switch-client", "-t", targetRef(l.manager.Config.TmuxSession, switchRef))
 	return err
 }

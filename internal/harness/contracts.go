@@ -7,12 +7,16 @@ import "time"
 // command/ref-capture behavior in this package so a supported harness contract
 // can be inspected in one place.
 type Config struct {
-	Start       []string `yaml:"start"`
-	Resume      []string `yaml:"resume"`
-	Exit        []string `yaml:"exit"`
-	PromptReady string   `yaml:"prompt_ready"`
-	PromptMode  string   `yaml:"prompt_mode"`
-	SessionRef  string   `yaml:"session_ref"`
+	Start []string `yaml:"start"`
+	// StartWithPrompt, when non-empty, is used as the base command when
+	// launching with PromptModeArg and a prompt is being sent. The prompt
+	// text is appended as a final argument. If absent, Start is used.
+	StartWithPrompt []string `yaml:"start_with_prompt"`
+	Resume          []string `yaml:"resume"`
+	Exit            []string `yaml:"exit"`
+	PromptReady     string   `yaml:"prompt_ready"`
+	PromptMode      string   `yaml:"prompt_mode"`
+	SessionRef      string   `yaml:"session_ref"`
 }
 
 type CaptureFunc func(promptText string, since time.Time) (string, bool)
@@ -53,10 +57,11 @@ func BuiltinContracts() map[string]Contract {
 		"copilot": {
 			Name: "copilot",
 			Config: Config{
-				Start:      []string{"gh", "copilot", "--", "-i"},
-				Resume:     []string{"gh", "copilot", "--", "--resume={session_ref}"},
-				Exit:       []string{"C-c", "exit", "Enter"},
-				PromptMode: PromptModeArg,
+				Start:           []string{"gh", "copilot", "--"},
+				StartWithPrompt: []string{"gh", "copilot", "--", "-i"},
+				Resume:          []string{"gh", "copilot", "--", "--resume={session_ref}"},
+				Exit:            []string{"C-c", "exit", "Enter"},
+				PromptMode:      PromptModeArg,
 			},
 			CaptureRef: latestCopilotSession,
 			DocsAnchor: "docs/harness-contracts.md#copilot",

@@ -50,8 +50,8 @@ stateDiagram-v2
 
 - `sessions.is_active = 1` means the session is believed to have a live tmux window owned by the ticket.
 - `sessions.is_active = 0` does not mean the ticket is `not_started`. The ticket should project the latest session's terminal state (`closed`, `error`, `exited`) and any `session_ref`.
-- A tmux `window_id` is valid only if tmux still reports that id with the expected ticket window name. Window ids can be reused after windows close.
-- Only one active session per ticket is allowed. Starting fresh deactivates the old active session and creates a new active session.
+- A tmux `window_id` is valid only if tmux still reports that id with the expected ticket window name. Name fallback must use the session row's stored `tmux_session_name`, not the current process's runtime session. Window ids can be reused after windows close.
+- Only one active session per ticket is allowed. Starting fresh deactivates the old active session and creates a new active session in the current executable's runtime tmux session; if a same-named tmux window already exists in that runtime session, the new window uses a unique suffix.
 
 ## Ticket Projection Data Flow
 
@@ -147,6 +147,7 @@ State bugs to avoid:
 - Do not derive ticket runtime from only active sessions. A closed or error latest session is still meaningful board state.
 - Do not treat every latest session as active. `is_active` must be projected separately from `status`.
 - Do not trust `tmux_window_id` without confirming tmux still reports the expected ticket window name for that id.
+- Do not validate or control an existing active session against the current process's tmux session; use the stored `tmux_session_name` from the session row.
 - Do not create a new DB session row just because a valid active ticket window was opened again.
 - Do not let heuristic watcher output immediately overwrite a manual runtime override.
 - Do not auto-close in the same tick that first detects a wait/permission state.

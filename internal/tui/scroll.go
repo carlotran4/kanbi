@@ -1,6 +1,10 @@
 package tui
 
-import "agent-kanban/internal/storage"
+import (
+	"strings"
+
+	"agent-kanban/internal/storage"
+)
 
 func (m *Model) syncScrollDimensions() {
 	n := len(m.view.Columns)
@@ -29,15 +33,35 @@ func (m *Model) boardContentHeight() int {
 }
 
 // cardHeight returns the number of rendered lines a single card occupies inside
-// a column (box top + title lines + meta line + box bottom).
+// a column (box top + title lines + meta line + preview lines + box bottom).
 func cardHeight(ticket storage.Ticket, innerWidth int) int {
+	return cardHeightEx(ticket, innerWidth, false)
+}
+
+func cardHeightEx(ticket storage.Ticket, innerWidth int, focused bool) int {
 	cardInnerWidth := innerWidth - 4
 	titleLines := wrapText(ticket.DisplayID+" "+ticket.Title, cardInnerWidth-2, 3)
 	if len(titleLines) == 0 {
 		titleLines = []string{ticket.DisplayID}
 	}
-	// top border + title lines + meta line + bottom border
-	return 2 + len(titleLines) + 1 + 1
+	previewLines := 0
+	if focused {
+		previewWidth := cardInnerWidth - 4
+		if previewWidth < 10 {
+			previewWidth = 10
+		}
+		preview := renderBodyPreview(ticket.Body, previewWidth)
+		for _, pl := range strings.Split(preview, "\n") {
+			if strings.TrimSpace(pl) != "" {
+				previewLines++
+			}
+		}
+		if previewLines > 2 {
+			previewLines = 2
+		}
+	}
+	// top border + title lines + meta line + preview lines + bottom border
+	return 2 + len(titleLines) + 1 + previewLines + 1
 }
 
 // vScrollFollow adjusts the scroll offset for the focused column so the
@@ -70,7 +94,7 @@ func (m *Model) vScrollFollow() {
 		usedLines := 0
 		visibleEnd := -1
 		for ti := m.colScroll[m.col]; ti < len(col.Tickets); ti++ {
-			h := cardHeight(col.Tickets[ti], inner)
+			h := cardHeightEx(col.Tickets[ti], inner, ti == m.card && m.col == m.col)
 			if usedLines+h > avail {
 				break
 			}

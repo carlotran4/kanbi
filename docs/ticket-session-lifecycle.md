@@ -93,7 +93,7 @@ flowchart TD
 
 ### `o` / `Enter`: Open
 
-- If the latest session is active and the tmux window validates, switch to that window.
+- If the latest session is active and the tmux window validates in its stored `tmux_session_name`, switch to that window.
 - If the latest session is inactive and has a `session_ref`, resume it and create a new active session row.
 - If the latest session is inactive and has no `session_ref`, show repair/start-fresh.
 - If no session exists, start open-only and create one active session row.
@@ -103,7 +103,7 @@ flowchart TD
 
 - `r` retries the open path.
 - `e` edits the session ref, saves it, then tries to open/resume.
-- `f` starts fresh. The previous session history remains; the new run becomes the only active session.
+- `f` starts fresh. The previous session history remains; the new run becomes the only active session and is launched in the current executable's runtime tmux session, in a separate tmux window rather than reusing any existing same-named window.
 - `c` cancels.
 
 ### Close / Archive

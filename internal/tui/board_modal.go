@@ -99,37 +99,46 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 }
 
 func (m Model) boardPickerView() string {
-	var b strings.Builder
+	var lines []string
 	title := "Select board"
 	if m.boardPickerMode == "create" {
 		title = "Create ticket in which board?"
 	}
-	fmt.Fprintf(&b, "%s\n\n", title)
-	row := func(i int, name string) {
-		cursor := " "
+	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render(title)
+	lines = append(lines, header, "")
+	row := func(i int, name string) string {
 		if i == m.boardIndex {
-			cursor = ">"
+			return lipgloss.NewStyle().Foreground(palette.accent).Render(">") + " " + name
 		}
-		fmt.Fprintf(&b, "%s %s\n", cursor, name)
+		return "  " + name
 	}
 	masterLabel := "Master (all boards)"
 	if m.boardPickerMode == "create" {
 		masterLabel = "Master (choose a real board below)"
 	}
-	row(0, masterLabel)
+	lines = append(lines, row(0, masterLabel))
 	for i, board := range m.boards {
 		label := board.Name
 		if board.Workdir != "" {
 			label += "  " + lipgloss.NewStyle().Faint(true).Render(board.Workdir)
 		}
-		row(i+1, label)
+		lines = append(lines, row(i+1, label))
 	}
+	lines = append(lines, "")
+	var hint string
 	if m.boardPickerMode == "create" {
-		b.WriteString("\nEnter create · j/k move · Esc cancel\n")
+		hint = "Enter create · j/k move · Esc cancel"
 	} else {
-		b.WriteString("\nEnter select · c create · r rename · w cwd · d delete · j/k move · Esc cancel\n")
+		hint = "Enter select · c create · r rename · w cwd · d delete · j/k move · Esc cancel"
 	}
-	return b.String()
+	lines = append(lines, lipgloss.NewStyle().Faint(true).Render(hint))
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) startCurrentBoardRename(returnPicker bool) {
@@ -173,7 +182,17 @@ func (m Model) updateBoardRename(key tea.KeyMsg) Model {
 }
 
 func (m Model) boardRenameView() string {
-	return fmt.Sprintf("Rename board\n\n> name: %s\n\nEnter save · Esc cancel\n", renderWithCursor(m.boardRenameName, len([]rune(m.boardRenameName))))
+	content := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Rename board") +
+		"\n\n" +
+		fmt.Sprintf("%s name: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), renderWithCursor(m.boardRenameName, len([]rune(m.boardRenameName)))) +
+		"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel")
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(content)
 }
 
 func (m *Model) startBoardCreate() {
@@ -241,16 +260,11 @@ func (m Model) updateBoardEdit(key tea.KeyMsg) Model {
 }
 
 func (m Model) boardEditView() string {
-	status := ""
-	if m.status != "" {
-		status = "\n" + m.status + "\n"
-	}
-	if m.boardEditAction == "cwd" {
-		return fmt.Sprintf("Set board cwd for %s%s\n> cwd: %s\n\nEnter save · Esc cancel\n", m.boardEditName, status, renderWithCursor(m.boardEditCWD, len([]rune(m.boardEditCWD))))
-	}
+	popupW := popupWidth(m.width)
+	var lines []string
 	cursor := func(field int) string {
 		if m.boardEditField == field {
-			return ">"
+			return lipgloss.NewStyle().Foreground(palette.accent).Render(">")
 		}
 		return " "
 	}
@@ -260,7 +274,29 @@ func (m Model) boardEditView() string {
 		}
 		return value
 	}
-	return fmt.Sprintf("Create board%s\n%s name: %s\n%s cwd:  %s\n\nTab switch field · Enter save · Esc cancel\n", status, cursor(0), render(0, m.boardEditName), cursor(1), render(1, m.boardEditCWD))
+	if m.boardEditAction == "cwd" {
+		header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Set board cwd for " + m.boardEditName)
+		lines = append(lines, header, "")
+		if m.status != "" {
+			lines = append(lines, statusStyle.Render(m.status), "")
+		}
+		lines = append(lines, fmt.Sprintf("%s cwd: %s", cursor(1), render(1, m.boardEditCWD)))
+	} else {
+		header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Create board")
+		lines = append(lines, header, "")
+		if m.status != "" {
+			lines = append(lines, statusStyle.Render(m.status), "")
+		}
+		lines = append(lines, fmt.Sprintf("%s name: %s", cursor(0), render(0, m.boardEditName)))
+		lines = append(lines, fmt.Sprintf("%s cwd:  %s", cursor(1), render(1, m.boardEditCWD)))
+	}
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Tab switch field · Enter save · Esc cancel"))
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) updateBoardDelete(key tea.KeyMsg) Model {
@@ -286,5 +322,19 @@ func (m Model) updateBoardDelete(key tea.KeyMsg) Model {
 }
 
 func (m Model) boardDeleteView() string {
-	return fmt.Sprintf("Delete board %q?\n\nThis deletes its tickets and sessions. Active sessions block deletion.\n\ny confirm · n/Esc cancel\n", m.boardDeleteName)
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.error_).Render("Delete board \"" + m.boardDeleteName + "\"?"),
+		"",
+		"This deletes its tickets and sessions.",
+		lipgloss.NewStyle().Faint(true).Render("Active sessions block deletion."),
+		"",
+		lipgloss.NewStyle().Faint(true).Render("y confirm · n/Esc cancel"),
+	}
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.error_).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
 }

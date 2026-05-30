@@ -24,6 +24,7 @@ var ticketProjectionColumns = []string{
 	"t.archived_at",
 	ticketProjectionRuntimeSQL + " runtime",
 	"coalesce(s.is_active,0)",
+	"s.tmux_session_name",
 	"s.tmux_window_id",
 	"s.tmux_window_name",
 	"s.id",
@@ -75,7 +76,7 @@ func (s *Store) queryProjectedTickets(ctx context.Context, suffix string, args .
 func scanProjectedTicket(rows *sql.Rows) (Ticket, error) {
 	var t Ticket
 	var active int
-	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardWorkdir, &t.ColumnID, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.Runtime, &active, &t.WindowID, &t.WindowName, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardWorkdir, &t.ColumnID, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return Ticket{}, err
 	}
 	t.SessionActive = active == 1

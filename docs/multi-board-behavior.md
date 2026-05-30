@@ -162,7 +162,9 @@ sequenceDiagram
 
 The working directory is selected from the ticket's owning board, including when the ticket is opened from Master.
 
-If `BoardWorkdir` is empty, `tmux` falls back to the current process working directory. Ticket tmux window names include the board ID (`b{board_id}-...`) so duplicate board-local IDs do not collide across boards.
+Each board UI executable has its own runtime tmux session by default. New ticket windows are created in the runtime session for the executable that launched them, and the session row stores that `tmux_session_name`. Other board instances use the stored tmux session name when validating, switching to, capturing, or closing an already-active ticket session.
+
+If `BoardWorkdir` is empty, `tmux` falls back to the current process working directory. Ticket tmux window names include the board ID (`b{board_id}-...`) so duplicate board-local IDs do not collide across boards within a runtime session.
 
 ## CLI behavior
 

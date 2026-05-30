@@ -119,7 +119,7 @@ func (m *Manager) EnsureBoardWindow(ctx context.Context) error {
 	if name == "" {
 		name = "board"
 	}
-	exists, err := m.windowExists(ctx, name)
+	exists, err := m.windowExistsInSession(ctx, m.Config.TmuxSession, name)
 	if err != nil {
 		return err
 	}
@@ -150,9 +150,20 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 	if err != nil || !ok || !ses.StartedAt.Valid || ses.HarnessSessionRef.Valid {
 		return ticket, err
 	}
+	// Check the stable ref file first (written by the bundled Pi extension at session start).
+	if ticket.Harness == "pi" {
+		refFilePath := m.piSessionRefFilePath(ticket.ID)
+		if ref, ok := readPiSessionRefFile(refFilePath); ok {
+			if err := m.Store.UpdateSessionRef(ctx, ses.ID, ref); err != nil {
+				return ticket, err
+			}
+			ticket.SessionRef = sql.NullString{String: ref, Valid: true}
+			return ticket, nil
+		}
+	}
 	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
-	ref, ok := harness.CaptureSessionRef(ticket.Harness, promptText, ses.StartedAt.Time)
-	if !ok {
+	ref, found := harness.CaptureSessionRef(ticket.Harness, promptText, ses.StartedAt.Time)
+	if !found {
 		return ticket, nil
 	}
 	if err := m.Store.UpdateSessionRef(ctx, ses.ID, ref); err != nil {
@@ -171,7 +182,7 @@ func (m *Manager) RenameTicketWindow(ctx context.Context, ticket storage.Ticket,
 	if err != nil || !exists {
 		return err
 	}
-	if _, err := m.run(ctx, "rename-window", "-t", targetRef(m.Config.TmuxSession, ref), newName); err != nil {
+	if _, err := m.run(ctx, "rename-window", "-t", targetRef(ticketRuntimeSessionName(m.Config.TmuxSession, ticket), ref), newName); err != nil {
 		return err
 	}
 	if m.Store != nil {
@@ -235,7 +246,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			}
 			continue
 		}
-		ref, exists, err := m.ticketWindowRef(ctx, ticket, ses.TmuxWindowName)
+		ref, exists, err := m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
 		if err != nil {
 			return err
 		}
@@ -245,7 +256,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			}
 			continue
 		}
-		out, err := m.capturePaneRef(ctx, ref)
+		out, err := m.capturePaneRef(ctx, ses.TmuxSessionName, ref)
 		if err != nil {
 			if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, "tmux", err.Error(), "", false); err != nil {
 				return err
@@ -294,7 +305,7 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 	if err != nil || !ok {
 		return err
 	}
-	ref, exists, err := m.ticketWindowRef(ctx, ticket, ses.TmuxWindowName)
+	ref, exists, err := m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
 	if err != nil {
 		return err
 	}
@@ -305,13 +316,13 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 		return err
 	}
 	for _, key := range harness.ExitKeys(m.Config.Harnesses, ses.Harness) {
-		if _, err := m.run(ctx, "send-keys", "-t", targetRef(m.Config.TmuxSession, ref), key); err != nil {
+		if _, err := m.run(ctx, "send-keys", "-t", targetRef(ses.TmuxSessionName, ref), key); err != nil {
 			return err
 		}
 	}
 	deadline := time.Now().Add(m.Config.GracefulExitTimeout)
 	for time.Now().Before(deadline) {
-		exists, err := m.windowRefExists(ctx, ref)
+		exists, err := m.windowRefExistsInSession(ctx, ses.TmuxSessionName, ref)
 		if err != nil {
 			return err
 		}
@@ -320,7 +331,7 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	if _, err := m.run(ctx, "kill-window", "-t", targetRef(m.Config.TmuxSession, ref)); err != nil {
+	if _, err := m.run(ctx, "kill-window", "-t", targetRef(ses.TmuxSessionName, ref)); err != nil {
 		return err
 	}
 	return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "tmux", "graceful exit timed out; window closed")
@@ -349,7 +360,11 @@ func (m *Manager) WaitAndPastePrompt(ctx context.Context, windowName, text, read
 }
 
 func (m *Manager) CapturePane(ctx context.Context, windowName string) (string, error) {
-	return m.run(ctx, "capture-pane", "-p", "-t", target(m.Config.TmuxSession, windowName))
+	return m.capturePaneInSession(ctx, m.Config.TmuxSession, windowName)
+}
+
+func (m *Manager) capturePaneInSession(ctx context.Context, sessionName, windowName string) (string, error) {
+	return m.run(ctx, "capture-pane", "-p", "-t", target(sessionName, windowName))
 }
 
 func (m *Manager) PastePromptNow(ctx context.Context, windowName, text string) error {
@@ -373,16 +388,16 @@ func (m *Manager) PastePromptNow(ctx context.Context, windowName, text string) e
 //
 // The wait duration must exceed the typical time a failing harness takes to
 // display its error and exit. For pi, a bad --session ref causes exit in ~1.8s.
-func (m *Manager) waitWindowLive(ctx context.Context, windowID, windowName string, checkAfter time.Duration) error {
+func (m *Manager) waitWindowLive(ctx context.Context, sessionName, windowID, windowName string, checkAfter time.Duration) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-time.After(checkAfter):
 	}
-	exists, _ := m.windowRefExists(ctx, windowID)
+	exists, _ := m.windowRefExistsInSession(ctx, sessionName, windowID)
 	if !exists {
 		// Fallback: check by name in case window ID is stale.
-		exists, _ = m.windowExists(ctx, windowName)
+		exists, _ = m.windowExistsInSession(ctx, sessionName, windowName)
 	}
 	if !exists {
 		return fmt.Errorf("window exited immediately (harness may have rejected the session ref)")
@@ -390,21 +405,52 @@ func (m *Manager) waitWindowLive(ctx context.Context, windowID, windowName strin
 	return nil
 }
 
-func (m *Manager) capturePaneRef(ctx context.Context, ref string) (string, error) {
-	return m.run(ctx, "capture-pane", "-p", "-t", targetRef(m.Config.TmuxSession, ref))
+func (m *Manager) capturePaneRef(ctx context.Context, sessionName, ref string) (string, error) {
+	return m.run(ctx, "capture-pane", "-p", "-t", targetRef(sessionName, ref))
 }
 
 func (m *Manager) windowExists(ctx context.Context, windowName string) (bool, error) {
-	_, err := m.windowIDByName(ctx, windowName)
+	return m.windowExistsInSession(ctx, m.Config.TmuxSession, windowName)
+}
+
+func (m *Manager) windowExistsInSession(ctx context.Context, sessionName, windowName string) (bool, error) {
+	_, err := m.windowIDByNameInSession(ctx, sessionName, windowName)
 	if errors.Is(err, ErrWindowMissing) {
 		return false, nil
 	}
 	return err == nil, err
 }
 
+func (m *Manager) availableWindowName(ctx context.Context, base string) (string, error) {
+	return m.availableWindowNameInSession(ctx, m.Config.TmuxSession, base)
+}
+
+func (m *Manager) availableWindowNameInSession(ctx context.Context, sessionName, base string) (string, error) {
+	for i := 0; ; i++ {
+		name := base
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d", base, i+1)
+		}
+		exists, err := m.windowExistsInSession(ctx, sessionName, name)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return name, nil
+		}
+	}
+}
+
 func (m *Manager) windowIDByName(ctx context.Context, windowName string) (string, error) {
-	out, err := m.run(ctx, "list-windows", "-t", m.Config.TmuxSession, "-F", "#{window_name}")
+	return m.windowIDByNameInSession(ctx, m.Config.TmuxSession, windowName)
+}
+
+func (m *Manager) windowIDByNameInSession(ctx context.Context, sessionName, windowName string) (string, error) {
+	out, err := m.run(ctx, "list-windows", "-t", sessionName, "-F", "#{window_name}")
 	if err != nil {
+		if isTmuxMissingTarget(out, err) {
+			return "", ErrWindowMissing
+		}
 		return "", err
 	}
 	for _, line := range strings.Split(out, "\n") {
@@ -412,18 +458,22 @@ func (m *Manager) windowIDByName(ctx context.Context, windowName string) (string
 			continue
 		}
 		if line == windowName {
-			return m.displayWindowID(ctx, windowName)
+			return m.displayWindowIDInSession(ctx, sessionName, windowName)
 		}
 	}
 	return "", ErrWindowMissing
 }
 
 func (m *Manager) displayWindowID(ctx context.Context, windowName string) (string, error) {
-	out, err := m.run(ctx, "display-message", "-p", "-t", target(m.Config.TmuxSession, windowName), "#{window_id}")
+	return m.displayWindowIDInSession(ctx, m.Config.TmuxSession, windowName)
+}
+
+func (m *Manager) displayWindowIDInSession(ctx context.Context, sessionName, windowName string) (string, error) {
+	out, err := m.run(ctx, "display-message", "-p", "-t", target(sessionName, windowName), "#{window_id}")
 	return strings.TrimSpace(out), err
 }
 
-func (m *Manager) windowRefExists(ctx context.Context, ref string) (bool, error) {
+func (m *Manager) windowRefExistsInSession(ctx context.Context, sessionName, ref string) (bool, error) {
 	if ref == "" {
 		return false, nil
 	}
@@ -435,10 +485,14 @@ func (m *Manager) windowRefExists(ctx context.Context, ref string) (bool, error)
 		// tmux returns exit 0 with empty output when the window ID no longer exists.
 		return strings.TrimSpace(out) != "", nil
 	}
-	return m.windowExists(ctx, ref)
+	return m.windowExistsInSession(ctx, sessionName, ref)
 }
 
 func (m *Manager) ticketWindowRef(ctx context.Context, ticket storage.Ticket, fallbackName string) (string, bool, error) {
+	return m.ticketWindowRefInSession(ctx, ticketRuntimeSessionName(m.Config.TmuxSession, ticket), ticket, fallbackName)
+}
+
+func (m *Manager) ticketWindowRefInSession(ctx context.Context, sessionName string, ticket storage.Ticket, fallbackName string) (string, bool, error) {
 	expectedName := fallbackName
 	if ticket.WindowName.Valid && ticket.WindowName.String != "" {
 		expectedName = ticket.WindowName.String
@@ -455,7 +509,7 @@ func (m *Manager) ticketWindowRef(ctx context.Context, ticket storage.Ticket, fa
 	if expectedName == "" {
 		return "", false, nil
 	}
-	exists, err := m.windowExists(ctx, expectedName)
+	exists, err := m.windowExistsInSession(ctx, sessionName, expectedName)
 	if err != nil {
 		return "", false, err
 	}
@@ -477,7 +531,19 @@ func (m *Manager) KillSession(ctx context.Context) error {
 }
 
 func (m *Manager) run(ctx context.Context, args ...string) (string, error) {
-	return m.Runner.Run(ctx, "tmux", args...)
+	out, err := m.Runner.Run(ctx, "tmux", args...)
+	if err != nil && strings.TrimSpace(out) != "" {
+		return out, fmt.Errorf("%w: %s", err, strings.TrimSpace(out))
+	}
+	return out, err
+}
+
+func isTmuxMissingTarget(out string, err error) bool {
+	if err == nil {
+		return false
+	}
+	combined := strings.ToLower(strings.TrimSpace(out + " " + err.Error()))
+	return strings.Contains(combined, "can't find session") || strings.Contains(combined, "can't find window")
 }
 
 func (m *Manager) commandWithPiSessionRefCapture(ticket storage.Ticket, command []string) ([]string, string, error) {
@@ -485,7 +551,8 @@ func (m *Manager) commandWithPiSessionRefCapture(ticket storage.Ticket, command 
 	if err != nil {
 		return nil, "", err
 	}
-	refFile := filepath.Join(m.stateDir(), "pi-session-refs", fmt.Sprintf("ticket-%d-%d.json", ticket.ID, time.Now().UnixNano()))
+	// Use a stable per-ticket path (no timestamp) so recoverMissingSessionRef can find it later.
+	refFile := m.piSessionRefFilePath(ticket.ID)
 	out := make([]string, 0, len(command)+5)
 	out = append(out,
 		"env",
@@ -498,6 +565,13 @@ func (m *Manager) commandWithPiSessionRefCapture(ticket storage.Ticket, command 
 	out = append(out, command[0], "-e", extPath)
 	out = append(out, command[1:]...)
 	return out, refFile, nil
+}
+
+// piSessionRefFilePath returns the stable ref file path for a given ticket ID.
+// Using a stable (non-timestamped) path lets recovery code reconstruct the path
+// from the ticket ID alone.
+func (m *Manager) piSessionRefFilePath(ticketID int64) string {
+	return filepath.Join(m.stateDir(), "pi-session-refs", fmt.Sprintf("ticket-%d.json", ticketID))
 }
 
 func (m *Manager) ensurePiSessionRefExtension() (string, error) {
@@ -550,7 +624,7 @@ func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText
 	deadline := 2 * time.Second
 	switch harnessName {
 	case "copilot", "pi":
-		deadline = 8 * time.Second
+		deadline = 20 * time.Second
 	}
 	end := time.Now().Add(deadline)
 	for {
@@ -610,12 +684,21 @@ func InsideTmux() bool {
 	return os.Getenv("TMUX") != ""
 }
 
+func CurrentSessionName(ctx context.Context) (string, error) {
+	out, err := ExecRunner{}.Run(ctx, "tmux", "display-message", "-p", "#S")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func AttachCommand(cfg config.Config, exe string) *exec.Cmd {
 	board := cfg.Tmux.BoardWindowName
 	if board == "" {
 		board = "board"
 	}
-	cmd := exec.Command("tmux", "new-session", "-s", boardClientSessionName(cfg.TmuxSession), "-n", board, "env", "AGENT_KANBAN_INNER=1", exe, "--board")
+	sessionName := boardClientSessionName(cfg.TmuxSession)
+	cmd := exec.Command("tmux", "new-session", "-s", sessionName, "-n", board, "env", "AGENT_KANBAN_INNER=1", "AGENT_KANBAN_TMUX_SESSION="+sessionName, exe, "--board")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -649,6 +732,13 @@ func windowRef(ticket storage.Ticket, fallbackName string) string {
 		return ticket.WindowID.String
 	}
 	return fallbackName
+}
+
+func ticketRuntimeSessionName(defaultSession string, ticket storage.Ticket) string {
+	if ticket.TmuxSessionName.Valid && ticket.TmuxSessionName.String != "" {
+		return ticket.TmuxSessionName.String
+	}
+	return defaultSession
 }
 
 func slug(s string) string {

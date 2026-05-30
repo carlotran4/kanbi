@@ -77,6 +77,16 @@ func TestPiDefaultUsesPromptArgumentModeAndSessionResume(t *testing.T) {
 
 func TestCopilotDefaultUsesInteractivePromptAndResumeFlag(t *testing.T) {
 	harnesses := DefaultConfigs()
+	// No-prompt open: should launch plain `gh copilot` without -i
+	noPromptStart, err := StartCommand(harnesses, "copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantNoPrompt := []string{"gh", "copilot", "--"}
+	if !reflect.DeepEqual(noPromptStart, wantNoPrompt) {
+		t.Fatalf("no-prompt start=%#v", noPromptStart)
+	}
+	// Prompt open: should use -i flag with prompt appended
 	start, sent, err := StartCommandWithPrompt(harnesses, "copilot", "# T-001: Demo\n\nBody", true)
 	if err != nil {
 		t.Fatal(err)
