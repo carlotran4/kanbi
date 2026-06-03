@@ -33,13 +33,17 @@ func (m *Model) boardContentHeight() int {
 }
 
 // cardHeight returns the number of rendered lines a single card occupies inside
-// a column (box top with embedded title + meta line + preview lines + box bottom).
+// a column (box top + title lines + meta line + preview lines + box bottom).
 func cardHeight(ticket storage.Ticket, innerWidth int) int {
 	return cardHeightEx(ticket, innerWidth, false)
 }
 
 func cardHeightEx(ticket storage.Ticket, innerWidth int, focused bool) int {
 	cardInnerWidth := innerWidth - 4
+	titleLines := wrapText(ticket.DisplayID+" "+ticket.Title, cardInnerWidth-2, 3)
+	if len(titleLines) == 0 {
+		titleLines = []string{ticket.DisplayID}
+	}
 	previewLines := 0
 	if focused {
 		previewWidth := cardInnerWidth - 4
@@ -56,8 +60,8 @@ func cardHeightEx(ticket storage.Ticket, innerWidth int, focused bool) int {
 			previewLines = 2
 		}
 	}
-	// top border with title + meta line + preview lines + bottom border
-	return 2 + 1 + previewLines
+	// top border + title lines + meta line + preview lines + bottom border
+	return 2 + len(titleLines) + 1 + previewLines + 1
 }
 
 // vScrollFollow adjusts the scroll offset for the focused column so the

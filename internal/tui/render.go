@@ -250,18 +250,27 @@ func (m Model) columnView(ci int, col storage.Column) string {
 
 func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []string {
 	cardInnerWidth := width - 4
+	cursor := " "
+	if focused {
+		cursor = ">"
+	}
 
 	title := ticket.DisplayID + " " + ticket.Title
 	if showBoard && ticket.BoardName != "" {
 		title = ticket.DisplayID + " [" + ticket.BoardName + "] " + ticket.Title
 	}
-	if strings.TrimSpace(title) == "" {
-		title = ticket.DisplayID
+	titleLines := wrapText(title, cardInnerWidth-2, 3)
+	if len(titleLines) == 0 {
+		titleLines = []string{ticket.DisplayID}
 	}
-	if focused {
-		title = "> " + title
+	content := make([]string, 0, len(titleLines)+1)
+	for i, line := range titleLines {
+		prefix := "  "
+		if i == 0 {
+			prefix = cursor + " "
+		}
+		content = append(content, padLine(prefix+line, cardInnerWidth))
 	}
-	content := make([]string, 0, 1)
 
 	elapsed := elapsedLabel(ticket)
 	label := runtimeLabel(ticket)
@@ -325,7 +334,7 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 	default:
 		borderStyle = mutedBorder
 	}
-	lines := roundedBoxLinesWithTitle(content, width, borderStyle, title)
+	lines := roundedBoxLines(content, width, borderStyle)
 	if focused {
 		return strings.Split(lipgloss.NewStyle().Bold(true).Render(strings.Join(lines, "\n")), "\n")
 	}
@@ -459,28 +468,11 @@ func renderBodyPreview(body string, width int) string {
 }
 
 func roundedBoxLines(lines []string, width int, border lipgloss.Style) []string {
-	return roundedBoxLinesWithTitle(lines, width, border, "")
-}
-
-func roundedBoxLinesWithTitle(lines []string, width int, border lipgloss.Style, title string) []string {
 	innerWidth := width - 2
-	top := "╭" + strings.Repeat("─", innerWidth) + "╮"
-	if strings.TrimSpace(title) != "" && innerWidth > 4 {
-		title = strings.ReplaceAll(strings.TrimSpace(title), "\n", " ")
-		maxTitleWidth := innerWidth - 2
-		if lipgloss.Width(title) > maxTitleWidth {
-			title = trimToWidth(title, maxTitleWidth)
-		}
-		titlePart := " " + title + " "
-		rightRule := innerWidth - lipgloss.Width(titlePart) - 1
-		if rightRule < 0 {
-			rightRule = 0
-		}
-		top = "╭─" + titlePart + strings.Repeat("─", rightRule) + "╮"
-	}
+	top := border.Render("╭" + strings.Repeat("─", innerWidth) + "╮")
 	bot := border.Render("╰" + strings.Repeat("─", innerWidth) + "╯")
 	out := make([]string, 0, len(lines)+2)
-	out = append(out, border.Render(top))
+	out = append(out, top)
 	for _, line := range lines {
 		out = append(out, border.Render("│")+" "+padLine(line, innerWidth-2)+" "+border.Render("│"))
 	}

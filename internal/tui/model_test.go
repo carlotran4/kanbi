@@ -177,9 +177,8 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 	if !strings.Contains(rendered, "╭") || strings.Contains(rendered, "+---") {
 		t.Fatalf("cards should use soft rounded borders instead of ASCII boxes:\n%s", rendered)
 	}
-	focusedCardLine := ansiStrip(firstLineContaining(rendered, "> T-001"))
-	if !strings.Contains(focusedCardLine, "╭─ > T-001 Unified approach") {
-		t.Fatalf("focused card title should be embedded in the top border, got %q\n%s", focusedCardLine, rendered)
+	if !strings.Contains(rendered, "> T-001") {
+		t.Fatalf("focused card marker missing from card box:\n%s", rendered)
 	}
 }
 
@@ -422,6 +421,9 @@ func TestModelTicketInspectorRendersPolishedInlineEditor(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("ticket inspector missing %q:\n%s", want, rendered)
 		}
+	}
+	if plain := ansiStrip(rendered); !strings.Contains(plain, "╭─ T-001 Pretty editor") {
+		t.Fatalf("ticket inspector title should be embedded in modal outline:\n%s", rendered)
 	}
 
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})

@@ -256,7 +256,6 @@ func (m Model) editView() string {
 
 	muted := lipgloss.NewStyle().Foreground(palette.muted)
 	accent := lipgloss.NewStyle().Foreground(palette.accent)
-	heading := lipgloss.NewStyle().Bold(true)
 	chip := lipgloss.NewStyle().Foreground(palette.chipText).Background(palette.header).Padding(0, 1)
 	focusChip := lipgloss.NewStyle().Foreground(palette.chipTextInverted).Background(palette.accent).Padding(0, 1).Bold(true)
 
@@ -271,19 +270,8 @@ func (m Model) editView() string {
 	}
 
 	var lines []string
-	id := t.DisplayID
-	if id == "" {
-		id = "Ticket"
-	}
-	lines = append(lines, muted.Render(id))
 	if m.editField == 0 {
-		lines = append(lines, focusChip.Render("TITLE")+" "+m.editInputs[0].Render())
-	} else {
-		title := strings.TrimSpace(m.editInputs[0].Value())
-		if title == "" {
-			title = "Untitled ticket"
-		}
-		lines = append(lines, heading.Render(title))
+		lines = append(lines, focusChip.Render("TITLE")+" "+m.editInputs[0].Render(), "")
 	}
 
 	columnName := ""
@@ -340,12 +328,51 @@ func (m Model) editView() string {
 	lines = append(lines, muted.Render("Tab/Shift+Tab focus · Ctrl+S save · Ctrl+E editor · Esc cancel"))
 
 	content := strings.Join(lines, "\n")
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(inner).
-		Render(content)
+	return ticketInspectorBox(content, ticketInspectorTitle(t.DisplayID, m.editInputs[0].Value()), inner)
+}
+
+func ticketInspectorTitle(displayID, title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "Untitled ticket"
+	}
+	if strings.TrimSpace(displayID) == "" {
+		return title
+	}
+	return strings.TrimSpace(displayID) + " " + title
+}
+
+func ticketInspectorBox(content, title string, width int) string {
+	if width < 20 {
+		width = 20
+	}
+	border := lipgloss.NewStyle().Foreground(palette.accent)
+	innerWidth := width - 2
+	bodyWidth := innerWidth - 4
+	if bodyWidth < 1 {
+		bodyWidth = 1
+	}
+	title = strings.ReplaceAll(strings.TrimSpace(title), "\n", " ")
+	if title != "" && lipgloss.Width(title) > innerWidth-4 {
+		title = trimToWidth(title, innerWidth-4)
+	}
+	titlePart := " " + title + " "
+	rightRule := innerWidth - lipgloss.Width(titlePart) - 1
+	if rightRule < 0 {
+		rightRule = 0
+	}
+	top := border.Render("╭─" + titlePart + strings.Repeat("─", rightRule) + "╮")
+	bottom := border.Render("╰" + strings.Repeat("─", innerWidth) + "╯")
+
+	var lines []string
+	lines = append(lines, top)
+	lines = append(lines, border.Render("│")+"  "+strings.Repeat(" ", bodyWidth)+"  "+border.Render("│"))
+	for _, line := range strings.Split(content, "\n") {
+		lines = append(lines, border.Render("│")+"  "+padLine(line, bodyWidth)+"  "+border.Render("│"))
+	}
+	lines = append(lines, border.Render("│")+"  "+strings.Repeat(" ", bodyWidth)+"  "+border.Render("│"))
+	lines = append(lines, bottom)
+	return strings.Join(lines, "\n")
 }
 
 func statusChip(runtime string, label string) string {
