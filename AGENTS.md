@@ -62,6 +62,10 @@ AGENT_KANBAN_REAL_HARNESS_TESTS=1 AGENT_KANBAN_REAL_HARNESSES=pi,codex ./scripts
 
 Report verification commands and results in your final response.
 
+## Commit Expectations
+
+After completing a requested change and passing the appropriate verification, commit your own work before handing back unless the user explicitly asks not to commit. Keep commits focused: include only files you intentionally changed for the task, do not sweep in unrelated working-tree changes, and mention the commit hash in your final response.
+
 ## Stop Conditions
 
 Stop and ask before:
