@@ -237,23 +237,23 @@ func newBodyTextarea(value string, termWidth int) textarea.Model {
 	ta.SetValue(value)
 	ta.Placeholder = "(no description)"
 	ta.ShowLineNumbers = false
-	// Width: popup inner width minus label prefix (~12 chars)
-	popupInner := popupWidth(termWidth) - 4
-	if popupInner < 20 {
-		popupInner = 20
+	boxW := inspectorPopupWidth(termWidth)
+	contentW := boxW - 6
+	if contentW < 20 {
+		contentW = 20
 	}
-	ta.SetWidth(popupInner - 12)
-	ta.SetHeight(8)
+	ta.SetWidth(contentW)
+	ta.SetHeight(12)
 	return ta
 }
 
 func (m Model) editView() string {
-	popupW := popupWidth(m.width)
-	inner := popupW - 4
-	contentW := inner - 4
+	boxW := inspectorPopupWidth(m.width)
+	contentW := boxW - 6
 	if contentW < 30 {
 		contentW = 30
 	}
+	descriptionLines := inspectorDescriptionLines(m.height)
 	t, _ := m.selectedTicket()
 
 	muted := lipgloss.NewStyle().Foreground(palette.muted)
@@ -302,13 +302,15 @@ func (m Model) editView() string {
 
 	lines = append(lines, "")
 	if m.editField == 1 {
+		m.bodyTA.SetWidth(contentW)
+		m.bodyTA.SetHeight(descriptionLines)
 		lines = append(lines, m.bodyTA.View())
 	} else {
 		body := strings.TrimSpace(m.bodyTA.Value())
 		if body == "" {
 			lines = append(lines, muted.Italic(true).Render("No description yet. Start typing to add context."))
 		} else {
-			lines = append(lines, renderMarkdownForInspector(body, contentW, 9))
+			lines = append(lines, renderMarkdownForInspector(body, contentW, descriptionLines))
 		}
 	}
 
@@ -324,15 +326,41 @@ func (m Model) editView() string {
 	}
 
 	lines = append(lines, "")
+	lines = append(lines, muted.Render(strings.Repeat("─", contentW)))
 	lines = append(lines, muted.Render(m.editFooter(dirty)))
 
 	content := strings.Join(lines, "\n")
-	titleWidth := inner - 6
+	titleWidth := boxW - 6
 	if titleWidth < 10 {
 		titleWidth = 10
 	}
 	title := ticketInspectorTitle(t.DisplayID, m.editInputs[0], m.editField == 0, dirty, titleWidth)
-	return ticketInspectorBox(content, title, inner)
+	return ticketInspectorBox(content, title, boxW)
+}
+
+func inspectorPopupWidth(termWidth int) int {
+	w := termWidth * 9 / 10
+	if w > 118 {
+		w = 118
+	}
+	if w < 60 {
+		w = 60
+	}
+	if w > termWidth {
+		w = termWidth
+	}
+	return w
+}
+
+func inspectorDescriptionLines(termHeight int) int {
+	lines := termHeight - 15
+	if lines < 10 {
+		return 10
+	}
+	if lines > 24 {
+		return 24
+	}
+	return lines
 }
 
 func (m Model) editDirty(t storage.Ticket) bool {
@@ -666,7 +694,7 @@ func (m *Model) saveNote() {
 func (m Model) notesCompactView() string {
 	faint := lipgloss.NewStyle().Faint(true)
 	if len(m.notes) == 0 {
-		return faint.Render("none  (Tab to add)")
+		return faint.Render("No notes yet.")
 	}
 	count := fmt.Sprintf("%d note", len(m.notes))
 	if len(m.notes) != 1 {
