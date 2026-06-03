@@ -258,8 +258,8 @@ func (m Model) editView() string {
 
 	muted := lipgloss.NewStyle().Foreground(palette.muted)
 	accent := lipgloss.NewStyle().Foreground(palette.accent)
-	chip := lipgloss.NewStyle().Foreground(palette.chipText).Background(palette.header).Padding(0, 1)
-	focusChip := lipgloss.NewStyle().Foreground(palette.chipTextInverted).Background(palette.accent).Padding(0, 1).Bold(true)
+	chip := lipgloss.NewStyle().Foreground(palette.muted).Bold(true)
+	focusChip := lipgloss.NewStyle().Foreground(palette.accent).Bold(true).Underline(true)
 	metaText := lipgloss.NewStyle().Foreground(palette.muted)
 	dirty := m.editDirty(t)
 
@@ -503,17 +503,17 @@ func inspectorStatusLabel(ticket storage.Ticket) string {
 }
 
 func statusChipForTicket(ticket storage.Ticket, label string) string {
-	style := lipgloss.NewStyle().Foreground(palette.chipText).Background(palette.header).Padding(0, 1)
+	style := lipgloss.NewStyle().Foreground(palette.muted).Bold(true)
 	if label == "resumable" {
-		return style.Background(palette.success).Foreground(palette.successChipText).Render(label)
+		return style.Foreground(palette.success).Render(label)
 	}
 	switch ticket.Runtime {
 	case kanban.StateWaitingForUser:
-		style = style.Background(palette.warning).Foreground(palette.warningChipText)
+		style = style.Foreground(palette.warning)
 	case kanban.StateNeedsPermission, kanban.StateError, kanban.StateRepairNeeded:
-		style = style.Background(palette.error_).Foreground(palette.chipTextInverted)
+		style = style.Foreground(palette.error_)
 	case kanban.StateRunning:
-		style = style.Background(palette.success).Foreground(palette.successChipText)
+		style = style.Foreground(palette.success)
 	}
 	return style.Render(label)
 }
