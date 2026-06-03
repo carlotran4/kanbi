@@ -275,8 +275,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.openBodyEditor()
 	case "m":
 		m.startStateMenu()
-	case "s":
-		return m, m.openTicketCmd(true)
 	case "o":
 		return m, m.openTicketCmd(false)
 	case "enter":

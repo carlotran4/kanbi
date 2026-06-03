@@ -14,7 +14,7 @@ stateDiagram-v2
     [*] --> ticket_created
     ticket_created --> never_started
 
-    never_started --> active_prompt_sent: s/Enter / send prompt
+    never_started --> active_prompt_sent: Enter / send prompt
     never_started --> active_open_only: o / open only
 
     active_prompt_sent --> running
@@ -82,7 +82,9 @@ flowchart TD
 
 ## Command Rules
 
-### `s`: Start And Send Prompt
+### Send Prompt Semantics
+
+For a never-started ticket, the default `Enter` action sends the prompt and opens the ticket:
 
 - Allowed only when the ticket has never started.
 - Uses the ticket body rendered as Markdown prompt.
@@ -101,7 +103,7 @@ flowchart TD
 
 ### `Enter`: Default Ticket Action
 
-- If the ticket has never started, behave like `s`: send the rendered prompt and open the ticket.
+- If the ticket has never started, send the rendered prompt and open the ticket.
 - If the ticket has any prior session, behave like `o`: open/switch/resume/repair according to the open rules above.
 
 ### Repair

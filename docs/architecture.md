@@ -159,7 +159,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Send[s/send prompt] --> Prior{Any prior session?}
+    Send[Enter/send prompt] --> Prior{Any prior session?}
     Prior -- yes --> Reject[Reject; use open/repair/start-fresh]
     Prior -- no --> Start[Start harness with rendered prompt]
     Start --> Capture[Best-effort session ref capture]

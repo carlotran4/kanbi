@@ -118,7 +118,7 @@ func TestModelVimAndArrowNavigationMoveFocus(t *testing.T) {
 	}
 }
 
-func TestModelSendPromptAndAttentionNavigation(t *testing.T) {
+func TestModelEnterSendPromptAndAttentionNavigation(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	first, _ := store.CreateTicket(ctx, view.Columns[0].ID, "First", "", "pi")
@@ -137,10 +137,10 @@ func TestModelSendPromptAndAttentionNavigation(t *testing.T) {
 	}
 	wrapped := &openingStore{Service: NewService(store, nil)}
 	model := New(ctx, wrapped)
-	model, cmd := mustUpdate(t, model, "s")
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	model = runCmd(t, model, cmd)
 	if len(wrapped.opened) != 1 || wrapped.opened[0] != first.DisplayID || !wrapped.sentPrompt[0] {
-		t.Fatalf("send prompt dispatch opened=%v sent=%v", wrapped.opened, wrapped.sentPrompt)
+		t.Fatalf("enter dispatch opened=%v sent=%v", wrapped.opened, wrapped.sentPrompt)
 	}
 	model, _ = mustUpdate(t, model, "!")
 	if model.card != 1 {
@@ -261,7 +261,7 @@ func TestModelPromptFallbackCanPasteNow(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, cmd := mustUpdate(t, model, "s")
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	model = runCmd(t, model, cmd)
 	if !model.promptFallback {
 		t.Fatalf("prompt fallback not shown: %s", model.View())
