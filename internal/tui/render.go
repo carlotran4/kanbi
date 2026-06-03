@@ -96,7 +96,7 @@ func (m Model) baseView() string {
 	// Footer separator rule.
 	rule := footerRule.Render(strings.Repeat("─", m.width))
 	fmt.Fprintf(&b, "%s\n", rule)
-	b.WriteString("o:open  s:send  n:new  e:ticket  a:archive  b:boards  f:filters  !:attn  q:quit   ?:help\n")
+	b.WriteString("Enter:send/open  o:open  s:send  n:new  e:ticket  a:archive  b:boards  f:filters  !:attn  q:quit   ?:help\n")
 	if m.status != "" {
 		b.WriteString(statusStyle.Render(m.status) + "\n")
 	}
@@ -684,7 +684,8 @@ func (m Model) helpView() string {
 	row("!", "jump to next attention ticket")
 
 	section("Tickets")
-	row("o  Enter", "open / switch to ticket session")
+	row("Enter", "send prompt for never-started tickets; otherwise open / switch")
+	row("o", "open / switch to ticket session without sending prompt")
 	row("s", "send prompt and open (never-started only)")
 	row("x", "close ticket session")
 	row("n", "new ticket in current column")

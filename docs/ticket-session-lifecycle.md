@@ -14,8 +14,8 @@ stateDiagram-v2
     [*] --> ticket_created
     ticket_created --> never_started
 
-    never_started --> active_prompt_sent: s / send prompt
-    never_started --> active_open_only: o/Enter / open only
+    never_started --> active_prompt_sent: s/Enter / send prompt
+    never_started --> active_open_only: o / open only
 
     active_prompt_sent --> running
     active_open_only --> running
@@ -91,13 +91,18 @@ flowchart TD
 - Creates exactly one active session row.
 - Attempts harness-specific session ref capture.
 
-### `o` / `Enter`: Open
+### `o`: Open
 
 - If the latest session is active and the tmux window validates in its stored `tmux_session_name`, switch to that window.
 - If the latest session is inactive and has a `session_ref`, resume it and create a new active session row.
 - If the latest session is inactive and has no `session_ref`, show repair/start-fresh.
 - If no session exists, start open-only and create one active session row.
 - Opening an already-active valid window must not create a new session row.
+
+### `Enter`: Default Ticket Action
+
+- If the ticket has never started, behave like `s`: send the rendered prompt and open the ticket.
+- If the ticket has any prior session, behave like `o`: open/switch/resume/repair according to the open rules above.
 
 ### Repair
 

@@ -192,8 +192,53 @@ func TestModelOpenSelectedTicket(t *testing.T) {
 	model := New(ctx, wrapped)
 	model, cmd := mustUpdate(t, model, "o")
 	model = runCmd(t, model, cmd)
-	if len(wrapped.opened) != 1 || wrapped.opened[0] != "T-001" {
-		t.Fatalf("opened = %#v", wrapped.opened)
+	if len(wrapped.opened) != 1 || wrapped.opened[0] != "T-001" || wrapped.sentPrompt[0] {
+		t.Fatalf("opened = %#v sent=%v", wrapped.opened, wrapped.sentPrompt)
+	}
+	if !strings.Contains(model.View(), "opened T-001") {
+		t.Fatalf("status missing:\n%s", model.View())
+	}
+}
+
+func TestModelEnterSendsUnstartedTicket(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Send me", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	wrapped := &openingStore{Service: NewService(store, nil)}
+	model := New(ctx, wrapped)
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = runCmd(t, model, cmd)
+	if len(wrapped.opened) != 1 || wrapped.opened[0] != "T-001" || !wrapped.sentPrompt[0] {
+		t.Fatalf("enter dispatch opened=%v sent=%v", wrapped.opened, wrapped.sentPrompt)
+	}
+	if !strings.Contains(model.View(), "sent prompt T-001") {
+		t.Fatalf("status missing:\n%s", model.View())
+	}
+}
+
+func TestModelEnterOpensStartedTicket(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Open started", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:         "pi",
+		TmuxSessionName: "agent-kanban",
+		TmuxWindowName:  "T-001-open-started",
+		Status:          "running",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wrapped := &openingStore{Service: NewService(store, nil)}
+	model := New(ctx, wrapped)
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = runCmd(t, model, cmd)
+	if len(wrapped.opened) != 1 || wrapped.opened[0] != "T-001" || wrapped.sentPrompt[0] {
+		t.Fatalf("enter dispatch opened=%v sent=%v", wrapped.opened, wrapped.sentPrompt)
 	}
 	if !strings.Contains(model.View(), "opened T-001") {
 		t.Fatalf("status missing:\n%s", model.View())

@@ -277,8 +277,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.startStateMenu()
 	case "s":
 		return m, m.openTicketCmd(true)
-	case "o", "enter":
+	case "o":
 		return m, m.openTicketCmd(false)
+	case "enter":
+		return m, m.enterTicketCmd()
 	case "x":
 		return m, m.closeSessionCmd()
 	}
@@ -507,11 +509,23 @@ func (m *Model) loadNotes(ticketID int64) {
 	m.noteIsNew = false
 }
 
+func (m *Model) enterTicketCmd() tea.Cmd {
+	t, ok := m.selectedTicket()
+	if !ok {
+		return nil
+	}
+	return m.openSelectedTicketCmd(t, !t.SessionID.Valid)
+}
+
 func (m *Model) openTicketCmd(sendPrompt bool) tea.Cmd {
 	t, ok := m.selectedTicket()
 	if !ok {
 		return nil
 	}
+	return m.openSelectedTicketCmd(t, sendPrompt)
+}
+
+func (m *Model) openSelectedTicketCmd(t storage.Ticket, sendPrompt bool) tea.Cmd {
 	if sendPrompt {
 		m.status = "sending prompt " + t.DisplayID + "…"
 	} else {
