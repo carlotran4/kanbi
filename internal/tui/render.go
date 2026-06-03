@@ -389,9 +389,10 @@ func elapsedLabel(ticket storage.Ticket) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
-// palette defines app-wide semantic color tokens. Use AdaptiveColor so the
-// interface keeps reasonable contrast across light and dark terminal themes.
-var palette = struct {
+// theme defines app-wide semantic color tokens. Keep this as the single place
+// where TUI colors are chosen so future user-configurable themes can swap one
+// value object instead of chasing color literals across render code.
+type theme struct {
 	muted            lipgloss.TerminalColor // borders, separators, dim chrome
 	accent           lipgloss.TerminalColor // focused column header, focused card border
 	warning          lipgloss.TerminalColor // waiting_for_user
@@ -404,7 +405,11 @@ var palette = struct {
 	chipTextInverted lipgloss.TerminalColor
 	warningChipText  lipgloss.TerminalColor
 	successChipText  lipgloss.TerminalColor
-}{
+}
+
+// palette defines app-wide semantic color tokens. Use AdaptiveColor so the
+// interface keeps reasonable contrast across light and dark terminal themes.
+var palette = theme{
 	muted:            lipgloss.AdaptiveColor{Light: "245", Dark: "240"},
 	accent:           lipgloss.AdaptiveColor{Light: "25", Dark: "75"},
 	warning:          lipgloss.AdaptiveColor{Light: "130", Dark: "214"},
