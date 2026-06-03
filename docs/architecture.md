@@ -62,7 +62,7 @@ Stop and ask before:
 | `internal/storage` | SQLite migrations, board/column/ticket/session persistence, board projections, master-board filtering. |
 | `internal/tmux` | Dedicated tmux session/window orchestration, ticket open/resume/close/start-fresh, runtime polling, session reconciliation. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
-| `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens. |
+| `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, and terminal-gated image previews. |
 | `internal/prompt` | Ticket body/prompt rendering. |
 | `internal/attachments` | XDG data-dir ticket attachment storage and pasted image detection. |
 | `scripts/` | Development launcher, deterministic smoke tests, fake harnesses, opt-in real harness lifecycle script. |

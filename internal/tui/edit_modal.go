@@ -602,6 +602,17 @@ func renderMarkdownForInspector(body string, width int, maxLines int) string {
 			continue
 		}
 
+		if imageLines := renderMarkdownImagesInline(trimmed, width, maxLines-len(lines)); len(imageLines) > 0 {
+			for _, line := range imageLines {
+				if len(lines) >= maxLines {
+					truncated = true
+					break
+				}
+				lines = append(lines, line)
+			}
+			continue
+		}
+
 		text, style := markdownLineStyle(trimmed)
 		wrapped := wrapText(text, width, maxLines-len(lines))
 		if len(wrapped) == 0 {

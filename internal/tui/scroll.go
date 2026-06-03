@@ -56,8 +56,8 @@ func cardHeightEx(ticket storage.Ticket, innerWidth int, focused bool) int {
 				previewLines++
 			}
 		}
-		if previewLines > 2 {
-			previewLines = 2
+		if previewLines > 4 {
+			previewLines = 4
 		}
 	}
 	// top border + title lines + meta line + preview lines + bottom border
