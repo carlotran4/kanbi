@@ -15,7 +15,7 @@ set -euo pipefail
 
 ROOT="$ROOT"
 DEV_BIN="$DEV_BIN"
-LOCK_FILE="\$DEV_BIN.lock"
+LOCK_FILE="\$DEV_BIN.build.lock"
 
 needs_build() {
   [[ ! -x "\$DEV_BIN" ]] && return 0
@@ -30,9 +30,11 @@ build() {
 
 if needs_build; then
   if command -v flock >/dev/null 2>&1; then
-    exec 9>"\$LOCK_FILE"
-    flock 9
-    needs_build && build
+    (
+      exec 9>"\$LOCK_FILE"
+      flock 9
+      needs_build && build
+    )
   else
     build
   fi
