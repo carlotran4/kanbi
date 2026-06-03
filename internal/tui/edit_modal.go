@@ -279,11 +279,8 @@ func (m Model) editView() string {
 	if columnName != "" {
 		meta = append(meta, chip.Render(columnName))
 	}
-	runtime := runtimeLabel(t)
-	if runtime == "" {
-		runtime = "not started"
-	}
-	meta = append(meta, statusChip(t.Runtime, runtime))
+	status := inspectorStatusLabel(t)
+	meta = append(meta, statusChipForTicket(t, status))
 	harnessValue := strings.TrimSpace(m.editInputs[2].Value())
 	if harnessValue == "" {
 		harnessValue = "pi"
@@ -485,12 +482,35 @@ func ticketInspectorBox(content, title string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func statusChip(runtime string, label string) string {
+func inspectorStatusLabel(ticket storage.Ticket) string {
+	if ticket.SessionRef.Valid && strings.TrimSpace(ticket.SessionRef.String) != "" && !ticket.SessionActive {
+		return "resumable"
+	}
+	switch ticket.Runtime {
+	case "", kanban.StateNotStarted:
+		return "not started"
+	case kanban.StateNeedsPermission:
+		return "needs permission"
+	case kanban.StateWaitingForUser:
+		return "waiting for user"
+	case kanban.StateIdleUnknown:
+		return "idle unknown"
+	case kanban.StateRepairNeeded:
+		return "repair needed"
+	default:
+		return strings.ReplaceAll(ticket.Runtime, "_", " ")
+	}
+}
+
+func statusChipForTicket(ticket storage.Ticket, label string) string {
 	style := lipgloss.NewStyle().Foreground(palette.chipText).Background(palette.header).Padding(0, 1)
-	switch runtime {
+	if label == "resumable" {
+		return style.Background(palette.success).Foreground(palette.successChipText).Render(label)
+	}
+	switch ticket.Runtime {
 	case kanban.StateWaitingForUser:
 		style = style.Background(palette.warning).Foreground(palette.warningChipText)
-	case kanban.StateNeedsPermission, kanban.StateError:
+	case kanban.StateNeedsPermission, kanban.StateError, kanban.StateRepairNeeded:
 		style = style.Background(palette.error_).Foreground(palette.chipTextInverted)
 	case kanban.StateRunning:
 		style = style.Background(palette.success).Foreground(palette.successChipText)

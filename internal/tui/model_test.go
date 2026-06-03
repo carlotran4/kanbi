@@ -369,6 +369,38 @@ func sqlNullInt64(n int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: n, Valid: true}
 }
 
+func TestModelTicketInspectorShowsResumableStatus(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Resume me", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:           "pi",
+		HarnessSessionRef: sqlNullStr("session-ref-123"),
+		TmuxSessionName:   "agent-kanban-test",
+		TmuxWindowName:    "b1-T-001-resume-me",
+		Status:            "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkSessionClosed(ctx, sessionID, "closed", "tmux", "done"); err != nil {
+		t.Fatal(err)
+	}
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	rendered := ansiStrip(model.View())
+	if !strings.Contains(rendered, "resumable") {
+		t.Fatalf("inspector should show resumable status for inactive ticket with session ref:\n%s", model.View())
+	}
+	if strings.Contains(rendered, "not started") {
+		t.Fatalf("inspector should not show not started for resumable ticket:\n%s", model.View())
+	}
+}
+
 func TestModelEditTicketUpdatesStore(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
