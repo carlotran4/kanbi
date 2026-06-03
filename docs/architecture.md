@@ -98,12 +98,14 @@ erDiagram
   boards ||--o{ tickets : owns
   columns ||--o{ tickets : contains
   tickets ||--o{ sessions : launches
+  tickets ||--o{ ticket_notes : has
 ```
 
 - A **board** owns columns, tickets, display numbering, and a working directory.
 - The **Master board** is a synthetic all-boards view; it is not a stored board row.
 - A **ticket** is durable work metadata: title, body, harness preference, workflow column, archive status.
 - A **session** is one attempt to run an agent for a ticket.
+- **Ticket notes** are personal, durable notes per ticket (not sent to any agent session).
 - An **active session** is a session believed to own a live tmux window, but it must still pass validation before being trusted.
 - A **tmux window** is the live process container for an active session.
 - A **harness session ref** is the harness-native resume handle when the harness exposes one.

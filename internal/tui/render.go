@@ -96,7 +96,7 @@ func (m Model) baseView() string {
 	// Footer separator rule.
 	rule := footerRule.Render(strings.Repeat("─", m.width))
 	fmt.Fprintf(&b, "%s\n", rule)
-	b.WriteString("o:open  s:send  n:new  e:edit  a:archive  b:boards  f:filters  !:attn  q:quit   ?:help\n")
+	b.WriteString("o:open  s:send  n:new  e:ticket  a:archive  b:boards  f:filters  !:attn  q:quit   ?:help\n")
 	if m.status != "" {
 		b.WriteString(statusStyle.Render(m.status) + "\n")
 	}
@@ -389,21 +389,34 @@ func elapsedLabel(ticket storage.Ticket) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
-// palette defines the app-wide color tokens.
+// palette defines app-wide semantic color tokens. Use AdaptiveColor so the
+// interface keeps reasonable contrast across light and dark terminal themes.
 var palette = struct {
-	muted   lipgloss.Color // borders, separators, dim chrome
-	accent  lipgloss.Color // focused column header, focused card border
-	warning lipgloss.Color // waiting_for_user
-	error_  lipgloss.Color // error, needs_permission
-	success lipgloss.Color // resumable
-	header  lipgloss.Color // app header bar background
+	muted            lipgloss.TerminalColor // borders, separators, dim chrome
+	accent           lipgloss.TerminalColor // focused column header, focused card border
+	warning          lipgloss.TerminalColor // waiting_for_user
+	error_           lipgloss.TerminalColor // error, needs_permission
+	success          lipgloss.TerminalColor // resumable
+	header           lipgloss.TerminalColor // app header bar background
+	headerText       lipgloss.TerminalColor
+	headerSubtleText lipgloss.TerminalColor
+	chipText         lipgloss.TerminalColor
+	chipTextInverted lipgloss.TerminalColor
+	warningChipText  lipgloss.TerminalColor
+	successChipText  lipgloss.TerminalColor
 }{
-	muted:   lipgloss.Color("240"),
-	accent:  lipgloss.Color("75"),  // soft blue
-	warning: lipgloss.Color("214"), // amber
-	error_:  lipgloss.Color("203"), // coral red
-	success: lipgloss.Color("71"),  // muted green
-	header:  lipgloss.Color("237"), // dark gray bar
+	muted:            lipgloss.AdaptiveColor{Light: "245", Dark: "240"},
+	accent:           lipgloss.AdaptiveColor{Light: "25", Dark: "75"},
+	warning:          lipgloss.AdaptiveColor{Light: "130", Dark: "214"},
+	error_:           lipgloss.AdaptiveColor{Light: "124", Dark: "203"},
+	success:          lipgloss.AdaptiveColor{Light: "28", Dark: "71"},
+	header:           lipgloss.AdaptiveColor{Light: "254", Dark: "237"},
+	headerText:       lipgloss.AdaptiveColor{Light: "235", Dark: "252"},
+	headerSubtleText: lipgloss.AdaptiveColor{Light: "240", Dark: "244"},
+	chipText:         lipgloss.AdaptiveColor{Light: "235", Dark: "252"},
+	chipTextInverted: lipgloss.AdaptiveColor{Light: "255", Dark: "255"},
+	warningChipText:  lipgloss.AdaptiveColor{Light: "255", Dark: "230"},
+	successChipText:  lipgloss.AdaptiveColor{Light: "255", Dark: "235"},
 }
 
 var (
@@ -414,12 +427,12 @@ var (
 	headerBarStyle = lipgloss.NewStyle().
 			Bold(true).
 			Background(palette.header).
-			Foreground(lipgloss.Color("252")).
+			Foreground(palette.headerText).
 			PaddingLeft(1).
 			PaddingRight(1)
 	boardNameStyle = lipgloss.NewStyle().
 			Background(palette.header).
-			Foreground(lipgloss.Color("244")).
+			Foreground(palette.headerSubtleText).
 			PaddingRight(1)
 )
 
@@ -655,7 +668,7 @@ func (m Model) helpView() string {
 		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(palette.accent).Bold(true).Render(title))
 	}
 	row := func(key, desc string) {
-		keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
+		keyStyle := lipgloss.NewStyle().Foreground(palette.headerText).Bold(true)
 		descStyle := lipgloss.NewStyle().Foreground(palette.muted)
 		fmt.Fprintf(&b, "  %s%s\n", keyStyle.Render(padLine(key, 28)), descStyle.Render(desc))
 	}
@@ -670,7 +683,7 @@ func (m Model) helpView() string {
 	row("s", "send prompt and open (never-started only)")
 	row("x", "close ticket session")
 	row("n", "new ticket in current column")
-	row("e", "edit title / body / harness")
+	row("e", "open polished ticket inspector/editor")
 	row("E", "open body in $EDITOR")
 	row("a", "archive ticket")
 	row("m", "manually mark runtime state")

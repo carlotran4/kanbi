@@ -125,13 +125,30 @@ func (m *Model) moveAttention(delta int) {
 }
 
 func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
+	// Notes tab (editField == 3) has its own key handling.
+	if m.editField == 3 {
+		return m.updateNotesTab(key)
+	}
 	switch key.String() {
 	case "esc":
 		m.editing = false
 		m.bodyTA.Blur()
+	case "ctrl+s":
+		m.saveEdit()
+	case "shift+tab":
+		if m.editField == 1 {
+			m.bodyTA.Blur()
+		}
+		m.editField--
+		if m.editField < 0 {
+			m.editField = 3
+		}
+		if m.editField == 1 {
+			return m, m.bodyTA.Focus()
+		}
 	case "tab":
 		newField := m.editField + 1
-		if newField > 2 {
+		if newField > 3 {
 			m.saveEdit()
 		} else {
 			if m.editField == 1 {
@@ -150,9 +167,12 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 			return m, cmd
 		}
 		newField := m.editField + 1
-		if newField > 2 {
+		if newField > 3 {
 			m.saveEdit()
 		} else {
+			if m.editField == 1 {
+				m.bodyTA.Blur()
+			}
 			m.editField = newField
 			if newField == 1 {
 				return m, m.bodyTA.Focus()
@@ -228,81 +248,96 @@ func newBodyTextarea(value string, termWidth int) textarea.Model {
 func (m Model) editView() string {
 	popupW := popupWidth(m.width)
 	inner := popupW - 4
-
-	rowCursor := func(i int) string {
-		if m.editField == i {
-			return lipgloss.NewStyle().Foreground(palette.accent).Render(">")
-		}
-		return " "
+	contentW := inner - 4
+	if contentW < 30 {
+		contentW = 30
 	}
-	render := func(i int) string {
+	t, _ := m.selectedTicket()
+
+	muted := lipgloss.NewStyle().Foreground(palette.muted)
+	accent := lipgloss.NewStyle().Foreground(palette.accent)
+	heading := lipgloss.NewStyle().Bold(true)
+	chip := lipgloss.NewStyle().Foreground(palette.chipText).Background(palette.header).Padding(0, 1)
+	focusChip := lipgloss.NewStyle().Foreground(palette.chipTextInverted).Background(palette.accent).Padding(0, 1).Bold(true)
+
+	sectionTitle := func(i int, label string) string {
+		prefix := "  "
+		style := muted
 		if m.editField == i {
-			return m.editInputs[i].Render()
+			prefix = accent.Render("▸ ")
+			style = accent.Bold(true)
 		}
-		return m.editInputs[i].Value()
+		return prefix + style.Render(strings.ToUpper(label))
 	}
 
 	var lines []string
-	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Edit ticket")
-	lines = append(lines, header, "")
-	lines = append(lines, fmt.Sprintf("%s title:   %s", rowCursor(0), render(0)))
+	id := t.DisplayID
+	if id == "" {
+		id = "Ticket"
+	}
+	lines = append(lines, muted.Render(id))
+	if m.editField == 0 {
+		lines = append(lines, focusChip.Render("TITLE")+" "+m.editInputs[0].Render())
+	} else {
+		title := strings.TrimSpace(m.editInputs[0].Value())
+		if title == "" {
+			title = "Untitled ticket"
+		}
+		lines = append(lines, heading.Render(title))
+	}
 
-	// Body field: textarea when focused, compact summary otherwise.
+	columnName := ""
+	for _, col := range m.view.Columns {
+		if col.ID == t.ColumnID {
+			columnName = col.Name
+			break
+		}
+	}
+	meta := []string{}
+	if m.masterBoard && t.BoardName != "" {
+		meta = append(meta, chip.Render(t.BoardName))
+	}
+	if columnName != "" {
+		meta = append(meta, chip.Render(columnName))
+	}
+	runtime := runtimeLabel(t)
+	if runtime != "" {
+		meta = append(meta, statusChip(t.Runtime, runtime))
+	}
+	harnessValue := strings.TrimSpace(m.editInputs[2].Value())
+	if harnessValue == "" {
+		harnessValue = "pi"
+	}
+	if m.editField == 2 {
+		meta = append(meta, focusChip.Render("HARNESS")+" "+m.editInputs[2].Render())
+	} else {
+		meta = append(meta, chip.Render(harnessValue))
+	}
+	if len(meta) > 0 {
+		lines = append(lines, strings.Join(meta, " "))
+	}
+
+	lines = append(lines, "", sectionTitle(1, "Description"))
 	if m.editField == 1 {
-		lines = append(lines, fmt.Sprintf("%s body:", rowCursor(1)))
 		lines = append(lines, m.bodyTA.View())
 	} else {
-		body := m.bodyTA.Value()
-		var bodyPreview string
-		if strings.TrimSpace(body) == "" {
-			bodyPreview = lipgloss.NewStyle().Faint(true).Render("(no description)")
+		body := strings.TrimSpace(m.bodyTA.Value())
+		if body == "" {
+			lines = append(lines, muted.Italic(true).Render("No description yet. Focus this section and start typing, or press Ctrl+E for $EDITOR."))
 		} else {
-			// Render markdown with glamour in the popup (safe here — not inside card layout).
-			previewWidth := inner - 14 // subtract label prefix
-			if previewWidth < 20 {
-				previewWidth = 20
-			}
-			grendered := ""
-			if gr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(previewWidth)); err == nil {
-				if out, err := gr.Render(body); err == nil {
-					grendered = strings.TrimSpace(out)
-				}
-			}
-			if grendered != "" {
-				// Show first 4 non-empty rendered lines inline.
-				var rendLines []string
-				for _, l := range strings.Split(grendered, "\n") {
-					if strings.TrimSpace(l) == "" {
-						continue
-					}
-					rendLines = append(rendLines, l)
-					if len(rendLines) == 4 {
-						break
-					}
-				}
-				newlines := strings.Count(body, "\n")
-				suffix := ""
-				if newlines > 0 {
-					suffix = lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf(" (+%d lines)", newlines))
-				}
-				bodyPreview = strings.Join(rendLines, "\n") + suffix
-			} else {
-				// Fallback: first line + line count.
-				first := strings.SplitN(body, "\n", 2)[0]
-				newlines := strings.Count(body, "\n")
-				if newlines > 0 {
-					bodyPreview = first + lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf(" (+%d lines)", newlines))
-				} else {
-					bodyPreview = first
-				}
-			}
+			lines = append(lines, renderMarkdownForInspector(body, contentW, 9))
 		}
-		lines = append(lines, fmt.Sprintf("%s body:", rowCursor(1)))
-		lines = append(lines, bodyPreview)
 	}
-	lines = append(lines, fmt.Sprintf("%s harness: %s", rowCursor(2), render(2)))
+
+	lines = append(lines, "", sectionTitle(3, "Notes"))
+	if m.editField == 3 {
+		lines = append(lines, m.notesThreadView(contentW))
+	} else {
+		lines = append(lines, m.notesCompactView())
+	}
+
 	lines = append(lines, "")
-	lines = append(lines, lipgloss.NewStyle().Faint(true).Render("Tab next · Enter newline in body · Ctrl+E editor · Esc cancel"))
+	lines = append(lines, muted.Render("Tab/Shift+Tab focus · Ctrl+S save · Ctrl+E editor · Esc cancel"))
 
 	content := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().
@@ -311,6 +346,234 @@ func (m Model) editView() string {
 		Padding(1, 2).
 		Width(inner).
 		Render(content)
+}
+
+func statusChip(runtime string, label string) string {
+	style := lipgloss.NewStyle().Foreground(palette.chipText).Background(palette.header).Padding(0, 1)
+	switch runtime {
+	case kanban.StateWaitingForUser:
+		style = style.Background(palette.warning).Foreground(palette.warningChipText)
+	case kanban.StateNeedsPermission, kanban.StateError:
+		style = style.Background(palette.error_).Foreground(palette.chipTextInverted)
+	case kanban.StateRunning:
+		style = style.Background(palette.success).Foreground(palette.successChipText)
+	}
+	return style.Render(label)
+}
+
+func renderMarkdownForInspector(body string, width int, maxLines int) string {
+	if width < 20 {
+		width = 20
+	}
+	rendered := ""
+	if gr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(width)); err == nil {
+		if out, err := gr.Render(body); err == nil {
+			rendered = strings.TrimSpace(out)
+		}
+	}
+	if rendered == "" {
+		rendered = strings.TrimSpace(body)
+	}
+	parts := strings.Split(rendered, "\n")
+	var lines []string
+	for _, line := range parts {
+		if strings.TrimSpace(line) == "" && (len(lines) == 0 || strings.TrimSpace(lines[len(lines)-1]) == "") {
+			continue
+		}
+		lines = append(lines, line)
+		if len(lines) == maxLines {
+			break
+		}
+	}
+	if len(parts) > len(lines) {
+		lines = append(lines, lipgloss.NewStyle().Faint(true).Render("…"))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// updateNotesTab handles keystrokes when the notes section (editField==3) is active.
+func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
+	if m.noteEditing {
+		switch key.String() {
+		case "esc":
+			m.noteEditing = false
+			m.noteIsNew = false
+		case "ctrl+s":
+			m.saveNote()
+		default:
+			var cmd tea.Cmd
+			m.noteTA, cmd = m.noteTA.Update(key)
+			return m, cmd
+		}
+		return m, nil
+	}
+
+	switch key.String() {
+	case "esc":
+		m.editField = 2
+	case "ctrl+s", "tab":
+		m.saveEdit()
+	case "shift+tab":
+		m.editField = 2
+	case "j", "down":
+		if m.noteIndex < len(m.notes)-1 {
+			m.noteIndex++
+		}
+	case "k", "up":
+		if m.noteIndex > 0 {
+			m.noteIndex--
+		}
+	case "a":
+		m.noteEditing = true
+		m.noteIsNew = true
+		m.noteEditID = 0
+		m.noteTA = newNoteTextarea("", m.width)
+		return m, m.noteTA.Focus()
+	case "e":
+		if len(m.notes) > 0 && m.noteIndex < len(m.notes) {
+			n := m.notes[m.noteIndex]
+			m.noteEditing = true
+			m.noteIsNew = false
+			m.noteEditID = n.ID
+			m.noteTA = newNoteTextarea(n.Body, m.width)
+			return m, m.noteTA.Focus()
+		}
+	case "d":
+		if len(m.notes) > 0 && m.noteIndex < len(m.notes) {
+			n := m.notes[m.noteIndex]
+			t, ok := m.selectedTicket()
+			if !ok {
+				break
+			}
+			if err := m.actions.DeleteNote(m.ctx, n.ID); err != nil {
+				m.status = err.Error()
+			} else {
+				m.status = "deleted note"
+				m.loadNotes(t.ID)
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) saveNote() {
+	t, ok := m.selectedTicket()
+	if !ok {
+		m.noteEditing = false
+		return
+	}
+	body := m.noteTA.Value()
+	if strings.TrimSpace(body) == "" {
+		m.noteEditing = false
+		m.noteIsNew = false
+		return
+	}
+	if m.noteIsNew {
+		if _, err := m.actions.AddNote(m.ctx, t.ID, body); err != nil {
+			m.status = err.Error()
+		} else {
+			m.status = "note added"
+		}
+	} else {
+		if err := m.actions.UpdateNote(m.ctx, m.noteEditID, body); err != nil {
+			m.status = err.Error()
+		} else {
+			m.status = "note updated"
+		}
+	}
+	m.noteEditing = false
+	m.noteIsNew = false
+	m.loadNotes(t.ID)
+}
+
+// notesCompactView renders a one-line summary for when notes are not the active tab.
+func (m Model) notesCompactView() string {
+	faint := lipgloss.NewStyle().Faint(true)
+	if len(m.notes) == 0 {
+		return faint.Render("none  (Tab to add)")
+	}
+	count := fmt.Sprintf("%d note", len(m.notes))
+	if len(m.notes) != 1 {
+		count += "s"
+	}
+	latest := m.notes[len(m.notes)-1]
+	snippet := strings.SplitN(strings.TrimSpace(latest.Body), "\n", 2)[0]
+	if len([]rune(snippet)) > 40 {
+		snippet = string([]rune(snippet)[:40]) + "…"
+	}
+	return fmt.Sprintf("%s  %s", count, faint.Render(snippet))
+}
+
+// notesThreadView renders the full notes thread for when notes is the active tab.
+func (m Model) notesThreadView(innerWidth int) string {
+	if m.noteEditing {
+		action := "New note"
+		if !m.noteIsNew {
+			action = "Edit note"
+		}
+		lines := []string{
+			lipgloss.NewStyle().Foreground(palette.accent).Render(action),
+			m.noteTA.View(),
+			"",
+			lipgloss.NewStyle().Faint(true).Render("Ctrl+S save · Esc cancel"),
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	if len(m.notes) == 0 {
+		return lipgloss.NewStyle().Faint(true).Render("No notes yet.\na add · Esc back")
+	}
+
+	previewWidth := innerWidth - 6
+	if previewWidth < 20 {
+		previewWidth = 20
+	}
+
+	var lines []string
+	for i, n := range m.notes {
+		ts := n.CreatedAt.Local().Format("2006-01-02 15:04")
+		if !n.UpdatedAt.Equal(n.CreatedAt) {
+			ts += " (edited)"
+		}
+		var header string
+		if i == m.noteIndex {
+			header = lipgloss.NewStyle().Foreground(palette.accent).Bold(true).Render(fmt.Sprintf("> [%d] %s", i+1, ts))
+		} else {
+			header = lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("  [%d] %s", i+1, ts))
+		}
+		lines = append(lines, header)
+
+		body := strings.TrimSpace(n.Body)
+		rendered := ""
+		if gr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(previewWidth)); err == nil {
+			if out, err := gr.Render(body); err == nil {
+				rendered = strings.TrimSpace(out)
+			}
+		}
+		if rendered == "" {
+			rendered = body
+		}
+		for _, bl := range strings.Split(rendered, "\n") {
+			lines = append(lines, "  "+bl)
+		}
+		lines = append(lines, "")
+	}
+	lines = append(lines, lipgloss.NewStyle().Faint(true).Render("j/k navigate · a add · e edit · d delete · Tab save & close · Esc back"))
+	return strings.Join(lines, "\n")
+}
+
+func newNoteTextarea(value string, termWidth int) textarea.Model {
+	ta := textarea.New()
+	ta.SetValue(value)
+	ta.Placeholder = "(write your note here, markdown supported)"
+	ta.ShowLineNumbers = false
+	popupInner := popupWidth(termWidth) - 4
+	if popupInner < 20 {
+		popupInner = 20
+	}
+	ta.SetWidth(popupInner - 4)
+	ta.SetHeight(6)
+	return ta
 }
 
 func (m Model) stateMenuView() string {

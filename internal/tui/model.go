@@ -74,6 +74,14 @@ type Model struct {
 	repairReason            string
 	showHelp                bool
 	editorTicketID          int64
+
+	// Notes state (used within the edit modal, editField==3)
+	notes       []storage.Note
+	noteIndex   int
+	noteEditing bool
+	noteIsNew   bool
+	noteEditID  int64
+	noteTA      textarea.Model
 }
 
 // defaultTermSize is used before a WindowSizeMsg arrives.
@@ -481,6 +489,22 @@ func (m *Model) startEdit() {
 		NewInputBuffer(t.Harness),
 	}
 	m.bodyTA = newBodyTextarea(t.Body, m.width)
+	m.loadNotes(t.ID)
+}
+
+func (m *Model) loadNotes(ticketID int64) {
+	notes, err := m.actions.ListNotes(m.ctx, ticketID)
+	if err != nil {
+		m.notes = nil
+	} else {
+		m.notes = notes
+	}
+	m.noteIndex = len(m.notes) - 1
+	if m.noteIndex < 0 {
+		m.noteIndex = 0
+	}
+	m.noteEditing = false
+	m.noteIsNew = false
 }
 
 func (m *Model) openTicketCmd(sendPrompt bool) tea.Cmd {

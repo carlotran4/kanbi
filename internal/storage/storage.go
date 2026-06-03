@@ -58,8 +58,17 @@ type Ticket struct {
 	LastAttentionReason sql.NullString
 	LastDetectionSource sql.NullString
 	LastObservedExcerpt sql.NullString
+	NoteCount           int
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+}
+
+type Note struct {
+	ID        int64
+	TicketID  int64
+	Body      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type Session struct {
@@ -710,6 +719,45 @@ func (s *Store) UpdateSessionRef(ctx context.Context, sessionID int64, ref strin
 	return err
 }
 
+// Note CRUD
+
+func (s *Store) AddNote(ctx context.Context, ticketID int64, body string) (Note, error) {
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, `insert into ticket_notes(ticket_id,body,created_at,updated_at) values(?,?,?,?)`, ticketID, body, now, now)
+	if err != nil {
+		return Note{}, err
+	}
+	id, _ := res.LastInsertId()
+	return Note{ID: id, TicketID: ticketID, Body: body, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (s *Store) UpdateNote(ctx context.Context, noteID int64, body string) error {
+	_, err := s.db.ExecContext(ctx, `update ticket_notes set body=?, updated_at=? where id=?`, body, time.Now().UTC(), noteID)
+	return err
+}
+
+func (s *Store) DeleteNote(ctx context.Context, noteID int64) error {
+	_, err := s.db.ExecContext(ctx, `delete from ticket_notes where id=?`, noteID)
+	return err
+}
+
+func (s *Store) ListNotes(ctx context.Context, ticketID int64) ([]Note, error) {
+	rows, err := s.db.QueryContext(ctx, `select id, ticket_id, body, created_at, updated_at from ticket_notes where ticket_id=? order by id asc`, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var notes []Note
+	for rows.Next() {
+		var n Note
+		if err := rows.Scan(&n.ID, &n.TicketID, &n.Body, &n.CreatedAt, &n.UpdatedAt); err != nil {
+			return nil, err
+		}
+		notes = append(notes, n)
+	}
+	return notes, rows.Err()
+}
+
 func (s *Store) MarkSessionMissing(ctx context.Context, sessionID int64) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `update sessions set status=?, is_active=0, closed_at=?, last_state_change_at=?, last_detected_state=?, last_attention_reason='tmux window missing', last_detection_source='tmux', updated_at=? where id=?`, kanban.StateError, now, now, kanban.StateError, now, sessionID)
@@ -842,6 +890,16 @@ func (s *Store) migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	// Create ticket_notes table for existing databases that predate it.
+	if _, err := s.db.ExecContext(ctx, `create table if not exists ticket_notes (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  body text not null default '',
+  created_at datetime not null,
+  updated_at datetime not null
+)`); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -939,6 +997,14 @@ create table if not exists sessions (
   last_attention_reason text,
   last_detection_source text,
   last_observed_excerpt text,
+  created_at datetime not null,
+  updated_at datetime not null
+);
+
+create table if not exists ticket_notes (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  body text not null default '',
   created_at datetime not null,
   updated_at datetime not null
 );

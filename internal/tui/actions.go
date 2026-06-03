@@ -44,6 +44,11 @@ type Actions interface {
 	KillAllSessions(context.Context) error
 	StartFreshTicket(context.Context, storage.Ticket, bool) error
 	UpdateSessionRef(context.Context, storage.Ticket, string) error
+
+	ListNotes(context.Context, int64) ([]storage.Note, error)
+	AddNote(context.Context, int64, string) (storage.Note, error)
+	UpdateNote(context.Context, int64, string) error
+	DeleteNote(context.Context, int64) error
 }
 
 // Service is the production implementation of Actions. Storage remains the
@@ -174,4 +179,20 @@ func (s *Service) UpdateSessionRef(ctx context.Context, ticket storage.Ticket, r
 		return s.Store.UpdateSessionRef(ctx, ticket.SessionID.Int64, ref)
 	}
 	return fmt.Errorf("ticket has no session to repair")
+}
+
+func (s *Service) ListNotes(ctx context.Context, ticketID int64) ([]storage.Note, error) {
+	return s.Store.ListNotes(ctx, ticketID)
+}
+
+func (s *Service) AddNote(ctx context.Context, ticketID int64, body string) (storage.Note, error) {
+	return s.Store.AddNote(ctx, ticketID, body)
+}
+
+func (s *Service) UpdateNote(ctx context.Context, noteID int64, body string) error {
+	return s.Store.UpdateNote(ctx, noteID, body)
+}
+
+func (s *Service) DeleteNote(ctx context.Context, noteID int64) error {
+	return s.Store.DeleteNote(ctx, noteID)
 }

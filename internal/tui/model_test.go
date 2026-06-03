@@ -389,6 +389,8 @@ func TestModelEditTicketUpdatesStore(t *testing.T) {
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	// Tab to harness field
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	// Tab to notes field
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	// Tab again to save
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 
@@ -401,6 +403,30 @@ func TestModelEditTicketUpdatesStore(t *testing.T) {
 	}
 	if got.Title != "Fixed" {
 		t.Fatalf("title = %q, want Fixed", got.Title)
+	}
+}
+
+func TestModelTicketInspectorRendersPolishedInlineEditor(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Pretty editor", "# Problem\n\n- ugly raw form", "pi")
+	if _, err := store.AddNote(ctx, ticket.ID, "Needs polish"); err != nil {
+		t.Fatal(err)
+	}
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	rendered := model.View()
+	for _, want := range []string{"T-001", "TITLE", "Pretty editor", "DESCRIPTION", "NOTES", "1 note", "Ctrl+S save"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("ticket inspector missing %q:\n%s", want, rendered)
+		}
+	}
+
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	rendered = model.View()
+	if !strings.Contains(rendered, "▸ DESCRIPTION") || strings.Contains(rendered, "title:") {
+		t.Fatalf("description focus should look like an inspector, not a raw form:\n%s", rendered)
 	}
 }
 
@@ -417,6 +443,7 @@ func TestModelEditTicketUsesCursorAwareBuffer(t *testing.T) {
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyDelete})
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnd})
 	model, _ = mustUpdate(t, model, "Z")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})

@@ -779,3 +779,110 @@ func TestDeleteBoardRemovesBoardAndTickets(t *testing.T) {
 		t.Fatalf("expected board gone, got %v", err)
 	}
 }
+
+func TestNoteCRUD(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Note Ticket", "", "pi")
+
+	notes, err := s.ListNotes(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 0 {
+		t.Fatalf("expected 0 notes, got %d", len(notes))
+	}
+
+	n1, err := s.AddNote(ctx, ticket.ID, "First note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2, err := s.AddNote(ctx, ticket.ID, "Second note")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err = s.ListNotes(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("expected 2 notes, got %d", len(notes))
+	}
+	if notes[0].ID != n1.ID || notes[0].Body != "First note" {
+		t.Fatalf("unexpected first note: %+v", notes[0])
+	}
+	if notes[1].ID != n2.ID || notes[1].Body != "Second note" {
+		t.Fatalf("unexpected second note: %+v", notes[1])
+	}
+
+	if err := s.UpdateNote(ctx, n1.ID, "Updated first"); err != nil {
+		t.Fatal(err)
+	}
+	notes, err = s.ListNotes(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notes[0].Body != "Updated first" {
+		t.Fatalf("updated body = %q, want 'Updated first'", notes[0].Body)
+	}
+
+	if err := s.DeleteNote(ctx, n2.ID); err != nil {
+		t.Fatal(err)
+	}
+	notes, err = s.ListNotes(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].ID != n1.ID {
+		t.Fatalf("after delete, notes = %+v", notes)
+	}
+}
+
+func TestNotesCascadeDeleteWithTicket(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "To Delete", "", "pi")
+	if _, err := s.AddNote(ctx, ticket.ID, "Some note"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, "delete from tickets where id=?", ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, "select count(*) from ticket_notes where ticket_id=?", ticket.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 notes after ticket deleted (cascade), got %d", count)
+	}
+}
+
+func TestNoteCountInProjection(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Counted", "", "pi")
+
+	projected, err := s.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projected.NoteCount != 0 {
+		t.Fatalf("initial NoteCount = %d, want 0", projected.NoteCount)
+	}
+
+	if _, err := s.AddNote(ctx, ticket.ID, "one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddNote(ctx, ticket.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+
+	projected, err = s.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projected.NoteCount != 2 {
+		t.Fatalf("NoteCount = %d, want 2", projected.NoteCount)
+	}
+}

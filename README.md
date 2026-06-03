@@ -47,3 +47,23 @@ go vet ./...
 ## Status
 
 Alpha lifecycle hardening is complete: multi-board TUI/CLI behavior, tmux-backed ticket sessions, Pi/Codex/Copilot command wiring and ref capture, fake and real harness verification, tests, and smoke verification are in place. Current follow-up work is tracked as tickets on the board.
+
+## Ticket Inspector And Notes
+
+Press `e` to open the unified ticket inspector/editor. The inspector renders the ticket as a polished document while keeping fields editable in place:
+
+- `Tab` / `Shift+Tab` — move focus between title, description, harness, and notes
+- `Ctrl+S` — save the ticket
+- `Ctrl+E` — open the description in `$EDITOR`
+- `Esc` — cancel/close the inspector
+
+Inside the notes section:
+
+- `a` — add a new note
+- `e` — edit the selected note
+- `d` — delete the selected note
+- `j`/`k` — navigate notes
+- `Ctrl+S` while editing — save the note
+- `Esc` while editing — cancel
+
+Notes are personal/local annotations; they are not sent to the agent session.
