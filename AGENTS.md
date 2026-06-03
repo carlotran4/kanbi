@@ -45,8 +45,10 @@ For meaningful code changes, run:
 go fmt ./...
 go test ./...
 go vet ./...
-./scripts/smoke.sh
+./scripts/smoke.sh --skip-checks
 ```
+
+Use plain `./scripts/smoke.sh` when you want the script to run fmt/test/vet itself.
 
 For lifecycle, tmux, storage, or harness changes, also run focused tests:
 

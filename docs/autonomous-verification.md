@@ -132,7 +132,7 @@ Maintain a script such as:
 ./scripts/smoke.sh
 ```
 
-The smoke test should run:
+By default, the smoke script should run baseline checks plus the tmux-backed end-to-end path:
 
 ```bash
 go fmt ./...
@@ -141,6 +141,12 @@ go test ./...
 agent-kanban doctor
 agent-kanban add "Smoke test ticket" --body "Verify smoke path" --harness pi
 agent-kanban list
+```
+
+When the current verification loop has already run `go fmt ./...`, `go test ./...`, and `go vet ./...`, use the faster end-to-end-only mode to avoid duplicate baseline work:
+
+```bash
+./scripts/smoke.sh --skip-checks
 ```
 
 For early development, the script may use a temporary config/DB via env vars:

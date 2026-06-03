@@ -2,6 +2,31 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUN_CHECKS=1
+for arg in "$@"; do
+  case "$arg" in
+    --skip-checks)
+      RUN_CHECKS=0
+      ;;
+    -h|--help)
+      cat <<'USAGE'
+Usage: ./scripts/smoke.sh [--skip-checks]
+
+Runs the tmux-backed end-to-end smoke test with fake harnesses.
+By default this also runs go fmt, go test, and go vet first. Use
+--skip-checks when those baseline checks have already passed in the
+same verification loop.
+USAGE
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $arg" >&2
+      echo "usage: ./scripts/smoke.sh [--skip-checks]" >&2
+      exit 2
+      ;;
+  esac
+done
+
 TMP="$(mktemp -d)"
 SESSION="agent-kanban-smoke-$$"
 BIN="$TMP/agent-kanban"
@@ -39,9 +64,11 @@ harnesses:
 YAML
 
 cd "$ROOT"
-go fmt ./...
-go test ./...
-go vet ./...
+if [[ "$RUN_CHECKS" == "1" ]]; then
+  go fmt ./...
+  go test ./...
+  go vet ./...
+fi
 go build -buildvcs=false -o "$BIN" ./cmd/agent-kanban
 
 "$BIN" doctor
