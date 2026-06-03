@@ -139,31 +139,21 @@ flowchart LR
     Store --> Ticket[Ticket row with board-local display id]
 ```
 
-### Open Ticket
+### Default Ticket Action
 
 ```mermaid
 flowchart TD
-    Open[Open selected ticket] --> Latest{Latest session?}
+    Enter[Enter on selected ticket] --> Latest{Latest session?}
+    Latest -- none --> Start[Start harness with rendered prompt]
     Latest -- active --> Validate[Validate tmux id/name]
     Validate -- valid --> Switch[Switch to window]
     Validate -- invalid --> Ref{Session ref?}
     Latest -- inactive --> Ref
-    Latest -- none --> Start[Start harness open-only]
     Ref -- yes --> Resume[Resume harness]
     Ref -- no --> Repair[Repair/start-fresh screen]
-    Start --> Store[(Create active session)]
-    Resume --> Store
-```
-
-### Send Prompt
-
-```mermaid
-flowchart TD
-    Send[Enter/send prompt] --> Prior{Any prior session?}
-    Prior -- yes --> Reject[Reject; use open/repair/start-fresh]
-    Prior -- no --> Start[Start harness with rendered prompt]
     Start --> Capture[Best-effort session ref capture]
     Capture --> Store[(Create/update active session metadata)]
+    Resume --> Store[(Create active session)]
 ```
 
 ### Runtime Refresh

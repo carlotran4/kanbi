@@ -275,10 +275,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.openBodyEditor()
 	case "m":
 		m.startStateMenu()
-	case "o":
-		return m, m.openTicketCmd(false)
 	case "enter":
-		return m, m.enterTicketCmd()
+		return m, m.defaultTicketCmd()
 	case "x":
 		return m, m.closeSessionCmd()
 	}
@@ -507,23 +505,12 @@ func (m *Model) loadNotes(ticketID int64) {
 	m.noteIsNew = false
 }
 
-func (m *Model) enterTicketCmd() tea.Cmd {
+func (m *Model) defaultTicketCmd() tea.Cmd {
 	t, ok := m.selectedTicket()
 	if !ok {
 		return nil
 	}
-	return m.openSelectedTicketCmd(t, !t.SessionID.Valid)
-}
-
-func (m *Model) openTicketCmd(sendPrompt bool) tea.Cmd {
-	t, ok := m.selectedTicket()
-	if !ok {
-		return nil
-	}
-	return m.openSelectedTicketCmd(t, sendPrompt)
-}
-
-func (m *Model) openSelectedTicketCmd(t storage.Ticket, sendPrompt bool) tea.Cmd {
+	sendPrompt := !t.SessionID.Valid
 	if sendPrompt {
 		m.status = "sending prompt " + t.DisplayID + "…"
 	} else {

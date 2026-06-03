@@ -15,10 +15,8 @@ stateDiagram-v2
     ticket_created --> never_started
 
     never_started --> active_prompt_sent: Enter / send prompt
-    never_started --> active_open_only: o / open only
 
     active_prompt_sent --> running
-    active_open_only --> running
 
     running --> waiting_for_user: detected prompt/wait
     running --> needs_permission: detected approval request
@@ -43,7 +41,7 @@ stateDiagram-v2
     error --> repair_needed: open
 
     repair_needed --> active_resumed: edit ref / retry
-    repair_needed --> active_open_only: start fresh
+    repair_needed --> active_prompt_sent: start fresh with prompt
 
     running --> archived: archive after safe close
     closed_resumable --> archived: archive
@@ -55,9 +53,9 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    TUI[TUI action] --> Ticket[projected ticket]
+    TUI[TUI Enter action] --> Ticket[projected ticket]
     Ticket --> Decision{latest session?}
-    Decision -- none --> Start[start harness]
+    Decision -- none --> Start[start harness with rendered prompt]
     Decision -- active --> Validate[validate tmux id/name]
     Validate -- valid --> Switch[switch window]
     Validate -- invalid --> Ref{session_ref?}
@@ -93,24 +91,19 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - Creates exactly one active session row.
 - Attempts harness-specific session ref capture.
 
-### `o`: Open
-
-- If the latest session is active and the tmux window validates in its stored `tmux_session_name`, switch to that window.
-- If the latest session is inactive and has a `session_ref`, resume it and create a new active session row.
-- If the latest session is inactive and has no `session_ref`, show repair/start-fresh.
-- If no session exists, start open-only and create one active session row.
-- Opening an already-active valid window must not create a new session row.
-
 ### `Enter`: Default Ticket Action
 
 - If the ticket has never started, send the rendered prompt and open the ticket.
-- If the ticket has any prior session, behave like `o`: open/switch/resume/repair according to the open rules above.
+- If the latest session is active and the tmux window validates in its stored `tmux_session_name`, switch to that window.
+- If the latest session is inactive and has a `session_ref`, resume it and create a new active session row.
+- If the latest session is inactive and has no `session_ref`, show repair/start-fresh.
+- Opening an already-active valid window must not create a new session row.
 
 ### Repair
 
 - `r` retries the open path.
 - `e` edits the session ref, saves it, then tries to open/resume.
-- `f` starts fresh. The previous session history remains; the new run becomes the only active session and is launched in the current executable's runtime tmux session, in a separate tmux window rather than reusing any existing same-named window.
+- `f` starts fresh with the rendered ticket prompt. The previous session history remains; the new run becomes the only active session and is launched in the current executable's runtime tmux session, in a separate tmux window rather than reusing any existing same-named window.
 - `c` cancels.
 
 ### Close / Archive

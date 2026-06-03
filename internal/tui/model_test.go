@@ -182,21 +182,18 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 	}
 }
 
-func TestModelOpenSelectedTicket(t *testing.T) {
+func TestModelOHotkeyDoesNotOpenTicket(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
-	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Open me", "", "pi"); err != nil {
+	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Do not open", "", "pi"); err != nil {
 		t.Fatal(err)
 	}
 	wrapped := &openingStore{Service: NewService(store, nil)}
 	model := New(ctx, wrapped)
 	model, cmd := mustUpdate(t, model, "o")
 	model = runCmd(t, model, cmd)
-	if len(wrapped.opened) != 1 || wrapped.opened[0] != "T-001" || wrapped.sentPrompt[0] {
-		t.Fatalf("opened = %#v sent=%v", wrapped.opened, wrapped.sentPrompt)
-	}
-	if !strings.Contains(model.View(), "opened T-001") {
-		t.Fatalf("status missing:\n%s", model.View())
+	if len(wrapped.opened) != 0 {
+		t.Fatalf("o hotkey should not open ticket, opened=%v", wrapped.opened)
 	}
 }
 
@@ -284,7 +281,7 @@ func TestModelRepairStartFresh(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, cmd := mustUpdate(t, model, "o")
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatalf("repair view not shown: %s", model.View())
@@ -293,17 +290,21 @@ func TestModelRepairStartFresh(t *testing.T) {
 	if !wrapped.startedFresh {
 		t.Fatalf("start fresh not invoked")
 	}
+	if !wrapped.startedFreshSendPrompt {
+		t.Fatalf("start fresh should send prompt")
+	}
 }
 
 type openingStore struct {
 	*Service
-	opened       []string
-	sentPrompt   []bool
-	openErr      error
-	openErrFn    func() error
-	pastedWindow string
-	pastedPrompt string
-	startedFresh bool
+	opened                 []string
+	sentPrompt             []bool
+	openErr                error
+	openErrFn              func() error
+	pastedWindow           string
+	pastedPrompt           string
+	startedFresh           bool
+	startedFreshSendPrompt bool
 }
 
 func (s *openingStore) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
@@ -331,6 +332,7 @@ func (s *openingStore) PastePromptNow(ctx context.Context, windowName, text stri
 
 func (s *openingStore) StartFreshTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
 	s.startedFresh = true
+	s.startedFreshSendPrompt = sendPrompt
 	return nil
 }
 
@@ -392,7 +394,7 @@ func TestRepairViewShowsReasonAndOptions(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, cmd := mustUpdate(t, model, "o")
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatalf("repair view not shown: %s", model.View())
@@ -606,7 +608,7 @@ func TestModelRepairEditRefThenOpen(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, cmd := mustUpdate(t, model, "o") // first open → repair
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // first default action → repair
 	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatalf("should be in repair mode: %s", model.View())
@@ -644,7 +646,7 @@ func TestModelRepairRetryCallsOpen(t *testing.T) {
 		},
 	}
 	model := New(ctx, wrapped)
-	model, cmd := mustUpdate(t, model, "o") // first open → repair
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // first default action → repair
 	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatal("should be repairing")
@@ -665,7 +667,7 @@ func TestModelEscCancelsRepair(t *testing.T) {
 		openErr: tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"},
 	}
 	model := New(ctx, wrapped)
-	model, cmd := mustUpdate(t, model, "o")
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	model = runCmd(t, model, cmd)
 	if !model.repairing {
 		t.Fatal("should be repairing")

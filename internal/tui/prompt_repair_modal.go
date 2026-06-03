@@ -22,10 +22,6 @@ func (m Model) updatePromptFallback(key tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		m.promptFallback = false
 		m.reload()
-	case "o":
-		m.status = "opened without prompt " + m.promptTicket.DisplayID
-		m.promptFallback = false
-		m.reload()
 	case "c", "esc":
 		m.status = "cancelled prompt send"
 		m.promptFallback = false
@@ -87,7 +83,7 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 		m.repairEditingRef = true
 		m.repairRef = ""
 	case "f":
-		if err := m.actions.StartFreshTicket(m.ctx, m.repairTicket, false); err != nil {
+		if err := m.actions.StartFreshTicket(m.ctx, m.repairTicket, true); err != nil {
 			m.status = err.Error()
 			return m
 		}
@@ -113,7 +109,6 @@ func (m Model) promptFallbackView() string {
 		lipgloss.NewStyle().Faint(true).Render("Ticket: ") + m.promptTicket.DisplayID,
 		"",
 		"p  paste now",
-		"o  open without sending",
 		"c  cancel",
 	}
 	popupW := popupWidth(m.width)
