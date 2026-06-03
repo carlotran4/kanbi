@@ -369,14 +369,20 @@ func sqlNullInt64(n int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: n, Valid: true}
 }
 
-func TestTicketInspectorDescriptionUsesReadableText(t *testing.T) {
-	rendered := renderMarkdownForInspector("# Heading\n\nThe ticket body should be readable, not faint grey text.", 80, 6)
+func TestTicketInspectorDescriptionUsesReadableFormattedMarkdown(t *testing.T) {
+	rendered := renderMarkdownForInspector("# Heading\n\nThe ticket body should be **readable**, not faint grey text.\n\n- one thing", 80, 8)
 	plain := ansiStrip(rendered)
-	if !strings.Contains(plain, "Heading") || !strings.Contains(plain, "readable") {
-		t.Fatalf("description content missing: %q", rendered)
+	for _, want := range []string{"Heading", "readable", "• one thing"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("description content missing %q: %q", want, rendered)
+		}
 	}
 	if strings.Contains(rendered, "\x1b[2m") {
 		t.Fatalf("description should not use faint styling: %q", rendered)
+	}
+	_, headingStyle := markdownLineStyle("# Heading")
+	if !headingStyle.GetBold() {
+		t.Fatal("heading markdown should use bold styling")
 	}
 }
 

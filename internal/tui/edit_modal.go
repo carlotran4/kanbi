@@ -550,49 +550,91 @@ func renderMarkdownForInspector(body string, width int, maxLines int) string {
 	if width < 20 {
 		width = 20
 	}
-	plain := readableMarkdownText(body)
-	paragraphs := strings.Split(plain, "\n")
+	if maxLines <= 0 {
+		return ""
+	}
+
 	var lines []string
-	for _, paragraph := range paragraphs {
-		paragraph = strings.TrimSpace(paragraph)
-		if paragraph == "" {
-			if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+	truncated := false
+	for _, raw := range strings.Split(strings.TrimSpace(body), "\n") {
+		if len(lines) >= maxLines {
+			truncated = true
+			break
+		}
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			if len(lines) > 0 && strings.TrimSpace(ansiStrip(lines[len(lines)-1])) != "" {
 				lines = append(lines, "")
 			}
 			continue
 		}
-		wrapped := wrapText(paragraph, width, maxLines-len(lines))
-		lines = append(lines, wrapped...)
-		if len(lines) >= maxLines {
-			break
+
+		text, style := markdownLineStyle(trimmed)
+		wrapped := wrapText(text, width, maxLines-len(lines))
+		if len(wrapped) == 0 {
+			continue
+		}
+		if len(wrapped) < len(wrapText(text, width, 10_000)) {
+			truncated = true
+		}
+		for _, line := range wrapped {
+			lines = append(lines, style.Render(renderInlineMarkdown(line)))
 		}
 	}
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+	for len(lines) > 0 && strings.TrimSpace(ansiStrip(lines[len(lines)-1])) == "" {
 		lines = lines[:len(lines)-1]
 	}
-	if strings.Count(plain, "\n")+1 > len(lines) {
+	if truncated && len(lines) < maxLines+1 {
 		lines = append(lines, lipgloss.NewStyle().Foreground(palette.muted).Render("…"))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func readableMarkdownText(s string) string {
-	s = strings.TrimSpace(s)
-	var lines []string
-	for _, line := range strings.Split(s, "\n") {
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(trimmed, "### "):
-			trimmed = strings.TrimPrefix(trimmed, "### ")
-		case strings.HasPrefix(trimmed, "## "):
-			trimmed = strings.TrimPrefix(trimmed, "## ")
-		case strings.HasPrefix(trimmed, "# "):
-			trimmed = strings.TrimPrefix(trimmed, "# ")
-		}
-		trimmed = strings.NewReplacer("**", "", "__", "", "`", "").Replace(trimmed)
-		lines = append(lines, trimmed)
+func markdownLineStyle(line string) (string, lipgloss.Style) {
+	heading := lipgloss.NewStyle().Bold(true)
+	switch {
+	case strings.HasPrefix(line, "### "):
+		return strings.TrimSpace(strings.TrimPrefix(line, "### ")), heading
+	case strings.HasPrefix(line, "## "):
+		return strings.TrimSpace(strings.TrimPrefix(line, "## ")), heading
+	case strings.HasPrefix(line, "# "):
+		return strings.TrimSpace(strings.TrimPrefix(line, "# ")), heading
+	case strings.HasPrefix(line, "- "):
+		return "• " + strings.TrimSpace(strings.TrimPrefix(line, "- ")), lipgloss.NewStyle()
+	case strings.HasPrefix(line, "* "):
+		return "• " + strings.TrimSpace(strings.TrimPrefix(line, "* ")), lipgloss.NewStyle()
+	case strings.HasPrefix(line, "> "):
+		return "│ " + strings.TrimSpace(strings.TrimPrefix(line, "> ")), lipgloss.NewStyle().Foreground(palette.muted)
+	default:
+		return line, lipgloss.NewStyle()
 	}
-	return strings.Join(lines, "\n")
+}
+
+func renderInlineMarkdown(s string) string {
+	s = renderDelimitedInline(s, "**", lipgloss.NewStyle().Bold(true))
+	s = renderDelimitedInline(s, "__", lipgloss.NewStyle().Bold(true))
+	s = renderDelimitedInline(s, "`", lipgloss.NewStyle().Foreground(palette.accent))
+	return s
+}
+
+func renderDelimitedInline(s string, delim string, style lipgloss.Style) string {
+	var out strings.Builder
+	for {
+		start := strings.Index(s, delim)
+		if start < 0 {
+			out.WriteString(s)
+			return out.String()
+		}
+		end := strings.Index(s[start+len(delim):], delim)
+		if end < 0 {
+			out.WriteString(strings.ReplaceAll(s, delim, ""))
+			return out.String()
+		}
+		end += start + len(delim)
+		out.WriteString(s[:start])
+		out.WriteString(style.Render(s[start+len(delim) : end]))
+		s = s[end+len(delim):]
+	}
 }
 
 // updateNotesTab handles keystrokes when the notes section (editField==3) is active.
