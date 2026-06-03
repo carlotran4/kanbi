@@ -386,7 +386,7 @@ func TestRunBoardTUIIntegrationSwitchesBoards(t *testing.T) {
 	output = waitForTmuxOutput(t, sessionName, "Create ticket in which board?")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "j")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // create on Client B
-	output = waitForTmuxOutput(t, sessionName, "DESCRIPTION")
+	output = waitForTmuxOutput(t, sessionName, "No description yet")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "Escape")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "b")
 	output = waitForTmuxOutput(t, sessionName, "Select board")

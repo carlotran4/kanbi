@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -10,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"agent-kanban/internal/kanban"
+	"agent-kanban/internal/storage"
 )
 
 func (m *Model) startColumnEdit(action string) {
@@ -258,21 +260,10 @@ func (m Model) editView() string {
 	accent := lipgloss.NewStyle().Foreground(palette.accent)
 	chip := lipgloss.NewStyle().Foreground(palette.chipText).Background(palette.header).Padding(0, 1)
 	focusChip := lipgloss.NewStyle().Foreground(palette.chipTextInverted).Background(palette.accent).Padding(0, 1).Bold(true)
-
-	sectionTitle := func(i int, label string) string {
-		prefix := "  "
-		style := muted
-		if m.editField == i {
-			prefix = accent.Render("▸ ")
-			style = accent.Bold(true)
-		}
-		return prefix + style.Render(strings.ToUpper(label))
-	}
+	metaText := lipgloss.NewStyle().Foreground(palette.muted)
+	dirty := m.editDirty(t)
 
 	var lines []string
-	if m.editField == 0 {
-		lines = append(lines, focusChip.Render("TITLE")+" "+m.editInputs[0].Render(), "")
-	}
 
 	columnName := ""
 	for _, col := range m.view.Columns {
@@ -289,35 +280,46 @@ func (m Model) editView() string {
 		meta = append(meta, chip.Render(columnName))
 	}
 	runtime := runtimeLabel(t)
-	if runtime != "" {
-		meta = append(meta, statusChip(t.Runtime, runtime))
+	if runtime == "" {
+		runtime = "not started"
 	}
+	meta = append(meta, statusChip(t.Runtime, runtime))
 	harnessValue := strings.TrimSpace(m.editInputs[2].Value())
 	if harnessValue == "" {
 		harnessValue = "pi"
 	}
 	if m.editField == 2 {
-		meta = append(meta, focusChip.Render("HARNESS")+" "+m.editInputs[2].Render())
+		meta = append(meta, focusChip.Render("harness")+" "+m.editInputs[2].Render())
 	} else {
 		meta = append(meta, chip.Render(harnessValue))
 	}
+	if !t.UpdatedAt.IsZero() {
+		meta = append(meta, metaText.Render("updated "+relativeTime(t.UpdatedAt)))
+	}
+	if dirty {
+		meta = append(meta, lipgloss.NewStyle().Foreground(palette.warning).Bold(true).Render("unsaved"))
+	}
 	if len(meta) > 0 {
-		lines = append(lines, strings.Join(meta, " "))
+		lines = append(lines, strings.Join(meta, metaText.Render("  ·  ")))
 	}
 
-	lines = append(lines, "", sectionTitle(1, "Description"))
+	lines = append(lines, "")
 	if m.editField == 1 {
 		lines = append(lines, m.bodyTA.View())
 	} else {
 		body := strings.TrimSpace(m.bodyTA.Value())
 		if body == "" {
-			lines = append(lines, muted.Italic(true).Render("No description yet. Focus this section and start typing, or press Ctrl+E for $EDITOR."))
+			lines = append(lines, muted.Italic(true).Render("No description yet. Start typing to add context."))
 		} else {
 			lines = append(lines, renderMarkdownForInspector(body, contentW, 9))
 		}
 	}
 
-	lines = append(lines, "", sectionTitle(3, "Notes"))
+	notesHeading := metaText.Render("Notes")
+	if m.editField == 3 {
+		notesHeading = accent.Bold(true).Render("▸ Notes")
+	}
+	lines = append(lines, "", notesHeading)
 	if m.editField == 3 {
 		lines = append(lines, m.notesThreadView(contentW))
 	} else {
@@ -325,21 +327,129 @@ func (m Model) editView() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, muted.Render("Tab/Shift+Tab focus · Ctrl+S save · Ctrl+E editor · Esc cancel"))
+	lines = append(lines, muted.Render(m.editFooter(dirty)))
 
 	content := strings.Join(lines, "\n")
-	return ticketInspectorBox(content, ticketInspectorTitle(t.DisplayID, m.editInputs[0].Value()), inner)
+	titleWidth := inner - 6
+	if titleWidth < 10 {
+		titleWidth = 10
+	}
+	title := ticketInspectorTitle(t.DisplayID, m.editInputs[0], m.editField == 0, dirty, titleWidth)
+	return ticketInspectorBox(content, title, inner)
 }
 
-func ticketInspectorTitle(displayID, title string) string {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		title = "Untitled ticket"
+func (m Model) editDirty(t storage.Ticket) bool {
+	harness := strings.TrimSpace(m.editInputs[2].Value())
+	if harness == "" {
+		harness = "pi"
 	}
-	if strings.TrimSpace(displayID) == "" {
-		return title
+	return m.editInputs[0].Value() != t.Title || m.bodyTA.Value() != t.Body || harness != strings.TrimSpace(t.Harness)
+}
+
+func (m Model) editFooter(dirty bool) string {
+	prefix := ""
+	if dirty {
+		prefix = "Unsaved changes · "
 	}
-	return strings.TrimSpace(displayID) + " " + title
+	switch m.editField {
+	case 0:
+		return prefix + "editing title · Tab body · Ctrl+S save · Esc cancel"
+	case 1:
+		return prefix + "editing description · Ctrl+E editor · Ctrl+S save"
+	case 2:
+		return prefix + "editing harness · Tab notes · Ctrl+S save · Esc cancel"
+	case 3:
+		return prefix + "notes · a add · e edit · d delete · Ctrl+S save"
+	default:
+		return prefix + "Tab/Shift+Tab focus · Ctrl+S save · Esc cancel"
+	}
+}
+
+func ticketInspectorTitle(displayID string, title InputBuffer, focused bool, dirty bool, maxWidth int) string {
+	prefix := ""
+	if dirty {
+		prefix = "* "
+	}
+	if strings.TrimSpace(displayID) != "" {
+		prefix += strings.TrimSpace(displayID) + " "
+	}
+	if focused {
+		available := maxWidth - lipgloss.Width(prefix)
+		if available < 1 {
+			available = 1
+		}
+		return prefix + renderInputWindow(title, available)
+	}
+	value := strings.TrimSpace(title.Value())
+	if value == "" {
+		value = "Untitled ticket"
+	}
+	full := prefix + value
+	if lipgloss.Width(full) > maxWidth {
+		full = trimToWidth(full, maxWidth)
+	}
+	return full
+}
+
+func renderInputWindow(input InputBuffer, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	value := []rune(input.Value())
+	cursor := input.Cursor()
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(value) {
+		cursor = len(value)
+	}
+	cursorStyle := lipgloss.NewStyle().Reverse(true)
+	if len(value) == 0 {
+		return cursorStyle.Render(" ")
+	}
+	if cursor == len(value) {
+		textWidth := width - 1
+		if textWidth < 0 {
+			textWidth = 0
+		}
+		start := len(value) - textWidth
+		if start < 0 {
+			start = 0
+		}
+		return string(value[start:]) + cursorStyle.Render(" ")
+	}
+	start := 0
+	if cursor >= width {
+		start = cursor - width + 1
+	}
+	end := start + width
+	if end > len(value) {
+		end = len(value)
+	}
+	var out strings.Builder
+	out.WriteString(string(value[start:cursor]))
+	out.WriteString(cursorStyle.Render(string(value[cursor : cursor+1])))
+	out.WriteString(string(value[cursor+1 : end]))
+	return out.String()
+}
+
+func relativeTime(t time.Time) string {
+	d := time.Since(t)
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	default:
+		return t.Local().Format("Jan 2")
+	}
 }
 
 func ticketInspectorBox(content, title string, width int) string {

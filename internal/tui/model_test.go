@@ -417,19 +417,23 @@ func TestModelTicketInspectorRendersPolishedInlineEditor(t *testing.T) {
 	model := New(ctx, NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	rendered := model.View()
-	for _, want := range []string{"T-001", "TITLE", "Pretty editor", "DESCRIPTION", "NOTES", "1 note", "Ctrl+S save"} {
+	for _, want := range []string{"T-001", "Pretty editor", "Open", "not started", "Notes", "1 note", "Ctrl+S save"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("ticket inspector missing %q:\n%s", want, rendered)
 		}
 	}
-	if plain := ansiStrip(rendered); !strings.Contains(plain, "╭─ T-001 Pretty editor") {
+	plain := ansiStrip(rendered)
+	if !strings.Contains(plain, "╭─ T-001 Pretty editor") {
 		t.Fatalf("ticket inspector title should be embedded in modal outline:\n%s", rendered)
+	}
+	if strings.Contains(plain, "TITLE") || strings.Contains(plain, "DESCRIPTION") || strings.Contains(plain, "title:") {
+		t.Fatalf("ticket inspector should not render raw form labels:\n%s", rendered)
 	}
 
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	rendered = model.View()
-	if !strings.Contains(rendered, "▸ DESCRIPTION") || strings.Contains(rendered, "title:") {
-		t.Fatalf("description focus should look like an inspector, not a raw form:\n%s", rendered)
+	if strings.Contains(ansiStrip(rendered), "DESCRIPTION") {
+		t.Fatalf("description focus should remain label-free:\n%s", rendered)
 	}
 }
 
