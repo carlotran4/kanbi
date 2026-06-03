@@ -3,7 +3,10 @@ package tui
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -499,6 +502,36 @@ func TestModelEditTicketUpdatesStore(t *testing.T) {
 	}
 	if got.Title != "Fixed" {
 		t.Fatalf("title = %q, want Fixed", got.Title)
+	}
+}
+
+func TestModelBodyPasteStoresImageAttachmentAndInsertsMarkdown(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Image paste", "Existing body", "pi")
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(base64.StdEncoding.EncodeToString(png)), Paste: true})
+
+	wantDir := filepath.Join(dataHome, "agent-kanban", "attachments", "1")
+	entries, err := os.ReadDir(wantDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || filepath.Ext(entries[0].Name()) != ".png" {
+		t.Fatalf("attachments = %+v", entries)
+	}
+	wantRef := "![](" + filepath.ToSlash(filepath.Join(wantDir, entries[0].Name())) + ")"
+	if !strings.Contains(model.bodyTA.Value(), "Existing body\n"+wantRef+"\n") {
+		t.Fatalf("body = %q, want inserted ref %q", model.bodyTA.Value(), wantRef)
+	}
+	if !strings.Contains(model.status, "attached ") {
+		t.Fatalf("status = %q", model.status)
 	}
 }
 

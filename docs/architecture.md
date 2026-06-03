@@ -64,6 +64,7 @@ Stop and ask before:
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
 | `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens. |
 | `internal/prompt` | Ticket body/prompt rendering. |
+| `internal/attachments` | XDG data-dir ticket attachment storage and pasted image detection. |
 | `scripts/` | Development launcher, deterministic smoke tests, fake harnesses, opt-in real harness lifecycle script. |
 | `docs/` | Source-of-truth docs for state, lifecycle, harness contracts, verification, multi-board behavior, and archived product context. |
 

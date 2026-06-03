@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
+	"agent-kanban/internal/attachments"
 	"agent-kanban/internal/kanban"
 	"agent-kanban/internal/storage"
 )
@@ -127,6 +129,9 @@ func (m *Model) moveAttention(delta int) {
 }
 
 func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
+	if m.editField == 1 && key.Paste {
+		return m.handleBodyPaste(key), nil
+	}
 	// Notes tab (editField == 3) has its own key handling.
 	if m.editField == 3 {
 		return m.updateNotesTab(key)
@@ -195,6 +200,34 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		m.currentEditBuffer().HandleKey(key.String(), key.Runes)
 	}
 	return m, nil
+}
+
+func (m Model) handleBodyPaste(key tea.KeyMsg) Model {
+	t, ok := m.selectedTicket()
+	if !ok {
+		return m
+	}
+	pasted := string(key.Runes)
+	path, ref, isImage, err := attachments.SavePastedImage(t.ID, pasted, time.Now())
+	if err != nil {
+		m.status = "image paste failed: " + err.Error()
+		return m
+	}
+	if !isImage {
+		var cmd tea.Cmd
+		m.bodyTA, cmd = m.bodyTA.Update(key)
+		_ = cmd
+		return m
+	}
+	insert := ref
+	value := m.bodyTA.Value()
+	if strings.TrimSpace(value) != "" && !strings.HasSuffix(value, "\n") {
+		insert = "\n" + insert
+	}
+	insert += "\n"
+	m.bodyTA.InsertString(insert)
+	m.status = "attached " + filepath.Base(path)
+	return m
 }
 
 func (m *Model) saveEdit() {

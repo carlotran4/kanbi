@@ -55,6 +55,7 @@ Press `e` to open the unified ticket inspector/editor. The inspector renders the
 - `Tab` / `Shift+Tab` — move focus between title, description, harness, and notes
 - `Ctrl+S` — save the ticket
 - `Ctrl+E` — open the description in `$EDITOR`
+- paste base64 image data while the description is focused — save it under `~/.local/share/agent-kanban/attachments/<ticket-id>/` and insert a Markdown image reference
 - `Esc` — cancel/close the inspector
 
 Inside the notes section:
