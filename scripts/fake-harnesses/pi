@@ -2,6 +2,12 @@
 set -euo pipefail
 
 mode="${1:-start}"
+ref="fake-${AGENT_KANBAN_TICKET_ID:-${mode}}"
+if [[ -n "${AGENT_KANBAN_SESSION_REF_FILE:-}" ]]; then
+  mkdir -p "$(dirname "$AGENT_KANBAN_SESSION_REF_FILE")"
+  printf '{"sessionId":"%s"}\n' "$ref" >"$AGENT_KANBAN_SESSION_REF_FILE"
+fi
+
 case "$mode" in
   --session)
     echo "RESUMED ${2:-missing-session-ref}"
@@ -25,7 +31,7 @@ case "$mode" in
     ;;
 esac
 
-echo "SESSION_REF=fake-${mode}"
+echo "SESSION_REF=${ref}"
 echo "PROMPT_READY"
 
 if (($# > 0)); then
