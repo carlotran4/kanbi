@@ -177,8 +177,9 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 	if !strings.Contains(rendered, "╭") || strings.Contains(rendered, "+---") {
 		t.Fatalf("cards should use soft rounded borders instead of ASCII boxes:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "> T-001") {
-		t.Fatalf("focused card marker missing from card box:\n%s", rendered)
+	focusedCardLine := ansiStrip(firstLineContaining(rendered, "> T-001"))
+	if !strings.Contains(focusedCardLine, "╭─ > T-001 Unified approach") {
+		t.Fatalf("focused card title should be embedded in the top border, got %q\n%s", focusedCardLine, rendered)
 	}
 }
 
