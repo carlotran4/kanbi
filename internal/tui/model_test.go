@@ -369,6 +369,17 @@ func sqlNullInt64(n int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: n, Valid: true}
 }
 
+func TestTicketInspectorDescriptionUsesReadableText(t *testing.T) {
+	rendered := renderMarkdownForInspector("# Heading\n\nThe ticket body should be readable, not faint grey text.", 80, 6)
+	plain := ansiStrip(rendered)
+	if !strings.Contains(plain, "Heading") || !strings.Contains(plain, "readable") {
+		t.Fatalf("description content missing: %q", rendered)
+	}
+	if strings.Contains(rendered, "\x1b[2m") {
+		t.Fatalf("description should not use faint styling: %q", rendered)
+	}
+}
+
 func TestModelTicketInspectorShowsResumableStatus(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)

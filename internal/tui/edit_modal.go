@@ -522,28 +522,47 @@ func renderMarkdownForInspector(body string, width int, maxLines int) string {
 	if width < 20 {
 		width = 20
 	}
-	rendered := ""
-	if gr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(width)); err == nil {
-		if out, err := gr.Render(body); err == nil {
-			rendered = strings.TrimSpace(out)
-		}
-	}
-	if rendered == "" {
-		rendered = strings.TrimSpace(body)
-	}
-	parts := strings.Split(rendered, "\n")
+	plain := readableMarkdownText(body)
+	paragraphs := strings.Split(plain, "\n")
 	var lines []string
-	for _, line := range parts {
-		if strings.TrimSpace(line) == "" && (len(lines) == 0 || strings.TrimSpace(lines[len(lines)-1]) == "") {
+	for _, paragraph := range paragraphs {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+				lines = append(lines, "")
+			}
 			continue
 		}
-		lines = append(lines, line)
-		if len(lines) == maxLines {
+		wrapped := wrapText(paragraph, width, maxLines-len(lines))
+		lines = append(lines, wrapped...)
+		if len(lines) >= maxLines {
 			break
 		}
 	}
-	if len(parts) > len(lines) {
-		lines = append(lines, lipgloss.NewStyle().Faint(true).Render("…"))
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if strings.Count(plain, "\n")+1 > len(lines) {
+		lines = append(lines, lipgloss.NewStyle().Foreground(palette.muted).Render("…"))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func readableMarkdownText(s string) string {
+	s = strings.TrimSpace(s)
+	var lines []string
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "### "):
+			trimmed = strings.TrimPrefix(trimmed, "### ")
+		case strings.HasPrefix(trimmed, "## "):
+			trimmed = strings.TrimPrefix(trimmed, "## ")
+		case strings.HasPrefix(trimmed, "# "):
+			trimmed = strings.TrimPrefix(trimmed, "# ")
+		}
+		trimmed = strings.NewReplacer("**", "", "__", "", "`", "").Replace(trimmed)
+		lines = append(lines, trimmed)
 	}
 	return strings.Join(lines, "\n")
 }
