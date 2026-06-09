@@ -18,22 +18,23 @@ import (
 	"kanbi/internal/storage"
 )
 
-const defaultGitHubColumnLabelPrefix = "status:"
+const legacyGitHubColumnLabelPrefix = "status:"
 
 type GitHubConfig struct {
-	Owner             string   `json:"owner"`
-	Repo              string   `json:"repo"`
-	Token             string   `json:"token,omitempty"`
-	APIBaseURL        string   `json:"api_base_url,omitempty"`
-	States            []string `json:"states,omitempty"`
-	Labels            []string `json:"labels,omitempty"`
-	Assignee          string   `json:"assignee,omitempty"`
-	Mentioned         string   `json:"mentioned,omitempty"`
-	Milestone         string   `json:"milestone,omitempty"`
-	Since             string   `json:"since,omitempty"`
-	ColumnLabelPrefix string   `json:"column_label_prefix,omitempty"`
-	DefaultOpenColumn string   `json:"default_open_column,omitempty"`
-	ClosedColumn      string   `json:"closed_column,omitempty"`
+	Owner             string            `json:"owner"`
+	Repo              string            `json:"repo"`
+	Token             string            `json:"token,omitempty"`
+	APIBaseURL        string            `json:"api_base_url,omitempty"`
+	States            []string          `json:"states,omitempty"`
+	Labels            []string          `json:"labels,omitempty"`
+	WorkflowLabels    map[string]string `json:"workflow_labels,omitempty"`
+	Assignee          string            `json:"assignee,omitempty"`
+	Mentioned         string            `json:"mentioned,omitempty"`
+	Milestone         string            `json:"milestone,omitempty"`
+	Since             string            `json:"since,omitempty"`
+	ColumnLabelPrefix string            `json:"column_label_prefix,omitempty"`
+	DefaultOpenColumn string            `json:"default_open_column,omitempty"`
+	ClosedColumn      string            `json:"closed_column,omitempty"`
 }
 
 type GitHubIssue struct {
@@ -63,7 +64,7 @@ type GitHubIssueUpdate struct {
 	Title  *string  `json:"title,omitempty"`
 	Body   *string  `json:"body,omitempty"`
 	State  *string  `json:"state,omitempty"`
-	Labels []string `json:"labels,omitempty"`
+	Labels []string `json:"labels"`
 }
 
 type GitHubClient interface {
@@ -264,13 +265,20 @@ func ParseGitHubConfig(configJSON, query string) (GitHubConfig, error) {
 		cfg.States = []string{"open", "closed"}
 	}
 	if cfg.ColumnLabelPrefix == "" {
-		cfg.ColumnLabelPrefix = defaultGitHubColumnLabelPrefix
+		cfg.ColumnLabelPrefix = legacyGitHubColumnLabelPrefix
 	}
 	if cfg.DefaultOpenColumn == "" {
 		cfg.DefaultOpenColumn = "Open"
 	}
 	if cfg.ClosedColumn == "" {
-		cfg.ClosedColumn = "Closed"
+		cfg.ClosedColumn = "Done"
+	}
+	if cfg.WorkflowLabels == nil {
+		cfg.WorkflowLabels = map[string]string{
+			"In Progress": "in-progress",
+			"Review":      "needs-review",
+			"Blocked":     "blocked",
+		}
 	}
 	return cfg, nil
 }
@@ -328,10 +336,13 @@ func githubColumns(cfg GitHubConfig, issues []GitHubIssue) []string {
 }
 
 func githubIssueColumn(cfg GitHubConfig, issue GitHubIssue) string {
-	if issue.State == "closed" {
+	if strings.EqualFold(issue.State, "closed") {
 		return cfg.ClosedColumn
 	}
 	for _, l := range issue.Labels {
+		if col, ok := githubColumnForWorkflowLabel(cfg, l.Name); ok {
+			return col
+		}
 		if strings.HasPrefix(strings.ToLower(l.Name), strings.ToLower(cfg.ColumnLabelPrefix)) {
 			return strings.TrimSpace(l.Name[len(cfg.ColumnLabelPrefix):])
 		}
@@ -339,20 +350,52 @@ func githubIssueColumn(cfg GitHubConfig, issue GitHubIssue) string {
 	return cfg.DefaultOpenColumn
 }
 
+func githubColumnForWorkflowLabel(cfg GitHubConfig, label string) (string, bool) {
+	for col, configured := range cfg.WorkflowLabels {
+		if strings.EqualFold(label, configured) {
+			return col, true
+		}
+	}
+	return "", false
+}
+
+func githubWorkflowLabelForColumn(cfg GitHubConfig, column string) (string, bool) {
+	for col, label := range cfg.WorkflowLabels {
+		if strings.EqualFold(column, col) && strings.TrimSpace(label) != "" {
+			return label, true
+		}
+	}
+	return "", false
+}
+
+func githubTerminalColumn(cfg GitHubConfig, column string) bool {
+	return strings.EqualFold(column, cfg.ClosedColumn) || strings.EqualFold(column, "Done") || strings.EqualFold(column, "Closed")
+}
+
+func githubManagedWorkflowLabel(cfg GitHubConfig, label string) bool {
+	if strings.HasPrefix(strings.ToLower(label), strings.ToLower(cfg.ColumnLabelPrefix)) {
+		return true
+	}
+	_, ok := githubColumnForWorkflowLabel(cfg, label)
+	return ok
+}
+
 func githubUpdateFromLocal(cfg GitHubConfig, t storage.Ticket, column string, oldLabels []GitHubLabel) GitHubIssueUpdate {
 	title, body := t.Title, t.Body
 	state := "open"
-	if t.ArchivedAt.Valid || strings.EqualFold(column, cfg.ClosedColumn) {
+	if t.ArchivedAt.Valid || githubTerminalColumn(cfg, column) {
 		state = "closed"
 	}
 	labels := make([]string, 0, len(oldLabels)+1)
 	for _, l := range oldLabels {
-		if !strings.HasPrefix(strings.ToLower(l.Name), strings.ToLower(cfg.ColumnLabelPrefix)) {
+		if !githubManagedWorkflowLabel(cfg, l.Name) {
 			labels = append(labels, l.Name)
 		}
 	}
 	if state != "closed" {
-		labels = append(labels, cfg.ColumnLabelPrefix+column)
+		if label, ok := githubWorkflowLabelForColumn(cfg, column); ok {
+			labels = append(labels, label)
+		}
 	}
 	return GitHubIssueUpdate{Title: &title, Body: &body, State: &state, Labels: labels}
 }

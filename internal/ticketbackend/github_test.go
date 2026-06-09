@@ -85,7 +85,7 @@ func TestGitHubSyncPullsIssuesColumnsAndComments(t *testing.T) {
 	}
 	remoteUpdated := time.Now().UTC().Add(-time.Hour)
 	client := &fakeGitHubClient{
-		issues:   []GitHubIssue{{Number: 42, HTMLURL: "https://github.com/acme/proj/issues/42", Title: "Remote title", Body: "Remote body", State: "open", Labels: []GitHubLabel{{Name: "status:Review"}}, UpdatedAt: remoteUpdated}},
+		issues:   []GitHubIssue{{Number: 42, HTMLURL: "https://github.com/acme/proj/issues/42", Title: "Remote title", Body: "Remote body", State: "open", Labels: []GitHubLabel{{Name: "needs-review"}}, UpdatedAt: remoteUpdated}},
 		comments: map[int][]GitHubComment{42: {{ID: 9, Body: "remote comment", UpdatedAt: remoteUpdated}}},
 	}
 	res, err := (GitHubBackend{Client: client}).Sync(ctx, store, board)
@@ -129,7 +129,7 @@ func TestGitHubSyncPushesLocalNewerTicketAndNotes(t *testing.T) {
 	}
 	oldRemote := time.Now().UTC().Add(-2 * time.Hour)
 	client := &fakeGitHubClient{
-		issues:   []GitHubIssue{{Number: 7, HTMLURL: "url", Title: "old", Body: "old", State: "open", Labels: []GitHubLabel{{Name: "status:Open"}}, UpdatedAt: oldRemote}},
+		issues:   []GitHubIssue{{Number: 7, HTMLURL: "url", Title: "old", Body: "old", State: "open", Labels: []GitHubLabel{{Name: "kanbi"}, {Name: "status:Open"}}, UpdatedAt: oldRemote}},
 		comments: map[int][]GitHubComment{},
 	}
 	if _, err := (GitHubBackend{Client: client}).Sync(ctx, store, board); err != nil {
@@ -164,6 +164,36 @@ func TestGitHubSyncPushesLocalNewerTicketAndNotes(t *testing.T) {
 	}
 	if updated.ExternalUpdatedAt.Time.Before(oldRemote) || strings.TrimSpace(updated.ExternalID.String) == "" {
 		t.Fatalf("external sync fields not refreshed: %+v", updated)
+	}
+}
+
+func TestGitHubUpdateFromLocalUsesNativeWorkflowLabels(t *testing.T) {
+	cfg, err := ParseGitHubConfig(`{"owner":"acme","repo":"proj"}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := githubUpdateFromLocal(cfg, storage.Ticket{Title: "t", Body: "b"}, "Review", []GitHubLabel{{Name: "kanbi"}, {Name: "status:Open"}, {Name: "bug"}})
+	if *update.State != "open" {
+		t.Fatalf("state=%s", *update.State)
+	}
+	joined := strings.Join(update.Labels, ",")
+	if strings.Contains(joined, "status:") || !strings.Contains(joined, "needs-review") || !strings.Contains(joined, "bug") || !strings.Contains(joined, "kanbi") {
+		t.Fatalf("labels=%v", update.Labels)
+	}
+}
+
+func TestGitHubUpdateFromLocalClosesTerminalColumns(t *testing.T) {
+	cfg, err := ParseGitHubConfig(`{"owner":"acme","repo":"proj"}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := githubUpdateFromLocal(cfg, storage.Ticket{Title: "t", Body: "b"}, "Done", []GitHubLabel{{Name: "kanbi"}, {Name: "needs-review"}, {Name: "status:Done"}})
+	if *update.State != "closed" {
+		t.Fatalf("state=%s", *update.State)
+	}
+	joined := strings.Join(update.Labels, ",")
+	if strings.Contains(joined, "needs-review") || strings.Contains(joined, "status:") || !strings.Contains(joined, "kanbi") {
+		t.Fatalf("labels=%v", update.Labels)
 	}
 }
 
@@ -205,7 +235,7 @@ func TestParseGitHubConfigAppliesQuerySurface(t *testing.T) {
 	if cfg.Owner != "o" || cfg.Repo != "r" || cfg.ColumnLabelPrefix != "flow:" || cfg.Assignee != "octo" {
 		t.Fatalf("unexpected cfg: %+v", cfg)
 	}
-	if len(cfg.States) != 1 || cfg.States[0] != "open" || len(cfg.Labels) != 2 || cfg.Labels[1] != "triage" {
+	if len(cfg.States) != 1 || cfg.States[0] != "open" || len(cfg.Labels) != 2 || cfg.Labels[1] != "triage" || cfg.ClosedColumn != "Done" {
 		t.Fatalf("query not applied: %+v", cfg)
 	}
 }

@@ -73,7 +73,8 @@ Auth uses `token` in `backend_config`, or `KANBI_GITHUB_TOKEN`, or `GITHUB_TOKEN
 GitHub sync behavior:
 
 - Pulls issues selected by `backend_query` and projects them as local cached tickets with display IDs like `GH-42`.
-- Uses labels with `status:` prefix as workflow columns (`status:Review` -> `Review`). Open issues without a status label go to `Open`; closed issues go to `Closed`. These names can be changed in `backend_config` with `column_label_prefix`, `default_open_column`, and `closed_column`.
+- Uses GitHub-native issue state for terminal work: closed issues appear in the `Done` column by default, and moving a ticket to `Done` or `Closed` closes the GitHub issue. Open issues without a workflow label go to `Open`.
+- Uses plain workflow labels for non-terminal columns by default: `in-progress` -> `In Progress`, `needs-review` -> `Review`, and `blocked` -> `Blocked`. Override these with `workflow_labels` in `backend_config`. Legacy `status:*` labels are still read during transition but are stripped on the next push.
 - Pulls issue comments into ticket notes and pushes local notes as issue comments.
 - Pushes local ticket title/body/closed state/status-label changes back to GitHub. Local tickets created on a GitHub board are created as remote issues on the next sync.
 - Uses newest `updated_at` wins for ticket and comment conflicts.
