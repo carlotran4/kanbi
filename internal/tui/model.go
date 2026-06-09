@@ -185,6 +185,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if isKittyGraphicsResponse(string(key.Runes)) || isKittyGraphicsResponse(key.String()) {
+		if m.editing {
+			for i := range m.editInputs {
+				clean := stripKittyGraphicsResponseFragments(m.editInputs[i].Value())
+				if clean != m.editInputs[i].Value() {
+					m.editInputs[i].Set(clean)
+				}
+			}
+		}
 		return m, nil
 	}
 	// Clear stale status on any keypress (unless a modal is consuming input).

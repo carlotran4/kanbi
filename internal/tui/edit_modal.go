@@ -129,6 +129,12 @@ func (m *Model) moveAttention(delta int) {
 }
 
 func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
+	for i := range m.editInputs {
+		clean := stripKittyGraphicsResponseFragments(m.editInputs[i].Value())
+		if clean != m.editInputs[i].Value() {
+			m.editInputs[i].Set(clean)
+		}
+	}
 	if m.editField == 1 && key.Paste {
 		return m.handleBodyPaste(key), nil
 	}
@@ -240,9 +246,9 @@ func (m *Model) saveEdit() {
 		m.editing = false
 		return
 	}
-	title := m.editInputs[0].Value()
+	title := stripKittyGraphicsResponseFragments(m.editInputs[0].Value())
 	body := m.bodyTA.Value()
-	harness := m.editInputs[2].Value()
+	harness := stripKittyGraphicsResponseFragments(m.editInputs[2].Value())
 	if strings.TrimSpace(harness) == "" {
 		harness = "pi"
 	}

@@ -183,7 +183,7 @@ func renderKittyImage(path string, cols int, rows int) []string {
 	// file payloads; otherwise they report EINVAL: dimensions required.
 	// C=1 keeps cursor movement predictable for TUI layouts, c/r bound the image
 	// to terminal cells.
-	esc := tmuxPassthrough(fmt.Sprintf("\x1b_Ga=T,t=f,f=%d,s=%d,v=%d,i=%d,C=1,c=%d,r=%d;%s\x1b\\", format, pxW, pxH, id, cols, rows, payload))
+	esc := tmuxPassthrough(fmt.Sprintf("\x1b_Ga=T,t=f,f=%d,s=%d,v=%d,i=%d,C=1,c=%d,r=%d,q=2;%s\x1b\\", format, pxW, pxH, id, cols, rows, payload))
 	lines := make([]string, rows)
 	lines[0] = esc
 	for i := 1; i < rows-1; i++ {
@@ -261,7 +261,33 @@ func clearKittyImagesSeq() string {
 	if terminalImageProtocol() != imageProtocolKitty {
 		return ""
 	}
-	return tmuxPassthrough("\x1b_Ga=d,d=A\x1b\\")
+	return tmuxPassthrough("\x1b_Ga=d,d=A,q=2\x1b\\")
+}
+
+func stripKittyGraphicsResponseFragments(s string) string {
+	for {
+		start := strings.Index(s, "_Gi=")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s[start:], "\\")
+		if end < 0 {
+			return strings.TrimSuffix(s[:start], "_")
+		}
+		s = s[:start] + s[start+end+1:]
+	}
+	for {
+		start := strings.Index(s, "Gi=")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s[start:], "\\")
+		if end < 0 {
+			return s[:start]
+		}
+		s = s[:start] + s[start+end+1:]
+	}
+	return strings.TrimSuffix(s, "_\\")
 }
 
 func isKittyGraphicsResponse(s string) bool {

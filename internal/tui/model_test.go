@@ -542,6 +542,7 @@ func TestModelIgnoresKittyGraphicsResponsesWhileEditingTitle(t *testing.T) {
 
 	model := New(ctx, NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
+	model.editInputs[0].Set("Image preview verification_\\")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("_Gi=900564567;OK\\")})
 	if got := model.editInputs[0].Value(); got != "Image preview verification" {
 		t.Fatalf("title polluted by graphics response: %q", got)

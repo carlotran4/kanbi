@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+func TestStripKittyGraphicsResponseFragments(t *testing.T) {
+	cases := map[string]string{
+		"Image preview verification_Gi=900564567;OK\\":                          "Image preview verification",
+		"Image preview verification_Gi=900564567;EINVAL: dimensions required\\": "Image preview verification",
+		"Image preview verification_\\":                                         "Image preview verification",
+	}
+	for in, want := range cases {
+		if got := stripKittyGraphicsResponseFragments(in); got != want {
+			t.Fatalf("stripKittyGraphicsResponseFragments(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
 func TestImageEscapeHasZeroDisplayWidthForPadding(t *testing.T) {
 	line := "\x1b_Ga=T,t=f;payload\x1b\\"
 	if got := displayWidth(line); got != 0 {
@@ -103,7 +116,7 @@ func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
 
 	imagePath := writeTestPNG(t)
 	rendered := renderMarkdownForInspector("before\n![]("+imagePath+")\nafter", 20, 8)
-	if !strings.Contains(rendered, "\x1b_Ga=T,t=f,f=100,s=1,v=1") {
+	if !strings.Contains(rendered, "\x1b_Ga=T,t=f,f=100,s=1,v=1") || !strings.Contains(rendered, "q=2") {
 		t.Fatalf("kitty escape missing: %q", rendered)
 	}
 	if !strings.Contains(rendered, "before") || !strings.Contains(rendered, "after") {
