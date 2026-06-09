@@ -535,6 +535,19 @@ func TestModelBodyPasteStoresImageAttachmentAndInsertsMarkdown(t *testing.T) {
 	}
 }
 
+func TestModelIgnoresKittyGraphicsResponsesWhileEditingTitle(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Image preview verification", "![](/tmp/example.png)", "pi")
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("_Gi=900564567;OK\\")})
+	if got := model.editInputs[0].Value(); got != "Image preview verification" {
+		t.Fatalf("title polluted by graphics response: %q", got)
+	}
+}
+
 func TestModelEscFromInspectorReturnsClearImageCommand(t *testing.T) {
 	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "kitty")
 	store, ctx := newTestStore(t)

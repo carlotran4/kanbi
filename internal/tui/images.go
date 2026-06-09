@@ -264,6 +264,17 @@ func clearKittyImagesSeq() string {
 	return tmuxPassthrough("\x1b_Ga=d,d=A\x1b\\")
 }
 
+func isKittyGraphicsResponse(s string) bool {
+	if s == "" {
+		return false
+	}
+	// Kitty-compatible terminals report graphics status back on stdin, e.g.
+	// ESC_Gi=123;OK ESC\\. Bubble Tea can surface that as runes while a
+	// text field is focused, so filter it before editable buffers see it.
+	return strings.Contains(s, "\x1b_Gi=") || strings.Contains(s, "_Gi=") ||
+		(strings.Contains(s, "Gi=") && (strings.Contains(s, ";OK") || strings.Contains(s, ";EINVAL")))
+}
+
 func imagePlaceholder(path string) string {
 	return imagePlaceholderForWidth(path, 0)
 }
