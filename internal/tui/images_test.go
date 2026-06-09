@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func TestImagePlaceholderTruncatesLongNamesToWidth(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+
+	long := "/tmp/pi-clipboard-885c5b19-b68b-43b4-892d-d5a79361ad5d.png"
+	preview := ansiStrip(renderBodyPreview("![]("+long+")", 30))
+	for _, line := range strings.Split(preview, "\n") {
+		if len([]rune(line)) > 30 {
+			t.Fatalf("line too wide (%d): %q", len([]rune(line)), line)
+		}
+	}
+	if !strings.Contains(preview, "…") {
+		t.Fatalf("preview should be truncated: %q", preview)
+	}
+}
+
 func TestRenderBodyPreviewShowsImagePlaceholderWithoutGraphics(t *testing.T) {
 	stubNoGraphicsTerminal(t)
 

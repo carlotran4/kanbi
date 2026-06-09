@@ -132,16 +132,16 @@ func renderImageBlock(path string, cols int, maxRows int, graphics bool) []strin
 		maxRows = 4
 	}
 	if !graphics {
-		return []string{imagePlaceholder(path)}
+		return []string{imagePlaceholderForWidth(path, cols)}
 	}
 	resolved := expandImagePath(path)
 	switch terminalImageProtocol() {
 	case imageProtocolKitty:
 		return renderKittyImage(resolved, cols, maxRows)
 	case imageProtocolSixel:
-		return []string{imagePlaceholder(path) + " (sixel preview unavailable)"}
+		return []string{imagePlaceholderForWidth(path, cols) + " (sixel preview unavailable)"}
 	default:
-		return []string{imagePlaceholder(path)}
+		return []string{imagePlaceholderForWidth(path, cols)}
 	}
 }
 
@@ -209,6 +209,17 @@ func containsImageEscape(s string) bool {
 	return strings.Contains(s, "\x1b_G") || strings.Contains(s, "\x1bPtmux;")
 }
 
+func clearKittyImagesCmd() tea.Cmd {
+	seq := clearKittyImagesSeq()
+	if seq == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		fmt.Print(seq)
+		return nil
+	}
+}
+
 func withClearKittyImages(cmd tea.Cmd) tea.Cmd {
 	seq := clearKittyImagesSeq()
 	if seq == "" || cmd == nil {
@@ -228,11 +239,35 @@ func clearKittyImagesSeq() string {
 }
 
 func imagePlaceholder(path string) string {
+	return imagePlaceholderForWidth(path, 0)
+}
+
+func imagePlaceholderForWidth(path string, width int) string {
 	base := filepath.Base(expandImagePath(path))
 	if base == "." || base == string(filepath.Separator) || base == "" {
 		base = path
 	}
-	return lipgloss.NewStyle().Foreground(palette.muted).Render("[image: " + base + "]")
+	label := "[image: " + base + "]"
+	if width > 0 && lipgloss.Width(label) > width {
+		label = trimImageLabel(label, width)
+	}
+	return lipgloss.NewStyle().Foreground(palette.muted).Render(label)
+}
+
+func trimImageLabel(label string, width int) string {
+	if width <= 1 {
+		return "…"
+	}
+	runes := []rune(label)
+	if len(runes) <= width {
+		return label
+	}
+	if width <= 12 {
+		return string(runes[:width-1]) + "…"
+	}
+	prefix := width / 2
+	suffix := width - prefix - 1
+	return string(runes[:prefix]) + "…" + string(runes[len(runes)-suffix:])
 }
 
 func cleanMarkdownImagePath(path string) string {

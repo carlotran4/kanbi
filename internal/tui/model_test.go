@@ -535,6 +535,26 @@ func TestModelBodyPasteStoresImageAttachmentAndInsertsMarkdown(t *testing.T) {
 	}
 }
 
+func TestModelEscFromInspectorReturnsClearImageCommand(t *testing.T) {
+	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "kitty")
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Image", "![](/tmp/example.png)", "pi")
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	if !model.editing {
+		t.Fatal("should be editing")
+	}
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if model.editing {
+		t.Fatal("should have left edit mode")
+	}
+	if cmd == nil {
+		t.Fatal("expected clear image command")
+	}
+}
+
 func TestModelTicketInspectorRendersPolishedInlineEditor(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)

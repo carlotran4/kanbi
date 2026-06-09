@@ -140,8 +140,10 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 	case "esc":
 		m.editing = false
 		m.bodyTA.Blur()
+		return m, clearKittyImagesCmd()
 	case "ctrl+s":
 		m.saveEdit()
+		return m, clearKittyImagesCmd()
 	case "shift+tab":
 		if m.editField == 1 {
 			m.bodyTA.Blur()
@@ -157,6 +159,7 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		newField := m.editField + 1
 		if newField > 3 {
 			m.saveEdit()
+			return m, clearKittyImagesCmd()
 		} else {
 			if m.editField == 1 {
 				m.bodyTA.Blur()
@@ -176,6 +179,7 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		newField := m.editField + 1
 		if newField > 3 {
 			m.saveEdit()
+			return m, clearKittyImagesCmd()
 		} else {
 			if m.editField == 1 {
 				m.bodyTA.Blur()
