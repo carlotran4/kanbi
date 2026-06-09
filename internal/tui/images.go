@@ -135,11 +135,13 @@ func renderKittyImage(path string, cols int, rows int) []string {
 	// a=T transmits/displays, t=f means payload is a file path, C=1 keeps cursor
 	// movement predictable for TUI layouts, c/r bound the image to terminal cells.
 	esc := tmuxPassthrough(fmt.Sprintf("\x1b_Ga=T,t=f,i=%d,C=1,c=%d,r=%d;%s\x1b\\", id, cols, rows, payload))
-	blank := strings.Repeat(" ", cols)
 	lines := make([]string, rows)
-	lines[0] = esc + blank
-	for i := 1; i < rows; i++ {
-		lines[i] = "\x1b[0m" + blank
+	lines[0] = esc
+	for i := 1; i < rows-1; i++ {
+		lines[i] = " "
+	}
+	if rows > 1 {
+		lines[rows-1] = imagePlaceholder(path)
 	}
 	return lines
 }
@@ -155,6 +157,10 @@ func tmuxPassthrough(seq string) string {
 		return seq
 	}
 	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
+}
+
+func containsImageEscape(s string) bool {
+	return strings.Contains(s, "\x1b_G") || strings.Contains(s, "\x1bPtmux;")
 }
 
 func imagePlaceholder(path string) string {

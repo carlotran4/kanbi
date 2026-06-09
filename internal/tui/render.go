@@ -311,8 +311,9 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 			if strings.TrimSpace(pl) == "" {
 				continue
 			}
-			// Use lipgloss.Width to check fit; glamour-style ANSI not present here since we use plain text.
-			if lipgloss.Width(pl) > cardInnerWidth-2 {
+			// Use lipgloss.Width to check fit; do not trim graphics escapes,
+			// since slicing them corrupts the terminal image command.
+			if !containsImageEscape(pl) && lipgloss.Width(pl) > cardInnerWidth-2 {
 				pl = pl[:len([]rune(pl))-1] // best-effort trim; glamour wraps to width so this rarely fires
 			}
 			content = append(content, padLine("  "+pl, cardInnerWidth))

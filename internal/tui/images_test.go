@@ -36,6 +36,9 @@ func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
 	if !strings.Contains(rendered, "before") || !strings.Contains(rendered, "after") {
 		t.Fatalf("surrounding text missing: %q", rendered)
 	}
+	if !strings.Contains(rendered, "[image: example.png]") {
+		t.Fatalf("caption fallback missing: %q", rendered)
+	}
 	if got := strings.Count(rendered, "\n"); got < 4 {
 		t.Fatalf("expected image rows to be reserved, got %d newlines in %q", got, rendered)
 	}
