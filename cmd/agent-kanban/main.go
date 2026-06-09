@@ -10,6 +10,7 @@ import (
 
 	"agent-kanban/internal/config"
 	"agent-kanban/internal/storage"
+	"agent-kanban/internal/ticketbackend"
 	"agent-kanban/internal/tmux"
 	"agent-kanban/internal/tui"
 )
@@ -70,6 +71,10 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
 		manager := cli.Manager()
 		_ = manager.Reconcile(ctx)
+		syncer := ticketbackend.NewManager(cli.store)
+		_ = syncer.SyncAll(ctx)
+		stopSync := syncer.Start(ctx)
+		defer stopSync()
 		_, err := tea.NewProgram(tui.NewWithPicker(ctx, tui.NewService(cli.store, manager))).Run()
 		return err
 	})
@@ -90,20 +95,23 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			}
 			fmt.Println("Master\t(all boards)")
 			for _, b := range boards {
-				fmt.Printf("%d\t%s\t%s\n", b.ID, b.Name, b.Workdir)
+				fmt.Printf("%d\t%s\t%s\t%s\n", b.ID, b.Name, b.Workdir, b.TicketBackend)
 			}
 			return nil
 		}
 		if args[0] == "add" {
-			name, workdir, err := parseBoardAddArgs(args[1:])
+			opts, err := parseBoardAddArgs(args[1:])
 			if err != nil {
 				return err
 			}
-			b, err := cli.store.CreateBoardWithWorkdir(ctx, name, workdir)
+			if opts.TicketBackend != ticketbackend.KindLocal {
+				return fmt.Errorf("ticket backend %q is not implemented yet", opts.TicketBackend)
+			}
+			b, err := cli.store.CreateBoardWithOptions(ctx, opts)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%d\t%s\t%s\n", b.ID, b.Name, b.Workdir)
+			fmt.Printf("%d\t%s\t%s\t%s\n", b.ID, b.Name, b.Workdir, b.TicketBackend)
 			return nil
 		}
 		if args[0] == "rename" {
@@ -132,10 +140,10 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				return err
 			}
 			updated, _ := cli.BoardByName(args[1])
-			fmt.Printf("%d\t%s\t%s\n", updated.ID, updated.Name, updated.Workdir)
+			fmt.Printf("%d\t%s\t%s\t%s\n", updated.ID, updated.Name, updated.Workdir, updated.TicketBackend)
 			return nil
 		}
-		return fmt.Errorf("usage: agent-kanban boards [list|add \"Name\" [--cwd /path]|rename OLD NEW|set-cwd NAME /path]")
+		return fmt.Errorf("usage: agent-kanban boards [list|add \"Name\" [--cwd /path] [--backend local] [--query QUERY]|rename OLD NEW|set-cwd NAME /path]")
 	})
 }
 
@@ -291,32 +299,48 @@ func usageError(cmd string) error {
 	return fmt.Errorf("unknown command %q\nusage: agent-kanban [doctor|boards|add|list|open|--board]", cmd)
 }
 
-func parseBoardAddArgs(args []string) (name, workdir string, err error) {
+func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {
+	opts := storage.CreateBoardOptions{TicketBackend: ticketbackend.KindLocal}
 	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-		workdir = cwd
+		opts.Workdir = cwd
 	}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--cwd":
 			i++
 			if i >= len(args) {
-				return "", "", fmt.Errorf("--cwd requires a value")
+				return storage.CreateBoardOptions{}, fmt.Errorf("--cwd requires a value")
 			}
-			workdir = args[i]
+			opts.Workdir = args[i]
+		case "--backend":
+			i++
+			if i >= len(args) {
+				return storage.CreateBoardOptions{}, fmt.Errorf("--backend requires a value")
+			}
+			opts.TicketBackend = strings.TrimSpace(args[i])
+		case "--query":
+			i++
+			if i >= len(args) {
+				return storage.CreateBoardOptions{}, fmt.Errorf("--query requires a value")
+			}
+			opts.BackendQuery = args[i]
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return "", "", fmt.Errorf("unknown boards add flag %s", args[i])
+				return storage.CreateBoardOptions{}, fmt.Errorf("unknown boards add flag %s", args[i])
 			}
-			if name != "" {
-				return "", "", fmt.Errorf("boards add accepts one name")
+			if opts.Name != "" {
+				return storage.CreateBoardOptions{}, fmt.Errorf("boards add accepts one name")
 			}
-			name = args[i]
+			opts.Name = args[i]
 		}
 	}
-	if name == "" {
-		return "", "", fmt.Errorf("usage: agent-kanban boards add \"Name\" [--cwd /path]")
+	if opts.Name == "" {
+		return storage.CreateBoardOptions{}, fmt.Errorf("usage: agent-kanban boards add \"Name\" [--cwd /path] [--backend local] [--query QUERY]")
 	}
-	return name, workdir, nil
+	if opts.TicketBackend == "" {
+		opts.TicketBackend = ticketbackend.KindLocal
+	}
+	return opts, nil
 }
 
 func parseAddArgs(args []string) (title, body, harnessName, boardName string, err error) {

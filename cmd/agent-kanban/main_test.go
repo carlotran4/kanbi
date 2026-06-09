@@ -125,12 +125,12 @@ func TestParseOpenArgsUnknownFlag(t *testing.T) {
 
 func TestParseBoardAddArgsCWD(t *testing.T) {
 	dir := t.TempDir()
-	name, workdir, err := parseBoardAddArgs([]string{"Client", "--cwd", dir})
+	opts, err := parseBoardAddArgs([]string{"Client", "--cwd", dir, "--backend", "local", "--query", "ignored for local"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if name != "Client" || workdir != dir {
-		t.Fatalf("name=%q workdir=%q", name, workdir)
+	if opts.Name != "Client" || opts.Workdir != dir || opts.TicketBackend != "local" || opts.BackendQuery != "ignored for local" {
+		t.Fatalf("opts=%+v", opts)
 	}
 }
 

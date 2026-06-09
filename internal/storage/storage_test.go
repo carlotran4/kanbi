@@ -44,6 +44,28 @@ func TestBoardWorkdirExpandsTilde(t *testing.T) {
 	}
 }
 
+func TestCreateBoardWithOptionsPersistsBackendMetadata(t *testing.T) {
+	s, ctx := newTestStore(t)
+	workdir := t.TempDir()
+	board, err := s.CreateBoardWithOptions(ctx, CreateBoardOptions{
+		Name:          "Remote",
+		Workdir:       workdir,
+		TicketBackend: "atlassian",
+		BackendQuery:  "project = AK ORDER BY updated DESC",
+		BackendConfig: `{"site":"example.atlassian.net"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.BoardByName(ctx, board.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TicketBackend != "atlassian" || got.BackendQuery != "project = AK ORDER BY updated DESC" || got.BackendConfig == "" {
+		t.Fatalf("backend metadata not persisted: %+v", got)
+	}
+}
+
 func newTestStore(t *testing.T) (*Store, context.Context) {
 	t.Helper()
 	ctx := context.Background()

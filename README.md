@@ -22,7 +22,7 @@ Agent Kanban is a Go/Bubble Tea TUI for orchestrating multiple resumable agent C
 - Board-local ticket numbers are preserved, so different boards may both have `T-001`; CLI ticket commands accept `--board NAME` when needed.
 - Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
 - Agent tmux window names include the board id to avoid cross-board collisions within a runtime session.
-- Create boards from the CLI with `agent-kanban boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. List boards with `agent-kanban boards`.
+- Create boards from the CLI with `agent-kanban boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; today only `local` is implemented. List boards with `agent-kanban boards`.
 - Rename/update boards with `agent-kanban boards rename OLD NEW` and `agent-kanban boards set-cwd NAME /path/to/project`.
 - In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes.
 
@@ -68,4 +68,4 @@ Inside the notes section:
 - `Ctrl+S` while editing — save the note
 - `Esc` while editing — cancel
 
-Notes are personal/local annotations; they are not sent to the agent session.
+Notes are not sent to the agent session. On local boards they are personal/local annotations; future external ticket backends should sync them as provider comments.

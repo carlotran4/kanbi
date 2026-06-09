@@ -16,12 +16,14 @@ flowchart LR
     Manager --> Store
     Store --> Projection[Board/ticket projection]
     Projection --> TUI
+    Sync[Ticket backend sync] --> Store
 ```
 
-- **SQLite is canonical durable state.** Tickets, columns, boards, and session history live there.
+- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, and session history live there; external ticket backends, when implemented, are cached/projected through SQLite while owning their board's ticket metadata.
 - **tmux is observed runtime state.** A stored tmux window id/name is only trusted after validation against live tmux.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions.
+- **Ticket backend adapters are board-scoped.** Each board has exactly one ticket metadata backend chosen at creation. `local` is the only implemented backend today; the adapter seam is prepared for GitHub Issues, Atlassian/Jira, Asana, and similar systems.
 
 ## Current Objective And Scope
 
@@ -59,7 +61,8 @@ Stop and ask before:
 | --- | --- |
 | `cmd/agent-kanban` | CLI entrypoint, command parsing, board startup, doctor command, board/ticket CLI actions. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
-| `internal/storage` | SQLite migrations, board/column/ticket/session persistence, board projections, master-board filtering. |
+| `internal/storage` | SQLite migrations, board/column/ticket/session persistence, external ticket identity/cache fields, board projections, master-board filtering. |
+| `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Currently implements only the no-op `local` backend. |
 | `internal/tmux` | Dedicated tmux session/window orchestration, ticket open/resume/close/start-fresh, runtime polling, session reconciliation. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
 | `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, and terminal-gated image previews. |
@@ -102,17 +105,17 @@ erDiagram
   tickets ||--o{ ticket_notes : has
 ```
 
-- A **board** owns columns, tickets, display numbering, and a working directory.
+- A **board** owns columns, display numbering, a working directory, and exactly one ticket metadata backend.
 - The **Master board** is a synthetic all-boards view; it is not a stored board row.
 - A **ticket** is durable work metadata: title, body, harness preference, workflow column, archive status.
 - A **session** is one attempt to run an agent for a ticket.
-- **Ticket notes** are personal, durable notes per ticket (not sent to any agent session).
+- **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while future external backends should map notes to provider comments.
 - An **active session** is a session believed to own a live tmux window, but it must still pass validation before being trusted.
 - A **tmux window** is the live process container for an active session.
 - A **harness session ref** is the harness-native resume handle when the harness exposes one.
 - **Start fresh** creates a new active session attempt while preserving prior session rows.
 
-See [`docs/multi-board-behavior.md`](./multi-board-behavior.md) for board aggregation and Master view behavior.
+See [`docs/multi-board-behavior.md`](./multi-board-behavior.md) for board aggregation and Master view behavior. See [`docs/ticket-backends.md`](./ticket-backends.md) for the board-scoped ticket backend model.
 
 ## Ticket/Session Lifecycle Invariants
 

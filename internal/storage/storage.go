@@ -19,9 +19,12 @@ type Store struct {
 }
 
 type Board struct {
-	ID      int64
-	Name    string
-	Workdir string
+	ID            int64
+	Name          string
+	Workdir       string
+	TicketBackend string
+	BackendQuery  string
+	BackendConfig string
 }
 
 type Column struct {
@@ -38,6 +41,10 @@ type Ticket struct {
 	BoardName           string
 	BoardWorkdir        string
 	ColumnID            int64
+	ExternalID          sql.NullString
+	ExternalURL         sql.NullString
+	ExternalUpdatedAt   sql.NullTime
+	SyncVersion         sql.NullString
 	DisplayID           string
 	DisplayNum          int
 	Title               string
@@ -64,11 +71,14 @@ type Ticket struct {
 }
 
 type Note struct {
-	ID        int64
-	TicketID  int64
-	Body      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                int64
+	TicketID          int64
+	ExternalID        sql.NullString
+	ExternalUpdatedAt sql.NullTime
+	SyncVersion       sql.NullString
+	Body              string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type Session struct {
@@ -150,13 +160,13 @@ func (s *Store) Init(ctx context.Context) error {
 
 func (s *Store) DefaultBoard(ctx context.Context) (Board, error) {
 	var b Board
-	err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,'') from boards order by id limit 1`).Scan(&b.ID, &b.Name, &b.Workdir)
+	err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,'') from boards order by id limit 1`).Scan(&b.ID, &b.Name, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig)
 	return b, err
 }
 
 func (s *Store) BoardByName(ctx context.Context, name string) (Board, error) {
 	var b Board
-	err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,'') from boards where lower(name)=lower(?) order by id limit 1`, strings.TrimSpace(name)).Scan(&b.ID, &b.Name, &b.Workdir)
+	err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,'') from boards where lower(name)=lower(?) order by id limit 1`, strings.TrimSpace(name)).Scan(&b.ID, &b.Name, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig)
 	return b, err
 }
 
@@ -182,6 +192,16 @@ func (s *Store) SetBoardWorkdir(ctx context.Context, boardID int64, workdir stri
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `update boards set workdir=?, updated_at=? where id=?`, nullableString(workdir), time.Now().UTC(), boardID)
+	return err
+}
+
+func (s *Store) MarkBoardSync(ctx context.Context, boardID int64, syncErr error) error {
+	now := time.Now().UTC()
+	var errText any
+	if syncErr != nil {
+		errText = syncErr.Error()
+	}
+	_, err := s.db.ExecContext(ctx, `update boards set last_sync_at=?, last_sync_error=?, updated_at=? where id=?`, now, errText, now, boardID)
 	return err
 }
 
@@ -225,7 +245,7 @@ func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
 }
 
 func (s *Store) ListBoards(ctx context.Context) ([]Board, error) {
-	rows, err := s.db.QueryContext(ctx, `select id, name, coalesce(workdir,'') from boards order by lower(name), id`)
+	rows, err := s.db.QueryContext(ctx, `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,'') from boards order by lower(name), id`)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +253,7 @@ func (s *Store) ListBoards(ctx context.Context) ([]Board, error) {
 	var boards []Board
 	for rows.Next() {
 		var b Board
-		if err := rows.Scan(&b.ID, &b.Name, &b.Workdir); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig); err != nil {
 			return nil, err
 		}
 		boards = append(boards, b)
@@ -276,11 +296,29 @@ func normalizeWorkdir(workdir string) (string, error) {
 	return abs, nil
 }
 
+type CreateBoardOptions struct {
+	Name          string
+	Workdir       string
+	TicketBackend string
+	BackendQuery  string
+	BackendConfig string
+}
+
 func (s *Store) CreateBoardWithWorkdir(ctx context.Context, name, workdir string) (Board, error) {
-	name = strings.TrimSpace(name)
+	return s.CreateBoardWithOptions(ctx, CreateBoardOptions{Name: name, Workdir: workdir, TicketBackend: "local"})
+}
+
+func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOptions) (Board, error) {
+	name := strings.TrimSpace(opts.Name)
 	if name == "" {
 		return Board{}, errors.New("board name is required")
 	}
+	backend := strings.TrimSpace(opts.TicketBackend)
+	if backend == "" {
+		backend = "local"
+	}
+	query := strings.TrimSpace(opts.BackendQuery)
+	backendConfig := strings.TrimSpace(opts.BackendConfig)
 	var existing int
 	if err := s.db.QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?)`, name).Scan(&existing); err != nil {
 		return Board{}, err
@@ -288,7 +326,7 @@ func (s *Store) CreateBoardWithWorkdir(ctx context.Context, name, workdir string
 	if existing > 0 {
 		return Board{}, errors.New("board name already exists")
 	}
-	workdir, err := normalizeWorkdir(workdir)
+	workdir, err := normalizeWorkdir(opts.Workdir)
 	if err != nil {
 		return Board{}, err
 	}
@@ -298,7 +336,7 @@ func (s *Store) CreateBoardWithWorkdir(ctx context.Context, name, workdir string
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	res, err := tx.ExecContext(ctx, `insert into boards(name,workdir,next_ticket_number,created_at,updated_at) values(?,?,1,?,?)`, name, nullableString(workdir), now, now)
+	res, err := tx.ExecContext(ctx, `insert into boards(name,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,created_at,updated_at) values(?,?,1,?,?,?,?,?)`, name, nullableString(workdir), backend, nullableString(query), nullableString(backendConfig), now, now)
 	if err != nil {
 		return Board{}, err
 	}
@@ -311,7 +349,7 @@ func (s *Store) CreateBoardWithWorkdir(ctx context.Context, name, workdir string
 	if err := tx.Commit(); err != nil {
 		return Board{}, err
 	}
-	return Board{ID: boardID, Name: name, Workdir: workdir}, nil
+	return Board{ID: boardID, Name: name, Workdir: workdir, TicketBackend: backend, BackendQuery: query, BackendConfig: backendConfig}, nil
 }
 
 func (s *Store) BoardView(ctx context.Context) (BoardView, error) {
@@ -324,7 +362,7 @@ func (s *Store) BoardView(ctx context.Context) (BoardView, error) {
 
 func (s *Store) BoardViewByID(ctx context.Context, boardID int64) (BoardView, error) {
 	var board Board
-	if err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,'') from boards where id=?`, boardID).Scan(&board.ID, &board.Name, &board.Workdir); err != nil {
+	if err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,'') from boards where id=?`, boardID).Scan(&board.ID, &board.Name, &board.Workdir, &board.TicketBackend, &board.BackendQuery, &board.BackendConfig); err != nil {
 		return BoardView{}, err
 	}
 	return s.boardViewFor(ctx, board)
@@ -742,7 +780,7 @@ func (s *Store) DeleteNote(ctx context.Context, noteID int64) error {
 }
 
 func (s *Store) ListNotes(ctx context.Context, ticketID int64) ([]Note, error) {
-	rows, err := s.db.QueryContext(ctx, `select id, ticket_id, body, created_at, updated_at from ticket_notes where ticket_id=? order by id asc`, ticketID)
+	rows, err := s.db.QueryContext(ctx, `select id, ticket_id, external_id, external_updated_at, sync_version, body, created_at, updated_at from ticket_notes where ticket_id=? order by id asc`, ticketID)
 	if err != nil {
 		return nil, err
 	}
@@ -750,7 +788,7 @@ func (s *Store) ListNotes(ctx context.Context, ticketID int64) ([]Note, error) {
 	var notes []Note
 	for rows.Next() {
 		var n Note
-		if err := rows.Scan(&n.ID, &n.TicketID, &n.Body, &n.CreatedAt, &n.UpdatedAt); err != nil {
+		if err := rows.Scan(&n.ID, &n.TicketID, &n.ExternalID, &n.ExternalUpdatedAt, &n.SyncVersion, &n.Body, &n.CreatedAt, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
 		notes = append(notes, n)
@@ -834,7 +872,7 @@ func (s *Store) ensureDefaultBoard(ctx context.Context) error {
 	}
 	now := time.Now().UTC()
 	cwd, _ := os.Getwd()
-	res, err := tx.ExecContext(ctx, `insert into boards(name,workdir,next_ticket_number,created_at,updated_at) values('Default',?,1,?,?)`, nullableString(cwd), now, now)
+	res, err := tx.ExecContext(ctx, `insert into boards(name,workdir,next_ticket_number,ticket_backend,created_at,updated_at) values('Default',?,1,'local',?,?)`, nullableString(cwd), now, now)
 	if err != nil {
 		return err
 	}
@@ -857,9 +895,44 @@ func (s *Store) migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	for _, col := range []struct {
+		name string
+		typ  string
+	}{
+		{"ticket_backend", "text not null default 'local'"},
+		{"backend_query", "text"},
+		{"backend_config", "text"},
+		{"last_sync_at", "datetime"},
+		{"last_sync_error", "text"},
+	} {
+		if !boardColumns[col.name] {
+			if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table boards add column %s %s`, col.name, col.typ)); err != nil {
+				return err
+			}
+		}
+	}
 	if cwd, err := os.Getwd(); err == nil && cwd != "" {
 		if _, err := s.db.ExecContext(ctx, `update boards set workdir=? where workdir is null or workdir=''`, cwd); err != nil {
 			return err
+		}
+	}
+	ticketColumns, err := tableColumns(ctx, s.db, "tickets")
+	if err != nil {
+		return err
+	}
+	for _, col := range []struct {
+		name string
+		typ  string
+	}{
+		{"external_id", "text"},
+		{"external_url", "text"},
+		{"external_updated_at", "datetime"},
+		{"sync_version", "text"},
+	} {
+		if !ticketColumns[col.name] {
+			if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table tickets add column %s %s`, col.name, col.typ)); err != nil {
+				return err
+			}
 		}
 	}
 	columns, err := tableColumns(ctx, s.db, "sessions")
@@ -894,11 +967,32 @@ func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `create table if not exists ticket_notes (
   id integer primary key autoincrement,
   ticket_id integer not null references tickets(id) on delete cascade,
+  external_id text,
+  external_updated_at datetime,
+  sync_version text,
   body text not null default '',
   created_at datetime not null,
   updated_at datetime not null
 )`); err != nil {
 		return err
+	}
+	noteColumns, err := tableColumns(ctx, s.db, "ticket_notes")
+	if err != nil {
+		return err
+	}
+	for _, col := range []struct {
+		name string
+		typ  string
+	}{
+		{"external_id", "text"},
+		{"external_updated_at", "datetime"},
+		{"sync_version", "text"},
+	} {
+		if !noteColumns[col.name] {
+			if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table ticket_notes add column %s %s`, col.name, col.typ)); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -946,6 +1040,11 @@ create table if not exists boards (
   name text not null,
   workdir text,
   next_ticket_number integer not null default 1,
+  ticket_backend text not null default 'local',
+  backend_query text,
+  backend_config text,
+  last_sync_at datetime,
+  last_sync_error text,
   created_at datetime not null,
   updated_at datetime not null
 );
@@ -964,6 +1063,10 @@ create table if not exists tickets (
   id integer primary key autoincrement,
   board_id integer not null references boards(id) on delete cascade,
   column_id integer not null references columns(id) on delete restrict,
+  external_id text,
+  external_url text,
+  external_updated_at datetime,
+  sync_version text,
   display_id text not null,
   display_number integer not null,
   title text not null,
@@ -1004,6 +1107,9 @@ create table if not exists sessions (
 create table if not exists ticket_notes (
   id integer primary key autoincrement,
   ticket_id integer not null references tickets(id) on delete cascade,
+  external_id text,
+  external_updated_at datetime,
+  sync_version text,
   body text not null default '',
   created_at datetime not null,
   updated_at datetime not null

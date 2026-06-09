@@ -49,7 +49,7 @@ erDiagram
   }
 ```
 
-- A board owns columns, tickets, ticket numbering, and a working directory.
+- A board owns columns, ticket numbering, a working directory, and exactly one ticket metadata backend chosen at creation.
 - `display_id` values are unique only within a board, so multiple boards can have `T-001`.
 - A ticket projects its owning board metadata into TUI/storage reads as `BoardName` and `BoardWorkdir`.
 - `Master` is synthetic: it is not stored as a row in `boards` and has no real columns.
@@ -180,13 +180,21 @@ agent-kanban open T-001 --board "Client C"
 
 Current behavior:
 
-- `boards add` creates a board with default columns and a workdir.
+- `boards add` creates a board with default columns, a workdir, and the `local` ticket backend. `--backend local` and `--query QUERY` are accepted by the creation parser, but non-local backends are rejected until their adapters exist.
 - `--cwd` defaults to the current directory.
 - `boards rename OLD NEW` renames a board.
 - `boards set-cwd NAME /path` updates a board workdir.
 - `add` creates tickets on the default board unless `--board NAME` is supplied.
 - `list` lists tickets across all boards and includes board context; `--board NAME` filters.
 - `open T-001` works only if the display ID is unambiguous; use `--board NAME` when duplicate board-local IDs exist.
+
+## Ticket backend sync
+
+The current implemented ticket backend is `local`. The architecture stores board-level backend metadata and runs ticket backend sync on startup plus periodically while the executable is running. The periodic sync is in-process only and stops when Agent Kanban exits.
+
+Future external backends should inherit their columns/statuses from the remote board rather than requiring user-defined column mappings. When a remote query language exists, the board's backend query scopes which remote tickets are synced; Atlassian/Jira must use JQL. Conflict resolution is newest-updated-at wins. Notes map to provider comments for external boards.
+
+See [`docs/ticket-backends.md`](./ticket-backends.md).
 
 ## Known logical gaps / risks
 
