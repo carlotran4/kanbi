@@ -451,14 +451,14 @@ func renderBodyPreview(body string, width int) string {
 	}
 	plain := strings.TrimSpace(body)
 	firstParagraph := firstPreviewParagraph(plain)
-	if imageLines := renderMarkdownImagesInline(firstParagraph, width, 4); len(imageLines) > 0 {
+	if imageLines := renderMarkdownImagesPlaceholder(firstParagraph, width, 4); len(imageLines) > 0 {
 		if len(imageLines) > 4 {
 			imageLines = imageLines[:4]
 		}
 		return strings.Join(imageLines, "\n")
 	}
 	if imageLine := firstMarkdownImageLine(plain); imageLine != "" {
-		if imageLines := renderMarkdownImagesInline(imageLine, width, 4); len(imageLines) > 0 {
+		if imageLines := renderMarkdownImagesPlaceholder(imageLine, width, 4); len(imageLines) > 0 {
 			if len(imageLines) > 4 {
 				imageLines = imageLines[:4]
 			}

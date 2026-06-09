@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -89,6 +90,14 @@ func terminalEnv(name string) string {
 }
 
 func renderMarkdownImagesInline(line string, cols int, maxRows int) []string {
+	return renderMarkdownImagesInlineWithGraphics(line, cols, maxRows, true)
+}
+
+func renderMarkdownImagesPlaceholder(line string, cols int, maxRows int) []string {
+	return renderMarkdownImagesInlineWithGraphics(line, cols, maxRows, false)
+}
+
+func renderMarkdownImagesInlineWithGraphics(line string, cols int, maxRows int, graphics bool) []string {
 	matches := markdownImageRE.FindAllStringSubmatchIndex(line, -1)
 	if len(matches) == 0 {
 		return nil
@@ -103,7 +112,7 @@ func renderMarkdownImagesInline(line string, cols int, maxRows int) []string {
 			out = append(out, before)
 		}
 		path := cleanMarkdownImagePath(line[pathStart:pathEnd])
-		out = append(out, renderImageBlock(path, cols, maxRows)...)
+		out = append(out, renderImageBlock(path, cols, maxRows, graphics)...)
 		last = fullEnd
 	}
 	if after := strings.TrimSpace(line[last:]); after != "" {
@@ -112,7 +121,7 @@ func renderMarkdownImagesInline(line string, cols int, maxRows int) []string {
 	return out
 }
 
-func renderImageBlock(path string, cols int, maxRows int) []string {
+func renderImageBlock(path string, cols int, maxRows int, graphics bool) []string {
 	if maxRows <= 0 {
 		return nil
 	}
@@ -121,6 +130,9 @@ func renderImageBlock(path string, cols int, maxRows int) []string {
 	}
 	if maxRows > 4 {
 		maxRows = 4
+	}
+	if !graphics {
+		return []string{imagePlaceholder(path)}
 	}
 	resolved := expandImagePath(path)
 	switch terminalImageProtocol() {
@@ -195,6 +207,24 @@ func tmuxPassthrough(seq string) string {
 
 func containsImageEscape(s string) bool {
 	return strings.Contains(s, "\x1b_G") || strings.Contains(s, "\x1bPtmux;")
+}
+
+func withClearKittyImages(cmd tea.Cmd) tea.Cmd {
+	seq := clearKittyImagesSeq()
+	if seq == "" || cmd == nil {
+		return cmd
+	}
+	return func() tea.Msg {
+		fmt.Print(seq)
+		return cmd()
+	}
+}
+
+func clearKittyImagesSeq() string {
+	if terminalImageProtocol() != imageProtocolKitty {
+		return ""
+	}
+	return tmuxPassthrough("\x1b_Ga=d,d=A\x1b\\")
 }
 
 func imagePlaceholder(path string) string {

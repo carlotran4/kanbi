@@ -276,7 +276,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "m":
 		m.startStateMenu()
 	case "enter":
-		return m, m.defaultTicketCmd()
+		return m, withClearKittyImages(m.defaultTicketCmd())
 	case "x":
 		return m, m.closeSessionCmd()
 	}
