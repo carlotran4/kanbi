@@ -1,6 +1,6 @@
 # Ticket Backend Architecture
 
-Agent Kanban supports one ticket metadata backend per board. The current implemented backend is `local`, which stores ticket metadata in SQLite. The architecture is prepared for external backends such as GitHub Issues, Atlassian/Jira, and Asana, but those adapters are intentionally not implemented yet.
+Agent Kanban supports one ticket metadata backend per board. Implemented backends are `local` and `github`. The `local` backend stores ticket metadata in SQLite. The `github` backend syncs a board with GitHub Issues through the GitHub REST API. The architecture remains prepared for future Atlassian/Jira and Asana adapters.
 
 ## Core Rules
 
@@ -17,8 +17,8 @@ Agent Kanban supports one ticket metadata backend per board. The current impleme
 
 Boards store backend metadata:
 
-- `ticket_backend`: backend kind, currently `local`; planned kinds include `github`, `atlassian`, and `asana`.
-- `backend_query`: optional remote query/filter. For Atlassian/Jira this is JQL.
+- `ticket_backend`: backend kind, currently `local` or `github`; planned kinds include `atlassian` and `asana`.
+- `backend_query`: optional remote query/filter. GitHub uses URL query parameters for the Issues list API (`state`, `labels`, `assignee`, `mentioned`, `milestone`, `since`). For Atlassian/Jira this must be JQL.
 - `backend_config`: provider-specific JSON config such as site/repo/project identifiers.
 - sync bookkeeping fields for last sync time/error.
 
@@ -55,8 +55,30 @@ A backend implementation should:
 5. push local changes and pull remote changes;
 6. persist external IDs, URLs, update timestamps, and sync versions.
 
+## GitHub Issues Backend
+
+Create a GitHub-backed board with:
+
+```bash
+agent-kanban boards add "Repo" \
+  --backend github \
+  --config '{"owner":"OWNER","repo":"REPO"}' \
+  --query 'state=open,closed&labels=agent-kanban'
+```
+
+Auth uses `token` in `backend_config`, or `AGENT_KANBAN_GITHUB_TOKEN`, or `GITHUB_TOKEN`. `owner`/`repo` may also come from `AGENT_KANBAN_GITHUB_OWNER` and `AGENT_KANBAN_GITHUB_REPO`.
+
+GitHub sync behavior:
+
+- Pulls issues selected by `backend_query` and projects them as local cached tickets with display IDs like `GH-42`.
+- Uses labels with `status:` prefix as workflow columns (`status:Review` -> `Review`). Open issues without a status label go to `Open`; closed issues go to `Closed`. These names can be changed in `backend_config` with `column_label_prefix`, `default_open_column`, and `closed_column`.
+- Pulls issue comments into ticket notes and pushes local notes as issue comments.
+- Pushes local ticket title/body/closed state/status-label changes back to GitHub. Local tickets created on a GitHub board are created as remote issues on the next sync.
+- Uses newest `updated_at` wins for ticket and comment conflicts.
+- Does not sync tmux windows, sessions, harness refs, runtime state, or other local session history.
+
 ## Current Non-Goals
 
-- No GitHub/Atlassian/Asana API calls are implemented yet.
+- No Atlassian/Asana API calls are implemented yet.
 - No backend migration for existing boards; backend is chosen at creation.
 - No background daemon.

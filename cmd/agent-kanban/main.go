@@ -104,7 +104,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			if err != nil {
 				return err
 			}
-			if opts.TicketBackend != ticketbackend.KindLocal {
+			if _, ok := ticketbackend.DefaultRegistry().Get(opts.TicketBackend); !ok {
 				return fmt.Errorf("ticket backend %q is not implemented yet", opts.TicketBackend)
 			}
 			b, err := cli.store.CreateBoardWithOptions(ctx, opts)
@@ -143,7 +143,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			fmt.Printf("%d\t%s\t%s\t%s\n", updated.ID, updated.Name, updated.Workdir, updated.TicketBackend)
 			return nil
 		}
-		return fmt.Errorf("usage: agent-kanban boards [list|add \"Name\" [--cwd /path] [--backend local] [--query QUERY]|rename OLD NEW|set-cwd NAME /path]")
+		return fmt.Errorf("usage: agent-kanban boards [list|add \"Name\" [--cwd /path] [--backend local|github] [--query QUERY] [--config JSON]|rename OLD NEW|set-cwd NAME /path]")
 	})
 }
 
@@ -324,6 +324,12 @@ func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {
 				return storage.CreateBoardOptions{}, fmt.Errorf("--query requires a value")
 			}
 			opts.BackendQuery = args[i]
+		case "--config":
+			i++
+			if i >= len(args) {
+				return storage.CreateBoardOptions{}, fmt.Errorf("--config requires a JSON value")
+			}
+			opts.BackendConfig = args[i]
 		default:
 			if strings.HasPrefix(args[i], "-") {
 				return storage.CreateBoardOptions{}, fmt.Errorf("unknown boards add flag %s", args[i])
@@ -335,7 +341,7 @@ func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {
 		}
 	}
 	if opts.Name == "" {
-		return storage.CreateBoardOptions{}, fmt.Errorf("usage: agent-kanban boards add \"Name\" [--cwd /path] [--backend local] [--query QUERY]")
+		return storage.CreateBoardOptions{}, fmt.Errorf("usage: agent-kanban boards add \"Name\" [--cwd /path] [--backend local|github] [--query QUERY] [--config JSON]")
 	}
 	if opts.TicketBackend == "" {
 		opts.TicketBackend = ticketbackend.KindLocal

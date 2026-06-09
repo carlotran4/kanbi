@@ -47,8 +47,8 @@ type Result struct {
 // one Backend, selected at board creation. Implementations should sync columns,
 // tickets, and comments/notes according to the remote source's model. When the
 // remote system offers a query language, Board.BackendQuery scopes the synced
-// subset (JQL for Atlassian/Jira; a future GitHub adapter must define its query
-// surface before implementation).
+// subset. GitHub uses URL query parameters for the Issues list API (state,
+// labels, assignee, mentioned, milestone, since); Atlassian/Jira must use JQL.
 type Backend interface {
 	Kind() string
 	Sync(ctx context.Context, store *storage.Store, board storage.Board) (Result, error)
@@ -68,7 +68,7 @@ func NewRegistry(backends ...Backend) *Registry {
 }
 
 func DefaultRegistry() *Registry {
-	return NewRegistry(LocalBackend{})
+	return NewRegistry(LocalBackend{}, GitHubBackend{})
 }
 
 func (r *Registry) Register(backend Backend) {

@@ -23,7 +23,7 @@ flowchart LR
 - **tmux is observed runtime state.** A stored tmux window id/name is only trusted after validation against live tmux.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions.
-- **Ticket backend adapters are board-scoped.** Each board has exactly one ticket metadata backend chosen at creation. `local` is the only implemented backend today; the adapter seam is prepared for GitHub Issues, Atlassian/Jira, Asana, and similar systems.
+- **Ticket backend adapters are board-scoped.** Each board has exactly one ticket metadata backend chosen at creation. `local` and `github` are implemented today; the adapter seam remains prepared for Atlassian/Jira, Asana, and similar systems.
 
 ## Current Objective And Scope
 
@@ -62,7 +62,7 @@ Stop and ask before:
 | `cmd/agent-kanban` | CLI entrypoint, command parsing, board startup, doctor command, board/ticket CLI actions. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
 | `internal/storage` | SQLite migrations, board/column/ticket/session persistence, external ticket identity/cache fields, board projections, master-board filtering. |
-| `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Currently implements only the no-op `local` backend. |
+| `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Implements the no-op `local` backend and GitHub Issues sync. |
 | `internal/tmux` | Dedicated tmux session/window orchestration, ticket open/resume/close/start-fresh, runtime polling, session reconciliation. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
 | `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, and terminal-gated image previews. |

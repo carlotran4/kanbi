@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -203,6 +204,21 @@ func (s *Store) MarkBoardSync(ctx context.Context, boardID int64, syncErr error)
 	}
 	_, err := s.db.ExecContext(ctx, `update boards set last_sync_at=?, last_sync_error=?, updated_at=? where id=?`, now, errText, now, boardID)
 	return err
+}
+
+// RemoteTicket is the ticket metadata projection written by external ticket
+// backends. It intentionally excludes local runtime/session fields.
+type RemoteTicket struct {
+	BoardID           int64
+	ColumnID          int64
+	ExternalID        string
+	ExternalURL       string
+	ExternalUpdatedAt time.Time
+	DisplayID         string
+	DisplayNumber     int
+	Title             string
+	Body              string
+	ArchivedAt        *time.Time
 }
 
 func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
@@ -794,6 +810,109 @@ func (s *Store) ListNotes(ctx context.Context, ticketID int64) ([]Note, error) {
 		notes = append(notes, n)
 	}
 	return notes, rows.Err()
+}
+
+// SyncBoardColumns mirrors an external backend's workflow columns for a board
+// and returns the local column ID by name. Existing columns are reused by exact
+// name; missing columns are created; absent columns are left in place to avoid
+// destructive ticket/session history changes.
+func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []string) (map[string]int64, error) {
+	result := map[string]int64{}
+	seen := map[string]bool{}
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		var id int64
+		err := s.db.QueryRowContext(ctx, `select id from columns where board_id=? and name=? order by position limit 1`, boardID, name).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			now := time.Now().UTC()
+			insertPos, err := columnOrder.nextPosition(ctx, s.db, boardID)
+			if err != nil {
+				return nil, err
+			}
+			res, err := s.db.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, insertPos, now, now)
+			if err != nil {
+				return nil, err
+			}
+			id, _ = res.LastInsertId()
+		} else if err != nil {
+			return nil, err
+		}
+		result[name] = id
+	}
+	return result, nil
+}
+
+func (s *Store) SyncTicketsForBoard(ctx context.Context, boardID int64) ([]Ticket, error) {
+	return s.queryProjectedTickets(ctx, `where t.board_id=? order by t.position`, boardID)
+}
+
+func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket, error) {
+	if rt.BoardID == 0 || rt.ColumnID == 0 || strings.TrimSpace(rt.ExternalID) == "" {
+		return Ticket{}, errors.New("remote ticket requires board, column, and external id")
+	}
+	displayID := strings.TrimSpace(rt.DisplayID)
+	if displayID == "" {
+		displayID = rt.ExternalID
+	}
+	if rt.DisplayNumber == 0 {
+		if n, err := strconv.Atoi(strings.TrimPrefix(strings.ToUpper(displayID), "GH-")); err == nil {
+			rt.DisplayNumber = n
+		}
+	}
+	now := time.Now().UTC()
+	var archived any
+	if rt.ArchivedAt != nil {
+		archived = *rt.ArchivedAt
+	}
+	var id int64
+	err := s.db.QueryRowContext(ctx, `select id from tickets where board_id=? and external_id=?`, rt.BoardID, rt.ExternalID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		pos, err := visibleTicketOrder.nextPosition(ctx, s.db, rt.ColumnID)
+		if err != nil {
+			return Ticket{}, err
+		}
+		res, err := s.db.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			rt.BoardID, rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, rt.DisplayNumber, rt.Title, rt.Body, "pi", pos, archived, now, rt.ExternalUpdatedAt)
+		if err != nil {
+			return Ticket{}, err
+		}
+		id, _ = res.LastInsertId()
+	} else if err != nil {
+		return Ticket{}, err
+	} else {
+		_, err = s.db.ExecContext(ctx, `update tickets set column_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
+			rt.ColumnID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, rt.DisplayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, id)
+		if err != nil {
+			return Ticket{}, err
+		}
+	}
+	return s.TicketByID(ctx, id)
+}
+
+func (s *Store) UpsertRemoteNote(ctx context.Context, ticketID int64, externalID, body string, externalUpdatedAt time.Time) error {
+	if strings.TrimSpace(externalID) == "" {
+		return errors.New("remote note requires external id")
+	}
+	var id int64
+	err := s.db.QueryRowContext(ctx, `select id from ticket_notes where ticket_id=? and external_id=?`, ticketID, externalID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = s.db.ExecContext(ctx, `insert into ticket_notes(ticket_id,external_id,external_updated_at,sync_version,body,created_at,updated_at) values(?,?,?,?,?,?,?)`, ticketID, externalID, externalUpdatedAt, externalUpdatedAt.Format(time.RFC3339Nano), body, time.Now().UTC(), externalUpdatedAt)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `update ticket_notes set external_updated_at=?, sync_version=?, body=?, updated_at=? where id=?`, externalUpdatedAt, externalUpdatedAt.Format(time.RFC3339Nano), body, externalUpdatedAt, id)
+	return err
+}
+
+func (s *Store) LinkLocalNoteToRemote(ctx context.Context, noteID int64, externalID string, externalUpdatedAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `update ticket_notes set external_id=?, external_updated_at=?, sync_version=?, updated_at=? where id=?`, externalID, externalUpdatedAt, externalUpdatedAt.Format(time.RFC3339Nano), externalUpdatedAt, noteID)
+	return err
 }
 
 func (s *Store) MarkSessionMissing(ctx context.Context, sessionID int64) error {

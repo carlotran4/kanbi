@@ -180,7 +180,7 @@ agent-kanban open T-001 --board "Client C"
 
 Current behavior:
 
-- `boards add` creates a board with default columns, a workdir, and the `local` ticket backend. `--backend local` and `--query QUERY` are accepted by the creation parser, but non-local backends are rejected until their adapters exist.
+- `boards add` creates a board with default columns, a workdir, and the selected ticket backend. Supported backends are `local` and `github`; GitHub boards accept `--config JSON` for owner/repo/auth settings and `--query QUERY` for Issues list filters.
 - `--cwd` defaults to the current directory.
 - `boards rename OLD NEW` renames a board.
 - `boards set-cwd NAME /path` updates a board workdir.
@@ -190,9 +190,9 @@ Current behavior:
 
 ## Ticket backend sync
 
-The current implemented ticket backend is `local`. The architecture stores board-level backend metadata and runs ticket backend sync on startup plus periodically while the executable is running. The periodic sync is in-process only and stops when Agent Kanban exits.
+Implemented ticket backends are `local` and `github`. The architecture stores board-level backend metadata and runs ticket backend sync on startup plus periodically while the executable is running. The periodic sync is in-process only and stops when Agent Kanban exits.
 
-Future external backends should inherit their columns/statuses from the remote board rather than requiring user-defined column mappings. When a remote query language exists, the board's backend query scopes which remote tickets are synced; Atlassian/Jira must use JQL. Conflict resolution is newest-updated-at wins. Notes map to provider comments for external boards.
+GitHub boards inherit workflow columns from issue labels with the configured status prefix (`status:` by default), pull/push issue title/body/state/labels/comments, and use newest-updated-at-wins conflict resolution. Notes map to GitHub issue comments. Local tmux/session history is never synced to ticket providers.
 
 See [`docs/ticket-backends.md`](./ticket-backends.md).
 
