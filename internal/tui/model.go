@@ -12,9 +12,9 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"agent-kanban/internal/kanban"
-	"agent-kanban/internal/storage"
-	"agent-kanban/internal/tmux"
+	"kanbi/internal/kanban"
+	"kanbi/internal/storage"
+	"kanbi/internal/tmux"
 )
 
 type Model struct {
@@ -571,7 +571,7 @@ func (m Model) openBodyEditor() tea.Cmd {
 			editor = "vi"
 		}
 	}
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("agent-kanban-%s.md", t.DisplayID))
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("kanbi-%s.md", t.DisplayID))
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		return func() tea.Msg { return editorFinishedMsg{ticketID: ticketID, err: err} }
 	}

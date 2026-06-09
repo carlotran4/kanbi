@@ -1,4 +1,4 @@
-# Agent Kanban State Management
+# Kanbi State Management
 
 This document defines the state model the implementation should follow. SQLite is the canonical record; tmux is an observed runtime substrate; the TUI is a projection plus command surface.
 

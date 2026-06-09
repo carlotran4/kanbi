@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Multi-board support lets one `agent-kanban` database hold multiple logical boards, each with its own working directory. A `Master` board aggregates tickets across boards so the user can supervise all active work from one place.
+Multi-board support lets one `kanbi` database hold multiple logical boards, each with its own working directory. A `Master` board aggregates tickets across boards so the user can supervise all active work from one place.
 
 ## Core concepts
 
@@ -58,7 +58,7 @@ erDiagram
 
 ```mermaid
 stateDiagram-v2
-  [*] --> StartupPicker: agent-kanban
+  [*] --> StartupPicker: kanbi
   StartupPicker --> MasterView: Enter on Master
   StartupPicker --> BoardView: Enter on named board
 
@@ -169,13 +169,13 @@ If `BoardWorkdir` is empty, `tmux` falls back to the current process working dir
 ## CLI behavior
 
 ```text
-agent-kanban boards
-agent-kanban boards add "Client B" --cwd /path/to/project
-agent-kanban boards rename "Client B" "Client C"
-agent-kanban boards set-cwd "Client C" /path/to/project
-agent-kanban add "Title" --board "Client C"
-agent-kanban list --board "Client C"
-agent-kanban open T-001 --board "Client C"
+kanbi boards
+kanbi boards add "Client B" --cwd /path/to/project
+kanbi boards rename "Client B" "Client C"
+kanbi boards set-cwd "Client C" /path/to/project
+kanbi add "Title" --board "Client C"
+kanbi list --board "Client C"
+kanbi open T-001 --board "Client C"
 ```
 
 Current behavior:
@@ -190,7 +190,7 @@ Current behavior:
 
 ## Ticket backend sync
 
-Implemented ticket backends are `local`, `github`, and `atlassian`. The architecture stores board-level backend metadata and runs ticket backend sync on startup, periodically while the executable is running, and on demand with `agent-kanban sync` or `agent-kanban sync --board NAME`. The periodic sync is in-process only and stops when Agent Kanban exits.
+Implemented ticket backends are `local`, `github`, and `atlassian`. The architecture stores board-level backend metadata and runs ticket backend sync on startup, periodically while the executable is running, and on demand with `kanbi sync` or `kanbi sync --board NAME`. The periodic sync is in-process only and stops when Kanbi exits.
 
 GitHub boards inherit workflow columns from issue labels with the configured status prefix (`status:` by default), pull/push issue title/body/state/labels/comments, and use newest-updated-at-wins conflict resolution. Atlassian/Jira boards inherit workflow columns from remote issue statuses, use the board `BackendQuery` as JQL, and pull/push issue summary/description/status/comments. Notes map to provider issue comments. Local tmux/session history is never synced to ticket providers.
 

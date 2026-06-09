@@ -1,6 +1,6 @@
-# Agent Kanban
+# Kanbi
 
-Agent Kanban is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sessions across one or more Kanban boards.
+Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sessions across one or more Kanban boards.
 
 ## Project Documents
 
@@ -13,7 +13,7 @@ Agent Kanban is a Go/Bubble Tea TUI for orchestrating multiple resumable agent C
 
 ## Multi-board behavior
 
-- `agent-kanban` opens with a board picker. Choose `Master (all boards)` or a named board.
+- `kanbi` opens with a board picker. Choose `Master (all boards)` or a named board.
 - Press `b` inside the TUI to switch boards without restarting.
 - `Master` aggregates unarchived tickets from every board by matching column name (for example, all `Open` tickets together).
 - Press `f` in `Master` to filter/search by board, runtime/state, harness, text, or archived tickets. Filters reset on app restart but persist while switching boards during one run; press `C` in the filter panel to clear them.
@@ -22,9 +22,9 @@ Agent Kanban is a Go/Bubble Tea TUI for orchestrating multiple resumable agent C
 - Board-local ticket numbers are preserved, so different boards may both have `T-001`; CLI ticket commands accept `--board NAME` when needed.
 - Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
 - Agent tmux window names include the board id to avoid cross-board collisions within a runtime session.
-- Create boards from the CLI with `agent-kanban boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `agent-kanban boards`.
-- Sync ticket backends from the CLI with `agent-kanban sync` or `agent-kanban sync --board "Board Name"`.
-- Rename/update boards with `agent-kanban boards rename OLD NEW` and `agent-kanban boards set-cwd NAME /path/to/project`.
+- Create boards from the CLI with `kanbi boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `kanbi boards`.
+- Sync ticket backends from the CLI with `kanbi sync` or `kanbi sync --board "Board Name"`.
+- Rename/update boards with `kanbi boards rename OLD NEW` and `kanbi boards set-cwd NAME /path/to/project`.
 - In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes.
 
 ## Development
@@ -35,7 +35,7 @@ Install a development launcher on your `PATH`:
 ./scripts/install-dev.sh
 ```
 
-By default this writes `~/.local/bin/agent-kanban`. The launcher rebuilds `.bin/agent-kanban` from this checkout whenever `cmd/`, `internal/`, `go.mod`, or `go.sum` are newer than the cached binary, then execs it. Set `AGENT_KANBAN_BIN_DIR=/some/path` to install the launcher somewhere else.
+By default this writes `~/.local/bin/kanbi`. The launcher rebuilds `.bin/kanbi` from this checkout whenever `cmd/`, `internal/`, `go.mod`, or `go.sum` are newer than the cached binary, then execs it. Set `KANBI_BIN_DIR=/some/path` to install the launcher somewhere else.
 
 Baseline checks:
 
@@ -48,10 +48,10 @@ go vet ./...
 Opt-in real Jira backend smoke test (mutates the configured Jira project; not run by normal smoke):
 
 ```bash
-AGENT_KANBAN_JIRA_SITE_URL="https://ORG.atlassian.net" \
-AGENT_KANBAN_JIRA_PROJECT_KEY="AK" \
-AGENT_KANBAN_JIRA_EMAIL="you@example.com" \
-AGENT_KANBAN_JIRA_API_TOKEN="TOKEN" \
+KANBI_JIRA_SITE_URL="https://ORG.atlassian.net" \
+KANBI_JIRA_PROJECT_KEY="AK" \
+KANBI_JIRA_EMAIL="you@example.com" \
+KANBI_JIRA_API_TOKEN="TOKEN" \
 ./scripts/jira-backend-smoke.sh
 ```
 
@@ -66,7 +66,7 @@ Press `e` to open the unified ticket inspector/editor. The inspector renders the
 - `Tab` / `Shift+Tab` — move focus between title, description, harness, and notes
 - `Ctrl+S` — save the ticket
 - `Ctrl+E` — open the description in `$EDITOR`
-- paste base64 image data while the description is focused — save it under `~/.local/share/agent-kanban/attachments/<ticket-id>/` and insert a Markdown image reference
+- paste base64 image data while the description is focused — save it under `~/.local/share/kanbi/attachments/<ticket-id>/` and insert a Markdown image reference
 - image references render as inline Kitty graphics in capable terminals during description preview, including Kitty-compatible terminals detected through tmux's environment, or as `[image: filename]` placeholders otherwise
 - `Esc` — cancel/close the inspector
 

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"agent-kanban/internal/config"
-	"agent-kanban/internal/storage"
+	"kanbi/internal/config"
+	"kanbi/internal/storage"
 )
 
 type call struct {
@@ -35,7 +35,7 @@ type piRefWritingRunner struct {
 func (r *piRefWritingRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	if len(args) >= 1 && args[0] == "new-window" {
 		cmd := args[len(args)-1]
-		marker := "AGENT_KANBAN_SESSION_REF_FILE="
+		marker := "KANBI_SESSION_REF_FILE="
 		if idx := strings.Index(cmd, marker); idx >= 0 {
 			start := idx + len(marker)
 			end := start
@@ -118,11 +118,11 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 
 func TestAttachCommandCreatesDistinctBoardClientSession(t *testing.T) {
 	cfg := config.Defaults(config.Paths{})
-	cfg.TmuxSession = "agent-kanban-main"
+	cfg.TmuxSession = "kanbi-main"
 	cfg.Tmux.BoardWindowName = "board"
 
-	cmd1 := AttachCommand(cfg, "/tmp/agent-kanban")
-	cmd2 := AttachCommand(cfg, "/tmp/agent-kanban")
+	cmd1 := AttachCommand(cfg, "/tmp/kanbi")
+	cmd2 := AttachCommand(cfg, "/tmp/kanbi")
 
 	if containsArg(cmd1.Args, "-A") || containsArg(cmd2.Args, "-A") {
 		t.Fatalf("AttachCommand must not use tmux -A; it should create an independent board client: %v", cmd1.Args)
@@ -138,10 +138,10 @@ func TestAttachCommandCreatesDistinctBoardClientSession(t *testing.T) {
 	if s1 == s2 {
 		t.Fatalf("separate launches should get separate board client sessions, got %q", s1)
 	}
-	if !containsArg(cmd1.Args, "AGENT_KANBAN_INNER=1") || !containsArg(cmd1.Args, "--board") {
+	if !containsArg(cmd1.Args, "KANBI_INNER=1") || !containsArg(cmd1.Args, "--board") {
 		t.Fatalf("AttachCommand should launch inner board command: %v", cmd1.Args)
 	}
-	if got := argWithPrefix(cmd1.Args, "AGENT_KANBAN_TMUX_SESSION="); got != "AGENT_KANBAN_TMUX_SESSION="+s1 {
+	if got := argWithPrefix(cmd1.Args, "KANBI_TMUX_SESSION="); got != "KANBI_TMUX_SESSION="+s1 {
 		t.Fatalf("AttachCommand should make the board client session its ticket runtime session, got %q in %v", got, cmd1.Args)
 	}
 }
@@ -319,7 +319,7 @@ func TestOpenTicketResumesWithStoredRef(t *testing.T) {
 
 	// Simulate a ticket that already has an inactive session with a ref
 	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness: "pi", TmuxSessionName: "agent-kanban",
+		Harness: "pi", TmuxSessionName: "kanbi",
 		TmuxWindowName: "T-001-resume-me", Status: "running",
 	})
 	_ = store.UpdateSessionRef(ctx, sessionID, "019e-resume-ref")
@@ -357,7 +357,7 @@ func TestOpenTicketRecoversMissingPiSessionRefFromHistory(t *testing.T) {
 	ref := "019e-recovered-ref"
 	promptText := "# T-001: Recover Ref\n\nBody"
 	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness: "pi", TmuxSessionName: "agent-kanban",
+		Harness: "pi", TmuxSessionName: "kanbi",
 		TmuxWindowName: "T-001-recover-ref", Status: "running",
 	})
 	ses, ok, err := store.LatestSession(ctx, ticket.ID)
@@ -403,7 +403,7 @@ func TestOpenTicketRecoversMissingPiSessionRefFromRefFile(t *testing.T) {
 	ref := "019e-file-recovered-ref"
 
 	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness: "pi", TmuxSessionName: "agent-kanban",
+		Harness: "pi", TmuxSessionName: "kanbi",
 		TmuxWindowName: "T-001-recover-from-file", Status: "running",
 	})
 	_ = store.MarkSessionClosed(ctx, sessionID, "error", "tmux", "tmux window missing")
@@ -439,7 +439,7 @@ func TestOpenTicketResumeFailureReturnsResumeFailedError(t *testing.T) {
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Fail Resume", "", "pi")
 
 	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness: "pi", TmuxSessionName: "agent-kanban",
+		Harness: "pi", TmuxSessionName: "kanbi",
 		TmuxWindowName: "T-001-fail-resume", Status: "running",
 	})
 	_ = store.UpdateSessionRef(ctx, sessionID, "019e-bad-ref")
@@ -587,7 +587,7 @@ func TestOpenTicketWithPiPromptCapturesSessionRefFromBundledExtension(t *testing
 	for _, c := range runner.calls {
 		if len(c.args) > 0 && c.args[0] == "new-window" {
 			cmd := c.args[len(c.args)-1]
-			if strings.Contains(cmd, "env ") && strings.Contains(cmd, "AGENT_KANBAN_SESSION_REF_FILE=") && strings.Contains(cmd, " -e ") && strings.Contains(cmd, "pi-session-ref-extension.ts") {
+			if strings.Contains(cmd, "env ") && strings.Contains(cmd, "KANBI_SESSION_REF_FILE=") && strings.Contains(cmd, " -e ") && strings.Contains(cmd, "pi-session-ref-extension.ts") {
 				sawExtension = true
 			}
 		}
@@ -950,7 +950,7 @@ func TestSwitchToTicketUsesStoredRuntimeSession(t *testing.T) {
 		Title:           "Demo",
 		Harness:         "pi",
 		SessionID:       sql.NullInt64{Int64: 1, Valid: true},
-		TmuxSessionName: sqlString("agent-kanban-instance-b"),
+		TmuxSessionName: sqlString("kanbi-instance-b"),
 		WindowName:      sqlString("T-001-demo"),
 		SessionActive:   true,
 	}
@@ -958,7 +958,7 @@ func TestSwitchToTicketUsesStoredRuntimeSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range runner.calls {
-		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t agent-kanban-instance-b:T-001-demo" {
+		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t kanbi-instance-b:T-001-demo" {
 			return
 		}
 	}

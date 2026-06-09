@@ -18,11 +18,11 @@ func TestResolvePathsUsesXDGAndEnvOverrides(t *testing.T) {
 	if paths.ConfigFile != filepath.Join(home, "cfg", AppName, "config.yaml") {
 		t.Fatalf("config path = %s", paths.ConfigFile)
 	}
-	if paths.DBFile != filepath.Join(home, "data", AppName, "agent-kanban.db") {
+	if paths.DBFile != filepath.Join(home, "data", AppName, "kanbi.db") {
 		t.Fatalf("db path = %s", paths.DBFile)
 	}
-	t.Setenv("AGENT_KANBAN_DB", filepath.Join(home, "override.db"))
-	t.Setenv("AGENT_KANBAN_CONFIG", filepath.Join(home, "override.yaml"))
+	t.Setenv("KANBI_DB", filepath.Join(home, "override.db"))
+	t.Setenv("KANBI_CONFIG", filepath.Join(home, "override.yaml"))
 	paths = ResolvePaths()
 	if paths.DBFile != filepath.Join(home, "override.db") || paths.ConfigFile != filepath.Join(home, "override.yaml") {
 		t.Fatalf("env overrides not applied: %+v", paths)
@@ -30,7 +30,7 @@ func TestResolvePathsUsesXDGAndEnvOverrides(t *testing.T) {
 }
 
 func TestNormalizeDefaultsFromInMemoryRawConfig(t *testing.T) {
-	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/agent-kanban.db"}
+	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
 	cfg, err := Normalize(Config{}, paths, NormalizeOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestNormalizeDefaultsFromInMemoryRawConfig(t *testing.T) {
 }
 
 func TestNormalizeEnvOverridesInMemoryRawConfig(t *testing.T) {
-	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/agent-kanban.db"}
+	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
 	raw := Config{DBPath: "/from/config.db", TmuxSession: "from-config"}
 	cfg, err := Normalize(raw, paths, NormalizeOptions{Env: Env{DBPath: "/from/env.db", TmuxSession: "from-env"}})
 	if err != nil {
@@ -62,7 +62,7 @@ func TestNormalizeEnvOverridesInMemoryRawConfig(t *testing.T) {
 }
 
 func TestNormalizeNestedTimeoutsAndLegacyPromptTimeout(t *testing.T) {
-	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/agent-kanban.db"}
+	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
 	raw := Config{
 		PromptReadyRaw: "2s",
 		Timeouts: Timeouts{
@@ -116,7 +116,7 @@ harnesses:
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AGENT_KANBAN_CONFIG", cfgFile)
+	t.Setenv("KANBI_CONFIG", cfgFile)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestLoadInvalidYAML(t *testing.T) {
 	if err := os.WriteFile(cfgFile, []byte("harnesses: ["), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AGENT_KANBAN_CONFIG", cfgFile)
+	t.Setenv("KANBI_CONFIG", cfgFile)
 	if _, err := Load(); err == nil {
 		t.Fatal("expected invalid yaml error")
 	}
@@ -165,7 +165,7 @@ timeouts:
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AGENT_KANBAN_CONFIG", cfgFile)
+	t.Setenv("KANBI_CONFIG", cfgFile)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -181,11 +181,11 @@ timeouts:
 func clearAgentEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
-		"AGENT_KANBAN_CONFIG",
-		"AGENT_KANBAN_DB",
-		"AGENT_KANBAN_DATA_DIR",
-		"AGENT_KANBAN_STATE_DIR",
-		"AGENT_KANBAN_TMUX_SESSION",
+		"KANBI_CONFIG",
+		"KANBI_DB",
+		"KANBI_DATA_DIR",
+		"KANBI_STATE_DIR",
+		"KANBI_TMUX_SESSION",
 		"XDG_CONFIG_HOME",
 		"XDG_DATA_HOME",
 		"XDG_STATE_HOME",

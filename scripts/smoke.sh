@@ -28,8 +28,8 @@ USAGE
 done
 
 TMP="$(mktemp -d)"
-SESSION="agent-kanban-smoke-$$"
-BIN="$TMP/agent-kanban"
+SESSION="kanbi-smoke-$$"
+BIN="$TMP/kanbi"
 FAKE_PI="$ROOT/scripts/fake-harnesses/pi"
 FAKE_CODEX="$ROOT/scripts/fake-harnesses/codex"
 
@@ -39,15 +39,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export GOCACHE="${GOCACHE:-/tmp/agent-kanban-go-build}"
-export AGENT_KANBAN_CONFIG="$TMP/config.yaml"
-export AGENT_KANBAN_DB="$TMP/agent-kanban.db"
-export AGENT_KANBAN_STATE_DIR="$TMP/state"
-export AGENT_KANBAN_DATA_DIR="$TMP/data"
-export AGENT_KANBAN_TMUX_SESSION="$SESSION"
+export GOCACHE="${GOCACHE:-/tmp/kanbi-go-build}"
+export KANBI_CONFIG="$TMP/config.yaml"
+export KANBI_DB="$TMP/kanbi.db"
+export KANBI_STATE_DIR="$TMP/state"
+export KANBI_DATA_DIR="$TMP/data"
+export KANBI_TMUX_SESSION="$SESSION"
 
-cat >"$AGENT_KANBAN_CONFIG" <<YAML
-db_path: "$AGENT_KANBAN_DB"
+cat >"$KANBI_CONFIG" <<YAML
+db_path: "$KANBI_DB"
 tmux_session: "$SESSION"
 prompt_ready_timeout: 3s
 harnesses:
@@ -69,7 +69,7 @@ if [[ "$RUN_CHECKS" == "1" ]]; then
   go test ./...
   go vet ./...
 fi
-go build -buildvcs=false -o "$BIN" ./cmd/agent-kanban
+go build -buildvcs=false -o "$BIN" ./cmd/kanbi
 
 "$BIN" doctor
 "$BIN" add "Smoke test ticket" --body "Verify smoke path" --harness pi
@@ -83,7 +83,7 @@ tmux has-session -t "$SESSION"
 tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^board$'
 tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-001-smoke-test-ticket$'
 tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-002-codex-smoke-ticket$'
-sqlite3 "$AGENT_KANBAN_DB" "select tmux_window_id from sessions where is_active=1" | grep -q '^@'
+sqlite3 "$KANBI_DB" "select tmux_window_id from sessions where is_active=1" | grep -q '^@'
 
 sleep 0.5
 OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-001-smoke-test-ticket")"

@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN_DIR="${AGENT_KANBAN_BIN_DIR:-$HOME/.local/bin}"
-CACHE_DIR="${AGENT_KANBAN_DEV_CACHE_DIR:-$ROOT/.bin}"
-WRAPPER="$BIN_DIR/agent-kanban"
-DEV_BIN="$CACHE_DIR/agent-kanban"
+BIN_DIR="${KANBI_BIN_DIR:-$HOME/.local/bin}"
+CACHE_DIR="${KANBI_DEV_CACHE_DIR:-$ROOT/.bin}"
+WRAPPER="$BIN_DIR/kanbi"
+DEV_BIN="$CACHE_DIR/kanbi"
 
 mkdir -p "$BIN_DIR" "$CACHE_DIR"
 
@@ -24,8 +24,8 @@ needs_build() {
 
 build() {
   mkdir -p "\$(dirname "\$DEV_BIN")"
-  echo "agent-kanban: rebuilding development binary..." >&2
-  (cd "\$ROOT" && go build -buildvcs=false -o "\$DEV_BIN" ./cmd/agent-kanban)
+  echo "kanbi: rebuilding development binary..." >&2
+  (cd "\$ROOT" && go build -buildvcs=false -o "\$DEV_BIN" ./cmd/kanbi)
 }
 
 if needs_build; then

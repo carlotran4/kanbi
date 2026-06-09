@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 const (

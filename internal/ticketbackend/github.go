@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 const defaultGitHubColumnLabelPrefix = "status:"
@@ -245,20 +245,20 @@ func ParseGitHubConfig(configJSON, query string) (GitHubConfig, error) {
 		}
 	}
 	if cfg.Owner == "" {
-		cfg.Owner = os.Getenv("AGENT_KANBAN_GITHUB_OWNER")
+		cfg.Owner = os.Getenv("KANBI_GITHUB_OWNER")
 	}
 	if cfg.Repo == "" {
-		cfg.Repo = os.Getenv("AGENT_KANBAN_GITHUB_REPO")
+		cfg.Repo = os.Getenv("KANBI_GITHUB_REPO")
 	}
 	if cfg.Token == "" {
-		cfg.Token = os.Getenv("AGENT_KANBAN_GITHUB_TOKEN")
+		cfg.Token = os.Getenv("KANBI_GITHUB_TOKEN")
 		if cfg.Token == "" {
 			cfg.Token = os.Getenv("GITHUB_TOKEN")
 		}
 	}
 	applyGitHubQuery(&cfg, query)
 	if cfg.Owner == "" || cfg.Repo == "" {
-		return cfg, errors.New("github backend requires backend_config owner/repo or AGENT_KANBAN_GITHUB_OWNER/REPO")
+		return cfg, errors.New("github backend requires backend_config owner/repo or KANBI_GITHUB_OWNER/REPO")
 	}
 	if len(cfg.States) == 0 {
 		cfg.States = []string{"open", "closed"}

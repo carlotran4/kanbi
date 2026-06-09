@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 const defaultJiraIssueType = "Task"
@@ -238,28 +238,28 @@ func ParseJiraConfig(configJSON, query string) (JiraConfig, error) {
 		}
 	}
 	if cfg.SiteURL == "" {
-		cfg.SiteURL = os.Getenv("AGENT_KANBAN_JIRA_SITE_URL")
+		cfg.SiteURL = os.Getenv("KANBI_JIRA_SITE_URL")
 	}
 	if cfg.Email == "" {
-		cfg.Email = os.Getenv("AGENT_KANBAN_JIRA_EMAIL")
+		cfg.Email = os.Getenv("KANBI_JIRA_EMAIL")
 	}
 	if cfg.APIToken == "" {
-		cfg.APIToken = os.Getenv("AGENT_KANBAN_JIRA_API_TOKEN")
+		cfg.APIToken = os.Getenv("KANBI_JIRA_API_TOKEN")
 	}
 	if cfg.BearerToken == "" {
-		cfg.BearerToken = os.Getenv("AGENT_KANBAN_JIRA_BEARER_TOKEN")
+		cfg.BearerToken = os.Getenv("KANBI_JIRA_BEARER_TOKEN")
 	}
 	if cfg.ProjectKey == "" {
-		cfg.ProjectKey = os.Getenv("AGENT_KANBAN_JIRA_PROJECT_KEY")
+		cfg.ProjectKey = os.Getenv("KANBI_JIRA_PROJECT_KEY")
 	}
 	if strings.TrimSpace(query) != "" {
 		cfg.JQL = strings.TrimSpace(query)
 	}
 	if cfg.SiteURL == "" {
-		return cfg, errors.New("atlassian backend requires site_url or AGENT_KANBAN_JIRA_SITE_URL")
+		return cfg, errors.New("atlassian backend requires site_url or KANBI_JIRA_SITE_URL")
 	}
 	if cfg.ProjectKey == "" {
-		return cfg, errors.New("atlassian backend requires project_key or AGENT_KANBAN_JIRA_PROJECT_KEY")
+		return cfg, errors.New("atlassian backend requires project_key or KANBI_JIRA_PROJECT_KEY")
 	}
 	if cfg.Email == "" && cfg.BearerToken == "" {
 		return cfg, errors.New("atlassian backend requires email/api_token or bearer_token")

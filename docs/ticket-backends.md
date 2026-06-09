@@ -1,6 +1,6 @@
 # Ticket Backend Architecture
 
-Agent Kanban supports one ticket metadata backend per board. Implemented backends are `local`, `github`, and `atlassian`. The `local` backend stores ticket metadata in SQLite. The `github` backend syncs a board with GitHub Issues through the GitHub REST API. The `atlassian` backend syncs a board with Jira issues through Atlassian's REST API. The architecture remains prepared for future Asana adapters.
+Kanbi supports one ticket metadata backend per board. Implemented backends are `local`, `github`, and `atlassian`. The `local` backend stores ticket metadata in SQLite. The `github` backend syncs a board with GitHub Issues through the GitHub REST API. The `atlassian` backend syncs a board with Jira issues through Atlassian's REST API. The architecture remains prepared for future Asana adapters.
 
 ## Core Rules
 
@@ -9,7 +9,7 @@ Agent Kanban supports one ticket metadata backend per board. Implemented backend
 - SQLite remains the local cache/projection store for tickets and the canonical store for local runtime/session state.
 - External backends own ticket metadata for their boards once implemented.
 - tmux session history remains local and is never synced to ticketing providers.
-- Sync runs on executable startup, periodically while the executable is running, and on demand through `agent-kanban sync`. There is no background daemon after Agent Kanban exits.
+- Sync runs on executable startup, periodically while the executable is running, and on demand through `kanbi sync`. There is no background daemon after Kanbi exits.
 - Conflict resolution is newest `updated_at` wins.
 - When a provider exposes a query language, board config stores the query used to scope the synced subset. Atlassian/Jira must use JQL.
 
@@ -55,20 +55,20 @@ A backend implementation should:
 5. push local changes and pull remote changes;
 6. persist external IDs, URLs, update timestamps, and sync versions.
 
-Run on-demand sync for all boards with `agent-kanban sync`, or one board with `agent-kanban sync --board "Board Name"`.
+Run on-demand sync for all boards with `kanbi sync`, or one board with `kanbi sync --board "Board Name"`.
 
 ## GitHub Issues Backend
 
 Create a GitHub-backed board with:
 
 ```bash
-agent-kanban boards add "Repo" \
+kanbi boards add "Repo" \
   --backend github \
   --config '{"owner":"OWNER","repo":"REPO"}' \
-  --query 'state=open,closed&labels=agent-kanban'
+  --query 'state=open,closed&labels=kanbi'
 ```
 
-Auth uses `token` in `backend_config`, or `AGENT_KANBAN_GITHUB_TOKEN`, or `GITHUB_TOKEN`. `owner`/`repo` may also come from `AGENT_KANBAN_GITHUB_OWNER` and `AGENT_KANBAN_GITHUB_REPO`.
+Auth uses `token` in `backend_config`, or `KANBI_GITHUB_TOKEN`, or `GITHUB_TOKEN`. `owner`/`repo` may also come from `KANBI_GITHUB_OWNER` and `KANBI_GITHUB_REPO`.
 
 GitHub sync behavior:
 
@@ -84,25 +84,25 @@ GitHub sync behavior:
 Create a Jira-backed board with:
 
 ```bash
-agent-kanban boards add "Jira" \
+kanbi boards add "Jira" \
   --backend atlassian \
   --config '{"site_url":"https://ORG.atlassian.net","project_key":"AK","email":"you@example.com","api_token":"TOKEN"}' \
-  --query 'project = AK AND labels = agent-kanban ORDER BY updated DESC'
+  --query 'project = AK AND labels = kanbi ORDER BY updated DESC'
 ```
 
-Auth uses `email` plus `api_token`, or `bearer_token`, in `backend_config`; corresponding environment fallbacks are `AGENT_KANBAN_JIRA_SITE_URL`, `AGENT_KANBAN_JIRA_PROJECT_KEY`, `AGENT_KANBAN_JIRA_EMAIL`, `AGENT_KANBAN_JIRA_API_TOKEN`, and `AGENT_KANBAN_JIRA_BEARER_TOKEN`.
+Auth uses `email` plus `api_token`, or `bearer_token`, in `backend_config`; corresponding environment fallbacks are `KANBI_JIRA_SITE_URL`, `KANBI_JIRA_PROJECT_KEY`, `KANBI_JIRA_EMAIL`, `KANBI_JIRA_API_TOKEN`, and `KANBI_JIRA_BEARER_TOKEN`.
 
 Run the opt-in real Jira smoke test with:
 
 ```bash
-AGENT_KANBAN_JIRA_SITE_URL="https://ORG.atlassian.net" \
-AGENT_KANBAN_JIRA_PROJECT_KEY="AK" \
-AGENT_KANBAN_JIRA_EMAIL="you@example.com" \
-AGENT_KANBAN_JIRA_API_TOKEN="TOKEN" \
+KANBI_JIRA_SITE_URL="https://ORG.atlassian.net" \
+KANBI_JIRA_PROJECT_KEY="AK" \
+KANBI_JIRA_EMAIL="you@example.com" \
+KANBI_JIRA_API_TOKEN="TOKEN" \
 ./scripts/jira-backend-smoke.sh
 ```
 
-For bearer-token auth, set `AGENT_KANBAN_JIRA_BEARER_TOKEN` instead of `AGENT_KANBAN_JIRA_EMAIL`/`AGENT_KANBAN_JIRA_API_TOKEN`. The smoke test uses a disposable Agent Kanban config/data/state directory, creates a temporary Jira issue labeled with a unique smoke label, creates an `atlassian` board scoped to that label with JQL, verifies issue and comment pull sync, updates the pulled issue locally and verifies push sync, adds a local ticket plus note, verifies remote Jira issue creation and Jira comment creation, then best-effort cleans up created Jira issues. The Jira account needs Browse Projects, Create Issues, Edit Issues, Add Comments, and usually Transition Issues; Delete Issues is optional but enables full cleanup. If delete is not permitted, the script tries a `Done`/`Closed`/`Complete`/`Resolved` transition and may leave closed smoke issues behind.
+For bearer-token auth, set `KANBI_JIRA_BEARER_TOKEN` instead of `KANBI_JIRA_EMAIL`/`KANBI_JIRA_API_TOKEN`. The smoke test uses a disposable Kanbi config/data/state directory, creates a temporary Jira issue labeled with a unique smoke label, creates an `atlassian` board scoped to that label with JQL, verifies issue and comment pull sync, updates the pulled issue locally and verifies push sync, adds a local ticket plus note, verifies remote Jira issue creation and Jira comment creation, then best-effort cleans up created Jira issues. The Jira account needs Browse Projects, Create Issues, Edit Issues, Add Comments, and usually Transition Issues; Delete Issues is optional but enables full cleanup. If delete is not permitted, the script tries a `Done`/`Closed`/`Complete`/`Resolved` transition and may leave closed smoke issues behind.
 
 Jira sync behavior:
 

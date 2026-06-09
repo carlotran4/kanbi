@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"agent-kanban/internal/storage"
-	"agent-kanban/internal/tmux"
+	"kanbi/internal/storage"
+	"kanbi/internal/tmux"
 )
 
 // Actions is the TUI's application-service seam. It groups board, ticket,

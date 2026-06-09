@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"agent-kanban/internal/storage"
-	"agent-kanban/internal/tmux"
+	"kanbi/internal/storage"
+	"kanbi/internal/tmux"
 )
 
 func (m Model) updatePromptFallback(key tea.KeyMsg) (Model, tea.Cmd) {

@@ -7,13 +7,13 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"agent-kanban/internal/kanban"
-	"agent-kanban/internal/storage"
+	"kanbi/internal/kanban"
+	"kanbi/internal/storage"
 )
 
 func (m Model) View() string {
 	if m.err != nil {
-		return "agent-kanban\n\n" + m.err.Error() + "\n\nq quit\n"
+		return "kanbi\n\n" + m.err.Error() + "\n\nq quit\n"
 	}
 
 	// Always render the base board first so modals can overlay it.
@@ -59,7 +59,7 @@ func (m Model) View() string {
 func (m Model) baseView() string {
 	var b strings.Builder
 	// Header bar: full-width background strip.
-	appName := headerBarStyle.Render("Agent Kanban")
+	appName := headerBarStyle.Render("Kanbi")
 	headerName := m.view.Board.Name
 	if m.masterBoard {
 		if summary := m.masterFilterSummary(); summary != "" {
@@ -67,7 +67,7 @@ func (m Model) baseView() string {
 		}
 	}
 	boardName := boardNameStyle.Render(headerName)
-	barUsed := runeLen("Agent Kanban") + 2 + runeLen(headerName) + 1
+	barUsed := runeLen("Kanbi") + 2 + runeLen(headerName) + 1
 	barPad := ""
 	if m.width > barUsed {
 		barPad = lipgloss.NewStyle().Background(palette.header).Render(strings.Repeat(" ", m.width-barUsed))

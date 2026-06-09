@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 type fakeJiraClient struct {
@@ -59,7 +59,7 @@ func (f *fakeJiraClient) UpdateComment(_ context.Context, _ JiraConfig, issueID,
 func TestJiraSyncPullsIssuesColumnsAndComments(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t, ctx)
-	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Jira", Workdir: t.TempDir(), TicketBackend: KindAtlassian, BackendConfig: `{"site_url":"https://acme.atlassian.net","project_key":"AK","email":"me@example.com","api_token":"tok"}`, BackendQuery: "project = AK AND labels = agent-kanban"})
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Jira", Workdir: t.TempDir(), TicketBackend: KindAtlassian, BackendConfig: `{"site_url":"https://acme.atlassian.net","project_key":"AK","email":"me@example.com","api_token":"tok"}`, BackendQuery: "project = AK AND labels = kanbi"})
 	if err != nil {
 		t.Fatal(err)
 	}

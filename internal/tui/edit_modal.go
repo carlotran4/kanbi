@@ -11,9 +11,9 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
-	"agent-kanban/internal/attachments"
-	"agent-kanban/internal/kanban"
-	"agent-kanban/internal/storage"
+	"kanbi/internal/attachments"
+	"kanbi/internal/kanban"
+	"kanbi/internal/storage"
 )
 
 func (m *Model) startColumnEdit(action string) {

@@ -8,14 +8,14 @@ usage() {
 Usage: ./scripts/jira-backend-smoke.sh
 
 Opt-in real Atlassian/Jira backend smoke test. Required env:
-  AGENT_KANBAN_JIRA_SITE_URL       e.g. https://example.atlassian.net
-  AGENT_KANBAN_JIRA_PROJECT_KEY    e.g. KAN
-  AGENT_KANBAN_JIRA_EMAIL          required with AGENT_KANBAN_JIRA_API_TOKEN
-  AGENT_KANBAN_JIRA_API_TOKEN      Atlassian API token (or use bearer token)
-  AGENT_KANBAN_JIRA_BEARER_TOKEN   optional alternative to email/api token
+  KANBI_JIRA_SITE_URL       e.g. https://example.atlassian.net
+  KANBI_JIRA_PROJECT_KEY    e.g. KAN
+  KANBI_JIRA_EMAIL          required with KANBI_JIRA_API_TOKEN
+  KANBI_JIRA_API_TOKEN      Atlassian API token (or use bearer token)
+  KANBI_JIRA_BEARER_TOKEN   optional alternative to email/api token
 
 Optional env:
-  AGENT_KANBAN_JIRA_ISSUE_TYPE     default: Task
+  KANBI_JIRA_ISSUE_TYPE     default: Task
 USAGE
 }
 
@@ -38,17 +38,17 @@ require_env() {
   fi
 }
 
-require_env AGENT_KANBAN_JIRA_SITE_URL
-require_env AGENT_KANBAN_JIRA_PROJECT_KEY
-if [[ -n "${AGENT_KANBAN_JIRA_BEARER_TOKEN:-}" ]]; then
+require_env KANBI_JIRA_SITE_URL
+require_env KANBI_JIRA_PROJECT_KEY
+if [[ -n "${KANBI_JIRA_BEARER_TOKEN:-}" ]]; then
   :
 else
-  require_env AGENT_KANBAN_JIRA_EMAIL
-  require_env AGENT_KANBAN_JIRA_API_TOKEN
+  require_env KANBI_JIRA_EMAIL
+  require_env KANBI_JIRA_API_TOKEN
 fi
 
 TMP="$(mktemp -d)"
-BIN="$TMP/agent-kanban"
+BIN="$TMP/kanbi"
 MARKER="ak-smoke-$(date +%Y%m%d%H%M%S)-$$"
 LABEL="ak-smoke-$$"
 BOARD="Jira Smoke $MARKER"
@@ -56,7 +56,7 @@ PULL_SUMMARY="$MARKER pull remote issue"
 PULL_UPDATED_SUMMARY="$MARKER locally updated pulled issue"
 REMOTE_COMMENT_BODY="$MARKER remote comment pull sync"
 PUSH_SUMMARY="$MARKER push local issue"
-PUSH_BODY="Created by Agent Kanban Jira real-backend smoke test $MARKER"
+PUSH_BODY="Created by Kanbi Jira real-backend smoke test $MARKER"
 NOTE_BODY="$MARKER local note/comment sync"
 CREATED_KEYS="$TMP/created-keys.txt"
 : >"$CREATED_KEYS"
@@ -73,26 +73,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export GOCACHE="${GOCACHE:-/tmp/agent-kanban-go-build}"
-export AGENT_KANBAN_CONFIG="$TMP/config.yaml"
-export AGENT_KANBAN_DB="$TMP/agent-kanban.db"
-export AGENT_KANBAN_STATE_DIR="$TMP/state"
-export AGENT_KANBAN_DATA_DIR="$TMP/data"
+export GOCACHE="${GOCACHE:-/tmp/kanbi-go-build}"
+export KANBI_CONFIG="$TMP/config.yaml"
+export KANBI_DB="$TMP/kanbi.db"
+export KANBI_STATE_DIR="$TMP/state"
+export KANBI_DATA_DIR="$TMP/data"
 
-cat >"$AGENT_KANBAN_CONFIG" <<YAML
-db_path: "$AGENT_KANBAN_DB"
+cat >"$KANBI_CONFIG" <<YAML
+db_path: "$KANBI_DB"
 YAML
 
 cat >"$TMP/jira_api.py" <<'PY'
 #!/usr/bin/env python3
 import base64, json, os, sys, urllib.error, urllib.parse, urllib.request
 
-site = os.environ["AGENT_KANBAN_JIRA_SITE_URL"].rstrip("/")
-project = os.environ["AGENT_KANBAN_JIRA_PROJECT_KEY"]
-issue_type = os.environ.get("AGENT_KANBAN_JIRA_ISSUE_TYPE", "Task")
-email = os.environ.get("AGENT_KANBAN_JIRA_EMAIL", "")
-api_token = os.environ.get("AGENT_KANBAN_JIRA_API_TOKEN", "")
-bearer = os.environ.get("AGENT_KANBAN_JIRA_BEARER_TOKEN", "")
+site = os.environ["KANBI_JIRA_SITE_URL"].rstrip("/")
+project = os.environ["KANBI_JIRA_PROJECT_KEY"]
+issue_type = os.environ.get("KANBI_JIRA_ISSUE_TYPE", "Task")
+email = os.environ.get("KANBI_JIRA_EMAIL", "")
+api_token = os.environ.get("KANBI_JIRA_API_TOKEN", "")
+bearer = os.environ.get("KANBI_JIRA_BEARER_TOKEN", "")
 
 def adf(text):
     return {"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":text}]}]}
@@ -178,15 +178,15 @@ PY
 chmod +x "$TMP/jira_api.py"
 
 cd "$ROOT"
-go build -buildvcs=false -o "$BIN" ./cmd/agent-kanban
+go build -buildvcs=false -o "$BIN" ./cmd/kanbi
 
 echo "creating temporary Jira pull issue ($MARKER)"
-PULL_KEY="$(python3 "$TMP/jira_api.py" create "$PULL_SUMMARY" "Created by Agent Kanban Jira smoke pull path $MARKER" "$LABEL")"
+PULL_KEY="$(python3 "$TMP/jira_api.py" create "$PULL_SUMMARY" "Created by Kanbi Jira smoke pull path $MARKER" "$LABEL")"
 echo "$PULL_KEY" >>"$CREATED_KEYS"
 python3 "$TMP/jira_api.py" add-comment "$PULL_KEY" "$REMOTE_COMMENT_BODY" >/dev/null
 
-CONFIG_JSON="{\"site_url\":\"${AGENT_KANBAN_JIRA_SITE_URL}\",\"project_key\":\"${AGENT_KANBAN_JIRA_PROJECT_KEY}\",\"email\":\"${AGENT_KANBAN_JIRA_EMAIL:-}\",\"issue_type\":\"${AGENT_KANBAN_JIRA_ISSUE_TYPE:-Task}\"}"
-JQL="project = ${AGENT_KANBAN_JIRA_PROJECT_KEY} AND labels = \"${LABEL}\" ORDER BY updated DESC"
+CONFIG_JSON="{\"site_url\":\"${KANBI_JIRA_SITE_URL}\",\"project_key\":\"${KANBI_JIRA_PROJECT_KEY}\",\"email\":\"${KANBI_JIRA_EMAIL:-}\",\"issue_type\":\"${KANBI_JIRA_ISSUE_TYPE:-Task}\"}"
+JQL="project = ${KANBI_JIRA_PROJECT_KEY} AND labels = \"${LABEL}\" ORDER BY updated DESC"
 
 "$BIN" boards add "$BOARD" --backend atlassian --config "$CONFIG_JSON" --query "$JQL" >/dev/null
 SYNC_OUT="$("$BIN" sync --board "$BOARD")"
@@ -195,7 +195,7 @@ printf '%s\n' "$SYNC_OUT" | grep -Eq 'pulled=[1-9]'
 LIST_OUT="$("$BIN" list --board "$BOARD")"
 printf '%s\n' "$LIST_OUT" | grep -F "$PULL_KEY"
 printf '%s\n' "$LIST_OUT" | grep -F "$PULL_SUMMARY"
-python3 - "$AGENT_KANBAN_DB" "$PULL_SUMMARY" "$REMOTE_COMMENT_BODY" <<'PY'
+python3 - "$KANBI_DB" "$PULL_SUMMARY" "$REMOTE_COMMENT_BODY" <<'PY'
 import sqlite3, sys
 path, title, body = sys.argv[1:4]
 conn = sqlite3.connect(path)
@@ -205,7 +205,7 @@ if not row:
 PY
 
 echo "updating pulled ticket locally, then pushing update to Jira"
-python3 - "$AGENT_KANBAN_DB" "$PULL_SUMMARY" "$PULL_UPDATED_SUMMARY" <<'PY'
+python3 - "$KANBI_DB" "$PULL_SUMMARY" "$PULL_UPDATED_SUMMARY" <<'PY'
 import sqlite3, sys, time
 path, old_title, new_title = sys.argv[1:4]
 conn = sqlite3.connect(path)
@@ -218,13 +218,13 @@ PY
 SYNC_OUT="$("$BIN" sync --board "$BOARD")"
 echo "$SYNC_OUT"
 printf '%s\n' "$SYNC_OUT" | grep -Eq 'pushed=[1-9]'
-python3 "$TMP/jira_api.py" search "project = ${AGENT_KANBAN_JIRA_PROJECT_KEY} AND key = ${PULL_KEY}" | grep -F "$PULL_UPDATED_SUMMARY" >/dev/null
+python3 "$TMP/jira_api.py" search "project = ${KANBI_JIRA_PROJECT_KEY} AND key = ${PULL_KEY}" | grep -F "$PULL_UPDATED_SUMMARY" >/dev/null
 
 
 echo "adding local ticket and note, then pushing to Jira"
 ADD_OUT="$("$BIN" add "$PUSH_SUMMARY" --body "$PUSH_BODY" --board "$BOARD")"
 echo "$ADD_OUT"
-python3 - "$AGENT_KANBAN_DB" "$PUSH_SUMMARY" "$NOTE_BODY" <<'PY'
+python3 - "$KANBI_DB" "$PUSH_SUMMARY" "$NOTE_BODY" <<'PY'
 import sqlite3, sys, time
 path, title, body = sys.argv[1:4]
 conn = sqlite3.connect(path)
@@ -239,7 +239,7 @@ SYNC_OUT="$("$BIN" sync --board "$BOARD")"
 echo "$SYNC_OUT"
 printf '%s\n' "$SYNC_OUT" | grep -Eq 'pushed=[1-9]'
 
-PUSH_KEY="$(python3 - "$AGENT_KANBAN_DB" "$PUSH_SUMMARY" <<'PY'
+PUSH_KEY="$(python3 - "$KANBI_DB" "$PUSH_SUMMARY" <<'PY'
 import sqlite3, sys
 conn = sqlite3.connect(sys.argv[1])
 row = conn.execute("select display_id from tickets where title=? and external_id is not null", (sys.argv[2],)).fetchone()
@@ -249,7 +249,7 @@ print(row[0])
 PY
 )"
 echo "$PUSH_KEY" >>"$CREATED_KEYS"
-python3 "$TMP/jira_api.py" search "project = ${AGENT_KANBAN_JIRA_PROJECT_KEY} AND key = ${PUSH_KEY}" | grep -F "$PUSH_SUMMARY" >/dev/null
+python3 "$TMP/jira_api.py" search "project = ${KANBI_JIRA_PROJECT_KEY} AND key = ${PUSH_KEY}" | grep -F "$PUSH_SUMMARY" >/dev/null
 python3 "$TMP/jira_api.py" comments "$PUSH_KEY" "$NOTE_BODY" >/dev/null
 
 echo "jira backend smoke ok: pulled $PULL_KEY, pushed $PUSH_KEY (cleanup best effort)"

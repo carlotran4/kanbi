@@ -37,7 +37,7 @@ func TestSavePastedImageWritesPerTicketFileAndMarkdownRef(t *testing.T) {
 	if !ok {
 		t.Fatal("paste was not detected as image")
 	}
-	wantPath := filepath.Join(dataHome, "agent-kanban", "attachments", "47", "20240101-120000-001.png")
+	wantPath := filepath.Join(dataHome, "kanbi", "attachments", "47", "20240101-120000-001.png")
 	if path != wantPath {
 		t.Fatalf("path=%q want %q", path, wantPath)
 	}

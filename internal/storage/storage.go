@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"agent-kanban/internal/kanban"
 	_ "github.com/mattn/go-sqlite3"
+	"kanbi/internal/kanban"
 )
 
 type Store struct {

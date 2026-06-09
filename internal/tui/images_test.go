@@ -77,7 +77,7 @@ func TestRenderBodyPreviewShowsImagePlaceholderWithoutGraphics(t *testing.T) {
 func TestRenderBodyPreviewFindsImageAfterIntroParagraph(t *testing.T) {
 	stubNoGraphicsTerminal(t)
 
-	body := "This ticket was created by the agent so you can verify attachment rendering.\n\n![](~/.local/share/agent-kanban/attachments/59/verification-001.png)\n\nExpected result: placeholder appears."
+	body := "This ticket was created by the agent so you can verify attachment rendering.\n\n![](~/.local/share/kanbi/attachments/59/verification-001.png)\n\nExpected result: placeholder appears."
 	preview := ansiStrip(renderBodyPreview(body, 60))
 	if !strings.Contains(preview, "[image: verification-001.png]") {
 		t.Fatalf("preview = %q", preview)
@@ -86,7 +86,7 @@ func TestRenderBodyPreviewFindsImageAfterIntroParagraph(t *testing.T) {
 
 func stubNoGraphicsTerminal(t *testing.T) {
 	t.Helper()
-	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "")
+	t.Setenv("KANBI_IMAGE_PROTOCOL", "")
 	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "")
 	t.Setenv("GHOSTTY_BIN_DIR", "")
@@ -98,7 +98,7 @@ func stubNoGraphicsTerminal(t *testing.T) {
 func TestRenderMarkdownForInspectorShowsImagePlaceholderWithoutGraphics(t *testing.T) {
 	stubNoGraphicsTerminal(t)
 
-	body := "This ticket was created by the agent so you can verify attachment rendering.\n\n![](~/.local/share/agent-kanban/attachments/59/verification-001.png)"
+	body := "This ticket was created by the agent so you can verify attachment rendering.\n\n![](~/.local/share/kanbi/attachments/59/verification-001.png)"
 	rendered := ansiStrip(renderMarkdownForInspector(body, 60, 8))
 	if !strings.Contains(rendered, "[image: verification-001.png]") {
 		t.Fatalf("rendered = %q", rendered)
@@ -106,7 +106,7 @@ func TestRenderMarkdownForInspectorShowsImagePlaceholderWithoutGraphics(t *testi
 }
 
 func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
-	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "")
+	t.Setenv("KANBI_IMAGE_PROTOCOL", "")
 	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "1")
 	t.Setenv("GHOSTTY_BIN_DIR", "")
@@ -144,7 +144,7 @@ func writeTestPNG(t *testing.T) string {
 }
 
 func TestTerminalImageProtocolDetectsSixelFallback(t *testing.T) {
-	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "")
+	t.Setenv("KANBI_IMAGE_PROTOCOL", "")
 	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "")
 	t.Setenv("GHOSTTY_BIN_DIR", "")

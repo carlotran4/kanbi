@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 func newTestStore(t *testing.T) (*storage.Store, context.Context) {

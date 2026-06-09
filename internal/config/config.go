@@ -8,14 +8,14 @@ import (
 	"runtime"
 	"time"
 
-	"agent-kanban/internal/harness"
+	"kanbi/internal/harness"
 
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	AppName        = "agent-kanban"
-	DefaultSession = "agent-kanban"
+	AppName        = "kanbi"
+	DefaultSession = "kanbi"
 )
 
 type Paths struct {
@@ -56,7 +56,7 @@ type Config struct {
 
 func ResolvePaths() Paths {
 	home, _ := os.UserHomeDir()
-	configFile := os.Getenv("AGENT_KANBAN_CONFIG")
+	configFile := os.Getenv("KANBI_CONFIG")
 	if configFile == "" {
 		configHome := os.Getenv("XDG_CONFIG_HOME")
 		if configHome == "" {
@@ -65,7 +65,7 @@ func ResolvePaths() Paths {
 		configFile = filepath.Join(configHome, AppName, "config.yaml")
 	}
 
-	dataDir := os.Getenv("AGENT_KANBAN_DATA_DIR")
+	dataDir := os.Getenv("KANBI_DATA_DIR")
 	if dataDir == "" {
 		dataHome := os.Getenv("XDG_DATA_HOME")
 		if dataHome == "" {
@@ -74,7 +74,7 @@ func ResolvePaths() Paths {
 		dataDir = filepath.Join(dataHome, AppName)
 	}
 
-	stateDir := os.Getenv("AGENT_KANBAN_STATE_DIR")
+	stateDir := os.Getenv("KANBI_STATE_DIR")
 	if stateDir == "" {
 		stateHome := os.Getenv("XDG_STATE_HOME")
 		if stateHome == "" {
@@ -83,9 +83,9 @@ func ResolvePaths() Paths {
 		stateDir = filepath.Join(stateHome, AppName)
 	}
 
-	dbFile := os.Getenv("AGENT_KANBAN_DB")
+	dbFile := os.Getenv("KANBI_DB")
 	if dbFile == "" {
-		dbFile = filepath.Join(dataDir, "agent-kanban.db")
+		dbFile = filepath.Join(dataDir, "kanbi.db")
 	}
 
 	if runtime.GOOS == "windows" {
@@ -306,7 +306,7 @@ func byteContains(b, sub []byte) bool {
 
 func readEnv() Env {
 	return Env{
-		DBPath:      os.Getenv("AGENT_KANBAN_DB"),
-		TmuxSession: os.Getenv("AGENT_KANBAN_TMUX_SESSION"),
+		DBPath:      os.Getenv("KANBI_DB"),
+		TmuxSession: os.Getenv("KANBI_TMUX_SESSION"),
 	}
 }

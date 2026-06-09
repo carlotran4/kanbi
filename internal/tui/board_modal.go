@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 func (m Model) updateBoardPicker(key tea.KeyMsg) Model {

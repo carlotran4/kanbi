@@ -2,10 +2,10 @@
 set -euo pipefail
 
 mode="${1:-start}"
-ref="fake-${AGENT_KANBAN_TICKET_ID:-${mode}}"
-if [[ -n "${AGENT_KANBAN_SESSION_REF_FILE:-}" ]]; then
-  mkdir -p "$(dirname "$AGENT_KANBAN_SESSION_REF_FILE")"
-  printf '{"sessionId":"%s"}\n' "$ref" >"$AGENT_KANBAN_SESSION_REF_FILE"
+ref="fake-${KANBI_TICKET_ID:-${mode}}"
+if [[ -n "${KANBI_SESSION_REF_FILE:-}" ]]; then
+  mkdir -p "$(dirname "$KANBI_SESSION_REF_FILE")"
+  printf '{"sessionId":"%s"}\n' "$ref" >"$KANBI_SESSION_REF_FILE"
 fi
 
 case "$mode" in

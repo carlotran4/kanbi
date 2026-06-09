@@ -16,11 +16,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"agent-kanban/internal/config"
-	"agent-kanban/internal/harness"
-	"agent-kanban/internal/kanban"
-	"agent-kanban/internal/prompt"
-	"agent-kanban/internal/storage"
+	"kanbi/internal/config"
+	"kanbi/internal/harness"
+	"kanbi/internal/kanban"
+	"kanbi/internal/prompt"
+	"kanbi/internal/storage"
 )
 
 var ErrPromptAlreadySent = errors.New("prompt already sent; open session instead")
@@ -556,8 +556,8 @@ func (m *Manager) commandWithPiSessionRefCapture(ticket storage.Ticket, command 
 	out := make([]string, 0, len(command)+5)
 	out = append(out,
 		"env",
-		"AGENT_KANBAN_SESSION_REF_FILE="+refFile,
-		"AGENT_KANBAN_TICKET_ID="+fmt.Sprint(ticket.ID),
+		"KANBI_SESSION_REF_FILE="+refFile,
+		"KANBI_TICKET_ID="+fmt.Sprint(ticket.ID),
 	)
 	if len(command) == 0 {
 		return nil, "", errors.New("pi command is empty")
@@ -591,9 +591,9 @@ func (m *Manager) stateDir() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return filepath.Join(os.TempDir(), "agent-kanban")
+		return filepath.Join(os.TempDir(), "kanbi")
 	}
-	return filepath.Join(home, ".local", "state", "agent-kanban")
+	return filepath.Join(home, ".local", "state", "kanbi")
 }
 
 type piSessionRefPayload struct {
@@ -698,7 +698,7 @@ func AttachCommand(cfg config.Config, exe string) *exec.Cmd {
 		board = "board"
 	}
 	sessionName := boardClientSessionName(cfg.TmuxSession)
-	cmd := exec.Command("tmux", "new-session", "-s", sessionName, "-n", board, "env", "AGENT_KANBAN_INNER=1", "AGENT_KANBAN_TMUX_SESSION="+sessionName, exe, "--board")
+	cmd := exec.Command("tmux", "new-session", "-s", sessionName, "-n", board, "env", "KANBI_INNER=1", "KANBI_TMUX_SESSION="+sessionName, exe, "--board")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

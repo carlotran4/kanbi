@@ -1,6 +1,6 @@
 # Architecture
 
-Agent Kanban is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses tmux windows as the v1 runtime backend.
+Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses tmux windows as the v1 runtime backend.
 
 ## Core Model
 
@@ -27,7 +27,7 @@ flowchart LR
 
 ## Current Objective And Scope
 
-Keep Agent Kanban a trustworthy alpha for multi-board, tmux-backed ticket/session lifecycle management across Pi, Codex, Copilot, and fake harnesses.
+Keep Kanbi a trustworthy alpha for multi-board, tmux-backed ticket/session lifecycle management across Pi, Codex, Copilot, and fake harnesses.
 
 Maintain these behaviors as boring, reliable, documented alpha behavior:
 
@@ -59,7 +59,7 @@ Stop and ask before:
 
 | Path | Responsibility |
 | --- | --- |
-| `cmd/agent-kanban` | CLI entrypoint, command parsing, board startup, doctor command, board/ticket CLI actions. |
+| `cmd/kanbi` | CLI entrypoint, command parsing, board startup, doctor command, board/ticket CLI actions. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
 | `internal/storage` | SQLite migrations, board/column/ticket/session persistence, external ticket identity/cache fields, board projections, master-board filtering. |
 | `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Implements the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
@@ -73,16 +73,16 @@ Stop and ask before:
 
 ## Runtime Topology
 
-Agent Kanban uses tmux sessions per board executable instance by default:
+Kanbi uses tmux sessions per board executable instance by default:
 
 ```text
-tmux session: agent-kanban-board-<pid>-<time>-1
+tmux session: kanbi-board-<pid>-<time>-1
 windows:
   board
   <board-id>-T-001-some-ticket
   <board-id>-T-002-another-ticket
 
-tmux session: agent-kanban-board-<pid>-<time>-2
+tmux session: kanbi-board-<pid>-<time>-2
 windows:
   board
   <board-id>-T-003-other-ticket
@@ -90,9 +90,9 @@ windows:
 
 The board process runs in the stable `board` window of its instance session. Each active ticket session gets its own tmux window in the runtime session owned by the board instance that launched it. The app uses windows, not panes, for ticket sessions.
 
-When launched outside tmux, the CLI creates a unique board/client tmux session and sets that same session as the ticket runtime for the inner board process. When launched directly inside tmux without an explicit `AGENT_KANBAN_TMUX_SESSION`, the current tmux session is used as that executable's runtime. `AGENT_KANBAN_INNER=1` prevents recursive launching.
+When launched outside tmux, the CLI creates a unique board/client tmux session and sets that same session as the ticket runtime for the inner board process. When launched directly inside tmux without an explicit `KANBI_TMUX_SESSION`, the current tmux session is used as that executable's runtime. `KANBI_INNER=1` prevents recursive launching.
 
-Session rows persist `tmux_session_name` as well as `tmux_window_id/name`. Other Agent Kanban instances can see these rows through SQLite and validate/switch/capture/close using the stored tmux session instead of assuming their own runtime session.
+Session rows persist `tmux_session_name` as well as `tmux_window_id/name`. Other Kanbi instances can see these rows through SQLite and validate/switch/capture/close using the stored tmux session instead of assuming their own runtime session.
 
 ## Durable Data Relationships
 
@@ -189,7 +189,7 @@ Always update [`docs/harness-contracts.md`](./harness-contracts.md) when harness
 
 | Task | Likely files | Required doc updates |
 | --- | --- | --- |
-| Add/change CLI command | `cmd/agent-kanban/main.go`, command tests | `README.md` if user-facing |
+| Add/change CLI command | `cmd/kanbi/main.go`, command tests | `README.md` if user-facing |
 | Change config/defaults | `internal/config/*` | `README.md`, possibly `docs/harness-contracts.md` |
 | Change schema/storage behavior | `internal/storage/*` | `docs/state-management.md` or lifecycle docs |
 | Change ticket/session lifecycle | `internal/tmux/*`, `internal/storage/*`, `internal/tui/*` | `docs/state-management.md`, `docs/ticket-session-lifecycle.md` |

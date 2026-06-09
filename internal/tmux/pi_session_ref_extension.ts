@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 
 export default function (_pi: ExtensionAPI) {
   _pi.on("session_start", async (_event, ctx) => {
-    const refFile = process.env.AGENT_KANBAN_SESSION_REF_FILE;
+    const refFile = process.env.KANBI_SESSION_REF_FILE;
     if (!refFile) return;
 
     const payload = {

@@ -13,8 +13,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"agent-kanban/internal/storage"
-	"agent-kanban/internal/tmux"
+	"kanbi/internal/storage"
+	"kanbi/internal/tmux"
 )
 
 func TestModelKeybindingsCreateMoveReorderArchive(t *testing.T) {
@@ -128,7 +128,7 @@ func TestModelEnterSendPromptAndAttentionNavigation(t *testing.T) {
 	second, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Second", "", "pi")
 	sessionID, err := store.UpsertActiveSession(ctx, second.ID, storage.Session{
 		Harness:         "pi",
-		TmuxSessionName: "agent-kanban",
+		TmuxSessionName: "kanbi",
 		TmuxWindowName:  "T-002-second",
 		Status:          "running",
 	})
@@ -241,7 +241,7 @@ func TestModelEnterOpensStartedTicket(t *testing.T) {
 	}
 	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
 		Harness:         "pi",
-		TmuxSessionName: "agent-kanban",
+		TmuxSessionName: "kanbi",
 		TmuxWindowName:  "T-001-open-started",
 		Status:          "running",
 	}); err != nil {
@@ -460,7 +460,7 @@ func TestModelTicketInspectorShowsResumableStatus(t *testing.T) {
 	sessionID, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
 		Harness:           "pi",
 		HarnessSessionRef: sqlNullStr("session-ref-123"),
-		TmuxSessionName:   "agent-kanban-test",
+		TmuxSessionName:   "kanbi-test",
 		TmuxWindowName:    "b1-T-001-resume-me",
 		Status:            "running",
 	})
@@ -532,7 +532,7 @@ func TestModelBodyPasteStoresImageAttachmentAndInsertsMarkdown(t *testing.T) {
 	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(base64.StdEncoding.EncodeToString(png)), Paste: true})
 
-	wantDir := filepath.Join(dataHome, "agent-kanban", "attachments", "1")
+	wantDir := filepath.Join(dataHome, "kanbi", "attachments", "1")
 	entries, err := os.ReadDir(wantDir)
 	if err != nil {
 		t.Fatal(err)
@@ -564,7 +564,7 @@ func TestModelIgnoresKittyGraphicsResponsesWhileEditingTitle(t *testing.T) {
 }
 
 func TestModelEscFromInspectorReturnsClearImageCommand(t *testing.T) {
-	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "kitty")
+	t.Setenv("KANBI_IMAGE_PROTOCOL", "kitty")
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Image", "![](/tmp/example.png)", "pi")

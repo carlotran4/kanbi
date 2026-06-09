@@ -10,7 +10,7 @@ links:
 > This file preserves the original product/design discussion and decision log. It is not the current implementation contract. When this file disagrees with current docs, prefer `AGENTS.md`, `docs/architecture.md`, `docs/state-management.md`, `docs/ticket-session-lifecycle.md`, `docs/harness-contracts.md`, `docs/multi-board-behavior.md`, and `README.md` in that order.
 
 ## Goal
-Agent Kanban is an agent-agnostic terminal orchestration system built around a Kanban board. It reduces cognitive load and lost sessions by giving the user one control center for all active agent work. Each ticket represents a unit of work and is tied to one or more resumable agent sessions.
+Kanbi is an agent-agnostic terminal orchestration system built around a Kanban board. It reduces cognitive load and lost sessions by giving the user one control center for all active agent work. Each ticket represents a unit of work and is tied to one or more resumable agent sessions.
 
 Core problem: when multiple agent sessions are running, it is hard to know where the user is needed, what is still running, and which sessions can be safely resumed later.
 
@@ -24,7 +24,7 @@ Core experience: tickets live on a Kanban board, agent sessions run in tmux wind
 - Storage: **SQLite** as canonical app state
 - Config: **YAML**
 - Session backend for v1: **tmux**
-- Binary name: `agent-kanban`
+- Binary name: `kanbi`
 - Repo: standalone Go repo under `~/Developer`
 - Initial distribution: private personal tool, structured like a clean CLI project
 
@@ -114,12 +114,12 @@ When possible, harness sessions should be named from the ticket title, preferabl
 ## Tmux Architecture
 
 ### Dedicated tmux Session
-v1 should use a dedicated tmux session named `agent-kanban`.
+v1 should use a dedicated tmux session named `kanbi`.
 
 Structure:
 
 ```text
-tmux session: agent-kanban
+tmux session: kanbi
 windows:
   board
   b1-T-001-fix-oauth-redirect
@@ -130,21 +130,21 @@ windows:
 The board runs in a stable `board` window. Each active ticket gets one tmux window. Use windows, not panes, for ticket sessions.
 
 ### Running Outside tmux
-If the user runs `agent-kanban` outside tmux, it should automatically create/attach to the dedicated tmux session.
+If the user runs `kanbi` outside tmux, it should automatically create/attach to the dedicated tmux session.
 
 Expected behavior:
 
 ```bash
-agent-kanban
+kanbi
 ```
 
 If not inside tmux, it effectively runs something like:
 
 ```bash
-tmux new-session -A -s agent-kanban agent-kanban --board
+tmux new-session -A -s kanbi kanbi --board
 ```
 
-Use an environment variable such as `AGENT_KANBAN_INNER=1` to avoid recursive launching.
+Use an environment variable such as `KANBI_INNER=1` to avoid recursive launching.
 
 ### Navigation Between Board and Sessions
 v1 is a tmux-window control center. It should not embed terminal sessions inside the Bubble Tea UI.
@@ -464,15 +464,15 @@ No hard delete in v1.
 Default command opens/attaches the board:
 
 ```bash
-agent-kanban
+kanbi
 ```
 
 v1 should also include basic subcommands:
 
 ```bash
-agent-kanban doctor
-agent-kanban add "title" --body "..." --harness pi
-agent-kanban list
+kanbi doctor
+kanbi add "title" --body "..." --harness pi
+kanbi list
 ```
 
 `doctor` should be lenient.
@@ -482,7 +482,7 @@ It should fail only for core requirements such as tmux/DB/config being unusable.
 Doctor checks:
 
 - `tmux` installed and version visible
-- can create/attach to `agent-kanban` session
+- can create/attach to `kanbi` session
 - SQLite DB path writable
 - config path writable
 - shell detected
@@ -498,15 +498,15 @@ Doctor checks:
 ### XDG Paths
 Use XDG conventions:
 
-- Config: `~/.config/agent-kanban/config.yaml`
-- DB: `~/.local/share/agent-kanban/agent-kanban.db`
-- Logs/state: `~/.local/state/agent-kanban/`
+- Config: `~/.config/kanbi/config.yaml`
+- DB: `~/.local/share/kanbi/kanbi.db`
+- Logs/state: `~/.local/state/kanbi/`
 
 Env overrides:
 
-- `AGENT_KANBAN_CONFIG`
-- `AGENT_KANBAN_DB`
-- `AGENT_KANBAN_STATE_DIR`
+- `KANBI_CONFIG`
+- `KANBI_DB`
+- `KANBI_STATE_DIR`
 
 ### Config Format
 Use YAML.
@@ -517,7 +517,7 @@ Example shape:
 default_harness: pi
 
 tmux:
-  session_name: agent-kanban
+  session_name: kanbi
   board_window_name: board
 
 timeouts:
@@ -640,8 +640,8 @@ Explicitly exclude from v1:
    - SQLite schema
    - YAML config
    - XDG paths
-   - `agent-kanban doctor`
-   - `agent-kanban add/list`
+   - `kanbi doctor`
+   - `kanbi add/list`
 
 2. **Static Bubble Tea board**
    - Load board, columns, and tickets from DB
@@ -702,7 +702,7 @@ This section preserves the resolved 65-question design context.
 17. **Launch from columns:** allow start/resume from any column.
 18. **Multi-session UI:** board is a tmux control center, not embedded terminal UI.
 19. **Return to board:** use normal tmux navigation; stable `board` window; no custom tmux binding mutation.
-20. **Tmux session ownership:** dedicated `agent-kanban` tmux session by default.
+20. **Tmux session ownership:** dedicated `kanbi` tmux session by default.
 21. **Outside tmux behavior:** auto-create/attach to dedicated tmux session.
 22. **CLI surface:** default interactive command plus subcommands such as doctor/add/list.
 23. **Doctor strictness:** lenient; warn for missing harnesses, fail core tmux/DB/config problems.
@@ -744,7 +744,7 @@ This section preserves the resolved 65-question design context.
 59. **Submit method:** paste text then send normal Enter.
 60. **Multiline paste risk:** accepted MVP risk; test per harness later.
 61. **Milestones:** data/config/CLI → static board → tmux → adapters → watcher → auto-close → hardening.
-62. **Project/binary name:** `agent-kanban`.
+62. **Project/binary name:** `kanbi`.
 63. **Repo location:** standalone Go repo under `~/Developer`.
 64. **License/distribution:** private personal tool initially.
 65. **Documentation update:** update this note with all decisions and do not lose context.

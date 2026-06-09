@@ -1,4 +1,4 @@
-module agent-kanban
+module kanbi
 
 go 1.26.3
 

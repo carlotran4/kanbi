@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 func (m *Model) syncScrollDimensions() {

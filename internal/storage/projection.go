@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"agent-kanban/internal/kanban"
+	"kanbi/internal/kanban"
 )
 
 const ticketProjectionRuntimeSQL = "coalesce(s.status,'" + kanban.StateNotStarted + "')"

@@ -2,8 +2,8 @@
 # Real-harness lifecycle integration test.
 #
 # REQUIRES opt-in:
-#   AGENT_KANBAN_REAL_HARNESS_TESTS=1  - must be set to run
-#   AGENT_KANBAN_REAL_HARNESSES=pi,codex,copilot  - selects harnesses (default: pi)
+#   KANBI_REAL_HARNESS_TESTS=1  - must be set to run
+#   KANBI_REAL_HARNESSES=pi,codex,copilot  - selects harnesses (default: pi)
 #
 # WARNING: This script starts REAL agent harnesses which can:
 #   - consume model quota / token credits
@@ -29,12 +29,12 @@ step() {
 pass() { echo "  PASS: $*"; }
 fail() { echo "  FAIL: $*" >&2; exit 1; }
 
-if [[ "${AGENT_KANBAN_REAL_HARNESS_TESTS:-}" != "1" ]]; then
+if [[ "${KANBI_REAL_HARNESS_TESTS:-}" != "1" ]]; then
   cat <<EOF
 Real-harness lifecycle tests are opt-in.
 
 To run:
-  AGENT_KANBAN_REAL_HARNESS_TESTS=1 AGENT_KANBAN_REAL_HARNESSES=pi ./scripts/real-harness-lifecycle.sh
+  KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi ./scripts/real-harness-lifecycle.sh
 
 Supported harnesses: pi, codex, copilot
 WARNING: Real harnesses consume model quota and require local auth.
@@ -42,12 +42,12 @@ EOF
   exit 0
 fi
 
-HARNESSES="${AGENT_KANBAN_REAL_HARNESSES:-pi}"
+HARNESSES="${KANBI_REAL_HARNESSES:-pi}"
 IFS=',' read -ra HARNESS_LIST <<< "$HARNESSES"
 
 TMP="$(mktemp -d)"
-SESSION="agent-kanban-real-$$"
-BIN="$TMP/agent-kanban"
+SESSION="kanbi-real-$$"
+BIN="$TMP/kanbi"
 
 cleanup() {
   echo ""
@@ -58,27 +58,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export AGENT_KANBAN_CONFIG="$TMP/config.yaml"
-export AGENT_KANBAN_DB="$TMP/agent-kanban.db"
-export AGENT_KANBAN_STATE_DIR="$TMP/state"
-export AGENT_KANBAN_DATA_DIR="$TMP/data"
-export AGENT_KANBAN_TMUX_SESSION="$SESSION"
+export KANBI_CONFIG="$TMP/config.yaml"
+export KANBI_DB="$TMP/kanbi.db"
+export KANBI_STATE_DIR="$TMP/state"
+export KANBI_DATA_DIR="$TMP/data"
+export KANBI_TMUX_SESSION="$SESSION"
 
-cat >"$AGENT_KANBAN_CONFIG" <<YAML
-db_path: "$AGENT_KANBAN_DB"
+cat >"$KANBI_CONFIG" <<YAML
+db_path: "$KANBI_DB"
 tmux_session: "$SESSION"
 prompt_ready_timeout: 5s
 YAML
 
-echo "=== Agent Kanban Real Harness Lifecycle Test ==="
+echo "=== Kanbi Real Harness Lifecycle Test ==="
 echo "Session:   $SESSION"
-echo "DB:        $AGENT_KANBAN_DB"
+echo "DB:        $KANBI_DB"
 echo "Harnesses: $HARNESSES"
 echo ""
 
-step "Build agent-kanban"
+step "Build kanbi"
 cd "$ROOT"
-go build -buildvcs=false -o "$BIN" ./cmd/agent-kanban
+go build -buildvcs=false -o "$BIN" ./cmd/kanbi
 pass "build ok"
 
 step "Run doctor"
@@ -132,7 +132,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
   pass "window $WNAME exists"
 
   step "[$HARNESS] Verify session row is active in SQLite"
-  ROW="$(sqlite3 "$AGENT_KANBAN_DB" "
+  ROW="$(sqlite3 "$KANBI_DB" "
     select s.id, s.is_active, s.harness, s.tmux_window_name
     from sessions s
     join tickets t on t.id = s.ticket_id
@@ -170,7 +170,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
   # Wait up to 8s for Copilot to write to session-store.db
   SESSION_REF=""
   for i in $(seq 1 8); do
-    SESSION_REF="$(sqlite3 "$AGENT_KANBAN_DB" "
+    SESSION_REF="$(sqlite3 "$KANBI_DB" "
       select s.harness_session_ref
       from sessions s
       join tickets t on t.id = s.ticket_id
@@ -194,7 +194,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
       if [[ -n "$SESSION_REF" && "$SESSION_REF" != "NULL" ]]; then
         pass "session ref captured from ~/.copilot/session-store.db: $SESSION_REF"
       else
-        echo "  NOTE: session ref not yet in agent-kanban DB after 8s."
+        echo "  NOTE: session ref not yet in kanbi DB after 8s."
         echo "  Copilot may still be starting. Check ~/.copilot/session-store.db manually."
         pass "copilot window started; ref capture pending"
       fi
@@ -235,7 +235,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
   DISPLAY_ID="${TICKET_IDS[$HARNESS]}"
   # After window close, next open/list will trigger reconcile in board mode.
   # For this script, verify DB state by checking that window_id @* no longer exists in tmux.
-  WINDOW_ID="$(sqlite3 "$AGENT_KANBAN_DB" "
+  WINDOW_ID="$(sqlite3 "$KANBI_DB" "
     select s.tmux_window_id
     from sessions s
     join tickets t on t.id = s.ticket_id
@@ -254,7 +254,7 @@ step "Verify resume behavior"
 for HARNESS in "${HARNESS_LIST[@]}"; do
   HARNESS="$(echo "$HARNESS" | tr -d '[:space:]')"
   DISPLAY_ID="${TICKET_IDS[$HARNESS]}"
-  SESSION_REF="$(sqlite3 "$AGENT_KANBAN_DB" "
+  SESSION_REF="$(sqlite3 "$KANBI_DB" "
     select s.harness_session_ref
     from sessions s
     join tickets t on t.id = s.ticket_id
@@ -300,12 +300,12 @@ echo ""
 echo "=== Real Harness Lifecycle Test Complete ==="
 echo ""
 echo "Harnesses tested: $HARNESSES"
-echo "DB snapshot: $AGENT_KANBAN_DB"
+echo "DB snapshot: $KANBI_DB"
 echo ""
 
 # Print session summary from DB
 echo "Session summary:"
-sqlite3 "$AGENT_KANBAN_DB" "
+sqlite3 "$KANBI_DB" "
   select t.display_id, t.harness, s.status, s.is_active, s.harness_session_ref
   from tickets t
   left join sessions s on s.id = (

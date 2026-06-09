@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 func TestMasterFilterModalAppliesSearchAndClear(t *testing.T) {

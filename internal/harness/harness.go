@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"agent-kanban/internal/kanban"
+	"kanbi/internal/kanban"
 )
 
 const (

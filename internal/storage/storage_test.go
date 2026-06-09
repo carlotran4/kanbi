@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"agent-kanban/internal/kanban"
+	"kanbi/internal/kanban"
 )
 
 func TestBoardWorkdirExpandsTilde(t *testing.T) {
@@ -148,7 +148,7 @@ func TestRenameSessionWindowUpdatesLatestActive(t *testing.T) {
 	view := defaultBoardView(t, ctx, s)
 	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "A", "", "pi")
 	_, err := s.UpsertActiveSession(ctx, ticket.ID, Session{
-		Harness: "pi", TmuxSessionName: "agent-kanban",
+		Harness: "pi", TmuxSessionName: "kanbi",
 		TmuxWindowName: "T-001-a", Status: "running",
 	})
 	if err != nil {
@@ -171,7 +171,7 @@ func TestUpdateSessionRefPersists(t *testing.T) {
 	view := defaultBoardView(t, ctx, s)
 	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "A", "", "pi")
 	sessionID, _ := s.UpsertActiveSession(ctx, ticket.ID, Session{
-		Harness: "pi", TmuxSessionName: "agent-kanban",
+		Harness: "pi", TmuxSessionName: "kanbi",
 		TmuxWindowName: "T-001-a", Status: "running",
 	})
 	if err := s.UpdateSessionRef(ctx, sessionID, "019e-ref-abc"); err != nil {
@@ -191,7 +191,7 @@ func TestMarkTicketRuntimeUpdatesActiveSession(t *testing.T) {
 	view := defaultBoardView(t, ctx, s)
 	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "A", "", "pi")
 	_, _ = s.UpsertActiveSession(ctx, ticket.ID, Session{
-		Harness: "pi", TmuxSessionName: "agent-kanban",
+		Harness: "pi", TmuxSessionName: "kanbi",
 		TmuxWindowName: "T-001-a", Status: "running",
 	})
 	if err := s.MarkTicketRuntime(ctx, ticket.ID, "waiting_for_user", "manual", "user override"); err != nil {
@@ -504,7 +504,7 @@ func TestStartFreshPreservesSessionHistory(t *testing.T) {
 	// Create first session and mark it closed
 	firstID, err := s.UpsertActiveSession(ctx, ticket.ID, Session{
 		Harness:         "pi",
-		TmuxSessionName: "agent-kanban",
+		TmuxSessionName: "kanbi",
 		TmuxWindowName:  "T-001-a",
 		Status:          "running",
 	})
@@ -518,7 +518,7 @@ func TestStartFreshPreservesSessionHistory(t *testing.T) {
 	// Start fresh should create a NEW active session, not delete the old one
 	secondID, err := s.UpsertActiveSession(ctx, ticket.ID, Session{
 		Harness:         "pi",
-		TmuxSessionName: "agent-kanban",
+		TmuxSessionName: "kanbi",
 		TmuxWindowName:  "T-001-a",
 		Status:          "running",
 	})
@@ -562,7 +562,7 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "A", "", "pi")
 	id, err := s.UpsertActiveSession(ctx, ticket.ID, Session{
 		Harness:         "pi",
-		TmuxSessionName: "agent-kanban",
+		TmuxSessionName: "kanbi",
 		TmuxWindowID:    sql.NullString{String: "@7", Valid: true},
 		TmuxWindowName:  "T-001-a",
 		Status:          "running",
@@ -587,7 +587,7 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if listed.TmuxSessionName.String != "agent-kanban" || listed.WindowID.String != "@7" || listed.WindowName.String != "T-001-a" {
+	if listed.TmuxSessionName.String != "kanbi" || listed.WindowID.String != "@7" || listed.WindowName.String != "T-001-a" {
 		t.Fatalf("ticket session metadata = %+v", listed)
 	}
 	if listed.Runtime != "waiting_for_user" || !listed.LastOutputAt.Valid || listed.LastAttentionReason.String != "waiting" {
@@ -608,7 +608,7 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	}
 	id, err = s.UpsertActiveSession(ctx, ticket.ID, Session{
 		Harness:         "pi",
-		TmuxSessionName: "agent-kanban",
+		TmuxSessionName: "kanbi",
 		TmuxWindowID:    sql.NullString{String: "@8", Valid: true},
 		TmuxWindowName:  "T-001-a",
 		Status:          "running",

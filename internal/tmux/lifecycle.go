@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"agent-kanban/internal/harness"
-	"agent-kanban/internal/kanban"
-	"agent-kanban/internal/prompt"
-	"agent-kanban/internal/storage"
+	"kanbi/internal/harness"
+	"kanbi/internal/kanban"
+	"kanbi/internal/prompt"
+	"kanbi/internal/storage"
 )
 
 type lifecycleAction string

@@ -1,6 +1,6 @@
 # Autonomous Verification Guide
 
-This document defines how an autonomous coding agent should verify its own work while building Agent Kanban.
+This document defines how an autonomous coding agent should verify its own work while building Kanbi.
 
 ## Verification Principle
 
@@ -79,12 +79,12 @@ Tmux-dependent tests should be separate from normal unit tests because they requ
 Use a build tag or explicit environment variable, e.g.:
 
 ```bash
-AGENT_KANBAN_TMUX_TESTS=1 go test ./internal/tmux ./internal/harness
+KANBI_TMUX_TESTS=1 go test ./internal/tmux ./internal/harness
 ```
 
 Tmux integration tests should:
 
-- create a uniquely named test tmux session, e.g. `agent-kanban-test-$PID`
+- create a uniquely named test tmux session, e.g. `kanbi-test-$PID`
 - create a board window
 - create ticket windows
 - send/paste text into panes
@@ -109,7 +109,7 @@ Test:
 Avoid screenshot/golden terminal tests in early v1 unless necessary.
 
 ### 6. Doctor Self-Test
-`agent-kanban doctor` should have testable internals.
+`kanbi doctor` should have testable internals.
 
 Separate probe logic from output formatting so tests can simulate:
 
@@ -138,9 +138,9 @@ By default, the smoke script should run baseline checks plus the tmux-backed end
 go fmt ./...
 go vet ./...
 go test ./...
-agent-kanban doctor
-agent-kanban add "Smoke test ticket" --body "Verify smoke path" --harness pi
-agent-kanban list
+kanbi doctor
+kanbi add "Smoke test ticket" --body "Verify smoke path" --harness pi
+kanbi list
 ```
 
 When the current verification loop has already run `go fmt ./...`, `go test ./...`, and `go vet ./...`, use the faster end-to-end-only mode to avoid duplicate baseline work:
@@ -152,8 +152,8 @@ When the current verification loop has already run `go fmt ./...`, `go test ./..
 For early development, the script may use a temporary config/DB via env vars:
 
 ```bash
-AGENT_KANBAN_DB=$(mktemp -d)/test.db
-AGENT_KANBAN_CONFIG=$(mktemp -d)/config.yaml
+KANBI_DB=$(mktemp -d)/test.db
+KANBI_CONFIG=$(mktemp -d)/config.yaml
 ```
 
 ## Feature-Specific Acceptance Checks
@@ -298,10 +298,10 @@ An autonomous agent should stop and ask before:
 Real ticket backend smoke tests are not part of normal smoke or CI because they can consume quota, mutate external projects, and depend on auth. For Jira/Atlassian, set a disposable-capable project and auth in the environment, then run:
 
 ```bash
-AGENT_KANBAN_JIRA_SITE_URL="https://ORG.atlassian.net" \
-AGENT_KANBAN_JIRA_PROJECT_KEY="AK" \
-AGENT_KANBAN_JIRA_EMAIL="you@example.com" \
-AGENT_KANBAN_JIRA_API_TOKEN="TOKEN" \
+KANBI_JIRA_SITE_URL="https://ORG.atlassian.net" \
+KANBI_JIRA_PROJECT_KEY="AK" \
+KANBI_JIRA_EMAIL="you@example.com" \
+KANBI_JIRA_API_TOKEN="TOKEN" \
 ./scripts/jira-backend-smoke.sh
 ```
 

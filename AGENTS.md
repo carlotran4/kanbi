@@ -59,7 +59,7 @@ go test ./internal/harness ./internal/tmux ./internal/storage
 For real harness changes, only after deterministic checks pass, use the opt-in script:
 
 ```bash
-AGENT_KANBAN_REAL_HARNESS_TESTS=1 AGENT_KANBAN_REAL_HARNESSES=pi,codex ./scripts/real-harness-lifecycle.sh
+KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi,codex ./scripts/real-harness-lifecycle.sh
 ```
 
 Report verification commands and results in your final response.
@@ -88,7 +88,7 @@ Stop and ask before:
 | Lifecycle/session | state + lifecycle docs | `internal/tmux`, `internal/storage`, `internal/tui` | `go test ./internal/harness ./internal/tmux ./internal/storage` |
 | Harness | harness contracts + lifecycle docs | `internal/harness`, `internal/config`, `internal/tmux` | harness/storage/tmux tests, smoke, opt-in real harness if needed |
 | Storage/schema | state docs + multi-board doc if relevant | `internal/storage` | `go test ./internal/storage` plus focused lifecycle tests |
-| CLI | README + architecture | `cmd/agent-kanban`, storage/tmux as needed | `go test ./cmd/agent-kanban ./internal/storage` |
+| CLI | README + architecture | `cmd/kanbi`, storage/tmux as needed | `go test ./cmd/kanbi ./internal/storage` |
 | Verification scripts | autonomous verification doc | `scripts/*`, tests | changed script directly; baseline if dev loop changes |
 
 ## Documentation Expectations

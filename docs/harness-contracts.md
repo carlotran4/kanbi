@@ -18,7 +18,7 @@ Built-in harness contracts are localized in `internal/harness/contracts.go`: com
 
 ### Session Ref Capture
 
-Primary capture uses Agent Kanban's bundled Pi extension. When starting Pi with a prompt, Agent Kanban materializes `pi-session-ref-extension.ts` under its state directory and launches Pi with `-e <extension>`. The extension reads Pi's `ctx.sessionManager.getSessionId()` during `session_start` and writes it to the `AGENT_KANBAN_SESSION_REF_FILE` JSON handoff path. Agent Kanban stores that `sessionId` as `harness_session_ref`.
+Primary capture uses Kanbi's bundled Pi extension. When starting Pi with a prompt, Kanbi materializes `pi-session-ref-extension.ts` under its state directory and launches Pi with `-e <extension>`. The extension reads Pi's `ctx.sessionManager.getSessionId()` during `session_start` and writes it to the `KANBI_SESSION_REF_FILE` JSON handoff path. Kanbi stores that `sessionId` as `harness_session_ref`.
 
 The handoff file uses a **stable per-ticket path** (`<stateDir>/pi-session-refs/ticket-<id>.json`, no timestamp) so that recovery can reconstruct the path from the ticket ID alone. A background goroutine continues polling the handoff file for up to 30 seconds after the session row is written, ensuring the ref is saved even when the Pi `session_start` event fires several seconds after launch.
 

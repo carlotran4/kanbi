@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"agent-kanban/internal/storage"
+	"kanbi/internal/storage"
 )
 
 type fakeGitHubClient struct {

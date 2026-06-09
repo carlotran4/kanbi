@@ -33,7 +33,7 @@ const (
 )
 
 func terminalImageProtocol() imageProtocol {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_KANBAN_IMAGE_PROTOCOL"))) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("KANBI_IMAGE_PROTOCOL"))) {
 	case "kitty":
 		return imageProtocolKitty
 	case "sixel":

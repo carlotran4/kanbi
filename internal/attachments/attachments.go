@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const appDir = "agent-kanban"
+const appDir = "kanbi"
 
 var dataImageRE = regexp.MustCompile(`^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$`)
 
