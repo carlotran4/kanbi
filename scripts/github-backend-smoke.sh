@@ -29,6 +29,13 @@ cleanup() {
       "https://api.github.com/repos/$KANBI_GITHUB_OWNER/$KANBI_GITHUB_REPO/issues/$issue_number" \
       -d '{"state":"closed","labels":[]}' >/dev/null || true
   fi
+  if [[ -n "${label:-}" ]]; then
+    curl -fsS -X DELETE \
+      -H "Authorization: Bearer $KANBI_GITHUB_TOKEN" \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "https://api.github.com/repos/$KANBI_GITHUB_OWNER/$KANBI_GITHUB_REPO/labels/$label" >/dev/null || true
+  fi
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -43,9 +50,19 @@ label="kanbi-smoke-$(date +%s)-$RANDOM"
 api="https://api.github.com/repos/$KANBI_GITHUB_OWNER/$KANBI_GITHUB_REPO"
 headers=(-H "Authorization: Bearer $KANBI_GITHUB_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
 
+curl -fsS -X POST "${headers[@]}" "$api/labels" \
+  -d "{\"name\":\"$label\",\"color\":\"5319e7\",\"description\":\"temporary Kanbi smoke label\"}" >/dev/null
+
 issue_json=$(curl -fsS -X POST "${headers[@]}" "$api/issues" \
   -d "{\"title\":\"Kanbi smoke $label\",\"body\":\"remote body\",\"labels\":[\"$label\",\"needs-review\"]}")
 issue_number=$(printf '%s' "$issue_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["number"])')
+
+for _ in {1..10}; do
+  if curl -fsS "${headers[@]}" "$api/issues?state=open&labels=$label&per_page=100" | grep -q "\"number\": $issue_number"; then
+    break
+  fi
+  sleep 2
+done
 
 "$BIN" boards add "GitHub Smoke" --cwd "$work" --backend github \
   --config "{\"owner\":\"$KANBI_GITHUB_OWNER\",\"repo\":\"$KANBI_GITHUB_REPO\"}" \
@@ -55,6 +72,7 @@ issue_number=$(printf '%s' "$issue_json" | python3 -c 'import json,sys; print(js
 
 curl -fsS -X PATCH "${headers[@]}" "$api/issues/$issue_number" -d '{"title":"Kanbi smoke remote edited","body":"remote edited body"}' >/dev/null
 curl -fsS -X POST "${headers[@]}" "$api/issues/$issue_number/comments" -d '{"body":"remote smoke comment"}' >/dev/null
+sleep 3
 "$BIN" sync --board "GitHub Smoke"
 "$BIN" list --board "GitHub Smoke" | grep -q "Kanbi smoke remote edited"
 
