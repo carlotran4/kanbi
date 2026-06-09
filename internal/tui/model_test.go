@@ -185,6 +185,20 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 	}
 }
 
+func TestModelContextBarShowsFiltersOnlyInMaster(t *testing.T) {
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
+	if strings.Contains(model.View(), "f:filters") {
+		t.Fatalf("non-Master board should not advertise filters in context bar:\n%s", model.View())
+	}
+
+	model.masterBoard = true
+	model.reload()
+	if !strings.Contains(model.View(), "f:filters") {
+		t.Fatalf("Master board should advertise filters in context bar:\n%s", model.View())
+	}
+}
+
 func TestModelOHotkeyDoesNotOpenTicket(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)

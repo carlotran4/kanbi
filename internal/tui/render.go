@@ -96,11 +96,20 @@ func (m Model) baseView() string {
 	// Footer separator rule.
 	rule := footerRule.Render(strings.Repeat("─", m.width))
 	fmt.Fprintf(&b, "%s\n", rule)
-	b.WriteString("Enter:send/open  n:new  e:ticket  a:archive  b:boards  f:filters  !:attn  q:quit   ?:help\n")
+	b.WriteString(m.contextBar() + "\n")
 	if m.status != "" {
 		b.WriteString(statusStyle.Render(m.status) + "\n")
 	}
 	return b.String()
+}
+
+func (m Model) contextBar() string {
+	items := []string{"Enter:send/open", "n:new", "e:ticket", "a:archive", "b:boards"}
+	if m.masterBoard {
+		items = append(items, "f:filters")
+	}
+	items = append(items, "!:attn", "q:quit", "?:help")
+	return strings.Join(items, "  ")
 }
 
 const (
