@@ -293,6 +293,20 @@ An autonomous agent should stop and ask before:
 - introducing external services
 - changing the command names for supported harnesses
 
+## Opt-In Real Backend Smoke Tests
+
+Real ticket backend smoke tests are not part of normal smoke or CI because they can consume quota, mutate external projects, and depend on auth. For Jira/Atlassian, set a disposable-capable project and auth in the environment, then run:
+
+```bash
+AGENT_KANBAN_JIRA_SITE_URL="https://ORG.atlassian.net" \
+AGENT_KANBAN_JIRA_PROJECT_KEY="AK" \
+AGENT_KANBAN_JIRA_EMAIL="you@example.com" \
+AGENT_KANBAN_JIRA_API_TOKEN="TOKEN" \
+./scripts/jira-backend-smoke.sh
+```
+
+The Jira smoke test verifies pull, push, and comment sync against a real project. Cleanup is best-effort: Delete Issues permission removes smoke issues; otherwise the script tries to transition them to a terminal status and reports any leftovers.
+
 ## Recommended CI Later
 
 When the repo is ready for CI, add GitHub Actions that run:

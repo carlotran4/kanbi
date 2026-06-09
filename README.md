@@ -45,6 +45,16 @@ go test ./...
 go vet ./...
 ```
 
+Opt-in real Jira backend smoke test (mutates the configured Jira project; not run by normal smoke):
+
+```bash
+AGENT_KANBAN_JIRA_SITE_URL="https://ORG.atlassian.net" \
+AGENT_KANBAN_JIRA_PROJECT_KEY="AK" \
+AGENT_KANBAN_JIRA_EMAIL="you@example.com" \
+AGENT_KANBAN_JIRA_API_TOKEN="TOKEN" \
+./scripts/jira-backend-smoke.sh
+```
+
 ## Status
 
 Alpha lifecycle hardening is complete: multi-board TUI/CLI behavior, tmux-backed ticket sessions, Pi/Codex/Copilot command wiring and ref capture, fake and real harness verification, tests, and smoke verification are in place. Current follow-up work is tracked as tickets on the board.
