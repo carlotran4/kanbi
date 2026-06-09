@@ -42,7 +42,7 @@ func TestManagerSyncAllDispatchesByBoardBackend(t *testing.T) {
 	}
 }
 
-func TestDefaultRegistryImplementsLocalAndGitHub(t *testing.T) {
+func TestDefaultRegistryImplementsImplementedBackends(t *testing.T) {
 	registry := DefaultRegistry()
 	if _, ok := registry.Get(KindLocal); !ok {
 		t.Fatal("local backend missing")
@@ -50,7 +50,7 @@ func TestDefaultRegistryImplementsLocalAndGitHub(t *testing.T) {
 	if _, ok := registry.Get(KindGitHub); !ok {
 		t.Fatal("github backend missing")
 	}
-	if _, ok := registry.Get(KindAtlassian); ok {
-		t.Fatal("atlassian should not be implemented yet")
+	if _, ok := registry.Get(KindAtlassian); !ok {
+		t.Fatal("atlassian backend missing")
 	}
 }

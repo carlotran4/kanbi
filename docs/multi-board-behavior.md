@@ -180,7 +180,7 @@ agent-kanban open T-001 --board "Client C"
 
 Current behavior:
 
-- `boards add` creates a board with default columns, a workdir, and the selected ticket backend. Supported backends are `local` and `github`; GitHub boards accept `--config JSON` for owner/repo/auth settings and `--query QUERY` for Issues list filters.
+- `boards add` creates a board with default columns, a workdir, and the selected ticket backend. Supported backends are `local`, `github`, and `atlassian`; GitHub boards accept `--config JSON` for owner/repo/auth settings and `--query QUERY` for Issues list filters, while Atlassian/Jira boards use `--query` as JQL and `--config JSON` for site/project/auth settings.
 - `--cwd` defaults to the current directory.
 - `boards rename OLD NEW` renames a board.
 - `boards set-cwd NAME /path` updates a board workdir.
@@ -190,9 +190,9 @@ Current behavior:
 
 ## Ticket backend sync
 
-Implemented ticket backends are `local` and `github`. The architecture stores board-level backend metadata and runs ticket backend sync on startup plus periodically while the executable is running. The periodic sync is in-process only and stops when Agent Kanban exits.
+Implemented ticket backends are `local`, `github`, and `atlassian`. The architecture stores board-level backend metadata and runs ticket backend sync on startup plus periodically while the executable is running. The periodic sync is in-process only and stops when Agent Kanban exits.
 
-GitHub boards inherit workflow columns from issue labels with the configured status prefix (`status:` by default), pull/push issue title/body/state/labels/comments, and use newest-updated-at-wins conflict resolution. Notes map to GitHub issue comments. Local tmux/session history is never synced to ticket providers.
+GitHub boards inherit workflow columns from issue labels with the configured status prefix (`status:` by default), pull/push issue title/body/state/labels/comments, and use newest-updated-at-wins conflict resolution. Atlassian/Jira boards inherit workflow columns from remote issue statuses, use the board `BackendQuery` as JQL, and pull/push issue summary/description/status/comments. Notes map to provider issue comments. Local tmux/session history is never synced to ticket providers.
 
 See [`docs/ticket-backends.md`](./ticket-backends.md).
 

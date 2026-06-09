@@ -68,7 +68,7 @@ func NewRegistry(backends ...Backend) *Registry {
 }
 
 func DefaultRegistry() *Registry {
-	return NewRegistry(LocalBackend{}, GitHubBackend{})
+	return NewRegistry(LocalBackend{}, GitHubBackend{}, JiraBackend{})
 }
 
 func (r *Registry) Register(backend Backend) {

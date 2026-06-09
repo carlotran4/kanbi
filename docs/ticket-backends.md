@@ -1,6 +1,6 @@
 # Ticket Backend Architecture
 
-Agent Kanban supports one ticket metadata backend per board. Implemented backends are `local` and `github`. The `local` backend stores ticket metadata in SQLite. The `github` backend syncs a board with GitHub Issues through the GitHub REST API. The architecture remains prepared for future Atlassian/Jira and Asana adapters.
+Agent Kanban supports one ticket metadata backend per board. Implemented backends are `local`, `github`, and `atlassian`. The `local` backend stores ticket metadata in SQLite. The `github` backend syncs a board with GitHub Issues through the GitHub REST API. The `atlassian` backend syncs a board with Jira issues through Atlassian's REST API. The architecture remains prepared for future Asana adapters.
 
 ## Core Rules
 
@@ -17,7 +17,7 @@ Agent Kanban supports one ticket metadata backend per board. Implemented backend
 
 Boards store backend metadata:
 
-- `ticket_backend`: backend kind, currently `local` or `github`; planned kinds include `atlassian` and `asana`.
+- `ticket_backend`: backend kind, currently `local`, `github`, or `atlassian`; planned kinds include `asana`.
 - `backend_query`: optional remote query/filter. GitHub uses URL query parameters for the Issues list API (`state`, `labels`, `assignee`, `mentioned`, `milestone`, `since`). For Atlassian/Jira this must be JQL.
 - `backend_config`: provider-specific JSON config such as site/repo/project identifiers.
 - sync bookkeeping fields for last sync time/error.
@@ -77,8 +77,30 @@ GitHub sync behavior:
 - Uses newest `updated_at` wins for ticket and comment conflicts.
 - Does not sync tmux windows, sessions, harness refs, runtime state, or other local session history.
 
+## Atlassian/Jira Backend
+
+Create a Jira-backed board with:
+
+```bash
+agent-kanban boards add "Jira" \
+  --backend atlassian \
+  --config '{"site_url":"https://ORG.atlassian.net","project_key":"AK","email":"you@example.com","api_token":"TOKEN"}' \
+  --query 'project = AK AND labels = agent-kanban ORDER BY updated DESC'
+```
+
+Auth uses `email` plus `api_token`, or `bearer_token`, in `backend_config`; corresponding environment fallbacks are `AGENT_KANBAN_JIRA_SITE_URL`, `AGENT_KANBAN_JIRA_PROJECT_KEY`, `AGENT_KANBAN_JIRA_EMAIL`, `AGENT_KANBAN_JIRA_API_TOKEN`, and `AGENT_KANBAN_JIRA_BEARER_TOKEN`.
+
+Jira sync behavior:
+
+- Treats board `BackendQuery` as JQL. If empty, it defaults to `project = <project_key> ORDER BY updated DESC`.
+- Pulls issues selected by JQL and projects them as local cached tickets with display IDs matching Jira keys such as `AK-42`.
+- Inherits workflow columns from remote issue status names. Local column changes are pushed by requesting a matching Jira transition when available.
+- Pulls/pushes issue summary, description, status, and comments. Notes map to Jira issue comments.
+- Uses newest `updated_at` wins for ticket and comment conflicts.
+- Does not sync tmux windows, sessions, harness refs, runtime state, or other local session history.
+
 ## Current Non-Goals
 
-- No Atlassian/Asana API calls are implemented yet.
+- No Asana API calls are implemented yet.
 - No backend migration for existing boards; backend is chosen at creation.
 - No background daemon.
