@@ -6,7 +6,11 @@ import (
 )
 
 func TestRenderBodyPreviewShowsImagePlaceholderWithoutGraphics(t *testing.T) {
+	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "")
+	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("GHOSTTY_BIN_DIR", "")
+	t.Setenv("WEZTERM_EXECUTABLE", "")
 	t.Setenv("TERM_PROGRAM", "")
 	t.Setenv("TERM", "xterm-256color")
 
@@ -17,7 +21,11 @@ func TestRenderBodyPreviewShowsImagePlaceholderWithoutGraphics(t *testing.T) {
 }
 
 func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
+	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "")
+	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "1")
+	t.Setenv("GHOSTTY_BIN_DIR", "")
+	t.Setenv("WEZTERM_EXECUTABLE", "")
 	t.Setenv("TERM_PROGRAM", "")
 	t.Setenv("TERM", "xterm-256color")
 
@@ -34,7 +42,11 @@ func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
 }
 
 func TestTerminalImageProtocolDetectsSixelFallback(t *testing.T) {
+	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "")
+	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("GHOSTTY_BIN_DIR", "")
+	t.Setenv("WEZTERM_EXECUTABLE", "")
 	t.Setenv("TERM_PROGRAM", "WezTerm")
 	t.Setenv("TERM", "xterm-256color")
 

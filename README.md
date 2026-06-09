@@ -56,7 +56,7 @@ Press `e` to open the unified ticket inspector/editor. The inspector renders the
 - `Ctrl+S` — save the ticket
 - `Ctrl+E` — open the description in `$EDITOR`
 - paste base64 image data while the description is focused — save it under `~/.local/share/agent-kanban/attachments/<ticket-id>/` and insert a Markdown image reference
-- image references render as inline Kitty graphics in capable terminals during description preview, or as `[image: filename]` placeholders otherwise
+- image references render as inline Kitty graphics in capable terminals during description preview, including Kitty-compatible terminals detected through tmux's environment, or as `[image: filename]` placeholders otherwise
 - `Esc` — cancel/close the inspector
 
 Inside the notes section:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -24,6 +25,14 @@ const (
 )
 
 func terminalImageProtocol() imageProtocol {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_KANBAN_IMAGE_PROTOCOL"))) {
+	case "kitty":
+		return imageProtocolKitty
+	case "sixel":
+		return imageProtocolSixel
+	case "none", "off", "placeholder":
+		return imageProtocolNone
+	}
 	if supportsKittyGraphics() {
 		return imageProtocolKitty
 	}
@@ -34,24 +43,45 @@ func terminalImageProtocol() imageProtocol {
 }
 
 func supportsKittyGraphics() bool {
-	if strings.TrimSpace(os.Getenv("KITTY_WINDOW_ID")) != "" {
+	if strings.TrimSpace(terminalEnv("KITTY_WINDOW_ID")) != "" {
 		return true
 	}
-	termProgram := strings.ToLower(os.Getenv("TERM_PROGRAM"))
+	if strings.TrimSpace(terminalEnv("GHOSTTY_BIN_DIR")) != "" || strings.TrimSpace(terminalEnv("WEZTERM_EXECUTABLE")) != "" {
+		return true
+	}
+	termProgram := strings.ToLower(terminalEnv("TERM_PROGRAM"))
 	if termProgram == "kitty" || termProgram == "ghostty" || termProgram == "wezterm" {
 		return true
 	}
-	term := strings.ToLower(os.Getenv("TERM"))
+	term := strings.ToLower(terminalEnv("TERM"))
 	return strings.Contains(term, "kitty") || strings.Contains(term, "xterm-kitty")
 }
 
 func supportsSixelGraphics() bool {
-	termProgram := strings.ToLower(os.Getenv("TERM_PROGRAM"))
+	termProgram := strings.ToLower(terminalEnv("TERM_PROGRAM"))
 	if termProgram == "wezterm" || termProgram == "iterm.app" || termProgram == "mlterm" {
 		return true
 	}
-	term := strings.ToLower(os.Getenv("TERM"))
+	term := strings.ToLower(terminalEnv("TERM"))
 	return strings.Contains(term, "sixel") || strings.Contains(term, "mlterm")
+}
+
+func terminalEnv(name string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	if strings.TrimSpace(os.Getenv("TMUX")) == "" {
+		return ""
+	}
+	out, err := exec.Command("tmux", "show-environment", "-g", name).Output()
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(out))
+	if strings.HasPrefix(line, name+"=") {
+		return strings.TrimPrefix(line, name+"=")
+	}
+	return ""
 }
 
 func renderMarkdownImagesInline(line string, cols int, maxRows int) []string {
@@ -104,7 +134,7 @@ func renderKittyImage(path string, cols int, rows int) []string {
 	id := kittyImageID(path)
 	// a=T transmits/displays, t=f means payload is a file path, C=1 keeps cursor
 	// movement predictable for TUI layouts, c/r bound the image to terminal cells.
-	esc := fmt.Sprintf("\x1b_Ga=T,t=f,i=%d,C=1,c=%d,r=%d;%s\x1b\\", id, cols, rows, payload)
+	esc := tmuxPassthrough(fmt.Sprintf("\x1b_Ga=T,t=f,i=%d,C=1,c=%d,r=%d;%s\x1b\\", id, cols, rows, payload))
 	blank := strings.Repeat(" ", cols)
 	lines := make([]string, rows)
 	lines[0] = esc + blank
@@ -118,6 +148,13 @@ func kittyImageID(path string) uint32 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(path))
 	return h.Sum32()
+}
+
+func tmuxPassthrough(seq string) string {
+	if strings.TrimSpace(os.Getenv("TMUX")) == "" {
+		return seq
+	}
+	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
 }
 
 func imagePlaceholder(path string) string {
