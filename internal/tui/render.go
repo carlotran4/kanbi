@@ -450,14 +450,23 @@ func renderBodyPreview(body string, width int) string {
 		return lipgloss.NewStyle().Faint(true).Italic(true).Render("(no description)")
 	}
 	plain := strings.TrimSpace(body)
-	if imageLines := renderMarkdownImagesInline(firstPreviewParagraph(plain), width, 4); len(imageLines) > 0 {
+	firstParagraph := firstPreviewParagraph(plain)
+	if imageLines := renderMarkdownImagesInline(firstParagraph, width, 4); len(imageLines) > 0 {
 		if len(imageLines) > 4 {
 			imageLines = imageLines[:4]
 		}
 		return strings.Join(imageLines, "\n")
 	}
+	if imageLine := firstMarkdownImageLine(plain); imageLine != "" {
+		if imageLines := renderMarkdownImagesInline(imageLine, width, 4); len(imageLines) > 0 {
+			if len(imageLines) > 4 {
+				imageLines = imageLines[:4]
+			}
+			return strings.Join(imageLines, "\n")
+		}
+	}
 	// Plain-text wrap: take up to 2 lines from the first paragraph.
-	plain = firstPreviewParagraph(plain)
+	plain = firstParagraph
 	// Strip markdown syntax chars for a cleaner preview.
 	plain = strings.NewReplacer(
 		"**", "", "__", "", "*", "", "_", "",
@@ -476,6 +485,15 @@ func firstPreviewParagraph(body string) string {
 		return body[:idx]
 	}
 	return body
+}
+
+func firstMarkdownImageLine(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		if markdownImageRE.MatchString(line) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
 }
 
 func roundedBoxLines(lines []string, width int, border lipgloss.Style) []string {

@@ -1,11 +1,34 @@
 package tui
 
 import (
+	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestRenderBodyPreviewShowsImagePlaceholderWithoutGraphics(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+
+	preview := ansiStrip(renderBodyPreview("![](/tmp/example.png)", 40))
+	if !strings.Contains(preview, "[image: example.png]") {
+		t.Fatalf("preview = %q", preview)
+	}
+}
+
+func TestRenderBodyPreviewFindsImageAfterIntroParagraph(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+
+	body := "This ticket was created by the agent so you can verify attachment rendering.\n\n![](~/.local/share/agent-kanban/attachments/59/verification-001.png)\n\nExpected result: placeholder appears."
+	preview := ansiStrip(renderBodyPreview(body, 60))
+	if !strings.Contains(preview, "[image: verification-001.png]") {
+		t.Fatalf("preview = %q", preview)
+	}
+}
+
+func stubNoGraphicsTerminal(t *testing.T) {
+	t.Helper()
 	t.Setenv("AGENT_KANBAN_IMAGE_PROTOCOL", "")
 	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "")
@@ -13,10 +36,15 @@ func TestRenderBodyPreviewShowsImagePlaceholderWithoutGraphics(t *testing.T) {
 	t.Setenv("WEZTERM_EXECUTABLE", "")
 	t.Setenv("TERM_PROGRAM", "")
 	t.Setenv("TERM", "xterm-256color")
+}
 
-	preview := ansiStrip(renderBodyPreview("![](/tmp/example.png)", 40))
-	if !strings.Contains(preview, "[image: example.png]") {
-		t.Fatalf("preview = %q", preview)
+func TestRenderMarkdownForInspectorShowsImagePlaceholderWithoutGraphics(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+
+	body := "This ticket was created by the agent so you can verify attachment rendering.\n\n![](~/.local/share/agent-kanban/attachments/59/verification-001.png)"
+	rendered := ansiStrip(renderMarkdownForInspector(body, 60, 8))
+	if !strings.Contains(rendered, "[image: verification-001.png]") {
+		t.Fatalf("rendered = %q", rendered)
 	}
 }
 
@@ -29,8 +57,9 @@ func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
 	t.Setenv("TERM_PROGRAM", "")
 	t.Setenv("TERM", "xterm-256color")
 
-	rendered := renderMarkdownForInspector("before\n![](/tmp/example.png)\nafter", 20, 8)
-	if !strings.Contains(rendered, "\x1b_Ga=T,t=f") {
+	imagePath := writeTestPNG(t)
+	rendered := renderMarkdownForInspector("before\n![]("+imagePath+")\nafter", 20, 8)
+	if !strings.Contains(rendered, "\x1b_Ga=T,t=f,f=100,s=1,v=1") {
 		t.Fatalf("kitty escape missing: %q", rendered)
 	}
 	if !strings.Contains(rendered, "before") || !strings.Contains(rendered, "after") {
@@ -42,6 +71,19 @@ func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
 	if got := strings.Count(rendered, "\n"); got < 4 {
 		t.Fatalf("expected image rows to be reserved, got %d newlines in %q", got, rendered)
 	}
+}
+
+func writeTestPNG(t *testing.T) string {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "example.png")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestTerminalImageProtocolDetectsSixelFallback(t *testing.T) {

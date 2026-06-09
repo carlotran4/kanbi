@@ -4,6 +4,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"hash/fnv"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,11 +134,18 @@ func renderImageBlock(path string, cols int, maxRows int) []string {
 }
 
 func renderKittyImage(path string, cols int, rows int) []string {
-	payload := base64.StdEncoding.EncodeToString([]byte(path))
 	id := kittyImageID(path)
-	// a=T transmits/displays, t=f means payload is a file path, C=1 keeps cursor
-	// movement predictable for TUI layouts, c/r bound the image to terminal cells.
-	esc := tmuxPassthrough(fmt.Sprintf("\x1b_Ga=T,t=f,i=%d,C=1,c=%d,r=%d;%s\x1b\\", id, cols, rows, payload))
+	format, pxW, pxH, ok := kittyImageFileMetadata(path)
+	if !ok {
+		return []string{imagePlaceholder(path)}
+	}
+	payload := base64.StdEncoding.EncodeToString([]byte(path))
+	// a=T transmits/displays, t=f means payload is a file path. Kitty-compatible
+	// terminals such as Ghostty require image format and pixel dimensions for
+	// file payloads; otherwise they report EINVAL: dimensions required.
+	// C=1 keeps cursor movement predictable for TUI layouts, c/r bound the image
+	// to terminal cells.
+	esc := tmuxPassthrough(fmt.Sprintf("\x1b_Ga=T,t=f,f=%d,s=%d,v=%d,i=%d,C=1,c=%d,r=%d;%s\x1b\\", format, pxW, pxH, id, cols, rows, payload))
 	lines := make([]string, rows)
 	lines[0] = esc
 	for i := 1; i < rows-1; i++ {
@@ -144,6 +155,29 @@ func renderKittyImage(path string, cols int, rows int) []string {
 		lines[rows-1] = imagePlaceholder(path)
 	}
 	return lines
+}
+
+func kittyImageFileMetadata(path string) (format int, width int, height int, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	defer f.Close()
+	cfg, name, err := image.DecodeConfig(f)
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, 0, false
+	}
+	switch name {
+	case "png":
+		format = 100
+	case "jpeg":
+		format = 100
+	case "gif":
+		format = 100
+	default:
+		return 0, 0, 0, false
+	}
+	return format, cfg.Width, cfg.Height, true
 }
 
 func kittyImageID(path string) uint32 {
