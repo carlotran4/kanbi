@@ -123,12 +123,14 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 		externalID := strconv.Itoa(issue.Number)
 		if local, ok := byExternal[externalID]; ok {
 			syncedLocal[local.ID] = true
-			localNewer := !local.ExternalUpdatedAt.Valid || local.UpdatedAt.After(issue.UpdatedAt)
-			remoteNewer := !local.ExternalUpdatedAt.Valid || issue.UpdatedAt.After(local.ExternalUpdatedAt.Time)
-			if localNewer && remoteNewer {
+			localChanged := !local.ExternalUpdatedAt.Valid || local.UpdatedAt.After(local.ExternalUpdatedAt.Time)
+			remoteChanged := !local.ExternalUpdatedAt.Valid || issue.UpdatedAt.After(local.ExternalUpdatedAt.Time)
+			localWins := localChanged && local.UpdatedAt.After(issue.UpdatedAt)
+			remoteWins := remoteChanged && issue.UpdatedAt.After(local.UpdatedAt)
+			if localChanged && remoteChanged {
 				res.Conflicts++
 			}
-			if localNewer && local.UpdatedAt.After(issue.UpdatedAt) {
+			if localWins {
 				localColumn := columnNamesByID[local.ColumnID]
 				if localColumn == "" {
 					localColumn = col
@@ -142,15 +144,17 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 					return res, err
 				}
 				res.Pushed++
-			} else if remoteNewer {
+			} else if remoteWins {
 				if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: columnID, ExternalID: externalID, ExternalURL: issue.HTMLURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", issue.Number), DisplayNumber: issue.Number, Title: issue.Title, Body: issue.Body, ArchivedAt: issue.ClosedAt}); err != nil {
 					return res, err
 				}
 				res.Pulled++
 			}
-			if err := b.syncComments(ctx, store, client, cfg, local.ID, issue.Number); err != nil {
+			commentConflicts, err := b.syncComments(ctx, store, client, cfg, local.ID, issue.Number)
+			if err != nil {
 				return res, err
 			}
+			res.Conflicts += commentConflicts
 			continue
 		}
 		t, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: columnID, ExternalID: externalID, ExternalURL: issue.HTMLURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", issue.Number), DisplayNumber: issue.Number, Title: issue.Title, Body: issue.Body, ArchivedAt: issue.ClosedAt})
@@ -158,9 +162,11 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 			return res, err
 		}
 		res.Pulled++
-		if err := b.syncComments(ctx, store, client, cfg, t.ID, issue.Number); err != nil {
+		commentConflicts, err := b.syncComments(ctx, store, client, cfg, t.ID, issue.Number)
+		if err != nil {
 			return res, err
 		}
+		res.Conflicts += commentConflicts
 	}
 	for _, local := range locals {
 		if local.ExternalID.Valid || syncedLocal[local.ID] {
@@ -179,22 +185,25 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 			return res, err
 		}
 		res.Pushed++
-		if err := b.syncComments(ctx, store, client, cfg, local.ID, created.Number); err != nil {
+		commentConflicts, err := b.syncComments(ctx, store, client, cfg, local.ID, created.Number)
+		if err != nil {
 			return res, err
 		}
+		res.Conflicts += commentConflicts
 	}
 	return res, nil
 }
 
-func (b GitHubBackend) syncComments(ctx context.Context, store *storage.Store, client GitHubClient, cfg GitHubConfig, ticketID int64, issueNumber int) error {
+func (b GitHubBackend) syncComments(ctx context.Context, store *storage.Store, client GitHubClient, cfg GitHubConfig, ticketID int64, issueNumber int) (int, error) {
 	comments, err := client.ListComments(ctx, cfg, issueNumber)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	locals, err := store.ListNotes(ctx, ticketID)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	conflicts := 0
 	byExternal := map[string]storage.Note{}
 	for _, n := range locals {
 		if n.ExternalID.Valid {
@@ -204,23 +213,28 @@ func (b GitHubBackend) syncComments(ctx context.Context, store *storage.Store, c
 	for _, c := range comments {
 		ext := strconv.FormatInt(c.ID, 10)
 		if n, ok := byExternal[ext]; ok {
-			if n.UpdatedAt.After(c.UpdatedAt) {
+			localChanged := !n.ExternalUpdatedAt.Valid || n.UpdatedAt.After(n.ExternalUpdatedAt.Time)
+			remoteChanged := !n.ExternalUpdatedAt.Valid || c.UpdatedAt.After(n.ExternalUpdatedAt.Time)
+			if localChanged && remoteChanged {
+				conflicts++
+			}
+			if localChanged && n.UpdatedAt.After(c.UpdatedAt) {
 				updated, err := client.UpdateComment(ctx, cfg, c.ID, n.Body)
 				if err != nil {
-					return err
+					return conflicts, err
 				}
 				if err := store.UpsertRemoteNote(ctx, ticketID, ext, updated.Body, updated.UpdatedAt); err != nil {
-					return err
+					return conflicts, err
 				}
-			} else if !n.ExternalUpdatedAt.Valid || c.UpdatedAt.After(n.ExternalUpdatedAt.Time) {
+			} else if remoteChanged && c.UpdatedAt.After(n.UpdatedAt) {
 				if err := store.UpsertRemoteNote(ctx, ticketID, ext, c.Body, c.UpdatedAt); err != nil {
-					return err
+					return conflicts, err
 				}
 			}
 			continue
 		}
 		if err := store.UpsertRemoteNote(ctx, ticketID, ext, c.Body, c.UpdatedAt); err != nil {
-			return err
+			return conflicts, err
 		}
 	}
 	for _, n := range locals {
@@ -229,13 +243,13 @@ func (b GitHubBackend) syncComments(ctx context.Context, store *storage.Store, c
 		}
 		created, err := client.CreateComment(ctx, cfg, issueNumber, n.Body)
 		if err != nil {
-			return err
+			return conflicts, err
 		}
 		if err := store.LinkLocalNoteToRemote(ctx, n.ID, strconv.FormatInt(created.ID, 10), created.UpdatedAt); err != nil {
-			return err
+			return conflicts, err
 		}
 	}
-	return nil
+	return conflicts, nil
 }
 
 func ParseGitHubConfig(configJSON, query string) (GitHubConfig, error) {
@@ -428,14 +442,19 @@ func (c GitHubHTTPClient) ListIssues(ctx context.Context, cfg GitHubConfig) ([]G
 		if cfg.Since != "" {
 			params.Set("since", cfg.Since)
 		}
-		var issues []GitHubIssue
-		if err := c.do(ctx, cfg, http.MethodGet, fmt.Sprintf("/repos/%s/%s/issues?%s", url.PathEscape(cfg.Owner), url.PathEscape(cfg.Repo), params.Encode()), nil, &issues); err != nil {
-			return nil, err
-		}
-		for _, issue := range issues {
-			if issue.Number > 0 {
-				all = append(all, issue)
+		path := fmt.Sprintf("/repos/%s/%s/issues?%s", url.PathEscape(cfg.Owner), url.PathEscape(cfg.Repo), params.Encode())
+		for path != "" {
+			var issues []GitHubIssue
+			next, err := c.doPage(ctx, cfg, http.MethodGet, path, nil, &issues)
+			if err != nil {
+				return nil, err
 			}
+			for _, issue := range issues {
+				if issue.Number > 0 {
+					all = append(all, issue)
+				}
+			}
+			path = next
 		}
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].UpdatedAt.Before(all[j].UpdatedAt) })
@@ -443,9 +462,18 @@ func (c GitHubHTTPClient) ListIssues(ctx context.Context, cfg GitHubConfig) ([]G
 }
 
 func (c GitHubHTTPClient) ListComments(ctx context.Context, cfg GitHubConfig, n int) ([]GitHubComment, error) {
-	var comments []GitHubComment
-	err := c.do(ctx, cfg, http.MethodGet, fmt.Sprintf("/repos/%s/%s/issues/%d/comments?per_page=100", url.PathEscape(cfg.Owner), url.PathEscape(cfg.Repo), n), nil, &comments)
-	return comments, err
+	var all []GitHubComment
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments?per_page=100", url.PathEscape(cfg.Owner), url.PathEscape(cfg.Repo), n)
+	for path != "" {
+		var comments []GitHubComment
+		next, err := c.doPage(ctx, cfg, http.MethodGet, path, nil, &comments)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, comments...)
+		path = next
+	}
+	return all, nil
 }
 func (c GitHubHTTPClient) CreateIssue(ctx context.Context, cfg GitHubConfig, u GitHubIssueUpdate) (GitHubIssue, error) {
 	var out GitHubIssue
@@ -470,21 +498,30 @@ func (c GitHubHTTPClient) UpdateComment(ctx context.Context, cfg GitHubConfig, i
 }
 
 func (c GitHubHTTPClient) do(ctx context.Context, cfg GitHubConfig, method, path string, in, out any) error {
+	_, err := c.doPage(ctx, cfg, method, path, in, out)
+	return err
+}
+
+func (c GitHubHTTPClient) doPage(ctx context.Context, cfg GitHubConfig, method, path string, in, out any) (string, error) {
 	base := strings.TrimRight(cfg.APIBaseURL, "/")
 	if base == "" {
 		base = "https://api.github.com"
+	}
+	requestURL := base + path
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		requestURL = path
 	}
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
-			return err
+			return "", err
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, base+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
@@ -496,15 +533,42 @@ func (c GitHubHTTPClient) do(ctx context.Context, cfg GitHubConfig, method, path
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("github %s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(b)))
+		extra := ""
+		if reset := resp.Header.Get("X-RateLimit-Reset"); reset != "" {
+			extra = " rate_limit_reset=" + reset
+		}
+		if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
+			extra += " rate_limit_remaining=" + remaining
+		}
+		return "", fmt.Errorf("github %s %s: %s%s: %s", method, path, resp.Status, extra, strings.TrimSpace(string(b)))
 	}
-	if out == nil {
-		return nil
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return "", err
+		}
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return githubNextLink(resp.Header.Get("Link")), nil
+}
+
+func githubNextLink(linkHeader string) string {
+	for _, part := range strings.Split(linkHeader, ",") {
+		segments := strings.Split(part, ";")
+		if len(segments) < 2 || !strings.Contains(segments[1], `rel="next"`) {
+			continue
+		}
+		u := strings.TrimSpace(segments[0])
+		u = strings.TrimPrefix(strings.TrimSuffix(u, ">"), "<")
+		if parsed, err := url.Parse(u); err == nil && parsed.Path != "" {
+			if parsed.RawQuery != "" {
+				return parsed.Path + "?" + parsed.RawQuery
+			}
+			return parsed.Path
+		}
+	}
+	return ""
 }

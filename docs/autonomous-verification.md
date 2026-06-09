@@ -295,7 +295,18 @@ An autonomous agent should stop and ask before:
 
 ## Opt-In Real Backend Smoke Tests
 
-Real ticket backend smoke tests are not part of normal smoke or CI because they can consume quota, mutate external projects, and depend on auth. For Jira/Atlassian, set a disposable-capable project and auth in the environment, then run:
+Real ticket backend smoke tests are not part of normal smoke or CI because they can consume quota, mutate external projects, and depend on auth. For GitHub, use a disposable repository or a repository where temporary label-scoped issues are acceptable, then run:
+
+```bash
+KANBI_GITHUB_OWNER="OWNER" \
+KANBI_GITHUB_REPO="REPO" \
+KANBI_GITHUB_TOKEN="TOKEN" \
+./scripts/github-backend-smoke.sh
+```
+
+The GitHub smoke test verifies auth, query filtering, issue pull, remote edit/comment observation, repeat sync idempotency, close projection, and best-effort cleanup against a real repository. Deterministic fake-client tests remain the source of truth for conflict/comment update edge cases.
+
+For Jira/Atlassian, set a disposable-capable project and auth in the environment, then run:
 
 ```bash
 KANBI_JIRA_SITE_URL="https://ORG.atlassian.net" \

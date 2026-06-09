@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -97,7 +98,11 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			}
 			fmt.Println("Master\t(all boards)")
 			for _, b := range boards {
-				fmt.Printf("%d\t%s\t%s\t%s\n", b.ID, b.Name, b.Workdir, b.TicketBackend)
+				status := "ok"
+				if b.LastSyncError.Valid && strings.TrimSpace(b.LastSyncError.String) != "" {
+					status = "sync_error=" + b.LastSyncError.String
+				}
+				fmt.Printf("%d\t%s\t%s\t%s\t%s\n", b.ID, b.Name, b.Workdir, b.TicketBackend, status)
 			}
 			return nil
 		}
@@ -211,14 +216,17 @@ func runSync(ctx context.Context, cfg config.Config, args []string) error {
 			}
 			boards = []storage.Board{board}
 		}
+		var syncErrs []error
 		for _, board := range boards {
 			res, err := syncer.SyncBoard(ctx, board)
 			if err != nil {
-				return err
+				fmt.Printf("sync-error\t%s\t%s\tlast_sync_error=%s\n", board.Name, board.TicketBackend, err)
+				syncErrs = append(syncErrs, fmt.Errorf("%s: %w", board.Name, err))
+				continue
 			}
 			fmt.Printf("synced\t%s\t%s\tpulled=%d\tpushed=%d\tconflicts=%d\n", board.Name, board.TicketBackend, res.Pulled, res.Pushed, res.Conflicts)
 		}
-		return nil
+		return errors.Join(syncErrs...)
 	})
 }
 

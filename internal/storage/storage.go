@@ -19,6 +19,12 @@ type Store struct {
 	db *sql.DB
 }
 
+const boardSelectSQL = `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,''), last_sync_at, last_sync_error from boards`
+
+func boardScanDest(b *Board) []any {
+	return []any{&b.ID, &b.Name, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig, &b.LastSyncAt, &b.LastSyncError}
+}
+
 type Board struct {
 	ID            int64
 	Name          string
@@ -26,6 +32,8 @@ type Board struct {
 	TicketBackend string
 	BackendQuery  string
 	BackendConfig string
+	LastSyncAt    sql.NullTime
+	LastSyncError sql.NullString
 }
 
 type Column struct {
@@ -161,13 +169,13 @@ func (s *Store) Init(ctx context.Context) error {
 
 func (s *Store) DefaultBoard(ctx context.Context) (Board, error) {
 	var b Board
-	err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,'') from boards order by id limit 1`).Scan(&b.ID, &b.Name, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig)
+	err := s.db.QueryRowContext(ctx, boardSelectSQL+` order by id limit 1`).Scan(boardScanDest(&b)...)
 	return b, err
 }
 
 func (s *Store) BoardByName(ctx context.Context, name string) (Board, error) {
 	var b Board
-	err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,'') from boards where lower(name)=lower(?) order by id limit 1`, strings.TrimSpace(name)).Scan(&b.ID, &b.Name, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig)
+	err := s.db.QueryRowContext(ctx, boardSelectSQL+` where lower(name)=lower(?) order by id limit 1`, strings.TrimSpace(name)).Scan(boardScanDest(&b)...)
 	return b, err
 }
 
@@ -261,7 +269,7 @@ func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
 }
 
 func (s *Store) ListBoards(ctx context.Context) ([]Board, error) {
-	rows, err := s.db.QueryContext(ctx, `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,'') from boards order by lower(name), id`)
+	rows, err := s.db.QueryContext(ctx, boardSelectSQL+` order by lower(name), id`)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +277,7 @@ func (s *Store) ListBoards(ctx context.Context) ([]Board, error) {
 	var boards []Board
 	for rows.Next() {
 		var b Board
-		if err := rows.Scan(&b.ID, &b.Name, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig); err != nil {
+		if err := rows.Scan(boardScanDest(&b)...); err != nil {
 			return nil, err
 		}
 		boards = append(boards, b)
@@ -378,7 +386,7 @@ func (s *Store) BoardView(ctx context.Context) (BoardView, error) {
 
 func (s *Store) BoardViewByID(ctx context.Context, boardID int64) (BoardView, error) {
 	var board Board
-	if err := s.db.QueryRowContext(ctx, `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,'') from boards where id=?`, boardID).Scan(&board.ID, &board.Name, &board.Workdir, &board.TicketBackend, &board.BackendQuery, &board.BackendConfig); err != nil {
+	if err := s.db.QueryRowContext(ctx, boardSelectSQL+` where id=?`, boardID).Scan(boardScanDest(&board)...); err != nil {
 		return BoardView{}, err
 	}
 	return s.boardViewFor(ctx, board)

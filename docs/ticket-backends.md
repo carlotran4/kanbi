@@ -72,13 +72,25 @@ Auth uses `token` in `backend_config`, or `KANBI_GITHUB_TOKEN`, or `GITHUB_TOKEN
 
 GitHub sync behavior:
 
-- Pulls issues selected by `backend_query` and projects them as local cached tickets with display IDs like `GH-42`.
+- Pulls issues selected by `backend_query` and projects them as local cached tickets with display IDs like `GH-42`. Queries should usually include a narrow label such as `labels=kanbi` (or a project/team label) plus `state=open,closed` when Kanbi should observe closed/reopened issues. Supported query parameters are GitHub Issues list API parameters: `state`, `labels`, `assignee`, `mentioned`, `milestone`, and `since`.
 - Uses GitHub-native issue state for terminal work: closed issues appear in the `Done` column by default, and moving a ticket to `Done` or `Closed` closes the GitHub issue. Open issues without a workflow label go to `Open`.
 - Uses plain workflow labels for non-terminal columns by default: `in-progress` -> `In Progress`, `needs-review` -> `Review`, and `blocked` -> `Blocked`. Override these with `workflow_labels` in `backend_config`. Legacy `status:*` labels are still read during transition but are stripped on the next push.
 - Pulls issue comments into ticket notes and pushes local notes as issue comments.
 - Pushes local ticket title/body/closed state/status-label changes back to GitHub. Local tickets created on a GitHub board are created as remote issues on the next sync.
-- Uses newest `updated_at` wins for ticket and comment conflicts.
+- Uses newest `updated_at` wins for ticket and comment conflicts. GitHub issue/comment `updated_at` can lag immediately after writes; repeated syncs are expected to be idempotent, and automation should tolerate eventual consistency by polling/retrying before declaring a mismatch.
+- Follows GitHub pagination for issue and comment list pages (`per_page=100`) and includes rate-limit response headers in sync errors when GitHub returns them.
 - Does not sync tmux windows, sessions, harness refs, runtime state, or other local session history.
+
+Run the opt-in real GitHub smoke test with:
+
+```bash
+KANBI_GITHUB_OWNER="OWNER" \
+KANBI_GITHUB_REPO="REPO" \
+KANBI_GITHUB_TOKEN="TOKEN" \
+./scripts/github-backend-smoke.sh
+```
+
+The token must be able to create/edit/close issues and comments in the configured repository. Use a disposable repository or a repository where temporary label-scoped smoke issues are acceptable. Troubleshooting: if `kanbi sync` reports `last_sync_error` or `sync-error`, check token scope, owner/repo spelling, query label filters, and GitHub rate-limit reset details in the error text.
 
 ## Atlassian/Jira Backend
 

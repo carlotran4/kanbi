@@ -119,8 +119,14 @@ func (m Model) boardPickerView() string {
 	lines = append(lines, row(0, masterLabel))
 	for i, board := range m.boards {
 		label := board.Name
+		if board.LastSyncError.Valid && strings.TrimSpace(board.LastSyncError.String) != "" {
+			label += "  " + lipgloss.NewStyle().Foreground(palette.error_).Render("sync error")
+		}
 		if board.Workdir != "" {
 			label += "  " + lipgloss.NewStyle().Faint(true).Render(board.Workdir)
+		}
+		if board.LastSyncError.Valid && strings.TrimSpace(board.LastSyncError.String) != "" {
+			label += "  " + lipgloss.NewStyle().Faint(true).Render(trimToWidth(board.LastSyncError.String, 48))
 		}
 		lines = append(lines, row(i+1, label))
 	}
