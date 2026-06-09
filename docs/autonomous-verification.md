@@ -305,7 +305,7 @@ AGENT_KANBAN_JIRA_API_TOKEN="TOKEN" \
 ./scripts/jira-backend-smoke.sh
 ```
 
-The Jira smoke test verifies pull, push, and comment sync against a real project. Cleanup is best-effort: Delete Issues permission removes smoke issues; otherwise the script tries to transition them to a terminal status and reports any leftovers.
+The Jira smoke test verifies issue pull, remote comment pull, local update push, local issue creation push, and local note/comment push against a real project. Cleanup is best-effort: Delete Issues permission removes smoke issues; otherwise the script tries to transition them to a terminal status and reports any leftovers.
 
 ## Recommended CI Later
 

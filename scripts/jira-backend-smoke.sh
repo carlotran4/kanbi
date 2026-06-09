@@ -53,6 +53,8 @@ MARKER="ak-smoke-$(date +%Y%m%d%H%M%S)-$$"
 LABEL="ak-smoke-$$"
 BOARD="Jira Smoke $MARKER"
 PULL_SUMMARY="$MARKER pull remote issue"
+PULL_UPDATED_SUMMARY="$MARKER locally updated pulled issue"
+REMOTE_COMMENT_BODY="$MARKER remote comment pull sync"
 PUSH_SUMMARY="$MARKER push local issue"
 PUSH_BODY="Created by Agent Kanban Jira real-backend smoke test $MARKER"
 NOTE_BODY="$MARKER local note/comment sync"
@@ -128,6 +130,10 @@ def search(jql):
     out = request("GET", "/rest/api/3/search/jql?" + qs)
     print(json.dumps(out.get("issues", [])))
 
+def add_comment(key, body):
+    out = request("POST", "/rest/api/3/issue/" + urllib.parse.quote(key) + "/comment", {"body": adf(body)})
+    print(out["id"])
+
 def comments(key, needle):
     out = request("GET", "/rest/api/3/issue/" + urllib.parse.quote(key) + "/comment")
     text = json.dumps(out.get("comments", []))
@@ -160,6 +166,8 @@ if cmd == "create":
     create(sys.argv[2], sys.argv[3], sys.argv[4])
 elif cmd == "search":
     search(sys.argv[2])
+elif cmd == "add-comment":
+    add_comment(sys.argv[2], sys.argv[3])
 elif cmd == "comments":
     comments(sys.argv[2], sys.argv[3])
 elif cmd == "cleanup":
@@ -175,6 +183,7 @@ go build -buildvcs=false -o "$BIN" ./cmd/agent-kanban
 echo "creating temporary Jira pull issue ($MARKER)"
 PULL_KEY="$(python3 "$TMP/jira_api.py" create "$PULL_SUMMARY" "Created by Agent Kanban Jira smoke pull path $MARKER" "$LABEL")"
 echo "$PULL_KEY" >>"$CREATED_KEYS"
+python3 "$TMP/jira_api.py" add-comment "$PULL_KEY" "$REMOTE_COMMENT_BODY" >/dev/null
 
 CONFIG_JSON="{\"site_url\":\"${AGENT_KANBAN_JIRA_SITE_URL}\",\"project_key\":\"${AGENT_KANBAN_JIRA_PROJECT_KEY}\",\"email\":\"${AGENT_KANBAN_JIRA_EMAIL:-}\",\"issue_type\":\"${AGENT_KANBAN_JIRA_ISSUE_TYPE:-Task}\"}"
 JQL="project = ${AGENT_KANBAN_JIRA_PROJECT_KEY} AND labels = \"${LABEL}\" ORDER BY updated DESC"
@@ -186,6 +195,31 @@ printf '%s\n' "$SYNC_OUT" | grep -Eq 'pulled=[1-9]'
 LIST_OUT="$("$BIN" list --board "$BOARD")"
 printf '%s\n' "$LIST_OUT" | grep -F "$PULL_KEY"
 printf '%s\n' "$LIST_OUT" | grep -F "$PULL_SUMMARY"
+python3 - "$AGENT_KANBAN_DB" "$PULL_SUMMARY" "$REMOTE_COMMENT_BODY" <<'PY'
+import sqlite3, sys
+path, title, body = sys.argv[1:4]
+conn = sqlite3.connect(path)
+row = conn.execute("select t.id from tickets t join ticket_notes n on n.ticket_id=t.id where t.title=? and n.body=?", (title, body)).fetchone()
+if not row:
+    raise SystemExit("remote Jira comment was not pulled into local notes")
+PY
+
+echo "updating pulled ticket locally, then pushing update to Jira"
+python3 - "$AGENT_KANBAN_DB" "$PULL_SUMMARY" "$PULL_UPDATED_SUMMARY" <<'PY'
+import sqlite3, sys, time
+path, old_title, new_title = sys.argv[1:4]
+conn = sqlite3.connect(path)
+future = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 120))
+cur = conn.execute("update tickets set title=?, body=?, updated_at=? where title=?", (new_title, "Updated locally by Jira smoke", future, old_title))
+if cur.rowcount != 1:
+    raise SystemExit("could not update pulled local ticket")
+conn.commit()
+PY
+SYNC_OUT="$("$BIN" sync --board "$BOARD")"
+echo "$SYNC_OUT"
+printf '%s\n' "$SYNC_OUT" | grep -Eq 'pushed=[1-9]'
+python3 "$TMP/jira_api.py" search "project = ${AGENT_KANBAN_JIRA_PROJECT_KEY} AND key = ${PULL_KEY}" | grep -F "$PULL_UPDATED_SUMMARY" >/dev/null
+
 
 echo "adding local ticket and note, then pushing to Jira"
 ADD_OUT="$("$BIN" add "$PUSH_SUMMARY" --body "$PUSH_BODY" --board "$BOARD")"

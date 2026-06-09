@@ -102,7 +102,7 @@ AGENT_KANBAN_JIRA_API_TOKEN="TOKEN" \
 ./scripts/jira-backend-smoke.sh
 ```
 
-For bearer-token auth, set `AGENT_KANBAN_JIRA_BEARER_TOKEN` instead of `AGENT_KANBAN_JIRA_EMAIL`/`AGENT_KANBAN_JIRA_API_TOKEN`. The smoke test uses a disposable Agent Kanban config/data/state directory, creates a temporary Jira issue labeled with a unique smoke label, creates an `atlassian` board scoped to that label with JQL, verifies pull sync, adds a local ticket plus note, verifies push sync and Jira comment creation, then best-effort cleans up created Jira issues. The Jira account needs Browse Projects, Create Issues, Edit Issues, Add Comments, and usually Transition Issues; Delete Issues is optional but enables full cleanup. If delete is not permitted, the script tries a `Done`/`Closed`/`Complete`/`Resolved` transition and may leave closed smoke issues behind.
+For bearer-token auth, set `AGENT_KANBAN_JIRA_BEARER_TOKEN` instead of `AGENT_KANBAN_JIRA_EMAIL`/`AGENT_KANBAN_JIRA_API_TOKEN`. The smoke test uses a disposable Agent Kanban config/data/state directory, creates a temporary Jira issue labeled with a unique smoke label, creates an `atlassian` board scoped to that label with JQL, verifies issue and comment pull sync, updates the pulled issue locally and verifies push sync, adds a local ticket plus note, verifies remote Jira issue creation and Jira comment creation, then best-effort cleans up created Jira issues. The Jira account needs Browse Projects, Create Issues, Edit Issues, Add Comments, and usually Transition Issues; Delete Issues is optional but enables full cleanup. If delete is not permitted, the script tries a `Done`/`Closed`/`Complete`/`Resolved` transition and may leave closed smoke issues behind.
 
 Jira sync behavior:
 
