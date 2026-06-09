@@ -278,6 +278,71 @@ func newTestStore(t *testing.T, ctx context.Context) *storage.Store {
 	return store
 }
 
+func TestGitHubSyncPullsClosedIssueIntoDoneWithoutArchiving(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedAt := time.Now().UTC().Add(-time.Hour)
+	client := &fakeGitHubClient{issues: []GitHubIssue{{Number: 13, HTMLURL: "url", Title: "closed", Body: "body", State: "closed", UpdatedAt: closedAt, ClosedAt: &closedAt}}, comments: map[int][]GitHubComment{}}
+	res, err := (GitHubBackend{Client: client}).Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pulled != 1 {
+		t.Fatalf("pulled=%d", res.Pulled)
+	}
+	ticket, err := store.TicketByDisplayIDInBoard(ctx, "GH-13", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.ArchivedAt.Valid {
+		t.Fatalf("closed GitHub issue should remain visible, got archived_at=%v", ticket.ArchivedAt.Time)
+	}
+	view, _ := store.BoardViewByID(ctx, board.ID)
+	if !columnHasTicket(view, "Done", "GH-13") {
+		t.Fatalf("closed issue not visible in Done: %+v", view.Columns)
+	}
+}
+
+func TestGitHubSyncRepairsPreviouslyArchivedClosedDoneIssue(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedAt := time.Now().UTC().Add(-time.Hour)
+	client := &fakeGitHubClient{issues: []GitHubIssue{{Number: 14, HTMLURL: "url", Title: "closed", Body: "body", State: "closed", UpdatedAt: closedAt, ClosedAt: &closedAt}}, comments: map[int][]GitHubComment{}}
+	if _, err := (GitHubBackend{Client: client}).Sync(ctx, store, board); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.TicketByDisplayIDInBoard(ctx, "GH-14", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: ticket.ColumnID, ExternalID: "14", ExternalURL: "url", ExternalUpdatedAt: closedAt, DisplayID: "GH-14", DisplayNumber: 14, Title: "closed", Body: "body", ArchivedAt: &closedAt}); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ = store.TicketByDisplayIDInBoard(ctx, "GH-14", board.ID)
+	if !ticket.ArchivedAt.Valid {
+		t.Fatal("test setup did not archive ticket")
+	}
+	res, err := (GitHubBackend{Client: client}).Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pulled != 1 {
+		t.Fatalf("repair pulled=%d", res.Pulled)
+	}
+	ticket, _ = store.TicketByDisplayIDInBoard(ctx, "GH-14", board.ID)
+	if ticket.ArchivedAt.Valid {
+		t.Fatalf("closed Done ticket should have been unarchived: %+v", ticket)
+	}
+}
+
 func TestGitHubSyncPullsRemoteNewerExistingIssueAndReopens(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t, ctx)

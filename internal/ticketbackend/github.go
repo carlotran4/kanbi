@@ -124,6 +124,7 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 		externalID := strconv.Itoa(issue.Number)
 		if local, ok := byExternal[externalID]; ok {
 			syncedLocal[local.ID] = true
+			localColumn := columnNamesByID[local.ColumnID]
 			localChanged := !local.ExternalUpdatedAt.Valid || local.UpdatedAt.After(local.ExternalUpdatedAt.Time)
 			remoteChanged := !local.ExternalUpdatedAt.Valid || issue.UpdatedAt.After(local.ExternalUpdatedAt.Time)
 			localWins := localChanged && local.UpdatedAt.After(issue.UpdatedAt)
@@ -132,7 +133,6 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 				res.Conflicts++
 			}
 			if localWins {
-				localColumn := columnNamesByID[local.ColumnID]
 				if localColumn == "" {
 					localColumn = col
 				}
@@ -141,12 +141,20 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 					return res, err
 				}
 				issue = updated
-				if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: local.ColumnID, ExternalID: externalID, ExternalURL: issue.HTMLURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", issue.Number), DisplayNumber: issue.Number, Title: issue.Title, Body: issue.Body, ArchivedAt: issue.ClosedAt}); err != nil {
+				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, local.ColumnID, issue, archivedTime(local))); err != nil {
 					return res, err
 				}
 				res.Pushed++
 			} else if remoteWins {
-				if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: columnID, ExternalID: externalID, ExternalURL: issue.HTMLURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", issue.Number), DisplayNumber: issue.Number, Title: issue.Title, Body: issue.Body, ArchivedAt: issue.ClosedAt}); err != nil {
+				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, columnID, issue, nil)); err != nil {
+					return res, err
+				}
+				res.Pulled++
+			} else if local.ArchivedAt.Valid && issue.ClosedAt != nil && githubTerminalColumn(cfg, localColumn) {
+				// Older GitHub syncs incorrectly stored GitHub closed_at as Kanbi
+				// archived_at, hiding Done tickets. Closed remote issues should remain
+				// visible; only Kanbi's explicit archive action hides them.
+				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, local.ColumnID, issue, nil)); err != nil {
 					return res, err
 				}
 				res.Pulled++
@@ -158,7 +166,7 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 			res.Conflicts += commentConflicts
 			continue
 		}
-		t, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: columnID, ExternalID: externalID, ExternalURL: issue.HTMLURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", issue.Number), DisplayNumber: issue.Number, Title: issue.Title, Body: issue.Body, ArchivedAt: issue.ClosedAt})
+		t, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, columnID, issue, nil))
 		if err != nil {
 			return res, err
 		}
@@ -181,8 +189,7 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 		if err != nil {
 			return res, err
 		}
-		externalID := strconv.Itoa(created.Number)
-		if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: local.ColumnID, ExternalID: externalID, ExternalURL: created.HTMLURL, ExternalUpdatedAt: created.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", created.Number), DisplayNumber: created.Number, Title: created.Title, Body: created.Body, ArchivedAt: created.ClosedAt}); err != nil {
+		if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, local.ColumnID, created, archivedTime(local))); err != nil {
 			return res, err
 		}
 		res.Pushed++
@@ -193,6 +200,18 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 		res.Conflicts += commentConflicts
 	}
 	return res, nil
+}
+
+func githubRemoteTicket(boardID, columnID int64, issue GitHubIssue, archivedAt *time.Time) storage.RemoteTicket {
+	return storage.RemoteTicket{BoardID: boardID, ColumnID: columnID, ExternalID: strconv.Itoa(issue.Number), ExternalURL: issue.HTMLURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", issue.Number), DisplayNumber: issue.Number, Title: issue.Title, Body: issue.Body, ArchivedAt: archivedAt}
+}
+
+func archivedTime(t storage.Ticket) *time.Time {
+	if !t.ArchivedAt.Valid {
+		return nil
+	}
+	archived := t.ArchivedAt.Time
+	return &archived
 }
 
 func (b GitHubBackend) syncComments(ctx context.Context, store *storage.Store, client GitHubClient, cfg GitHubConfig, ticketID int64, issueNumber int) (int, error) {
