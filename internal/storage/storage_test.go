@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"agent-kanban/internal/kanban"
 )
@@ -105,6 +106,25 @@ func createTicket(t *testing.T, ctx context.Context, s *Store, columnID int64, t
 		t.Fatal(err)
 	}
 	return ticket
+}
+
+func TestRemoteTicketAdvancesLocalTicketNumber(t *testing.T) {
+	s, ctx := newTestStore(t)
+	board, err := s.CreateBoardWithWorkdir(ctx, "Remote", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := boardViewByID(t, ctx, s, board.ID)
+	if _, err := s.UpsertRemoteTicket(ctx, RemoteTicket{BoardID: board.ID, ColumnID: view.Columns[0].ID, ExternalID: "github:1", DisplayID: "GH-1", DisplayNumber: 1, Title: "Remote", ExternalUpdatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	local, err := s.CreateTicket(ctx, view.Columns[0].ID, "Local", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.DisplayID != "T-002" {
+		t.Fatalf("local display id = %s, want T-002", local.DisplayID)
+	}
 }
 
 func TestUpdateTicketPersistsChanges(t *testing.T) {

@@ -117,13 +117,33 @@ func NewManager(store *storage.Store) *Manager {
 	return &Manager{Store: store, Registry: DefaultRegistry(), Interval: time.Minute}
 }
 
-func (m *Manager) SyncAll(ctx context.Context) error {
+func (m *Manager) SyncBoard(ctx context.Context, board storage.Board) (Result, error) {
 	if m == nil || m.Store == nil {
-		return nil
+		return Result{}, nil
 	}
 	registry := m.Registry
 	if registry == nil {
 		registry = DefaultRegistry()
+	}
+	kind := board.TicketBackend
+	if kind == "" {
+		kind = KindLocal
+	}
+	backend, err := registry.MustGet(kind)
+	if err != nil {
+		_ = m.Store.MarkBoardSync(ctx, board.ID, err)
+		return Result{}, err
+	}
+	res, syncErr := backend.Sync(ctx, m.Store, board)
+	if markErr := m.Store.MarkBoardSync(ctx, board.ID, syncErr); markErr != nil {
+		return res, errors.Join(syncErr, markErr)
+	}
+	return res, syncErr
+}
+
+func (m *Manager) SyncAll(ctx context.Context) error {
+	if m == nil || m.Store == nil {
+		return nil
 	}
 	boards, err := m.Store.ListBoards(ctx)
 	if err != nil {
@@ -131,22 +151,8 @@ func (m *Manager) SyncAll(ctx context.Context) error {
 	}
 	var errs []error
 	for _, board := range boards {
-		kind := board.TicketBackend
-		if kind == "" {
-			kind = KindLocal
-		}
-		backend, err := registry.MustGet(kind)
-		if err != nil {
-			_ = m.Store.MarkBoardSync(ctx, board.ID, err)
+		if _, err := m.SyncBoard(ctx, board); err != nil {
 			errs = append(errs, err)
-			continue
-		}
-		_, syncErr := backend.Sync(ctx, m.Store, board)
-		if markErr := m.Store.MarkBoardSync(ctx, board.ID, syncErr); markErr != nil {
-			errs = append(errs, markErr)
-		}
-		if syncErr != nil {
-			errs = append(errs, syncErr)
 		}
 	}
 	return errors.Join(errs...)

@@ -60,6 +60,8 @@ func run(args []string) error {
 		return runAdd(ctx, cfg, args[1:])
 	case "list":
 		return runList(ctx, cfg, args[1:])
+	case "sync":
+		return runSync(ctx, cfg, args[1:])
 	case "open":
 		return runOpen(ctx, cfg, args[1:])
 	default:
@@ -189,6 +191,37 @@ func runList(ctx context.Context, cfg config.Config, args []string) error {
 	})
 }
 
+func runSync(ctx context.Context, cfg config.Config, args []string) error {
+	boardName, err := parseOptionalBoard(args)
+	if err != nil {
+		return err
+	}
+	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
+		syncer := ticketbackend.NewManager(cli.store)
+		var boards []storage.Board
+		if boardName == "" {
+			boards, err = cli.store.ListBoards(ctx)
+			if err != nil {
+				return err
+			}
+		} else {
+			board, err := cli.BoardByName(boardName)
+			if err != nil {
+				return err
+			}
+			boards = []storage.Board{board}
+		}
+		for _, board := range boards {
+			res, err := syncer.SyncBoard(ctx, board)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("synced\t%s\t%s\tpulled=%d\tpushed=%d\tconflicts=%d\n", board.Name, board.TicketBackend, res.Pulled, res.Pushed, res.Conflicts)
+		}
+		return nil
+	})
+}
+
 func runOpen(ctx context.Context, cfg config.Config, args []string) error {
 	displayID, sendPrompt, boardName, err := parseOpenArgs(args)
 	if err != nil {
@@ -296,7 +329,7 @@ func openStore(ctx context.Context, cfg config.Config) (*storage.Store, error) {
 }
 
 func usageError(cmd string) error {
-	return fmt.Errorf("unknown command %q\nusage: agent-kanban [doctor|boards|add|list|open|--board]", cmd)
+	return fmt.Errorf("unknown command %q\nusage: agent-kanban [doctor|boards|add|list|sync|open|--board]", cmd)
 }
 
 func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {

@@ -134,6 +134,20 @@ func TestParseBoardAddArgsCWD(t *testing.T) {
 	}
 }
 
+func TestRunSyncLocalBoard(t *testing.T) {
+	run, _ := setupCLI(t)
+	if err := run("sync"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunSyncUnknownFlag(t *testing.T) {
+	run, _ := setupCLI(t)
+	if err := run("sync", "--bad"); err == nil {
+		t.Fatal("expected unknown sync flag error")
+	}
+}
+
 func TestRunBoardsAddPersistsWorkdir(t *testing.T) {
 	run, getStore := setupCLI(t)
 	workdir := t.TempDir()

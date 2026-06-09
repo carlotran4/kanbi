@@ -23,6 +23,7 @@ Agent Kanban is a Go/Bubble Tea TUI for orchestrating multiple resumable agent C
 - Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
 - Agent tmux window names include the board id to avoid cross-board collisions within a runtime session.
 - Create boards from the CLI with `agent-kanban boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `agent-kanban boards`.
+- Sync ticket backends from the CLI with `agent-kanban sync` or `agent-kanban sync --board "Board Name"`.
 - Rename/update boards with `agent-kanban boards rename OLD NEW` and `agent-kanban boards set-cwd NAME /path/to/project`.
 - In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes.
 

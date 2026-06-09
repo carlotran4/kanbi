@@ -869,28 +869,60 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 		archived = *rt.ArchivedAt
 	}
 	var id int64
-	err := s.db.QueryRowContext(ctx, `select id from tickets where board_id=? and external_id=?`, rt.BoardID, rt.ExternalID).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
+	existingErr := s.db.QueryRowContext(ctx, `select id from tickets where board_id=? and external_id=?`, rt.BoardID, rt.ExternalID).Scan(&id)
+	if existingErr != nil && !errors.Is(existingErr, sql.ErrNoRows) {
+		return Ticket{}, existingErr
+	}
+	displayNumber, err := s.remoteDisplayNumber(ctx, rt.BoardID, rt.DisplayNumber, id)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if errors.Is(existingErr, sql.ErrNoRows) {
 		pos, err := visibleTicketOrder.nextPosition(ctx, s.db, rt.ColumnID)
 		if err != nil {
 			return Ticket{}, err
 		}
 		res, err := s.db.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			rt.BoardID, rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, rt.DisplayNumber, rt.Title, rt.Body, "pi", pos, archived, now, rt.ExternalUpdatedAt)
+			rt.BoardID, rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, "pi", pos, archived, now, rt.ExternalUpdatedAt)
 		if err != nil {
 			return Ticket{}, err
 		}
 		id, _ = res.LastInsertId()
-	} else if err != nil {
-		return Ticket{}, err
 	} else {
 		_, err = s.db.ExecContext(ctx, `update tickets set column_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
-			rt.ColumnID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, rt.DisplayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, id)
+			rt.ColumnID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, id)
 		if err != nil {
 			return Ticket{}, err
 		}
 	}
+	if _, err := s.db.ExecContext(ctx, `update boards set next_ticket_number=max(next_ticket_number, ?) where id=?`, displayNumber+1, rt.BoardID); err != nil {
+		return Ticket{}, err
+	}
 	return s.TicketByID(ctx, id)
+}
+
+func (s *Store) remoteDisplayNumber(ctx context.Context, boardID int64, desired int, currentTicketID int64) (int, error) {
+	if desired <= 0 {
+		if err := s.db.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&desired); err != nil {
+			return 0, err
+		}
+	}
+	var existing int64
+	err := s.db.QueryRowContext(ctx, `select id from tickets where board_id=? and display_number=?`, boardID, desired).Scan(&existing)
+	if errors.Is(err, sql.ErrNoRows) || existing == currentTicketID {
+		return desired, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var next int
+	if err := s.db.QueryRowContext(ctx, `select coalesce(max(display_number),0)+1 from tickets where board_id=?`, boardID).Scan(&next); err != nil {
+		return 0, err
+	}
+	if next <= desired {
+		next = desired + 1
+	}
+	return next, nil
 }
 
 func (s *Store) UpsertRemoteNote(ctx context.Context, ticketID int64, externalID, body string, externalUpdatedAt time.Time) error {

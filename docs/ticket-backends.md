@@ -9,7 +9,7 @@ Agent Kanban supports one ticket metadata backend per board. Implemented backend
 - SQLite remains the local cache/projection store for tickets and the canonical store for local runtime/session state.
 - External backends own ticket metadata for their boards once implemented.
 - tmux session history remains local and is never synced to ticketing providers.
-- Sync runs on executable startup and periodically while the executable is running. There is no background daemon after Agent Kanban exits.
+- Sync runs on executable startup, periodically while the executable is running, and on demand through `agent-kanban sync`. There is no background daemon after Agent Kanban exits.
 - Conflict resolution is newest `updated_at` wins.
 - When a provider exposes a query language, board config stores the query used to scope the synced subset. Atlassian/Jira must use JQL.
 
@@ -54,6 +54,8 @@ A backend implementation should:
 4. apply newest-updated-at-wins conflict resolution;
 5. push local changes and pull remote changes;
 6. persist external IDs, URLs, update timestamps, and sync versions.
+
+Run on-demand sync for all boards with `agent-kanban sync`, or one board with `agent-kanban sync --board "Board Name"`.
 
 ## GitHub Issues Backend
 

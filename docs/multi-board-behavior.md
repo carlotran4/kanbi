@@ -190,7 +190,7 @@ Current behavior:
 
 ## Ticket backend sync
 
-Implemented ticket backends are `local`, `github`, and `atlassian`. The architecture stores board-level backend metadata and runs ticket backend sync on startup plus periodically while the executable is running. The periodic sync is in-process only and stops when Agent Kanban exits.
+Implemented ticket backends are `local`, `github`, and `atlassian`. The architecture stores board-level backend metadata and runs ticket backend sync on startup, periodically while the executable is running, and on demand with `agent-kanban sync` or `agent-kanban sync --board NAME`. The periodic sync is in-process only and stops when Agent Kanban exits.
 
 GitHub boards inherit workflow columns from issue labels with the configured status prefix (`status:` by default), pull/push issue title/body/state/labels/comments, and use newest-updated-at-wins conflict resolution. Atlassian/Jira boards inherit workflow columns from remote issue statuses, use the board `BackendQuery` as JQL, and pull/push issue summary/description/status/comments. Notes map to provider issue comments. Local tmux/session history is never synced to ticket providers.
 
