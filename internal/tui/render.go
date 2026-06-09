@@ -489,7 +489,7 @@ func firstPreviewParagraph(body string) string {
 
 func firstMarkdownImageLine(body string) string {
 	for _, line := range strings.Split(body, "\n") {
-		if markdownImageRE.MatchString(line) {
+		if markdownImageRE.MatchString(line) || bareImagePathRE.MatchString(line) {
 			return strings.TrimSpace(line)
 		}
 	}

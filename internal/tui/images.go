@@ -19,7 +19,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var markdownImageRE = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
+var (
+	markdownImageRE = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
+	bareImagePathRE = regexp.MustCompile(`(?:~|/|\.)[^\s)\]]+\.(?:png|jpg|jpeg|gif|webp)\b`)
+)
 
 type imageProtocol int
 
@@ -98,7 +101,26 @@ func renderMarkdownImagesPlaceholder(line string, cols int, maxRows int) []strin
 }
 
 func renderMarkdownImagesInlineWithGraphics(line string, cols int, maxRows int, graphics bool) []string {
-	matches := markdownImageRE.FindAllStringSubmatchIndex(line, -1)
+	if matches := markdownImageRE.FindAllStringSubmatchIndex(line, -1); len(matches) > 0 {
+		var out []string
+		last := 0
+		for _, match := range matches {
+			fullStart, fullEnd := match[0], match[1]
+			pathStart, pathEnd := match[2], match[3]
+			before := strings.TrimSpace(line[last:fullStart])
+			if before != "" {
+				out = append(out, before)
+			}
+			path := cleanMarkdownImagePath(line[pathStart:pathEnd])
+			out = append(out, renderImageBlock(path, cols, maxRows, graphics)...)
+			last = fullEnd
+		}
+		if after := strings.TrimSpace(line[last:]); after != "" {
+			out = append(out, after)
+		}
+		return out
+	}
+	matches := bareImagePathRE.FindAllStringIndex(line, -1)
 	if len(matches) == 0 {
 		return nil
 	}
@@ -106,13 +128,11 @@ func renderMarkdownImagesInlineWithGraphics(line string, cols int, maxRows int, 
 	last := 0
 	for _, match := range matches {
 		fullStart, fullEnd := match[0], match[1]
-		pathStart, pathEnd := match[2], match[3]
 		before := strings.TrimSpace(line[last:fullStart])
 		if before != "" {
 			out = append(out, before)
 		}
-		path := cleanMarkdownImagePath(line[pathStart:pathEnd])
-		out = append(out, renderImageBlock(path, cols, maxRows, graphics)...)
+		out = append(out, renderImageBlock(line[fullStart:fullEnd], cols, maxRows, graphics)...)
 		last = fullEnd
 	}
 	if after := strings.TrimSpace(line[last:]); after != "" {

@@ -8,6 +8,24 @@ import (
 	"testing"
 )
 
+func TestBareImagePathRendersAsTruncatedPlaceholder(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+
+	long := "/tmp/pi-clipboard-9d536cd7-a40c-42e3-9307-5e1282184ee2.png"
+	rendered := ansiStrip(renderMarkdownForInspector("see "+long+" please", 34, 4))
+	if strings.Contains(rendered, long) {
+		t.Fatalf("bare long path should be replaced: %q", rendered)
+	}
+	for _, line := range strings.Split(rendered, "\n") {
+		if len([]rune(line)) > 34 {
+			t.Fatalf("line too wide (%d): %q", len([]rune(line)), line)
+		}
+	}
+	if !strings.Contains(rendered, "[image:") || !strings.Contains(rendered, "…") {
+		t.Fatalf("rendered = %q", rendered)
+	}
+}
+
 func TestImagePlaceholderTruncatesLongNamesToWidth(t *testing.T) {
 	stubNoGraphicsTerminal(t)
 
