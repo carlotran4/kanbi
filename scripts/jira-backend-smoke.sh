@@ -125,7 +125,7 @@ def create(summary, body, label):
 
 def search(jql):
     qs = urllib.parse.urlencode({"jql": jql, "fields": "summary,status,updated", "maxResults": "50"})
-    out = request("GET", "/rest/api/3/search?" + qs)
+    out = request("GET", "/rest/api/3/search/jql?" + qs)
     print(json.dumps(out.get("issues", [])))
 
 def comments(key, needle):

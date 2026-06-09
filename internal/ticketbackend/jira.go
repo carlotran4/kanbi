@@ -340,9 +340,12 @@ func (c JiraHTTPClient) SearchIssues(ctx context.Context, cfg JiraConfig) ([]Jir
 	if jql == "" {
 		jql = "project = " + cfg.ProjectKey + " ORDER BY updated DESC"
 	}
-	in := map[string]any{"jql": jql, "maxResults": 100, "fields": []string{"summary", "description", "status", "updated"}}
+	q := url.Values{}
+	q.Set("jql", jql)
+	q.Set("maxResults", "100")
+	q.Set("fields", "summary,description,status,updated")
 	var out jiraSearchResponse
-	if err := c.do(ctx, cfg, http.MethodPost, "/rest/api/3/search", in, &out); err != nil {
+	if err := c.do(ctx, cfg, http.MethodGet, "/rest/api/3/search/jql?"+q.Encode(), nil, &out); err != nil {
 		return nil, err
 	}
 	issues := make([]JiraIssue, 0, len(out.Issues))
