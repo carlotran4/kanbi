@@ -669,11 +669,44 @@ func wrapText(text string, width int, maxLines int) []string {
 }
 
 func padLine(s string, width int) string {
-	visible := lipgloss.Width(s)
+	visible := displayWidth(s)
 	if visible >= width {
 		return s
 	}
 	return s + strings.Repeat(" ", width-visible)
+}
+
+func displayWidth(s string) int {
+	if containsImageEscape(s) {
+		return lipgloss.Width(stripKittyGraphics(s))
+	}
+	return lipgloss.Width(s)
+}
+
+func stripKittyGraphics(s string) string {
+	for {
+		start := strings.Index(s, "\x1b_G")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s[start:], "\x1b\\")
+		if end < 0 {
+			return s[:start]
+		}
+		s = s[:start] + s[start+end+2:]
+	}
+	for {
+		start := strings.Index(s, "\x1bPtmux;")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s[start:], "\x1b\\")
+		if end < 0 {
+			return s[:start]
+		}
+		s = s[:start] + s[start+end+2:]
+	}
+	return s
 }
 
 func trimToWidth(s string, width int) string {

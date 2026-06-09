@@ -108,15 +108,13 @@ func renderMarkdownImagesInlineWithGraphics(line string, cols int, maxRows int, 
 			fullStart, fullEnd := match[0], match[1]
 			pathStart, pathEnd := match[2], match[3]
 			before := strings.TrimSpace(line[last:fullStart])
-			if before != "" {
-				out = append(out, before)
-			}
+			out = appendWrappedImageText(out, before, cols, maxRows)
 			path := cleanMarkdownImagePath(line[pathStart:pathEnd])
-			out = append(out, renderImageBlock(path, cols, maxRows, graphics)...)
+			out = append(out, renderImageBlock(path, cols, maxRows-len(out), graphics)...)
 			last = fullEnd
 		}
 		if after := strings.TrimSpace(line[last:]); after != "" {
-			out = append(out, after)
+			out = appendWrappedImageText(out, after, cols, maxRows)
 		}
 		return out
 	}
@@ -129,14 +127,22 @@ func renderMarkdownImagesInlineWithGraphics(line string, cols int, maxRows int, 
 	for _, match := range matches {
 		fullStart, fullEnd := match[0], match[1]
 		before := strings.TrimSpace(line[last:fullStart])
-		if before != "" {
-			out = append(out, before)
-		}
-		out = append(out, renderImageBlock(line[fullStart:fullEnd], cols, maxRows, graphics)...)
+		out = appendWrappedImageText(out, before, cols, maxRows)
+		out = append(out, renderImageBlock(line[fullStart:fullEnd], cols, maxRows-len(out), graphics)...)
 		last = fullEnd
 	}
 	if after := strings.TrimSpace(line[last:]); after != "" {
-		out = append(out, after)
+		out = appendWrappedImageText(out, after, cols, maxRows)
+	}
+	return out
+}
+
+func appendWrappedImageText(out []string, text string, cols int, maxRows int) []string {
+	if text == "" || len(out) >= maxRows {
+		return out
+	}
+	for _, line := range wrapText(text, cols, maxRows-len(out)) {
+		out = append(out, lipgloss.NewStyle().Foreground(palette.muted).Render(line))
 	}
 	return out
 }

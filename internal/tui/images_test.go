@@ -8,11 +8,22 @@ import (
 	"testing"
 )
 
+func TestImageEscapeHasZeroDisplayWidthForPadding(t *testing.T) {
+	line := "\x1b_Ga=T,t=f;payload\x1b\\"
+	if got := displayWidth(line); got != 0 {
+		t.Fatalf("displayWidth(image escape)=%d", got)
+	}
+	padded := padLine(line, 10)
+	if !strings.HasSuffix(padded, strings.Repeat(" ", 10)) {
+		t.Fatalf("image escape was not padded as zero-width: %q", padded)
+	}
+}
+
 func TestBareImagePathRendersAsTruncatedPlaceholder(t *testing.T) {
 	stubNoGraphicsTerminal(t)
 
 	long := "/tmp/pi-clipboard-9d536cd7-a40c-42e3-9307-5e1282184ee2.png"
-	rendered := ansiStrip(renderMarkdownForInspector("see "+long+" please", 34, 4))
+	rendered := ansiStrip(renderMarkdownForInspector("this is a longer sentence before "+long+" and after", 34, 6))
 	if strings.Contains(rendered, long) {
 		t.Fatalf("bare long path should be replaced: %q", rendered)
 	}
