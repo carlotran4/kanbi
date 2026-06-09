@@ -300,9 +300,10 @@ Real ticket backend smoke tests are not part of normal smoke or CI because they 
 ```bash
 KANBI_GITHUB_OWNER="OWNER" \
 KANBI_GITHUB_REPO="REPO" \
-KANBI_GITHUB_TOKEN="TOKEN" \
 ./scripts/github-backend-smoke.sh
 ```
+
+The script uses `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`.
 
 The GitHub smoke test verifies auth, query filtering, issue pull, remote edit/comment observation, repeat sync idempotency, close projection, and best-effort cleanup against a real repository. Deterministic fake-client tests remain the source of truth for conflict/comment update edge cases.
 

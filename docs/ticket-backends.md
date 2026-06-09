@@ -86,11 +86,10 @@ Run the opt-in real GitHub smoke test with:
 ```bash
 KANBI_GITHUB_OWNER="OWNER" \
 KANBI_GITHUB_REPO="REPO" \
-KANBI_GITHUB_TOKEN="TOKEN" \
 ./scripts/github-backend-smoke.sh
 ```
 
-The token must be able to create/edit/close issues and comments in the configured repository. Use a disposable repository or a repository where temporary label-scoped smoke issues are acceptable. Troubleshooting: if `kanbi sync` reports `last_sync_error` or `sync-error`, check token scope, owner/repo spelling, query label filters, and GitHub rate-limit reset details in the error text.
+Auth uses `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. The token must be able to create/edit/close issues and comments in the configured repository. Use a disposable repository or a repository where temporary label-scoped smoke issues are acceptable. Troubleshooting: if `kanbi sync` reports `last_sync_error` or `sync-error`, check token scope, owner/repo spelling, query label filters, and GitHub rate-limit reset details in the error text.
 
 ## Atlassian/Jira Backend
 

@@ -50,11 +50,10 @@ Opt-in real GitHub backend smoke test (mutates the configured repository; not ru
 ```bash
 KANBI_GITHUB_OWNER="OWNER" \
 KANBI_GITHUB_REPO="REPO" \
-KANBI_GITHUB_TOKEN="TOKEN" \
 ./scripts/github-backend-smoke.sh
 ```
 
-The token needs repo issue read/write permission. The script creates a temporary label-scoped issue, pulls it, observes remote edits/comments, closes it, and leaves cleanup best-effort.
+Auth uses `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. The token needs repo issue read/write permission. The script creates a temporary label-scoped issue, pulls it, observes remote edits/comments, closes it, and leaves cleanup best-effort.
 
 Opt-in real Jira backend smoke test (mutates the configured Jira project; not run by normal smoke):
 

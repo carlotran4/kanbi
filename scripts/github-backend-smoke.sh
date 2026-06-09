@@ -3,8 +3,15 @@ set -euo pipefail
 
 : "${KANBI_GITHUB_OWNER:?set KANBI_GITHUB_OWNER}"
 : "${KANBI_GITHUB_REPO:?set KANBI_GITHUB_REPO}"
-: "${KANBI_GITHUB_TOKEN:=${GITHUB_TOKEN:-}}"
-: "${KANBI_GITHUB_TOKEN:?set KANBI_GITHUB_TOKEN or GITHUB_TOKEN}"
+if [[ -z "${KANBI_GITHUB_TOKEN:-}" ]]; then
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    KANBI_GITHUB_TOKEN="$GITHUB_TOKEN"
+  elif command -v gh >/dev/null 2>&1; then
+    KANBI_GITHUB_TOKEN=$(gh auth token)
+  fi
+fi
+: "${KANBI_GITHUB_TOKEN:?set KANBI_GITHUB_TOKEN/GITHUB_TOKEN or run gh auth login}"
+export KANBI_GITHUB_TOKEN
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BIN=${KANBI_BIN:-"$ROOT/.bin/kanbi"}
