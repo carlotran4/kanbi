@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -229,6 +231,24 @@ func TestGitHubSyncCreatesRemoteIssueForLocalTicket(t *testing.T) {
 	}
 	if _, err := store.TicketByDisplayIDInBoard(ctx, "GH-1001", board.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestParseGitHubConfigFallsBackToGHToken(t *testing.T) {
+	t.Setenv("KANBI_GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	binDir := t.TempDir()
+	gh := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\nif [ \"$1\" = auth ] && [ \"$2\" = token ]; then echo gh-token; exit 0; fi\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	cfg, err := ParseGitHubConfig(`{"owner":"o","repo":"r"}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token != "gh-token" {
+		t.Fatalf("token=%q", cfg.Token)
 	}
 }
 

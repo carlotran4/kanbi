@@ -68,7 +68,7 @@ kanbi boards add "Repo" \
   --query 'state=open,closed&labels=kanbi'
 ```
 
-Auth uses `token` in `backend_config`, or `KANBI_GITHUB_TOKEN`, or `GITHUB_TOKEN`. `owner`/`repo` may also come from `KANBI_GITHUB_OWNER` and `KANBI_GITHUB_REPO`.
+Auth uses `token` in `backend_config`, `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. `owner`/`repo` may also come from `KANBI_GITHUB_OWNER` and `KANBI_GITHUB_REPO`.
 
 GitHub sync behavior:
 

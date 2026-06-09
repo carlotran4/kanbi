@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -270,6 +271,9 @@ func ParseGitHubConfig(configJSON, query string) (GitHubConfig, error) {
 		if cfg.Token == "" {
 			cfg.Token = os.Getenv("GITHUB_TOKEN")
 		}
+		if cfg.Token == "" {
+			cfg.Token = githubTokenFromCLI()
+		}
 	}
 	applyGitHubQuery(&cfg, query)
 	if cfg.Owner == "" || cfg.Repo == "" {
@@ -295,6 +299,20 @@ func ParseGitHubConfig(configJSON, query string) (GitHubConfig, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func githubTokenFromCLI() string {
+	path, err := exec.LookPath("gh")
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "auth", "token").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func applyGitHubQuery(cfg *GitHubConfig, query string) {
