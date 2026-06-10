@@ -27,6 +27,30 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - Rename/update boards with `kanbi boards rename OLD NEW` and `kanbi boards set-cwd NAME /path/to/project`.
 - In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes.
 
+## CLI automation surface
+
+Most non-interactive commands support machine-readable output with `--json` or `--format json`.
+JSON payloads include a `schema` field such as `kanbi.v1.tickets` for agent/orchestrator consumers.
+
+Useful agent-facing commands:
+
+```bash
+kanbi boards --json
+kanbi list --json [--board NAME]
+kanbi show T-001 --json [--board NAME]
+kanbi state --json [--board NAME]
+
+kanbi add "Title" --body "..." --json
+kanbi add "Title" --body-file ./ticket.md --json
+kanbi update T-001 --title "New title" --body-file ./body.md --json
+kanbi move T-001 --to "In Progress" --json
+
+kanbi notes list T-001 --json
+kanbi notes add T-001 --body "Progress update" --json
+```
+
+`kanbi open`, `kanbi sync`, and `kanbi doctor` also accept `--json`. Board-local ticket IDs may be ambiguous across boards; pass `--board NAME` when needed.
+
 ## Development
 
 Install a development launcher on your `PATH`:

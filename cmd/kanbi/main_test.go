@@ -49,6 +49,28 @@ func setupCLI(t *testing.T) (runArgs func(args ...string) error, store func() *s
 	return runArgs, store
 }
 
+func captureStdout(t *testing.T, fn func() error) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = fn()
+	_ = w.Close()
+	os.Stdout = old
+	out, readErr := io.ReadAll(r)
+	_ = r.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if err != nil {
+		t.Fatalf("captured command failed: %v\nstdout: %s", err, out)
+	}
+	return string(out)
+}
+
 // ---- parseAddArgs ----
 
 func TestParseAddArgsPositional(t *testing.T) {
@@ -236,6 +258,42 @@ func TestRunListEmptyBoardPrintsNothing(t *testing.T) {
 	// list on an empty board should not error
 	if err := run("list"); err != nil {
 		t.Fatalf("list on empty board failed: %v", err)
+	}
+}
+
+func TestCLIJSONShowUpdateMoveNotesAndState(t *testing.T) {
+	run, getStore := setupCLI(t)
+	bodyPath := filepath.Join(t.TempDir(), "body.md")
+	if err := os.WriteFile(bodyPath, []byte("file body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("add", "Machine ticket", "--body-file", bodyPath, "--harness", "codex", "--json"); err != nil {
+		t.Fatalf("add --json failed: %v", err)
+	}
+	showOut := captureStdout(t, func() error { return run("show", "T-001", "--json") })
+	if !strings.Contains(showOut, `"schema": "kanbi.v1.ticket"`) || !strings.Contains(showOut, `"body": "file body"`) {
+		t.Fatalf("unexpected show json: %s", showOut)
+	}
+	if err := run("update", "T-001", "--title", "Updated", "--body", "new body", "--harness", "pi", "--json"); err != nil {
+		t.Fatalf("update --json failed: %v", err)
+	}
+	if err := run("move", "T-001", "--to", "In Progress", "--json"); err != nil {
+		t.Fatalf("move --json failed: %v", err)
+	}
+	if err := run("notes", "add", "T-001", "--body", "progress note", "--json"); err != nil {
+		t.Fatalf("notes add --json failed: %v", err)
+	}
+	stateOut := captureStdout(t, func() error { return run("state", "--json") })
+	if !strings.Contains(stateOut, `"schema": "kanbi.v1.state"`) || !strings.Contains(stateOut, `"progress note"`) {
+		t.Fatalf("unexpected state json: %s", stateOut)
+	}
+	s := getStore()
+	ticket, err := s.TicketByDisplayID(context.Background(), "T-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.Title != "Updated" || ticket.Body != "new body" || ticket.Harness != "pi" || ticket.Runtime != "not_started" {
+		t.Fatalf("unexpected ticket after cli mutation: %+v", ticket)
 	}
 }
 
