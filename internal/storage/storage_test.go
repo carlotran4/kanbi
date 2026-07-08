@@ -577,6 +577,9 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	if got.TmuxWindowName != "T-001-a" || got.TmuxWindowID.String != "@7" || got.Status != "running" {
 		t.Fatalf("session = %+v", got)
 	}
+	if got.Multiplexer != "tmux" || got.MuxNamespace.String != "kanbi" || got.MuxContainerID.String != "@7" || got.MuxContainerName.String != "T-001-a" {
+		t.Fatalf("generic mux metadata was not backfilled from tmux fields: %+v", got)
+	}
 	if !got.StartedAt.Valid || !got.LastStateChangeAt.Valid || got.LastDetectedState.String != "running" {
 		t.Fatalf("runtime metadata missing = %+v", got)
 	}
@@ -589,6 +592,9 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	}
 	if listed.TmuxSessionName.String != "kanbi" || listed.WindowID.String != "@7" || listed.WindowName.String != "T-001-a" {
 		t.Fatalf("ticket session metadata = %+v", listed)
+	}
+	if listed.Multiplexer.String != "tmux" || listed.MuxNamespace.String != "kanbi" || listed.MuxContainerID.String != "@7" || listed.MuxContainerName.String != "T-001-a" {
+		t.Fatalf("ticket generic mux metadata = %+v", listed)
 	}
 	if listed.Runtime != "waiting_for_user" || !listed.LastOutputAt.Valid || listed.LastAttentionReason.String != "waiting" {
 		t.Fatalf("ticket runtime metadata = %+v", listed)
@@ -753,6 +759,40 @@ func TestMultipleBoardsAndMasterView(t *testing.T) {
 	}
 }
 
+func TestSessionsPreserveExplicitGenericMuxMetadata(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "Mux", "", "pi")
+	id, err := s.UpsertActiveSession(ctx, ticket.ID, Session{
+		Harness:          "pi",
+		TmuxSessionName:  "kanbi",
+		TmuxWindowID:     sql.NullString{String: "@7", Valid: true},
+		TmuxWindowName:   "T-001-a",
+		Multiplexer:      "herdr",
+		MuxNamespace:     sql.NullString{String: "workspace-a", Valid: true},
+		MuxContainerID:   sql.NullString{String: "tab-123", Valid: true},
+		MuxContainerName: sql.NullString{String: "Tab A", Valid: true},
+		MuxMetadata:      sql.NullString{String: `{"workspace":"board"}`, Valid: true},
+	})
+	if err != nil || id == 0 {
+		t.Fatalf("session id=%d err=%v", id, err)
+	}
+	got, ok, err := s.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("latest session ok=%v err=%v", ok, err)
+	}
+	if got.Multiplexer != "herdr" || got.MuxNamespace.String != "workspace-a" || got.MuxContainerID.String != "tab-123" || got.MuxContainerName.String != "Tab A" || got.MuxMetadata.String != `{"workspace":"board"}` {
+		t.Fatalf("generic mux fields not preserved: %+v", got)
+	}
+	listed, err := s.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed.Multiplexer.String != "herdr" || listed.MuxNamespace.String != "workspace-a" || listed.MuxContainerID.String != "tab-123" || listed.MuxContainerName.String != "Tab A" || listed.MuxMetadata.String != `{"workspace":"board"}` {
+		t.Fatalf("projected generic mux fields not preserved: %+v", listed)
+	}
+}
+
 func TestMigrateBackfillsBlankBoardWorkdir(t *testing.T) {
 	ctx := context.Background()
 	s, err := OpenMemory()
@@ -783,6 +823,68 @@ func TestMigrateBackfillsBlankBoardWorkdir(t *testing.T) {
 	}
 	if b.Workdir == "" {
 		t.Fatal("migration should backfill existing board workdir")
+	}
+}
+
+func TestMigrateAddsGenericMuxFieldsAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	s, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	_, err = s.db.ExecContext(ctx, `create table sessions (
+		id integer primary key autoincrement,
+		ticket_id integer not null,
+		harness text not null,
+		harness_session_ref text,
+		harness_session_name text,
+		tmux_session_name text not null,
+		tmux_window_id text,
+		tmux_window_name text not null,
+		status text not null,
+		is_active integer not null default 1,
+		started_at datetime,
+		closed_at datetime,
+		last_seen_tmux_at datetime,
+		last_output_at datetime,
+		last_state_change_at datetime,
+		last_detected_state text,
+		last_attention_reason text,
+		last_detection_source text,
+		last_observed_excerpt text,
+		created_at datetime not null,
+		updated_at datetime not null
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	_, err = s.db.ExecContext(ctx, `insert into sessions(ticket_id,harness,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,created_at,updated_at) values(1,'pi','legacy-session','@99','legacy-window','running',1,?,?)`, now, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(ctx); err != nil {
+		t.Fatalf("second init should be idempotent: %v", err)
+	}
+	cols, err := tableColumns(ctx, s.db, "sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"multiplexer", "mux_namespace", "mux_container_id", "mux_container_name", "mux_metadata"} {
+		if !cols[name] {
+			t.Fatalf("missing migrated column %s", name)
+		}
+	}
+	var multiplexer, namespace, containerID, containerName string
+	if err := s.db.QueryRowContext(ctx, `select multiplexer,mux_namespace,mux_container_id,mux_container_name from sessions where id=1`).Scan(&multiplexer, &namespace, &containerID, &containerName); err != nil {
+		t.Fatal(err)
+	}
+	if multiplexer != "tmux" || namespace != "legacy-session" || containerID != "@99" || containerName != "legacy-window" {
+		t.Fatalf("legacy mux backfill = %q %q %q %q", multiplexer, namespace, containerID, containerName)
 	}
 }
 

@@ -41,6 +41,9 @@ func TestNormalizeDefaultsFromInMemoryRawConfig(t *testing.T) {
 	if cfg.TmuxSession != DefaultSession || cfg.Tmux.SessionName != DefaultSession || cfg.Tmux.BoardWindowName != "board" {
 		t.Fatalf("tmux defaults not applied: %+v", cfg)
 	}
+	if cfg.Multiplexer.Default != "tmux" || cfg.Multiplexer.Tmux != cfg.Tmux || cfg.Multiplexer.Herdr.Binary != "herdr" {
+		t.Fatalf("multiplexer defaults not applied: %+v", cfg.Multiplexer)
+	}
 	if cfg.PromptReadyTimeout != 5*time.Second || cfg.IdleUnknownAfter != 120*time.Second || cfg.AutoCloseWaitingAfter != 10*time.Minute || cfg.GracefulExitTimeout != 15*time.Second {
 		t.Fatalf("timeout defaults not applied: %+v", cfg)
 	}
@@ -58,6 +61,39 @@ func TestNormalizeEnvOverridesInMemoryRawConfig(t *testing.T) {
 	}
 	if cfg.DBPath != "/from/env.db" || cfg.TmuxSession != "from-env" || cfg.Tmux.SessionName != "from-env" {
 		t.Fatalf("env overrides not applied during normalize: %+v", cfg)
+	}
+}
+
+func TestNormalizeMultiplexerConfigAndEnvOverride(t *testing.T) {
+	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
+	raw := Config{Multiplexer: Multiplexer{
+		Default: "tmux",
+		Tmux:    Tmux{SessionName: "mux-session", BoardWindowName: "mux-board"},
+		Herdr:   Herdr{Binary: "/bin/herdr", Session: "work", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: true},
+	}}
+	cfg, err := Normalize(raw, paths, NormalizeOptions{Env: Env{DefaultMultiplexer: "herdr"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Multiplexer.Default != "herdr" {
+		t.Fatalf("env multiplexer override not applied: %+v", cfg.Multiplexer)
+	}
+	if cfg.TmuxSession != "mux-session" || cfg.Tmux.SessionName != "mux-session" || cfg.Tmux.BoardWindowName != "mux-board" || cfg.Multiplexer.Tmux != cfg.Tmux {
+		t.Fatalf("multiplexer tmux config did not sync legacy fields: %+v", cfg)
+	}
+	if cfg.Multiplexer.Herdr.Binary != "/bin/herdr" || cfg.Multiplexer.Herdr.Session != "work" || !cfg.Multiplexer.Herdr.FocusOnOpen {
+		t.Fatalf("herdr config not applied: %+v", cfg.Multiplexer.Herdr)
+	}
+}
+
+func TestNormalizeLegacyTmuxConfigSyncsMultiplexer(t *testing.T) {
+	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
+	cfg, err := Normalize(Config{TmuxSession: "legacy", Tmux: Tmux{BoardWindowName: "legacy-board"}}, paths, NormalizeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Multiplexer.Default != "tmux" || cfg.Multiplexer.Tmux.SessionName != "legacy" || cfg.Multiplexer.Tmux.BoardWindowName != "legacy-board" {
+		t.Fatalf("legacy tmux did not sync multiplexer config: %+v", cfg)
 	}
 }
 
@@ -186,6 +222,7 @@ func clearAgentEnv(t *testing.T) {
 		"KANBI_DATA_DIR",
 		"KANBI_STATE_DIR",
 		"KANBI_TMUX_SESSION",
+		"KANBI_MULTIPLEXER",
 		"XDG_CONFIG_HOME",
 		"XDG_DATA_HOME",
 		"XDG_STATE_HOME",

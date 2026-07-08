@@ -31,6 +31,11 @@ var ticketProjectionColumns = []string{
 	"s.tmux_session_name",
 	"s.tmux_window_id",
 	"s.tmux_window_name",
+	"coalesce(s.multiplexer,'tmux')",
+	"coalesce(s.mux_namespace,s.tmux_session_name)",
+	"coalesce(s.mux_container_id,s.tmux_window_id)",
+	"coalesce(s.mux_container_name,s.tmux_window_name)",
+	"s.mux_metadata",
 	"s.id",
 	"s.harness_session_ref",
 	"s.last_output_at",
@@ -81,7 +86,7 @@ func (s *Store) queryProjectedTickets(ctx context.Context, suffix string, args .
 func scanProjectedTicket(rows *sql.Rows) (Ticket, error) {
 	var t Ticket
 	var active int
-	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardWorkdir, &t.ColumnID, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt, &t.NoteCount); err != nil {
+	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardWorkdir, &t.ColumnID, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.Multiplexer, &t.MuxNamespace, &t.MuxContainerID, &t.MuxContainerName, &t.MuxMetadata, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt, &t.NoteCount); err != nil {
 		return Ticket{}, err
 	}
 	t.SessionActive = active == 1

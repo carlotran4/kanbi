@@ -32,6 +32,20 @@ type Tmux struct {
 	BoardWindowName string `yaml:"board_window_name"`
 }
 
+type Herdr struct {
+	Binary            string `yaml:"binary"`
+	Session           string `yaml:"session"`
+	WorkspaceStrategy string `yaml:"workspace_strategy"`
+	TabStrategy       string `yaml:"tab_strategy"`
+	FocusOnOpen       bool   `yaml:"focus_on_open"`
+}
+
+type Multiplexer struct {
+	Default string `yaml:"default"`
+	Tmux    Tmux   `yaml:"tmux"`
+	Herdr   Herdr  `yaml:"herdr"`
+}
+
 type Timeouts struct {
 	IdleUnknownAfterSeconds      int `yaml:"idle_unknown_after_seconds"`
 	AutoCloseWaitingAfterMinutes int `yaml:"auto_close_waiting_after_minutes"`
@@ -45,6 +59,7 @@ type Config struct {
 	DefaultHarness        string             `yaml:"default_harness"`
 	TmuxSession           string             `yaml:"tmux_session"`
 	Tmux                  Tmux               `yaml:"tmux"`
+	Multiplexer           Multiplexer        `yaml:"multiplexer"`
 	PromptReadyTimeout    time.Duration      `yaml:"-"`
 	PromptReadyRaw        string             `yaml:"prompt_ready_timeout"`
 	IdleUnknownAfter      time.Duration      `yaml:"-"`
@@ -99,8 +114,9 @@ func ResolvePaths() Paths {
 }
 
 type Env struct {
-	DBPath      string
-	TmuxSession string
+	DBPath             string
+	TmuxSession        string
+	DefaultMultiplexer string
 }
 
 type NormalizeOptions struct {
@@ -144,8 +160,13 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 	}
 	if opts.Env.TmuxSession != "" {
 		cfg.TmuxSession = opts.Env.TmuxSession
+		cfg.Tmux.SessionName = opts.Env.TmuxSession
+		cfg.Multiplexer.Tmux.SessionName = opts.Env.TmuxSession
 	}
-	cfg.Tmux.SessionName = cfg.TmuxSession
+	if opts.Env.DefaultMultiplexer != "" {
+		cfg.Multiplexer.Default = opts.Env.DefaultMultiplexer
+	}
+	syncMultiplexerConfig(&cfg)
 	if cfg.PromptReadyRaw == "" {
 		cfg.PromptReadyRaw = "5s"
 	}
@@ -179,6 +200,7 @@ func defaultConfig(paths Paths, env Env) Config {
 		DefaultHarness:        "pi",
 		TmuxSession:           tmuxSession,
 		Tmux:                  Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
+		Multiplexer:           Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: true}},
 		PromptReadyTimeout:    5 * time.Second,
 		PromptReadyRaw:        "5s",
 		IdleUnknownAfter:      120 * time.Second,
@@ -203,6 +225,7 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.TmuxSession != "" {
 		cfg.TmuxSession = raw.TmuxSession
+		cfg.Tmux.SessionName = raw.TmuxSession
 	}
 	if raw.Tmux.SessionName != "" {
 		if raw.TmuxSession == "" {
@@ -212,6 +235,31 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.Tmux.BoardWindowName != "" {
 		cfg.Tmux.BoardWindowName = raw.Tmux.BoardWindowName
+	}
+	if raw.Multiplexer.Default != "" {
+		cfg.Multiplexer.Default = raw.Multiplexer.Default
+	}
+	if raw.Multiplexer.Tmux.SessionName != "" {
+		cfg.TmuxSession = raw.Multiplexer.Tmux.SessionName
+		cfg.Tmux.SessionName = raw.Multiplexer.Tmux.SessionName
+	}
+	if raw.Multiplexer.Tmux.BoardWindowName != "" {
+		cfg.Tmux.BoardWindowName = raw.Multiplexer.Tmux.BoardWindowName
+	}
+	if raw.Multiplexer.Herdr.Binary != "" {
+		cfg.Multiplexer.Herdr.Binary = raw.Multiplexer.Herdr.Binary
+	}
+	if raw.Multiplexer.Herdr.Session != "" {
+		cfg.Multiplexer.Herdr.Session = raw.Multiplexer.Herdr.Session
+	}
+	if raw.Multiplexer.Herdr.WorkspaceStrategy != "" {
+		cfg.Multiplexer.Herdr.WorkspaceStrategy = raw.Multiplexer.Herdr.WorkspaceStrategy
+	}
+	if raw.Multiplexer.Herdr.TabStrategy != "" {
+		cfg.Multiplexer.Herdr.TabStrategy = raw.Multiplexer.Herdr.TabStrategy
+	}
+	if raw.Multiplexer.Herdr.FocusOnOpen {
+		cfg.Multiplexer.Herdr.FocusOnOpen = raw.Multiplexer.Herdr.FocusOnOpen
 	}
 	if raw.PromptReadyRaw != "" {
 		cfg.PromptReadyRaw = raw.PromptReadyRaw
@@ -230,6 +278,39 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.Harnesses != nil {
 		cfg.Harnesses = raw.Harnesses
+	}
+}
+
+func syncMultiplexerConfig(cfg *Config) {
+	if cfg.Multiplexer.Default == "" {
+		cfg.Multiplexer.Default = "tmux"
+	}
+	if cfg.Tmux.SessionName == "" {
+		cfg.Tmux.SessionName = cfg.TmuxSession
+	}
+	if cfg.TmuxSession == "" {
+		cfg.TmuxSession = cfg.Tmux.SessionName
+	}
+	if cfg.TmuxSession == "" {
+		cfg.TmuxSession = DefaultSession
+		cfg.Tmux.SessionName = DefaultSession
+	}
+	if cfg.Tmux.BoardWindowName == "" {
+		cfg.Tmux.BoardWindowName = "board"
+	}
+	cfg.TmuxSession = cfg.Tmux.SessionName
+	cfg.Multiplexer.Tmux = cfg.Tmux
+	if cfg.Multiplexer.Herdr.Binary == "" {
+		cfg.Multiplexer.Herdr.Binary = "herdr"
+	}
+	if cfg.Multiplexer.Herdr.Session == "" {
+		cfg.Multiplexer.Herdr.Session = "default"
+	}
+	if cfg.Multiplexer.Herdr.WorkspaceStrategy == "" {
+		cfg.Multiplexer.Herdr.WorkspaceStrategy = "board"
+	}
+	if cfg.Multiplexer.Herdr.TabStrategy == "" {
+		cfg.Multiplexer.Herdr.TabStrategy = "tickets"
 	}
 }
 
@@ -306,7 +387,8 @@ func byteContains(b, sub []byte) bool {
 
 func readEnv() Env {
 	return Env{
-		DBPath:      os.Getenv("KANBI_DB"),
-		TmuxSession: os.Getenv("KANBI_TMUX_SESSION"),
+		DBPath:             os.Getenv("KANBI_DB"),
+		TmuxSession:        os.Getenv("KANBI_TMUX_SESSION"),
+		DefaultMultiplexer: os.Getenv("KANBI_MULTIPLEXER"),
 	}
 }

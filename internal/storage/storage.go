@@ -66,6 +66,11 @@ type Ticket struct {
 	TmuxSessionName     sql.NullString
 	WindowID            sql.NullString
 	WindowName          sql.NullString
+	Multiplexer         sql.NullString
+	MuxNamespace        sql.NullString
+	MuxContainerID      sql.NullString
+	MuxContainerName    sql.NullString
+	MuxMetadata         sql.NullString
 	SessionID           sql.NullInt64
 	SessionRef          sql.NullString
 	LastOutputAt        sql.NullTime
@@ -99,6 +104,11 @@ type Session struct {
 	TmuxSessionName     string
 	TmuxWindowID        sql.NullString
 	TmuxWindowName      string
+	Multiplexer         string
+	MuxNamespace        sql.NullString
+	MuxContainerID      sql.NullString
+	MuxContainerName    sql.NullString
+	MuxMetadata         sql.NullString
 	Status              string
 	IsActive            bool
 	StartedAt           sql.NullTime
@@ -743,8 +753,9 @@ func (s *Store) UpsertActiveSession(ctx context.Context, ticketID int64, session
 	if status == "" {
 		status = kanban.StateRunning
 	}
-	res, err := tx.ExecContext(ctx, `insert into sessions(ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,last_seen_tmux_at,last_state_change_at,last_detected_state,last_detection_source,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		ticketID, session.Harness, nullableString(session.HarnessSessionRef.String), nullableString(session.HarnessSessionName.String), session.TmuxSessionName, nullableString(session.TmuxWindowID.String), session.TmuxWindowName, status, 1, now, now, now, status, "system", now, now)
+	applySessionMuxDefaults(&session)
+	res, err := tx.ExecContext(ctx, `insert into sessions(ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,multiplexer,mux_namespace,mux_container_id,mux_container_name,mux_metadata,status,is_active,started_at,last_seen_tmux_at,last_state_change_at,last_detected_state,last_detection_source,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		ticketID, session.Harness, nullableString(session.HarnessSessionRef.String), nullableString(session.HarnessSessionName.String), session.TmuxSessionName, nullableString(session.TmuxWindowID.String), session.TmuxWindowName, session.Multiplexer, nullableString(session.MuxNamespace.String), nullableString(session.MuxContainerID.String), nullableString(session.MuxContainerName.String), nullableString(session.MuxMetadata.String), status, 1, now, now, now, status, "system", now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -753,18 +764,20 @@ func (s *Store) UpsertActiveSession(ctx context.Context, ticketID int64, session
 }
 
 func (s *Store) ActiveSession(ctx context.Context, ticketID int64) (Session, bool, error) {
-	return s.sessionByQuery(ctx, `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions where ticket_id=? and is_active=1 order by id desc limit 1`, ticketID)
+	return s.sessionByQuery(ctx, sessionSelectSQL+` where ticket_id=? and is_active=1 order by id desc limit 1`, ticketID)
 }
 
 func (s *Store) LatestSession(ctx context.Context, ticketID int64) (Session, bool, error) {
-	return s.sessionByQuery(ctx, `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions where ticket_id=? order by id desc limit 1`, ticketID)
+	return s.sessionByQuery(ctx, sessionSelectSQL+` where ticket_id=? order by id desc limit 1`, ticketID)
 }
+
+const sessionSelectSQL = `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,coalesce(multiplexer,'tmux'),coalesce(mux_namespace,tmux_session_name),coalesce(mux_container_id,tmux_window_id),coalesce(mux_container_name,tmux_window_name),mux_metadata,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions`
 
 func (s *Store) sessionByQuery(ctx context.Context, query string, ticketID int64) (Session, bool, error) {
 	var ses Session
 	var active int
 	err := s.db.QueryRowContext(ctx, query, ticketID).
-		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt)
+		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Multiplexer, &ses.MuxNamespace, &ses.MuxContainerID, &ses.MuxContainerName, &ses.MuxMetadata, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, false, nil
 	}
@@ -775,8 +788,23 @@ func (s *Store) sessionByQuery(ctx context.Context, query string, ticketID int64
 	return ses, true, nil
 }
 
+func applySessionMuxDefaults(session *Session) {
+	if session.Multiplexer == "" {
+		session.Multiplexer = "tmux"
+	}
+	if !session.MuxNamespace.Valid && session.TmuxSessionName != "" {
+		session.MuxNamespace = sql.NullString{String: session.TmuxSessionName, Valid: true}
+	}
+	if !session.MuxContainerID.Valid && session.TmuxWindowID.Valid {
+		session.MuxContainerID = session.TmuxWindowID
+	}
+	if !session.MuxContainerName.Valid && session.TmuxWindowName != "" {
+		session.MuxContainerName = sql.NullString{String: session.TmuxWindowName, Valid: true}
+	}
+}
+
 func (s *Store) RenameSessionWindow(ctx context.Context, ticketID int64, name string) error {
-	_, err := s.db.ExecContext(ctx, `update sessions set tmux_window_name=?, updated_at=? where ticket_id=? and is_active=1`, name, time.Now().UTC(), ticketID)
+	_, err := s.db.ExecContext(ctx, `update sessions set tmux_window_name=?, mux_container_name=?, updated_at=? where ticket_id=? and is_active=1`, name, name, time.Now().UTC(), ticketID)
 	return err
 }
 
@@ -1147,10 +1175,27 @@ func (s *Store) migrate(ctx context.Context) error {
 		{"last_attention_reason", "text"},
 		{"last_detection_source", "text"},
 		{"last_observed_excerpt", "text"},
+		{"multiplexer", "text not null default 'tmux'"},
+		{"mux_namespace", "text"},
+		{"mux_container_id", "text"},
+		{"mux_container_name", "text"},
+		{"mux_metadata", "text"},
 	} {
 		if err := add(col.name, col.typ); err != nil {
 			return err
 		}
+	}
+	if _, err := s.db.ExecContext(ctx, `update sessions set multiplexer='tmux' where multiplexer is null or multiplexer=''`); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `update sessions set mux_namespace=tmux_session_name where mux_namespace is null and tmux_session_name is not null`); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `update sessions set mux_container_id=tmux_window_id where mux_container_id is null and tmux_window_id is not null`); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `update sessions set mux_container_name=tmux_window_name where mux_container_name is null and tmux_window_name is not null`); err != nil {
+		return err
 	}
 	// Create ticket_notes table for existing databases that predate it.
 	if _, err := s.db.ExecContext(ctx, `create table if not exists ticket_notes (
@@ -1278,6 +1323,11 @@ create table if not exists sessions (
   tmux_session_name text not null,
   tmux_window_id text,
   tmux_window_name text not null,
+  multiplexer text not null default 'tmux',
+  mux_namespace text,
+  mux_container_id text,
+  mux_container_name text,
+  mux_metadata text,
   status text not null,
   is_active integer not null default 1,
   started_at datetime,
