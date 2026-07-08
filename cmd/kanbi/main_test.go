@@ -903,19 +903,28 @@ func TestBoardLaunchDependsOnConfiguredMultiplexer(t *testing.T) {
 	}
 }
 
-func TestHerdrBoardStartCommandLaunchesKanbiBoardPane(t *testing.T) {
+func TestHerdrBoardLaunchUsesWorkspaceRootPane(t *testing.T) {
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = "herdr"
 	cfg.Multiplexer.Herdr.Session = "default"
-	t.Setenv("KANBI_CONFIG", "/tmp/kanbi-config.yaml")
-	cmd := herdrBoardStartCommand(cfg, "/tmp/kanbi")
-	args := strings.Join(cmd.Args, " ")
-	if !strings.Contains(args, "agent start kanbi-board-") || !strings.Contains(args, "--focus") || !strings.Contains(args, "--env KANBI_INNER=1") || !strings.Contains(args, "--env KANBI_CONFIG=/tmp/kanbi-config.yaml") || !strings.Contains(args, "-- /tmp/kanbi --board") {
-		t.Fatalf("unexpected Herdr board command: %v", cmd.Args)
+	t.Setenv("KANBI_CONFIG", "/tmp/kanbi config.yaml")
+	workspace := herdrBoardWorkspaceCommand(cfg)
+	workspaceArgs := strings.Join(workspace.Args, " ")
+	if !strings.Contains(workspaceArgs, "workspace create --label kanbi --focus") {
+		t.Fatalf("unexpected Herdr workspace command: %v", workspace.Args)
 	}
-	if cmd.Stdout != io.Discard {
-		t.Fatalf("Herdr agent start JSON should be discarded, stdout=%#v", cmd.Stdout)
+	paneID := herdrRootPaneID([]byte(`{"id":"cli:workspace:create","result":{"root_pane":{"pane_id":"w1:p1"}}}`))
+	if paneID != "w1:p1" {
+		t.Fatalf("pane id = %q", paneID)
+	}
+	run := herdrBoardPaneRunCommand(cfg, paneID, "/tmp/kanbi path")
+	args := strings.Join(run.Args, " ")
+	if !strings.Contains(args, "pane run w1:p1") || !strings.Contains(args, "KANBI_INNER=1") || !strings.Contains(args, "'KANBI_CONFIG=/tmp/kanbi config.yaml'") || !strings.Contains(args, "'/tmp/kanbi path' --board") {
+		t.Fatalf("unexpected Herdr pane run command: %v", run.Args)
+	}
+	if run.Stdout != io.Discard {
+		t.Fatalf("Herdr pane run JSON should be discarded, stdout=%#v", run.Stdout)
 	}
 }
 

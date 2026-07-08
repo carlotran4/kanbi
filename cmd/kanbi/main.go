@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -809,36 +808,93 @@ func shouldLaunchHerdrBoard(cfg config.Config) bool {
 }
 
 func launchHerdrBoard(cfg config.Config, exe string) error {
-	start := herdrBoardStartCommand(cfg, exe)
-	if err := start.Run(); err != nil {
-		return fmt.Errorf("start kanbi in Herdr: %w", err)
+	create := herdrBoardWorkspaceCommand(cfg)
+	out, err := create.Output()
+	if err != nil {
+		return fmt.Errorf("create Kanbi Herdr workspace: %w", err)
+	}
+	paneID := herdrRootPaneID(out)
+	if paneID == "" {
+		return fmt.Errorf("create Kanbi Herdr workspace: missing root pane id")
+	}
+	runCmd := herdrBoardPaneRunCommand(cfg, paneID, exe)
+	if err := runCmd.Run(); err != nil {
+		return fmt.Errorf("start kanbi in Herdr pane: %w", err)
 	}
 	return herdrAttachCommand(cfg).Run()
 }
 
-func herdrBoardStartCommand(cfg config.Config, exe string) *exec.Cmd {
+func herdrBoardWorkspaceCommand(cfg config.Config) *exec.Cmd {
 	bin := cfg.Multiplexer.Herdr.Binary
 	if bin == "" {
 		bin = "herdr"
 	}
-	name := fmt.Sprintf("kanbi-board-%d-%d", os.Getpid(), time.Now().UnixNano())
-	args := []string{"agent", "start", name}
+	args := []string{"workspace", "create", "--label", "kanbi", "--focus"}
 	if cwd, err := os.Getwd(); err == nil && cwd != "" {
 		args = append(args, "--cwd", cwd)
 	}
-	args = append(args, "--focus", "--env", "KANBI_INNER=1")
-	for _, key := range []string{"KANBI_CONFIG", "KANBI_DB", "KANBI_DATA_DIR", "KANBI_STATE_DIR"} {
-		if val := os.Getenv(key); val != "" {
-			args = append(args, "--env", key+"="+val)
-		}
-	}
-	args = append(args, "--", exe, "--board")
 	cmd := exec.Command(bin, args...)
 	cmd.Env = herdrCommandEnv(cfg)
-	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
+func herdrBoardPaneRunCommand(cfg config.Config, paneID, exe string) *exec.Cmd {
+	bin := cfg.Multiplexer.Herdr.Binary
+	if bin == "" {
+		bin = "herdr"
+	}
+	cmdline := herdrBoardShellCommand(exe)
+	cmd := exec.Command(bin, "pane", "run", paneID, cmdline)
+	cmd.Env = herdrCommandEnv(cfg)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = os.Stderr
 	return cmd
+}
+
+func herdrBoardShellCommand(exe string) string {
+	parts := []string{"env", "KANBI_INNER=1"}
+	for _, key := range []string{"KANBI_CONFIG", "KANBI_DB", "KANBI_DATA_DIR", "KANBI_STATE_DIR"} {
+		if val := os.Getenv(key); val != "" {
+			parts = append(parts, shellQuoteArg(key+"="+val))
+		}
+	}
+	parts = append(parts, shellQuoteArg(exe), "--board")
+	return strings.Join(parts, " ")
+}
+
+func herdrRootPaneID(out []byte) string {
+	var obj map[string]any
+	if err := json.Unmarshal(out, &obj); err != nil {
+		return ""
+	}
+	for _, key := range []string{"result.root_pane.pane_id", "root_pane.pane_id", "pane_id"} {
+		if v := dottedJSON(obj, key); v != nil {
+			if s, ok := v.(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func dottedJSON(obj map[string]any, key string) any {
+	var cur any = obj
+	for _, part := range strings.Split(key, ".") {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		cur = m[part]
+	}
+	return cur
+}
+
+func shellQuoteArg(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func herdrAttachCommand(cfg config.Config) *exec.Cmd {
