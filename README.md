@@ -67,7 +67,7 @@ multiplexer:
     focus_on_open: false
 ```
 
-Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches. With `default: herdr`, the board UI runs directly in the invoking terminal instead of wrapping itself in a new tmux client. For one-off testing, `KANBI_MULTIPLEXER=herdr` overrides `multiplexer.default`.
+Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches. With `default: herdr`, running `kanbi` outside Herdr starts the board UI in a focused Herdr pane and attaches to Herdr; when already inside a Herdr pane it runs the board directly to avoid nesting. For one-off testing, `KANBI_MULTIPLEXER=herdr` overrides `multiplexer.default`.
 
 Herdr basics:
 

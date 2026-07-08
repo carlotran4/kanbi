@@ -881,14 +881,41 @@ var _ interface {
 // Ensure os import is used.
 var _ = os.Getenv
 
-func TestShouldAttachTmuxForBoardDependsOnConfiguredMultiplexer(t *testing.T) {
+func TestBoardLaunchDependsOnConfiguredMultiplexer(t *testing.T) {
 	cfg := config.Defaults(config.Paths{})
 	if !shouldAttachTmuxForBoard(cfg) {
 		t.Fatal("tmux default should attach board in tmux")
 	}
+	if shouldLaunchHerdrBoard(cfg) {
+		t.Fatal("tmux default should not launch Herdr")
+	}
 	cfg.Multiplexer.Default = "herdr"
 	if shouldAttachTmuxForBoard(cfg) {
-		t.Fatal("herdr default should run board directly instead of wrapping in tmux")
+		t.Fatal("herdr default should not wrap board in tmux")
+	}
+	t.Setenv("HERDR_ENV", "")
+	if !shouldLaunchHerdrBoard(cfg) {
+		t.Fatal("herdr default should launch board in Herdr when outside Herdr")
+	}
+	t.Setenv("HERDR_ENV", "1")
+	if shouldLaunchHerdrBoard(cfg) {
+		t.Fatal("should not recursively launch Herdr from inside a Herdr pane")
+	}
+}
+
+func TestHerdrBoardStartCommandLaunchesKanbiBoardPane(t *testing.T) {
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = "herdr"
+	cfg.Multiplexer.Herdr.Session = "default"
+	t.Setenv("KANBI_CONFIG", "/tmp/kanbi-config.yaml")
+	cmd := herdrBoardStartCommand(cfg, "/tmp/kanbi")
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "agent start kanbi-board-") || !strings.Contains(args, "--focus") || !strings.Contains(args, "--env KANBI_INNER=1") || !strings.Contains(args, "--env KANBI_CONFIG=/tmp/kanbi-config.yaml") || !strings.Contains(args, "-- /tmp/kanbi --board") {
+		t.Fatalf("unexpected Herdr board command: %v", cmd.Args)
+	}
+	if cmd.Stdout != io.Discard {
+		t.Fatalf("Herdr agent start JSON should be discarded, stdout=%#v", cmd.Stdout)
 	}
 }
 

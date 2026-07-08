@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -37,6 +39,13 @@ func run(args []string) error {
 	}
 
 	if len(args) == 0 {
+		if shouldLaunchHerdrBoard(cfg) && os.Getenv("KANBI_INNER") == "" {
+			exe, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			return launchHerdrBoard(cfg, exe)
+		}
 		if shouldAttachTmuxForBoard(cfg) && !tmux.InsideTmux() && os.Getenv("KANBI_INNER") == "" {
 			exe, err := os.Executable()
 			if err != nil {
@@ -793,6 +802,64 @@ func (c *cliContext) Manager() *tmux.Manager {
 
 func shouldAttachTmuxForBoard(cfg config.Config) bool {
 	return strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default)) != "herdr"
+}
+
+func shouldLaunchHerdrBoard(cfg config.Config) bool {
+	return strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default)) == "herdr" && os.Getenv("HERDR_ENV") != "1"
+}
+
+func launchHerdrBoard(cfg config.Config, exe string) error {
+	start := herdrBoardStartCommand(cfg, exe)
+	if err := start.Run(); err != nil {
+		return fmt.Errorf("start kanbi in Herdr: %w", err)
+	}
+	return herdrAttachCommand(cfg).Run()
+}
+
+func herdrBoardStartCommand(cfg config.Config, exe string) *exec.Cmd {
+	bin := cfg.Multiplexer.Herdr.Binary
+	if bin == "" {
+		bin = "herdr"
+	}
+	name := fmt.Sprintf("kanbi-board-%d-%d", os.Getpid(), time.Now().UnixNano())
+	args := []string{"agent", "start", name}
+	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+		args = append(args, "--cwd", cwd)
+	}
+	args = append(args, "--focus", "--env", "KANBI_INNER=1")
+	for _, key := range []string{"KANBI_CONFIG", "KANBI_DB", "KANBI_DATA_DIR", "KANBI_STATE_DIR"} {
+		if val := os.Getenv(key); val != "" {
+			args = append(args, "--env", key+"="+val)
+		}
+	}
+	args = append(args, "--", exe, "--board")
+	cmd := exec.Command(bin, args...)
+	cmd.Env = herdrCommandEnv(cfg)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = io.Discard
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
+func herdrAttachCommand(cfg config.Config) *exec.Cmd {
+	bin := cfg.Multiplexer.Herdr.Binary
+	if bin == "" {
+		bin = "herdr"
+	}
+	cmd := exec.Command(bin)
+	cmd.Env = herdrCommandEnv(cfg)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
+func herdrCommandEnv(cfg config.Config) []string {
+	env := os.Environ()
+	if session := cfg.Multiplexer.Herdr.Session; session != "" {
+		env = append(env, "HERDR_SESSION="+session)
+	}
+	return env
 }
 
 func (c *cliContext) BoardByName(name string) (storage.Board, error) {
