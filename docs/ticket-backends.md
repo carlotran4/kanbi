@@ -9,7 +9,7 @@ Kanbi supports one ticket metadata backend per board. Implemented backends are `
 - SQLite remains the local cache/projection store for tickets and the canonical store for local runtime/session state.
 - External backends own ticket metadata for their boards once implemented.
 - tmux session history remains local and is never synced to ticketing providers.
-- Sync runs on executable startup, periodically while the executable is running, and on demand through `kanbi sync`. There is no background daemon after Kanbi exits.
+- Sync starts in the background on executable startup, then runs periodically while the executable is running, and on demand through `kanbi sync`. Startup does not block the TUI on remote/cloud ticket providers. There is no background daemon after Kanbi exits.
 - Conflict resolution is newest `updated_at` wins.
 - When a provider exposes a query language, board config stores the query used to scope the synced subset. Atlassian/Jira must use JQL.
 

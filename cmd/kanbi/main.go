@@ -88,7 +88,6 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		manager := cli.Manager()
 		_ = manager.Reconcile(ctx)
 		syncer := ticketbackend.NewManager(cli.store)
-		_ = syncer.SyncAll(ctx)
 		stopSync := syncer.Start(ctx)
 		defer stopSync()
 		_, err := tea.NewProgram(tui.NewWithPicker(ctx, tui.NewService(cli.store, manager))).Run()

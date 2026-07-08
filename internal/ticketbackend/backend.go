@@ -165,6 +165,8 @@ func (m *Manager) Start(ctx context.Context) func() {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	go func() {
+		_ = m.SyncAll(ctx)
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
