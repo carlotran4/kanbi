@@ -50,7 +50,7 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 	}
 	switch decision.Action {
 	case lifecycleActionSwitch:
-		return l.manager.switchClient(ctx, targetRef(ticketRuntimeSessionName(l.manager.Config.TmuxSession, decision.Ticket), decision.Ref))
+		return l.manager.switchWindow(ctx, ticketRuntimeSessionName(l.manager.Config.TmuxSession, decision.Ticket), decision.Ref)
 	case lifecycleActionRepair:
 		return RepairNeededError{Ticket: decision.Ticket, Reason: decision.Reason}
 	case lifecycleActionStart, lifecycleActionResume:
@@ -225,13 +225,23 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if switchRef == "" {
 		switchRef = name
 	}
-	return l.manager.switchClient(ctx, targetRef(l.manager.Config.TmuxSession, switchRef))
+	return l.manager.switchWindow(ctx, l.manager.Config.TmuxSession, switchRef)
 }
 
-func (m *Manager) switchClient(ctx context.Context, target string) error {
-	out, err := m.run(ctx, "switch-client", "-t", target)
+func (m *Manager) switchWindow(ctx context.Context, sessionName, ref string) error {
+	if sessionName == "" {
+		sessionName = m.Config.TmuxSession
+	}
+	out, err := m.run(ctx, "switch-client", "-t", sessionName)
 	if err != nil && !InsideTmux() && strings.Contains(strings.ToLower(out), "no current client") {
 		return nil
 	}
+	if err != nil {
+		return err
+	}
+	if ref == "" {
+		return nil
+	}
+	_, err = m.run(ctx, "select-window", "-t", targetRef(sessionName, ref))
 	return err
 }

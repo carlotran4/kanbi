@@ -667,12 +667,19 @@ func TestOpenTicketCreatesWindowAndSwitchesClient(t *testing.T) {
 	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
 		t.Fatal(err)
 	}
+	var sawSwitchSession bool
+	var sawSelectWindow bool
 	for _, c := range runner.calls {
-		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t @7" {
-			return
+		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t kanbi" {
+			sawSwitchSession = true
+		}
+		if len(c.args) > 0 && c.args[0] == "select-window" && strings.Join(c.args, " ") == "select-window -t @7" {
+			sawSelectWindow = true
 		}
 	}
-	t.Fatalf("switch-client @7 not called after open: %+v", runner.calls)
+	if !sawSwitchSession || !sawSelectWindow {
+		t.Fatalf("window switch did not target session+window switch=%v select=%v calls=%+v", sawSwitchSession, sawSelectWindow, runner.calls)
+	}
 }
 
 func TestOpenTicketRecordsWindowID(t *testing.T) {
@@ -934,12 +941,19 @@ func TestSwitchToTicketPrefersStoredWindowID(t *testing.T) {
 	if err := manager.SwitchToTicket(context.Background(), ticket); err != nil {
 		t.Fatal(err)
 	}
+	var sawSwitchSession bool
+	var sawSelectWindow bool
 	for _, c := range runner.calls {
-		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t @7" {
-			return
+		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t kanbi" {
+			sawSwitchSession = true
+		}
+		if len(c.args) > 0 && c.args[0] == "select-window" && strings.Join(c.args, " ") == "select-window -t @7" {
+			sawSelectWindow = true
 		}
 	}
-	t.Fatalf("switch-client @7 not called: %+v", runner.calls)
+	if !sawSwitchSession || !sawSelectWindow {
+		t.Fatalf("window switch did not target session+window switch=%v select=%v calls=%+v", sawSwitchSession, sawSelectWindow, runner.calls)
+	}
 }
 
 func TestSwitchToTicketUsesStoredRuntimeSession(t *testing.T) {
@@ -957,12 +971,19 @@ func TestSwitchToTicketUsesStoredRuntimeSession(t *testing.T) {
 	if err := manager.SwitchToTicket(context.Background(), ticket); err != nil {
 		t.Fatal(err)
 	}
+	var sawSwitchSession bool
+	var sawSelectWindow bool
 	for _, c := range runner.calls {
-		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t kanbi-instance-b:T-001-demo" {
-			return
+		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t kanbi-instance-b" {
+			sawSwitchSession = true
+		}
+		if len(c.args) > 0 && c.args[0] == "select-window" && strings.Join(c.args, " ") == "select-window -t kanbi-instance-b:T-001-demo" {
+			sawSelectWindow = true
 		}
 	}
-	t.Fatalf("switch-client did not target stored runtime session: %+v", runner.calls)
+	if !sawSwitchSession || !sawSelectWindow {
+		t.Fatalf("window switch did not target stored runtime session switch=%v select=%v calls=%+v", sawSwitchSession, sawSelectWindow, runner.calls)
+	}
 }
 
 func TestSwitchToTicketRejectsStaleWindowIDWithWrongName(t *testing.T) {
