@@ -200,7 +200,7 @@ func defaultConfig(paths Paths, env Env) Config {
 		DefaultHarness:        "pi",
 		TmuxSession:           tmuxSession,
 		Tmux:                  Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
-		Multiplexer:           Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: true}},
+		Multiplexer:           Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
 		PromptReadyTimeout:    5 * time.Second,
 		PromptReadyRaw:        "5s",
 		IdleUnknownAfter:      120 * time.Second,

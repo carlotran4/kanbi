@@ -1,0 +1,105 @@
+package tmux
+
+import (
+	"context"
+	"database/sql"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"kanbi/internal/config"
+	"kanbi/internal/kanban"
+	"kanbi/internal/storage"
+)
+
+func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Launch", "body", "codex")
+	bin, logPath := writeFakeHerdr(t, map[string]string{
+		"workspace list":   `[]`,
+		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
+		"agent start":      `{"pane_id":"pane-123","tab_id":"tab-456","agent":{"name":"agent-789"}}`,
+		"agent focus":      `{"ok":true}`,
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = bin
+	cfg.Multiplexer.Herdr.FocusOnOpen = true
+	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+
+	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.TicketByID(ctx, ticket.ID)
+	if !got.Multiplexer.Valid || got.Multiplexer.String != "herdr" || got.MuxNamespace.String != "ws-board" || got.MuxContainerID.String != "agent-789" {
+		t.Fatalf("ticket mux metadata not stored: %+v", got)
+	}
+	logBytes, _ := os.ReadFile(logPath)
+	log := string(logBytes)
+	if !strings.Contains(log, "agent start") || !strings.Contains(log, "codex --no-alt-screen") {
+		t.Fatalf("fake herdr did not receive harness launch command; log=%s", log)
+	}
+}
+
+func TestRefreshRuntimePrefersHerdrNativeState(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Refresh", "", "codex")
+	_, _ = store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:          "codex",
+		TmuxSessionName:  "",
+		TmuxWindowName:   "",
+		Multiplexer:      "herdr",
+		MuxNamespace:     sql.NullString{String: "ws-board", Valid: true},
+		MuxContainerID:   sql.NullString{String: "agent-789", Valid: true},
+		MuxContainerName: sql.NullString{String: "b1-T-001-herdr-refresh", Valid: true},
+		MuxMetadata:      sql.NullString{String: `{"pane_id":"pane-123"}`, Valid: true},
+		Status:           kanban.StateRunning,
+	})
+	bin, _ := writeFakeHerdr(t, map[string]string{
+		"agent get": `{"state":"blocked","message":"permission required"}`,
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Herdr.Binary = bin
+	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+
+	if err := manager.RefreshRuntime(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.TicketByID(ctx, ticket.ID)
+	if got.Runtime != kanban.StateNeedsPermission || got.LastDetectionSource.String != "native" {
+		t.Fatalf("runtime = %s source=%s reason=%s", got.Runtime, got.LastDetectionSource.String, got.LastAttentionReason.String)
+	}
+}
+
+type failIfTmuxRunner struct{ t *testing.T }
+
+func (r *failIfTmuxRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	r.t.Fatalf("unexpected tmux command %s %v", name, args)
+	return "", nil
+}
+
+func writeFakeHerdr(t *testing.T, responses map[string]string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "herdr")
+	logPath := filepath.Join(dir, "herdr.log")
+	script := `#!/bin/sh
+log="` + logPath + `"
+echo "$*" >> "$log"
+case "$1 $2" in
+  "workspace list") echo '` + responses["workspace list"] + `' ;;
+  "workspace create") echo '` + responses["workspace create"] + `' ;;
+  "agent start") echo '` + responses["agent start"] + `' ;;
+  "agent focus") echo '` + responses["agent focus"] + `' ;;
+  "agent get") echo '` + responses["agent get"] + `' ;;
+  *) echo '{}' ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, logPath
+}

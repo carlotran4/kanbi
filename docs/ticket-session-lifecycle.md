@@ -4,7 +4,7 @@ This document specializes `docs/state-management.md` for ticket/session commands
 
 - A **ticket** is durable work metadata: title, body, harness preference, workflow column, archive status.
 - A **session** is one attempt to run an agent for a ticket.
-- A **tmux window** is the live process container for an active session.
+- A **runtime container** is the live process container for an active session. In tmux this is a window; in Herdr this is an agent/pane in a workspace.
 - A **harness session ref** is the agent-native resume handle, when the harness exposes one.
 
 ## Lifecycle State Diagram
@@ -62,7 +62,7 @@ flowchart TD
     Decision -- inactive --> Ref
     Ref -- yes --> Resume[start harness resume command]
     Ref -- no --> Repair[repair/start fresh screen]
-    Start --> Upsert[upsert active session]
+    Start --> Upsert[upsert active session with multiplexer container ref]
     Resume --> Upsert
     Switch --> NoWrite[no DB session row]
     Upsert --> CaptureRef[best-effort session ref capture]
@@ -94,7 +94,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 ### `Enter`: Default Ticket Action
 
 - If the ticket has never started, send the rendered prompt and open the ticket.
-- If the latest session is active and the tmux window validates in its stored `tmux_session_name`, switch to that window.
+- If the latest session is active and its stored multiplexer container validates, switch/focus it. Existing tmux sessions still validate in their stored `tmux_session_name`; Herdr sessions focus their stored agent/pane target.
 - If the latest session is inactive and has a `session_ref`, resume it and create a new active session row.
 - If the latest session is inactive and has no `session_ref`, show repair/start-fresh.
 - Opening an already-active valid window must not create a new session row.
@@ -103,7 +103,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 - `r` retries the open path.
 - `e` edits the session ref, saves it, then tries to open/resume.
-- `f` starts fresh with the rendered ticket prompt. The previous session history remains; the new run becomes the only active session and is launched in the current executable's runtime tmux session, in a separate tmux window rather than reusing any existing same-named window.
+- `f` starts fresh with the rendered ticket prompt. The previous session history remains; the new run becomes the only active session and is launched through the currently configured multiplexer. tmux launches use the current executable's runtime tmux session and a separate window rather than reusing any existing same-named window; Herdr launches use the configured Herdr session/workspace strategy.
 - `c` cancels.
 
 ### Close / Archive

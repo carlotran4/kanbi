@@ -21,7 +21,7 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - Pressing `n` in `Master` prompts for the target board, then creates the ticket in that board's matching column.
 - Each board has a working directory. Opening/sending a ticket starts its agent tmux window in the ticket's board directory, including from `Master`.
 - Board-local ticket numbers are preserved, so different boards may both have `T-001`; CLI ticket commands accept `--board NAME` when needed.
-- Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
+- tmux is the default multiplexer. Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
 - Agent tmux window names include the board id to avoid cross-board collisions within a runtime session.
 - Create boards from the CLI with `kanbi boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `kanbi boards`.
 - Sync ticket backends from the CLI with `kanbi sync` or `kanbi sync --board "Board Name"`.
@@ -51,6 +51,22 @@ kanbi notes add T-001 --body "Progress update" --json
 ```
 
 `kanbi open`, `kanbi sync`, and `kanbi doctor` also accept `--json`. Board-local ticket IDs may be ambiguous across boards; pass `--board NAME` when needed.
+
+## Multiplexer configuration
+
+Kanbi defaults to tmux. To launch new ticket sessions through Herdr instead, configure:
+
+```yaml
+multiplexer:
+  default: herdr
+  herdr:
+    binary: herdr
+    session: default
+    workspace_strategy: board
+    focus_on_open: false
+```
+
+Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches.
 
 ## Development
 

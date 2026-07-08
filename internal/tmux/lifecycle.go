@@ -51,12 +51,18 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 	}
 	switch decision.Action {
 	case lifecycleActionSwitch:
+		ref := ContainerRefFromTicket(decision.Ticket)
+		if ref.Kind == multiplexer.KindHerdr {
+			return l.manager.herdrAdapter().Focus(ctx, ref)
+		}
 		return l.manager.switchWindow(ctx, ticketRuntimeSessionName(l.manager.Config.TmuxSession, decision.Ticket), decision.Ref)
 	case lifecycleActionRepair:
 		return RepairNeededError{Ticket: decision.Ticket, Reason: decision.Reason}
 	case lifecycleActionStart, lifecycleActionResume:
-		if err := l.manager.EnsureSession(ctx); err != nil {
-			return err
+		if l.manager.defaultMultiplexerKind() != multiplexer.KindHerdr {
+			if err := l.manager.EnsureSession(ctx); err != nil {
+				return err
+			}
 		}
 		return l.launch(ctx, decision, req.SendPrompt)
 	default:
@@ -88,12 +94,24 @@ func (l ticketLifecycle) Decide(ctx context.Context, req lifecycleRequest) (life
 		return lifecycleDecision{Ticket: ticket, Action: lifecycleActionStart}, nil
 	}
 	if ticket.SessionID.Valid && ticket.SessionActive {
-		ref, exists, err := l.manager.ticketWindowRef(ctx, ticket, name)
-		if err != nil {
-			return lifecycleDecision{}, err
-		}
-		if exists {
-			return lifecycleDecision{Ticket: ticket, Action: lifecycleActionSwitch, Ref: ref}, nil
+		containerRef := ContainerRefFromTicket(ticket)
+		if containerRef.Kind == multiplexer.KindHerdr {
+			adapter := l.manager.herdrAdapter()
+			detection, err := adapter.Detect(ctx, containerRef)
+			if err == nil && detection.Source != multiplexer.DetectionSourceUnknown {
+				return lifecycleDecision{Ticket: ticket, Action: lifecycleActionSwitch, Ref: containerRef.Target()}, nil
+			}
+			if _, readErr := adapter.Read(ctx, containerRef, multiplexer.ReadOptions{Lines: 1}); readErr == nil {
+				return lifecycleDecision{Ticket: ticket, Action: lifecycleActionSwitch, Ref: containerRef.Target()}, nil
+			}
+		} else {
+			ref, exists, err := l.manager.ticketWindowRef(ctx, ticket, name)
+			if err != nil {
+				return lifecycleDecision{}, err
+			}
+			if exists {
+				return lifecycleDecision{Ticket: ticket, Action: lifecycleActionSwitch, Ref: ref}, nil
+			}
 		}
 		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
 			return lifecycleDecision{Ticket: ticket, Action: lifecycleActionResume}, nil
@@ -116,13 +134,16 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	var renderedPrompt string
 	var promptAlreadySent bool
 	var refFile string
+	var err error
 	launchStartedAt := time.Now().UTC()
 	if sendPrompt {
 		renderedPrompt = prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
 	}
-	name, err := l.manager.availableWindowName(ctx, name)
-	if err != nil {
-		return err
+	if l.manager.defaultMultiplexerKind() != multiplexer.KindHerdr {
+		name, err = l.manager.availableWindowName(ctx, name)
+		if err != nil {
+			return err
+		}
 	}
 	launchedNew := true
 	command, err := harness.StartCommand(l.manager.Config.Harnesses, ticket.Harness)
@@ -147,7 +168,17 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			return err
 		}
 	}
-	out, err := l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, ticket.BoardWorkdir), ShellCommand(command))...)
+	var containerRef multiplexer.ContainerRef
+	if l.manager.defaultMultiplexerKind() == multiplexer.KindHerdr {
+		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: ticket.BoardWorkdir, Command: command})
+	} else {
+		var out string
+		out, err = l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, ticket.BoardWorkdir), ShellCommand(command))...)
+		if err == nil {
+			windowID = strings.TrimSpace(out)
+			containerRef = multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: l.manager.Config.TmuxSession, ID: windowID, Name: name}
+		}
+	}
 	if err != nil {
 		if l.manager.Store != nil && ticket.SessionID.Valid {
 			_ = l.manager.Store.UpdateSessionRuntime(ctx, ticket.SessionID.Int64, kanban.StateError, "tmux", err.Error(), "", false)
@@ -157,8 +188,10 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 		return err
 	}
-	windowID = strings.TrimSpace(out)
-	if resuming {
+	if containerRef.Kind == multiplexer.KindTmux {
+		windowID = containerRef.ID
+	}
+	if resuming && containerRef.Kind == multiplexer.KindTmux {
 		checkAfter := l.manager.ResumeCheckAfter
 		if checkAfter <= 0 {
 			checkAfter = defaultResumeCheckAfter
@@ -168,8 +201,11 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 	}
 
-	ses := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Multiplexer: string(multiplexer.KindTmux), Status: kanban.StateRunning}
-	ApplyContainerRefToSession(&ses, multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: l.manager.Config.TmuxSession, ID: windowID, Name: name})
+	ses := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Multiplexer: string(containerRef.Kind), Status: kanban.StateRunning}
+	if ses.Multiplexer == "" {
+		ses.Multiplexer = string(multiplexer.KindTmux)
+	}
+	ApplyContainerRefToSession(&ses, containerRef)
 	if windowID != "" {
 		ses.TmuxWindowID = sql.NullString{String: windowID, Valid: true}
 	}
@@ -255,6 +291,12 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	switchRef := windowID
 	if switchRef == "" {
 		switchRef = name
+	}
+	if containerRef.Kind == multiplexer.KindHerdr {
+		if l.manager.Config.Multiplexer.Herdr.FocusOnOpen {
+			return l.manager.herdrAdapter().Focus(ctx, containerRef)
+		}
+		return nil
 	}
 	return l.manager.switchWindow(ctx, l.manager.Config.TmuxSession, switchRef)
 }

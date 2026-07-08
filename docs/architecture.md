@@ -1,6 +1,6 @@
 # Architecture
 
-Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses tmux windows as the v1 runtime backend.
+Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses a multiplexer runtime backend; tmux remains the default backend and Herdr is supported as an opt-in backend.
 
 ## Core Model
 
@@ -10,7 +10,9 @@ flowchart LR
     TUI[Bubble Tea TUI] --> Store
     TUI --> Manager[tmux manager]
     CLI --> Manager
-    Manager --> Tmux[tmux session/windows]
+    Manager --> Mux[Multiplexer: tmux or Herdr]
+    Mux --> Tmux[tmux session/windows]
+    Mux --> Herdr[Herdr workspaces/panes/agents]
     Manager --> Harness[Pi/Codex/Copilot/Fake harness]
     Harness --> Ref[Harness session ref]
     Manager --> Store
@@ -20,14 +22,14 @@ flowchart LR
 ```
 
 - **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, and session history live there; external ticket backends, when implemented, are cached/projected through SQLite while owning their board's ticket metadata.
-- **tmux is observed runtime state.** A stored tmux window id/name is only trusted after validation against live tmux.
+- **The configured multiplexer is observed runtime state.** tmux windows are validated against live tmux. Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions.
 - **Ticket backend adapters are board-scoped.** Each board has exactly one ticket metadata backend chosen at creation. `local`, `github`, and `atlassian` (Jira) are implemented today; the adapter seam remains prepared for Asana and similar systems.
 
 ## Current Objective And Scope
 
-Keep Kanbi a trustworthy alpha for multi-board, tmux-backed ticket/session lifecycle management across Pi, Codex, Copilot, and fake harnesses.
+Keep Kanbi a trustworthy alpha for multi-board ticket/session lifecycle management across Pi, Codex, Copilot, and fake harnesses. tmux remains the default runtime backend; Herdr support is opt-in through multiplexer config.
 
 Maintain these behaviors as boring, reliable, documented alpha behavior:
 
@@ -63,7 +65,7 @@ Stop and ask before:
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
 | `internal/storage` | SQLite migrations, board/column/ticket/session persistence, external ticket identity/cache fields, board projections, master-board filtering. |
 | `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Implements the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
-| `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. |
+| `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. Includes the Herdr adapter under `internal/multiplexer/herdr`. |
 | `internal/tmux` | Dedicated tmux session/window orchestration, ticket open/resume/close/start-fresh, runtime polling, session reconciliation, and the tmux multiplexer adapter. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
 | `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, and terminal-gated image previews. |

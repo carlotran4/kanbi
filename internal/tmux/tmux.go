@@ -19,6 +19,8 @@ import (
 	"kanbi/internal/config"
 	"kanbi/internal/harness"
 	"kanbi/internal/kanban"
+	"kanbi/internal/multiplexer"
+	herdrmux "kanbi/internal/multiplexer/herdr"
 	"kanbi/internal/prompt"
 	"kanbi/internal/storage"
 )
@@ -102,6 +104,18 @@ type Manager struct {
 
 func NewManager(cfg config.Config, store *storage.Store) *Manager {
 	return &Manager{Config: cfg, Store: store, Runner: ExecRunner{}, ResumeCheckAfter: defaultResumeCheckAfter}
+}
+
+func (m *Manager) defaultMultiplexerKind() multiplexer.Kind {
+	if strings.EqualFold(m.Config.Multiplexer.Default, string(multiplexer.KindHerdr)) {
+		return multiplexer.KindHerdr
+	}
+	return multiplexer.KindTmux
+}
+
+func (m *Manager) herdrAdapter() *herdrmux.Adapter {
+	cfg := m.Config.Multiplexer.Herdr
+	return herdrmux.NewAdapter(herdrmux.Config{Binary: cfg.Binary, Session: cfg.Session, WorkspaceStrategy: cfg.WorkspaceStrategy, FocusOnOpen: cfg.FocusOnOpen})
 }
 
 func (m *Manager) EnsureSession(ctx context.Context) error {
@@ -221,6 +235,14 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		if !sessionID.Valid || !ticket.SessionActive || !ticket.WindowName.Valid {
 			continue
 		}
+		if ticket.Multiplexer.Valid && ticket.Multiplexer.String == string(multiplexer.KindHerdr) {
+			detection, _ := m.herdrAdapter().Detect(ctx, ContainerRefFromTicket(ticket))
+			if detection.Source == multiplexer.DetectionSourceUnknown {
+				continue
+			}
+			_ = m.Store.UpdateSessionRuntime(ctx, sessionID.Int64, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false)
+			continue
+		}
 		_, exists, err := m.ticketWindowRef(ctx, ticket, ticket.WindowName.String)
 		if err != nil {
 			return err
@@ -256,19 +278,47 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			}
 			continue
 		}
-		ref, exists, err := m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			if err := m.Store.MarkSessionMissing(ctx, ses.ID); err != nil {
+		var out string
+		detectionSource := "tmux"
+		if ses.Multiplexer == string(multiplexer.KindHerdr) {
+			adapter := m.herdrAdapter()
+			containerRef := ContainerRefFromSession(ses)
+			detection, _ := adapter.Detect(ctx, containerRef)
+			if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
+				stateChanged := detection.State != ses.Status
+				if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
+					return err
+				}
+				if isAutoCloseEligible(detection.State) && !stateChanged {
+					ageBase := ses.LastStateChangeAt
+					if !ageBase.Valid {
+						ageBase = sql.NullTime{Time: now, Valid: true}
+					}
+					if now.Sub(ageBase.Time) >= m.Config.AutoCloseWaitingAfter {
+						if err := m.CloseSession(ctx, ticket); err != nil {
+							_ = m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, "herdr", err.Error(), detection.Excerpt, false)
+						}
+					}
+				}
+				continue
+			}
+			out, err = adapter.Read(ctx, containerRef, multiplexer.ReadOptions{Lines: 200})
+			detectionSource = "herdr"
+		} else {
+			ref, exists, err := m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
+			if err != nil {
 				return err
 			}
-			continue
+			if !exists {
+				if err := m.Store.MarkSessionMissing(ctx, ses.ID); err != nil {
+					return err
+				}
+				continue
+			}
+			out, err = m.capturePaneRef(ctx, ses.TmuxSessionName, ref)
 		}
-		out, err := m.capturePaneRef(ctx, ses.TmuxSessionName, ref)
 		if err != nil {
-			if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, "tmux", err.Error(), "", false); err != nil {
+			if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, detectionSource, err.Error(), "", false); err != nil {
 				return err
 			}
 			continue
@@ -288,6 +338,9 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			source = "manual"
 			reason = ses.LastAttentionReason.String
 			stateChanged = false
+		}
+		if detectionSource == "herdr" && source != "pattern" {
+			source = "heuristic"
 		}
 		if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, state, source, reason, excerpt, changed); err != nil {
 			return err
@@ -314,6 +367,22 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 	ses, ok, err := m.Store.ActiveSession(ctx, ticket.ID)
 	if err != nil || !ok {
 		return err
+	}
+	var ref string
+	if ses.Multiplexer == string(multiplexer.KindHerdr) {
+		containerRef := ContainerRefFromSession(ses)
+		if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateClosing, "system", "graceful close requested", "", false); err != nil {
+			return err
+		}
+		for _, key := range harness.ExitKeys(m.Config.Harnesses, ses.Harness) {
+			if err := m.herdrAdapter().SendKeys(ctx, containerRef, key); err != nil {
+				return err
+			}
+		}
+		if err := m.herdrAdapter().Close(ctx, containerRef); err != nil {
+			return err
+		}
+		return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "herdr", "pane closed")
 	}
 	ref, exists, err := m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
 	if err != nil {
