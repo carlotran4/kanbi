@@ -478,7 +478,7 @@ func (m *Manager) windowRefExistsInSession(ctx context.Context, sessionName, ref
 		return false, nil
 	}
 	if strings.HasPrefix(ref, "@") {
-		out, err := m.run(ctx, "display-message", "-p", "-t", ref, "#{window_id}")
+		out, err := m.run(ctx, "display-message", "-p", "-t", targetRef(sessionName, ref), "#{window_id}")
 		if err != nil {
 			return false, nil
 		}
@@ -498,7 +498,7 @@ func (m *Manager) ticketWindowRefInSession(ctx context.Context, sessionName stri
 		expectedName = ticket.WindowName.String
 	}
 	if ticket.SessionActive && ticket.WindowID.Valid && ticket.WindowID.String != "" {
-		actualName, exists, err := m.windowNameByID(ctx, ticket.WindowID.String)
+		actualName, exists, err := m.windowNameByIDInSession(ctx, sessionName, ticket.WindowID.String)
 		if err != nil {
 			return "", false, err
 		}
@@ -517,7 +517,11 @@ func (m *Manager) ticketWindowRefInSession(ctx context.Context, sessionName stri
 }
 
 func (m *Manager) windowNameByID(ctx context.Context, id string) (string, bool, error) {
-	out, err := m.run(ctx, "display-message", "-p", "-t", id, "#{window_name}")
+	return m.windowNameByIDInSession(ctx, m.Config.TmuxSession, id)
+}
+
+func (m *Manager) windowNameByIDInSession(ctx context.Context, sessionName, id string) (string, bool, error) {
+	out, err := m.run(ctx, "display-message", "-p", "-t", targetRef(sessionName, id), "#{window_name}")
 	if err != nil {
 		return "", false, nil
 	}

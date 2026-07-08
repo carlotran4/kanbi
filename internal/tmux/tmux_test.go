@@ -991,6 +991,30 @@ func TestSwitchToTicketUsesStoredRuntimeSession(t *testing.T) {
 	}
 }
 
+func TestSwitchToTicketValidatesStoredWindowIDInStoredRuntimeSession(t *testing.T) {
+	runner := &fakeRunner{windows: map[string]string{"@7": "T-001-demo"}}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Runner: runner}
+	ticket := storage.Ticket{
+		DisplayID:       "T-001",
+		Title:           "Demo",
+		Harness:         "pi",
+		SessionID:       sql.NullInt64{Int64: 1, Valid: true},
+		TmuxSessionName: sqlString("kanbi-instance-b"),
+		WindowID:        sqlString("@7"),
+		WindowName:      sqlString("T-001-demo"),
+		SessionActive:   true,
+	}
+	if err := manager.SwitchToTicket(context.Background(), ticket); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "display-message" && strings.Join(c.args, " ") == "display-message -p -t kanbi-instance-b:@7 #{window_name}" {
+			return
+		}
+	}
+	t.Fatalf("stored runtime session was not used to validate window id: %+v", runner.calls)
+}
+
 func TestSwitchToTicketRejectsStaleWindowIDWithWrongName(t *testing.T) {
 	runner := &fakeRunner{windows: map[string]string{"@7": "T-006-test-ticket-2"}}
 	manager := &Manager{Config: config.Defaults(config.Paths{}), Runner: runner}
