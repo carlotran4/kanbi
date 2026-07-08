@@ -9,6 +9,7 @@ import (
 
 	"kanbi/internal/harness"
 	"kanbi/internal/kanban"
+	"kanbi/internal/multiplexer"
 	"kanbi/internal/prompt"
 	"kanbi/internal/storage"
 )
@@ -167,7 +168,8 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 	}
 
-	ses := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Status: kanban.StateRunning}
+	ses := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Multiplexer: string(multiplexer.KindTmux), Status: kanban.StateRunning}
+	ApplyContainerRefToSession(&ses, multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: l.manager.Config.TmuxSession, ID: windowID, Name: name})
 	if windowID != "" {
 		ses.TmuxWindowID = sql.NullString{String: windowID, Valid: true}
 	}
