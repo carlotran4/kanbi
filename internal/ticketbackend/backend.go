@@ -111,6 +111,8 @@ type Manager struct {
 	Store    *storage.Store
 	Registry *Registry
 	Interval time.Duration
+
+	mu sync.Mutex
 }
 
 func NewManager(store *storage.Store) *Manager {
@@ -121,6 +123,9 @@ func (m *Manager) SyncBoard(ctx context.Context, board storage.Board) (Result, e
 	if m == nil || m.Store == nil {
 		return Result{}, nil
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	registry := m.Registry
 	if registry == nil {
 		registry = DefaultRegistry()

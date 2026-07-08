@@ -797,6 +797,12 @@ func (s *Store) AddNote(ctx context.Context, ticketID int64, body string) (Note,
 	return Note{ID: id, TicketID: ticketID, Body: body, CreatedAt: now, UpdatedAt: now}, nil
 }
 
+func (s *Store) NoteByID(ctx context.Context, noteID int64) (Note, error) {
+	var n Note
+	err := s.db.QueryRowContext(ctx, `select id, ticket_id, external_id, external_updated_at, sync_version, body, created_at, updated_at from ticket_notes where id=?`, noteID).Scan(&n.ID, &n.TicketID, &n.ExternalID, &n.ExternalUpdatedAt, &n.SyncVersion, &n.Body, &n.CreatedAt, &n.UpdatedAt)
+	return n, err
+}
+
 func (s *Store) UpdateNote(ctx context.Context, noteID int64, body string) error {
 	_, err := s.db.ExecContext(ctx, `update ticket_notes set body=?, updated_at=? where id=?`, body, time.Now().UTC(), noteID)
 	return err

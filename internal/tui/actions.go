@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"kanbi/internal/storage"
+	"kanbi/internal/ticketbackend"
 	"kanbi/internal/tmux"
 )
 
@@ -54,13 +55,22 @@ type Actions interface {
 // Service is the production implementation of Actions. Storage remains the
 // durable owner and tmux.Manager remains the lifecycle/runtime owner; Service
 // only performs UI-oriented orchestration between them.
+type ticketSyncer interface {
+	SyncBoard(context.Context, storage.Board) (ticketbackend.Result, error)
+}
+
 type Service struct {
 	Store   *storage.Store
 	Manager *tmux.Manager
+	Syncer  ticketSyncer
 }
 
 func NewService(store *storage.Store, manager *tmux.Manager) *Service {
 	return &Service{Store: store, Manager: manager}
+}
+
+func NewServiceWithSyncer(store *storage.Store, manager *tmux.Manager, syncer ticketSyncer) *Service {
+	return &Service{Store: store, Manager: manager, Syncer: syncer}
 }
 
 func (s *Service) BoardView(ctx context.Context) (storage.BoardView, error) {
@@ -109,13 +119,33 @@ func (s *Service) UpdateTicket(ctx context.Context, id int64, title, body, harne
 			return err
 		}
 	}
-	return s.Store.UpdateTicket(ctx, id, title, body, harnessName)
+	if err := s.Store.UpdateTicket(ctx, id, title, body, harnessName); err != nil {
+		return err
+	}
+	s.syncBoardAfterTicketChange(ctx, before.BoardID)
+	return nil
 }
 func (s *Service) ArchiveTicket(ctx context.Context, id int64) error {
-	return s.Store.ArchiveTicket(ctx, id)
+	ticket, err := s.Store.TicketByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.ArchiveTicket(ctx, id); err != nil {
+		return err
+	}
+	s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
+	return nil
 }
 func (s *Service) MoveTicket(ctx context.Context, id, columnID int64) error {
-	return s.Store.MoveTicket(ctx, id, columnID)
+	ticket, err := s.Store.TicketByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.MoveTicket(ctx, id, columnID); err != nil {
+		return err
+	}
+	s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
+	return nil
 }
 func (s *Service) ReorderTicket(ctx context.Context, id int64, delta int) error {
 	return s.Store.ReorderTicket(ctx, id, delta)
@@ -186,13 +216,59 @@ func (s *Service) ListNotes(ctx context.Context, ticketID int64) ([]storage.Note
 }
 
 func (s *Service) AddNote(ctx context.Context, ticketID int64, body string) (storage.Note, error) {
-	return s.Store.AddNote(ctx, ticketID, body)
+	note, err := s.Store.AddNote(ctx, ticketID, body)
+	if err != nil {
+		return storage.Note{}, err
+	}
+	if ticket, err := s.Store.TicketByID(ctx, ticketID); err == nil {
+		s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
+	}
+	return note, nil
 }
 
 func (s *Service) UpdateNote(ctx context.Context, noteID int64, body string) error {
-	return s.Store.UpdateNote(ctx, noteID, body)
+	note, err := s.Store.NoteByID(ctx, noteID)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.UpdateNote(ctx, noteID, body); err != nil {
+		return err
+	}
+	if ticket, err := s.Store.TicketByID(ctx, note.TicketID); err == nil {
+		s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
+	}
+	return nil
 }
 
 func (s *Service) DeleteNote(ctx context.Context, noteID int64) error {
-	return s.Store.DeleteNote(ctx, noteID)
+	note, err := s.Store.NoteByID(ctx, noteID)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.DeleteNote(ctx, noteID); err != nil {
+		return err
+	}
+	if ticket, err := s.Store.TicketByID(ctx, note.TicketID); err == nil {
+		s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
+	}
+	return nil
+}
+
+func (s *Service) syncBoardAfterTicketChange(ctx context.Context, boardID int64) {
+	if s == nil || s.Store == nil || s.Syncer == nil || boardID == 0 {
+		return
+	}
+	go func() {
+		ctx := context.WithoutCancel(ctx)
+		boards, err := s.Store.ListBoards(ctx)
+		if err != nil {
+			return
+		}
+		for _, board := range boards {
+			if board.ID == boardID {
+				_, _ = s.Syncer.SyncBoard(ctx, board)
+				return
+			}
+		}
+	}()
 }

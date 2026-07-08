@@ -55,7 +55,7 @@ A backend implementation should:
 5. push local changes and pull remote changes;
 6. persist external IDs, URLs, update timestamps, and sync versions.
 
-Run on-demand sync for all boards with `kanbi sync`, or one board with `kanbi sync --board "Board Name"`.
+Run on-demand sync for all boards with `kanbi sync`, or one board with `kanbi sync --board "Board Name"`. Inside the TUI, successful ticket metadata saves trigger a background sync for that ticket's board: saving a newly-created ticket or edited ticket, moving/archive changes, and note/comment saves are pushed without waiting for the next periodic tick.
 
 ## GitHub Issues Backend
 
