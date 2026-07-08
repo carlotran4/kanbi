@@ -15,6 +15,7 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 
 - `kanbi` opens with a board picker. Choose `Master (all boards)` or a named board.
 - Press `b` inside the TUI to switch boards without restarting.
+- Press `g` on a GitHub-backed ticket to open its GitHub issue URL in your browser.
 - `Master` aggregates unarchived tickets from every board by matching column name (for example, all `Open` tickets together).
 - Press `f` in `Master` to filter/search by board, runtime/state, harness, text, or archived tickets. Filters reset on app restart but persist while switching boards during one run; press `C` in the filter panel to clear them.
 - Pressing `n` in `Master` prompts for the target board, then creates the ticket in that board's matching column.

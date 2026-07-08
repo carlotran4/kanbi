@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -124,6 +125,14 @@ type editorFinishedMsg struct {
 	err      error
 }
 
+type openExternalTicketMsg struct {
+	displayID string
+	url       string
+	err       error
+}
+
+var externalURLCommand = defaultExternalURLCommand
+
 func runtimeTickCmd() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		return runtimeTickMsg(t)
@@ -147,6 +156,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorFinishedMsg:
 		m.applyEditorResult(msg)
 		return m, tea.ClearScreen
+	case openExternalTicketMsg:
+		if msg.err != nil {
+			m.status = msg.err.Error()
+		} else {
+			m.status = "opened " + msg.displayID + " in GitHub"
+		}
+		return m, nil
 	case openTicketMsg:
 		var promptErr tmux.PromptReadyError
 		switch {
@@ -284,6 +300,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.startEdit()
 	case "E":
 		return m, m.openBodyEditor()
+	case "g":
+		return m, m.openExternalTicket()
 	case "m":
 		m.startStateMenu()
 	case "enter":
@@ -551,6 +569,64 @@ func (m *Model) closeSessionCmd() tea.Cmd {
 			err:       m.actions.CloseTicketSession(ctx, t),
 		}
 	}
+}
+
+func (m *Model) openExternalTicket() tea.Cmd {
+	t, ok := m.selectedTicket()
+	if !ok {
+		return nil
+	}
+	if !t.ExternalURL.Valid || strings.TrimSpace(t.ExternalURL.String) == "" || !isGitHubTicketURL(t) {
+		m.status = "selected ticket has no GitHub URL"
+		return nil
+	}
+	url := strings.TrimSpace(t.ExternalURL.String)
+	cmd, err := externalURLCommand(url)
+	if err != nil {
+		m.status = err.Error()
+		return nil
+	}
+	m.status = "opening " + t.DisplayID + " in GitHub…"
+	displayID := t.DisplayID
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return openExternalTicketMsg{displayID: displayID, url: url, err: err}
+	})
+}
+
+func isGitHubTicketURL(t storage.Ticket) bool {
+	url := strings.ToLower(strings.TrimSpace(t.ExternalURL.String))
+	return strings.HasPrefix(strings.ToUpper(t.DisplayID), "GH-") || strings.Contains(url, "github")
+}
+
+func defaultExternalURLCommand(url string) (*exec.Cmd, error) {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return nil, fmt.Errorf("empty GitHub URL")
+	}
+	if browser := strings.TrimSpace(os.Getenv("BROWSER")); browser != "" {
+		parts := strings.Fields(browser)
+		if len(parts) > 0 {
+			return exec.Command(parts[0], append(parts[1:], url)...), nil
+		}
+	}
+	candidates := []struct {
+		name string
+		args []string
+	}{
+		{name: "xdg-open"},
+		{name: "open"},
+		{name: "wslview"},
+		{name: "gio", args: []string{"open"}},
+	}
+	for _, candidate := range candidates {
+		path, err := exec.LookPath(candidate.name)
+		if err != nil {
+			continue
+		}
+		args := append(append([]string{}, candidate.args...), url)
+		return exec.Command(path, args...), nil
+	}
+	return nil, fmt.Errorf("no browser opener found for GitHub URL")
 }
 
 func (m Model) openBodyEditor() tea.Cmd {

@@ -104,7 +104,7 @@ func (m Model) baseView() string {
 }
 
 func (m Model) contextBar() string {
-	items := []string{"Enter:send/open", "n:new", "e:ticket", "a:archive", "b:boards"}
+	items := []string{"Enter:send/open", "g:GitHub", "n:new", "e:ticket", "a:archive", "b:boards"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
@@ -760,6 +760,7 @@ func (m Model) helpView() string {
 	row("n", "new ticket in current column")
 	row("e", "open polished ticket inspector/editor")
 	row("E", "open body in $EDITOR")
+	row("g", "open external GitHub issue in browser")
 	row("a", "archive ticket")
 	row("m", "manually mark runtime state")
 	row("H/L  Shift+←/→", "move ticket to adjacent column")

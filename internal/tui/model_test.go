@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -211,6 +212,59 @@ func TestModelOHotkeyDoesNotOpenTicket(t *testing.T) {
 	model = runCmd(t, model, cmd)
 	if len(wrapped.opened) != 0 {
 		t.Fatalf("o hotkey should not open ticket, opened=%v", wrapped.opened)
+	}
+}
+
+func TestModelGHotkeyOpensExternalGitHubURL(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	wantURL := "https://github.com/acme/project/issues/79"
+	if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{
+		BoardID:           view.Board.ID,
+		ColumnID:          view.Columns[0].ID,
+		ExternalID:        "79",
+		ExternalURL:       wantURL,
+		ExternalUpdatedAt: time.Now().UTC(),
+		DisplayID:         "GH-79",
+		DisplayNumber:     79,
+		Title:             "Open in GitHub",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var gotURL string
+	old := externalURLCommand
+	externalURLCommand = func(url string) (*exec.Cmd, error) {
+		gotURL = url
+		return exec.Command("true"), nil
+	}
+	t.Cleanup(func() { externalURLCommand = old })
+
+	model := New(ctx, NewService(store, nil))
+	model, cmd := mustUpdate(t, model, "g")
+	if cmd == nil {
+		t.Fatal("g should dispatch browser command")
+	}
+	if gotURL != wantURL {
+		t.Fatalf("opened URL %q, want %q", gotURL, wantURL)
+	}
+	if !strings.Contains(model.View(), "opening GH-79 in GitHub") {
+		t.Fatalf("status missing:\n%s", model.View())
+	}
+}
+
+func TestModelGHotkeyRequiresExternalURL(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Local only", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, NewService(store, nil))
+	model, cmd := mustUpdate(t, model, "g")
+	if cmd != nil {
+		t.Fatal("g should not dispatch browser command without an external URL")
+	}
+	if !strings.Contains(model.View(), "selected ticket has no GitHub URL") {
+		t.Fatalf("status missing:\n%s", model.View())
 	}
 }
 
