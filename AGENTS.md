@@ -12,17 +12,18 @@ Read these in order before making non-trivial changes:
 4. [`docs/ticket-session-lifecycle.md`](./docs/ticket-session-lifecycle.md) — command-specific lifecycle rules.
 5. [`docs/harness-contracts.md`](./docs/harness-contracts.md) — supported harness command surfaces and session-ref capture contracts.
 6. [`docs/multi-board-behavior.md`](./docs/multi-board-behavior.md) — board picker, Master aggregation, filters, and board CLI behavior.
-7. [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — detailed verification guidance.
+7. [`docs/multiplexer-contracts.md`](./docs/multiplexer-contracts.md) — configured runtime multiplexer adapter contract.
+8. [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — detailed verification guidance.
 
 Historical product context lives in [`docs/archive/design-spec.md`](./docs/archive/design-spec.md). Do not read it for normal implementation work; current docs above win on conflicts.
 
 ## Current Source of Truth
 
 - SQLite is canonical durable state.
-- tmux is the runtime substrate; tmux state must be validated before being trusted.
+- The configured multiplexer is the runtime substrate; tmux is the default and Herdr is optional.
 - A ticket is durable work metadata.
 - A session is one attempt to run an agent for a ticket.
-- A tmux window is the live process container for an active session.
+- A terminal container is the live process container for an active session (tmux window or Herdr pane/agent).
 - A harness session ref is the harness-native resume handle, when available.
 - Only one active session per ticket is allowed.
 - Starting fresh must preserve prior session history and create a new active session row.
@@ -78,7 +79,7 @@ Stop and ask before:
 - adding a persistent background process;
 - changing supported harness command names;
 - making a harness appear resumable without verified session refs;
-- replacing tmux as the v1 runtime backend.
+- removing tmux as the default v1 runtime backend.
 
 ## Common Change Map
 

@@ -113,6 +113,33 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 		results = append(results, doctorResult{Severity: severity, Name: name, Detail: detail, Err: err})
 	}
 
+	configuredMux := strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default))
+	if configuredMux == "" {
+		configuredMux = "tmux"
+	}
+	add(doctorOK, "multiplexer", configuredMux, nil)
+
+	if configuredMux == "herdr" {
+		herdrBinary := cfg.Multiplexer.Herdr.Binary
+		if herdrBinary == "" {
+			herdrBinary = "herdr"
+		}
+		herdrPath, err := prober.lookPath(herdrBinary)
+		if err != nil {
+			add(doctorWarn, "herdr", "not found: install Herdr or set multiplexer.herdr.binary", nil)
+		} else if out, err := prober.commandOutput(herdrPath, "status"); err != nil {
+			detail := strings.TrimSpace(string(out))
+			if detail == "" {
+				detail = "status unavailable; run `herdr` once or check `herdr status`"
+			}
+			add(doctorWarn, "herdr", detail, nil)
+		} else {
+			add(doctorOK, "herdr", "session "+cfg.Multiplexer.Herdr.Session, nil)
+		}
+	} else if configuredMux != "tmux" {
+		add(doctorWarn, "multiplexer", "unknown default: "+configuredMux, nil)
+	}
+
 	tmuxPath, err := prober.lookPath("tmux")
 	if err != nil {
 		add(doctorFatal, "tmux", "is required", fmt.Errorf("tmux is required: %w", err))

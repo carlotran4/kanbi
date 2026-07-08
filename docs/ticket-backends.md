@@ -79,7 +79,7 @@ GitHub sync behavior:
 - Pushes local ticket title/body/closed state/status-label changes back to GitHub. Local tickets created on a GitHub board are temporary local placeholders until the next sync creates the remote issue; that same local row is then linked to the GitHub issue and its display ID changes from `T-*` to `GH-*`.
 - Uses newest `updated_at` wins for ticket and comment conflicts. GitHub issue/comment `updated_at` can lag immediately after writes; repeated syncs are expected to be idempotent, and automation should tolerate eventual consistency by polling/retrying before declaring a mismatch.
 - Follows GitHub pagination for issue and comment list pages (`per_page=100`) and includes rate-limit response headers in sync errors when GitHub returns them.
-- Does not sync tmux windows, sessions, harness refs, runtime state, or other local session history.
+- Does not sync terminal containers, sessions, harness refs, runtime state, or other local session history.
 
 Run the opt-in real GitHub smoke test with:
 
@@ -123,7 +123,7 @@ Jira sync behavior:
 - Inherits workflow columns from remote issue status names. Local column changes are pushed by requesting a matching Jira transition when available.
 - Pulls/pushes issue summary, description, status, and comments. Notes map to Jira issue comments.
 - Uses newest `updated_at` wins for ticket and comment conflicts.
-- Does not sync tmux windows, sessions, harness refs, runtime state, or other local session history.
+- Does not sync terminal containers, sessions, harness refs, runtime state, or other local session history.
 
 ## Current Non-Goals
 

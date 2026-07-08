@@ -897,9 +897,8 @@ func TestProbeDoctorMissingTmuxIsFatal(t *testing.T) {
 	if err := report.FatalErr(); err == nil || !strings.Contains(err.Error(), "tmux is required") {
 		t.Fatalf("expected fatal missing tmux error, got %v", err)
 	}
-	if len(report.Results) != 1 || report.Results[0].Severity != doctorFatal || report.Results[0].Name != "tmux" {
-		t.Fatalf("unexpected report: %#v", report.Results)
-	}
+	assertDoctorResult(t, report, doctorOK, "multiplexer", "tmux")
+	assertDoctorResult(t, report, doctorFatal, "tmux", "is required")
 }
 
 func TestProbeDoctorMissingOptionalHarnessIsWarning(t *testing.T) {
@@ -944,6 +943,64 @@ func TestProbeDoctorMissingOptionalHarnessIsWarning(t *testing.T) {
 	assertDoctorResult(t, report, doctorWarn, "harness empty", "has no start command")
 	assertDoctorResult(t, report, doctorWarn, "harness pi", "not found: pi")
 	assertDoctorResult(t, report, doctorOK, "harness", "fake")
+}
+
+func TestProbeDoctorReportsConfiguredHerdr(t *testing.T) {
+	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = "herdr"
+	lookups := map[string]string{"tmux": "/bin/tmux", "herdr": "/bin/herdr"}
+	report := probeDoctor(context.Background(), cfg, doctorProber{
+		lookPath: func(name string) (string, error) {
+			if path, ok := lookups[name]; ok {
+				return path, nil
+			}
+			return "", os.ErrNotExist
+		},
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Contains(name, "herdr") && len(args) == 1 && args[0] == "status" {
+				return []byte("ok\n"), nil
+			}
+			return []byte("tmux 3.4\n"), nil
+		},
+		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs:        func(config.Config) error { return nil },
+		insideTmux:        func() bool { return true },
+		getenv:            func(string) string { return "x" },
+		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
+	})
+
+	if err := report.FatalErr(); err != nil {
+		t.Fatalf("expected no fatal error, got %v", err)
+	}
+	assertDoctorResult(t, report, doctorOK, "multiplexer", "herdr")
+	assertDoctorResult(t, report, doctorOK, "herdr", "session default")
+	assertDoctorResult(t, report, doctorOK, "tmux", "tmux 3.4")
+}
+
+func TestProbeDoctorWarnsWhenConfiguredHerdrMissing(t *testing.T) {
+	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
+	cfg.Multiplexer.Default = "herdr"
+	report := probeDoctor(context.Background(), cfg, doctorProber{
+		lookPath: func(name string) (string, error) {
+			if name == "tmux" {
+				return "/bin/tmux", nil
+			}
+			return "", os.ErrNotExist
+		},
+		commandOutput:     func(string, ...string) ([]byte, error) { return []byte("tmux 3.4\n"), nil },
+		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs:        func(config.Config) error { return nil },
+		insideTmux:        func() bool { return true },
+		getenv:            func(string) string { return "x" },
+		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
+	})
+
+	if err := report.FatalErr(); err != nil {
+		t.Fatalf("expected no fatal error, got %v", err)
+	}
+	assertDoctorResult(t, report, doctorOK, "multiplexer", "herdr")
+	assertDoctorResult(t, report, doctorWarn, "herdr", "not found: install Herdr or set multiplexer.herdr.binary")
 }
 
 func TestProbeDoctorCanSimulatePathAndTmuxStateFailures(t *testing.T) {

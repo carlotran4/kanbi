@@ -8,6 +8,7 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - [`docs/architecture.md`](./docs/architecture.md) — current architecture, scope, invariants, and source-of-truth document order
 - [`docs/multi-board-behavior.md`](./docs/multi-board-behavior.md) — current multi-board and Master view behavior
 - [`docs/harness-contracts.md`](./docs/harness-contracts.md) — current supported harness commands/ref capture contracts
+- [`docs/multiplexer-contracts.md`](./docs/multiplexer-contracts.md) — tmux/Herdr runtime substrate contract
 - [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — how autonomous agents should verify their work
 - [`docs/archive/design-spec.md`](./docs/archive/design-spec.md) — historical product/design context; current docs win on conflicts
 
@@ -19,10 +20,10 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - `Master` aggregates unarchived tickets from every board by matching column name (for example, all `Open` tickets together).
 - Press `f` in `Master` to filter/search by board, runtime/state, harness, text, or archived tickets. Filters reset on app restart but persist while switching boards during one run; press `C` in the filter panel to clear them.
 - Pressing `n` in `Master` prompts for the target board, then creates the ticket in that board's matching column.
-- Each board has a working directory. Opening/sending a ticket starts its agent tmux window in the ticket's board directory, including from `Master`.
+- Each board has a working directory. Opening/sending a ticket starts its agent terminal container in the ticket's board directory, including from `Master`.
 - Board-local ticket numbers are preserved, so different boards may both have `T-001`; CLI ticket commands accept `--board NAME` when needed.
 - tmux is the default multiplexer. Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
-- Agent tmux window names include the board id to avoid cross-board collisions within a runtime session.
+- Agent terminal container names include the board id to avoid cross-board collisions within a runtime namespace.
 - Create boards from the CLI with `kanbi boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `kanbi boards`.
 - Sync ticket backends from the CLI with `kanbi sync` or `kanbi sync --board "Board Name"`.
 - Rename/update boards with `kanbi boards rename OLD NEW` and `kanbi boards set-cwd NAME /path/to/project`.
@@ -54,7 +55,7 @@ kanbi notes add T-001 --body "Progress update" --json
 
 ## Multiplexer configuration
 
-Kanbi defaults to tmux. To launch new ticket sessions through Herdr instead, configure:
+Kanbi defaults to tmux as its configured multiplexer runtime substrate. To launch new ticket sessions through Herdr instead, configure `~/.config/kanbi/config.yaml` (or `$KANBI_CONFIG`):
 
 ```yaml
 multiplexer:
@@ -66,7 +67,16 @@ multiplexer:
     focus_on_open: false
 ```
 
-Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches.
+Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches. For one-off testing, `KANBI_MULTIPLEXER=herdr` overrides `multiplexer.default`.
+
+Herdr basics:
+
+- Install Herdr from <https://herdr.dev/docs/install/> and run `herdr` once so its server/session is available.
+- `multiplexer.herdr.session` selects the Herdr session namespace (`default` is fine for most users).
+- `workspace_strategy: board` groups ticket panes by Kanbi board/project.
+- `focus_on_open: false` lets Kanbi start/focus containers without stealing focus unless requested.
+- Harness config remains separate; `pi`, `codex`, `copilot`, and `claude` still define agent commands and resume refs.
+- Run `kanbi doctor` after changing multiplexer config. If Herdr is selected, doctor checks the configured Herdr binary and `herdr status`.
 
 ## Development
 
@@ -108,7 +118,7 @@ KANBI_JIRA_API_TOKEN="TOKEN" \
 
 ## Status
 
-Alpha lifecycle hardening is complete: multi-board TUI/CLI behavior, tmux-backed ticket sessions, Pi/Codex/Copilot command wiring and ref capture, fake and real harness verification, tests, and smoke verification are in place. Current follow-up work is tracked as tickets on the board.
+Alpha lifecycle hardening is complete: multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot command wiring and ref capture, fake and real harness verification, tests, and smoke verification are in place. Current follow-up work is tracked as tickets on the board.
 
 ## Ticket Inspector And Notes
 

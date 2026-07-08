@@ -56,8 +56,8 @@ flowchart TD
     TUI[TUI Enter action] --> Ticket[projected ticket]
     Ticket --> Decision{latest session?}
     Decision -- none --> Start[start harness with rendered prompt]
-    Decision -- active --> Validate[validate tmux id/name]
-    Validate -- valid --> Switch[switch window]
+    Decision -- active --> Validate[validate container ref]
+    Validate -- valid --> Switch[focus container]
     Validate -- invalid --> Ref{session_ref?}
     Decision -- inactive --> Ref
     Ref -- yes --> Resume[start harness resume command]
@@ -97,7 +97,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - If the latest session is active and its stored multiplexer container validates, switch/focus it. Existing tmux sessions still validate in their stored `tmux_session_name`; Herdr sessions focus their stored agent/pane target.
 - If the latest session is inactive and has a `session_ref`, resume it and create a new active session row.
 - If the latest session is inactive and has no `session_ref`, show repair/start-fresh.
-- Opening an already-active valid window must not create a new session row.
+- Opening an already-active valid terminal container must not create a new session row.
 
 ### Repair
 
@@ -108,13 +108,13 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 ### Close / Archive
 
-- `x` sends harness exit keys first, waits for process/window exit, then closes the tmux window after timeout if needed.
+- `x` sends harness exit keys first, waits for process/container exit, then closes the terminal container after timeout if needed.
 - A successfully closed session is inactive and keeps its session ref if one was captured.
 - Archiving a running ticket uses the same safe close path before hiding the ticket.
 
 ## Audit Findings Applied
 
 - Copilot was previously configured like a paste-mode fake harness. Current Copilot CLI help exposes `-i <prompt>` for interactive prompt execution and `--resume=<id>` for resume, so the default adapter now uses arg mode through the `copilot` binary; session refs are captured from `~/.copilot/session-store.db` only after the first user turn matches the rendered prompt.
-- Active vs inactive session state now controls whether tmux window metadata is trusted.
+- Active vs inactive session state now controls whether terminal container metadata is trusted.
 - A valid active open switches without writing a duplicate session row.
 - Inactive latest sessions remain visible as `closed` or `error`, not `not_started`.

@@ -8,9 +8,9 @@ Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent se
 flowchart LR
     CLI[CLI commands] --> Store[(SQLite)]
     TUI[Bubble Tea TUI] --> Store
-    TUI --> Manager[tmux manager]
+    TUI --> Manager[Runtime manager]
     CLI --> Manager
-    Manager --> Mux[Multiplexer: tmux or Herdr]
+    Manager --> Mux[Configured multiplexer: tmux or Herdr]
     Mux --> Tmux[tmux session/windows]
     Mux --> Herdr[Herdr workspaces/panes/agents]
     Manager --> Harness[Pi/Codex/Copilot/Fake harness]
@@ -34,9 +34,9 @@ Keep Kanbi a trustworthy alpha for multi-board ticket/session lifecycle manageme
 Maintain these behaviors as boring, reliable, documented alpha behavior:
 
 - starting a ticket creates exactly one active session attempt;
-- opening an active ticket switches to the right tmux window;
+- opening an active ticket focuses the right terminal container;
 - closed/error sessions remain visible as meaningful ticket state;
-- stale tmux window ids never attach one ticket to another ticket's session;
+- stale terminal container ids never attach one ticket to another ticket's session;
 - resumable sessions use the correct harness-native resume command;
 - unresumable sessions route through repair/start-fresh without corrupting history;
 - each board owns its ticket numbers and working directory;
@@ -55,7 +55,7 @@ Stop and ask before:
 - adding a persistent background process;
 - changing supported harness command names;
 - making any harness appear resumable without a stored or user-provided session ref;
-- replacing tmux as the v1 runtime backend.
+- removing tmux as the default runtime backend.
 
 ## Package Map
 
@@ -76,7 +76,7 @@ Stop and ask before:
 
 ## Runtime Topology
 
-Kanbi uses tmux sessions per board executable instance by default:
+Kanbi uses the configured multiplexer as its runtime substrate. tmux is the default implementation and uses sessions per board executable instance:
 
 ```text
 tmux session: kanbi-board-<pid>-<time>-1
@@ -95,7 +95,7 @@ The board process runs in the stable `board` window of its instance session. Eac
 
 When launched outside tmux, the CLI creates a unique board/client tmux session and sets that same session as the ticket runtime for the inner board process. When launched directly inside tmux without an explicit `KANBI_TMUX_SESSION`, the current tmux session is used as that executable's runtime. `KANBI_INNER=1` prevents recursive launching.
 
-Session rows persist `tmux_session_name` as well as `tmux_window_id/name`. Other Kanbi instances can see these rows through SQLite and validate/switch/capture/close using the stored tmux session instead of assuming their own runtime session.
+Session rows persist generic multiplexer container fields (`multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, `mux_metadata`) plus legacy tmux fields for tmux sessions. Other Kanbi instances can see these rows through SQLite and validate/switch/capture/close using the stored container reference instead of assuming their own runtime session.
 
 ## Durable Data Relationships
 
@@ -113,12 +113,12 @@ erDiagram
 - A **ticket** is durable work metadata: title, body, harness preference, workflow column, archive status.
 - A **session** is one attempt to run an agent for a ticket.
 - **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while future external backends should map notes to provider comments.
-- An **active session** is a session believed to own a live tmux window, but it must still pass validation before being trusted.
-- A **tmux window** is the live process container for an active session.
+- An **active session** is a session believed to own a live terminal container, but it must still pass validation before being trusted.
+- A **terminal container** is the live process container for an active session: a tmux window for tmux, or a Herdr pane/agent for Herdr.
 - A **harness session ref** is the harness-native resume handle when the harness exposes one.
 - **Start fresh** creates a new active session attempt while preserving prior session rows.
 
-See [`docs/multi-board-behavior.md`](./multi-board-behavior.md) for board aggregation and Master view behavior. See [`docs/ticket-backends.md`](./ticket-backends.md) for the board-scoped ticket backend model.
+See [`docs/multiplexer-contracts.md`](./multiplexer-contracts.md) for the tmux/Herdr adapter contract. See [`docs/multi-board-behavior.md`](./multi-board-behavior.md) for board aggregation and Master view behavior. See [`docs/ticket-backends.md`](./ticket-backends.md) for the board-scoped ticket backend model.
 
 ## Ticket/Session Lifecycle Invariants
 
@@ -127,7 +127,7 @@ These are core architecture rules, not optional implementation details:
 1. Only one active session per ticket is allowed.
 2. Starting fresh deactivates any old active session and creates a new session row; it must not delete old session history.
 3. Opening an already-active valid window switches to it without creating a new session row.
-4. A stored tmux window id is valid only when live tmux still reports that id with the expected ticket window name; name-based fallback must target the session row's stored tmux session name.
+4. A stored terminal container id is valid only when the configured multiplexer validates it. For tmux, a stored window id is valid only when live tmux still reports that id with the expected ticket window name; name-based fallback must target the session row's stored tmux session name.
 5. Inactive latest sessions project as terminal states such as `closed` or `error`, not `not_started`.
 6. `send prompt` is allowed only for never-started tickets.
 7. Repair/start-fresh flows must preserve history and avoid silently attaching a ticket to the wrong live window.
@@ -152,8 +152,8 @@ flowchart LR
 flowchart TD
     Enter[Enter on selected ticket] --> Latest{Latest session?}
     Latest -- none --> Start[Start harness with rendered prompt]
-    Latest -- active --> Validate[Validate tmux id/name]
-    Validate -- valid --> Switch[Switch to window]
+    Latest -- active --> Validate[Validate container ref]
+    Validate -- valid --> Switch[Focus container]
     Validate -- invalid --> Ref{Session ref?}
     Latest -- inactive --> Ref
     Ref -- yes --> Resume[Resume harness]
@@ -168,8 +168,8 @@ flowchart TD
 ```mermaid
 flowchart TD
     Tick[TUI tick] --> Active[Projected active sessions]
-    Active --> Validate[Validate tmux window]
-    Validate --> Capture[Capture pane output]
+    Active --> Validate[Validate terminal container]
+    Validate --> Capture[Capture terminal output]
     Capture --> Detect[Harness/pattern/idle detection]
     Detect --> Store[(Runtime metadata update)]
     Store --> TUI[Updated card labels/indicators]
@@ -177,7 +177,7 @@ flowchart TD
 
 ## Harness Architecture
 
-Built-in harness contracts are localized in `internal/harness`: command defaults, prompt mode, exit keys, ref capture, and docs anchors are grouped per supported harness. `internal/config` applies those defaults and preserves YAML overrides, while `internal/tmux` owns orchestration. Current supported harnesses:
+Built-in harness contracts are localized in `internal/harness`: command defaults, prompt mode, exit keys, ref capture, and docs anchors are grouped per supported harness. `internal/config` applies those defaults and preserves YAML overrides, while `internal/tmux` currently owns lifecycle orchestration across tmux and Herdr adapters. Current supported harnesses:
 
 | Harness | Start with prompt | Resume | Ref source |
 | --- | --- | --- | --- |
@@ -193,7 +193,7 @@ Always update [`docs/harness-contracts.md`](./harness-contracts.md) when harness
 | Task | Likely files | Required doc updates |
 | --- | --- | --- |
 | Add/change CLI command | `cmd/kanbi/main.go`, command tests | `README.md` if user-facing |
-| Change config/defaults | `internal/config/*` | `README.md`, possibly `docs/harness-contracts.md` |
+| Change config/defaults | `internal/config/*` | `README.md`, possibly `docs/harness-contracts.md` or `docs/multiplexer-contracts.md` |
 | Change schema/storage behavior | `internal/storage/*` | `docs/state-management.md` or lifecycle docs |
 | Change ticket/session lifecycle | `internal/tmux/*`, `internal/storage/*`, `internal/tui/*` | `docs/state-management.md`, `docs/ticket-session-lifecycle.md` |
 | Change harness command/ref capture | `internal/harness/*`, `internal/config/*`, `internal/tmux/*` | `docs/harness-contracts.md` |
@@ -219,5 +219,6 @@ Always update [`docs/harness-contracts.md`](./harness-contracts.md) when harness
 4. `docs/ticket-session-lifecycle.md`
 5. `docs/harness-contracts.md`
 6. `docs/multi-board-behavior.md`
-7. `README.md`
-8. `docs/archive/design-spec.md` (historical context only)
+7. `docs/multiplexer-contracts.md`
+8. `README.md`
+9. `docs/archive/design-spec.md` (historical context only)

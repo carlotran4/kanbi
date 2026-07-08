@@ -44,6 +44,10 @@ erDiagram
     text tmux_session_name
     text tmux_window_id
     text tmux_window_name
+    text multiplexer
+    text mux_namespace
+    text mux_container_id
+    text mux_container_name
     text status
     integer is_active
   }
@@ -148,23 +152,23 @@ Moves from Master do not change the owning board. They only move the ticket to a
 sequenceDiagram
   participant U as User
   participant T as TUI
-  participant M as tmux.Manager
+  participant M as Runtime manager
   participant H as Harness
-  participant X as tmux
+  participant X as Configured multiplexer
 
   U->>T: open/send ticket
   T->>M: OpenTicket(ticket)
   M->>H: build harness command
-  M->>X: tmux new-window -c ticket.BoardWorkdir -n b{board_id}-T-001-title command
-  X-->>M: window id
-  M->>Store: UpsertActiveSession(ticket, window metadata)
+  M->>X: launch terminal container in ticket.BoardWorkdir with b{board_id}-T-001-title command
+  X-->>M: container ref
+  M->>Store: UpsertActiveSession(ticket, container metadata)
 ```
 
 The working directory is selected from the ticket's owning board, including when the ticket is opened from Master.
 
-Each board UI executable has its own runtime tmux session by default. New ticket windows are created in the runtime session for the executable that launched them, and the session row stores that `tmux_session_name`. Other board instances use the stored tmux session name when validating, switching to, capturing, or closing an already-active ticket session.
+Each board UI executable uses the configured multiplexer as its runtime substrate. With the default tmux implementation, new ticket windows are created in the runtime tmux session for the executable that launched them, and the session row stores that `tmux_session_name`. Other board instances use the stored container reference when validating, switching to, capturing, or closing an already-active ticket session. With Herdr, sessions store Herdr workspace/agent/pane metadata in the generic multiplexer fields.
 
-If `BoardWorkdir` is empty, `tmux` falls back to the current process working directory. Ticket tmux window names include the board ID (`b{board_id}-...`) so duplicate board-local IDs do not collide across boards within a runtime session.
+If `BoardWorkdir` is empty, the configured multiplexer falls back to the current process working directory. Ticket container names include the board ID (`b{board_id}-...`) so duplicate board-local IDs do not collide within a runtime namespace.
 
 ## CLI behavior
 
@@ -192,7 +196,7 @@ Current behavior:
 
 Implemented ticket backends are `local`, `github`, and `atlassian`. The architecture stores board-level backend metadata and starts ticket backend sync in the background on startup, then runs it periodically while the executable is running, and on demand with `kanbi sync` or `kanbi sync --board NAME`. Successful TUI ticket metadata saves also trigger a background sync for the ticket's owning board, including newly-created ticket saves, edit saves, move/archive changes, and note/comment saves. The TUI opens from the local SQLite projection and does not wait for remote/cloud providers before rendering. The periodic sync is in-process only and stops when Kanbi exits.
 
-GitHub boards use native issue state for terminal work (`Done`/`Closed` closes the issue) and plain workflow labels such as `in-progress`, `needs-review`, and `blocked` for non-terminal columns. They pull/push issue title/body/state/labels/comments and use newest-updated-at-wins conflict resolution. Atlassian/Jira boards inherit workflow columns from remote issue statuses, use the board `BackendQuery` as JQL, and pull/push issue summary/description/status/comments. Notes map to provider issue comments. Local tmux/session history is never synced to ticket providers.
+GitHub boards use native issue state for terminal work (`Done`/`Closed` closes the issue) and plain workflow labels such as `in-progress`, `needs-review`, and `blocked` for non-terminal columns. They pull/push issue title/body/state/labels/comments and use newest-updated-at-wins conflict resolution. Atlassian/Jira boards inherit workflow columns from remote issue statuses, use the board `BackendQuery` as JQL, and pull/push issue summary/description/status/comments. Notes map to provider issue comments. Local runtime/session history is never synced to ticket providers.
 
 See [`docs/ticket-backends.md`](./ticket-backends.md).
 

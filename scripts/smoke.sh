@@ -12,10 +12,10 @@ for arg in "$@"; do
       cat <<'USAGE'
 Usage: ./scripts/smoke.sh [--skip-checks]
 
-Runs the tmux-backed end-to-end smoke test with fake harnesses.
-By default this also runs go fmt, go test, and go vet first. Use
---skip-checks when those baseline checks have already passed in the
-same verification loop.
+Runs the tmux-backed end-to-end smoke test with fake harnesses and a
+fake-Herdr doctor probe. By default this also runs go fmt, go test, and
+go vet first. Use --skip-checks when those baseline checks have already
+passed in the same verification loop.
 USAGE
       exit 0
       ;;
@@ -33,6 +33,7 @@ BIN="$TMP/kanbi"
 FAKE_PI="$ROOT/scripts/fake-harnesses/pi"
 FAKE_CODEX="$ROOT/scripts/fake-harnesses/codex"
 FAKE_CLAUDE="$ROOT/scripts/fake-harnesses/claude"
+FAKE_HERDR="$TMP/herdr"
 
 cleanup() {
   tmux kill-session -t "$SESSION" 2>/dev/null || true
@@ -46,6 +47,24 @@ export KANBI_DB="$TMP/kanbi.db"
 export KANBI_STATE_DIR="$TMP/state"
 export KANBI_DATA_DIR="$TMP/data"
 export KANBI_TMUX_SESSION="$SESSION"
+
+cat >"$FAKE_HERDR" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  status)
+    echo '{"ok":true,"fake":true}'
+    ;;
+  --version)
+    echo 'herdr fake-smoke'
+    ;;
+  *)
+    echo "fake herdr: unsupported $*" >&2
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$FAKE_HERDR"
 
 cat >"$KANBI_CONFIG" <<YAML
 db_path: "$KANBI_DB"
@@ -77,6 +96,15 @@ fi
 go build -buildvcs=false -o "$BIN" ./cmd/kanbi
 
 "$BIN" doctor
+HERDR_CONFIG="$TMP/herdr-config.yaml"
+cat >"$HERDR_CONFIG" <<YAML
+multiplexer:
+  default: herdr
+  herdr:
+    binary: "$FAKE_HERDR"
+    session: smoke
+YAML
+KANBI_CONFIG="$HERDR_CONFIG" KANBI_DB="$TMP/herdr-doctor.db" "$BIN" doctor | grep -q 'ok herdr session smoke'
 "$BIN" add "Smoke test ticket" --body "Verify smoke path" --harness pi
 "$BIN" list | grep -q "T-001"
 "$BIN" open T-001 --send-prompt

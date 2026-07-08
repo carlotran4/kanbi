@@ -8,7 +8,7 @@ This document defines the state model the implementation should follow. SQLite i
 stateDiagram-v2
     [*] --> not_started: ticket created
     not_started --> starting: open/send prompt
-    starting --> running: tmux window created
+    starting --> running: terminal container created
     starting --> error: launch/resume failure
     starting --> repair_needed: started before, no usable window/ref
 
@@ -43,7 +43,7 @@ stateDiagram-v2
     [*] --> no_session
     no_session --> active_session: start/open
     active_session --> inactive_resumable: graceful close with session_ref
-    active_session --> inactive_error: missing tmux window / launch error / stale window id
+    active_session --> inactive_error: missing terminal container / launch error / stale container id
     inactive_resumable --> active_session: resume
     inactive_error --> active_session: repair or start fresh
 ```
@@ -51,7 +51,7 @@ stateDiagram-v2
 - `sessions.is_active = 1` means the session is believed to have a live runtime container owned by the ticket. For tmux that container is a window; for Herdr it is an agent/pane inside a workspace.
 - `sessions.is_active = 0` does not mean the ticket is `not_started`. The ticket should project the latest session's terminal state (`closed`, `error`, `exited`) and any `session_ref`.
 - A tmux `window_id` is valid only if tmux still reports that id with the expected ticket window name. Name fallback must use the session row's stored `tmux_session_name`, not the current process's runtime session. Window ids can be reused after windows close. Herdr sessions store generic `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata` fields; Herdr-native agent status is authoritative when it is not `unknown`.
-- Only one active session per ticket is allowed. Starting fresh deactivates the old active session and creates a new active session in the current executable's runtime tmux session; if a same-named tmux window already exists in that runtime session, the new window uses a unique suffix.
+- Only one active session per ticket is allowed. Starting fresh deactivates the old active session and creates a new active session in the currently configured multiplexer. tmux launches use the current executable's runtime tmux session; if a same-named tmux window already exists in that runtime session, the new window uses a unique suffix. Herdr launches use the configured Herdr session/workspace strategy.
 
 ## Ticket Projection Data Flow
 
@@ -62,16 +62,16 @@ flowchart LR
     BoardView --> TUI[TUI cards]
     TUI --> Commands[open/send/close/mark/archive/edit]
     Commands --> Store[(SQLite)]
-    Commands --> Tmux[tmux manager]
-    Tmux --> Store
+    Commands --> Runtime[Runtime manager]
+    Runtime --> Store
 ```
 
 Projection rules:
 
 - Tickets with no session project as `not_started`.
-- Tickets with a latest active session project that session's runtime status and active tmux indicator.
+- Tickets with a latest active session project that session's runtime status and active container indicator.
 - Tickets with a latest inactive session project that terminal status (`closed`, `error`, `exited`) and resumable/error indicator.
-- Cards show active indicator only for active sessions with a validated tmux window.
+- Cards show active indicator only for active sessions with a validated terminal container.
 - Cards show resumable indicator when no active window exists but a `session_ref` exists.
 - Cards show error indicator for `error`.
 
@@ -82,7 +82,7 @@ flowchart TD
     Tick[2s TUI tick] --> List[List projected tickets]
     List --> Active{latest session active?}
     Active -- no --> Skip[do not poll]
-    Active -- yes --> Validate[validate tmux id/name]
+    Active -- yes --> Validate[validate container ref]
     Validate -- invalid --> Missing[mark latest session inactive error]
     Validate -- valid --> Capture[capture pane]
     Capture --> Detect[adapter/pattern/idle detection]
@@ -106,7 +106,7 @@ Watcher rules:
 flowchart TD
     Open[Open selected ticket] --> Active{latest session active?}
     Active -- yes --> Validate[validate window id/name]
-    Validate -- valid --> Switch[switch to tmux window]
+    Validate -- valid --> Switch[focus terminal container]
     Validate -- invalid --> Ref{session_ref exists?}
     Active -- no --> Ref
     Ref -- yes --> Resume[create window with harness resume]
@@ -118,7 +118,7 @@ flowchart TD
 Open rules:
 
 - Do not create a new DB session when merely switching to an already-active valid window.
-- Do not trust stale tmux ids without name validation.
+- Do not trust stale terminal container ids without multiplexer validation.
 - If a previous session exists but no valid window/ref exists, show repair/start-fresh.
 - `send prompt` is only valid for a never-started ticket.
 
@@ -139,7 +139,7 @@ stateDiagram-v2
 The current implementation is intentionally split this way:
 
 - `internal/storage`: owns canonical ticket/session rows, ticket notes, and the ticket projection used by `BoardView`.
-- `internal/tmux`: owns tmux validation, start/resume/switch/close, runtime refresh, and repair errors.
+- `internal/tmux`: owns lifecycle orchestration, tmux validation, Herdr adapter dispatch, start/resume/switch/close, runtime refresh, and repair errors.
 - `internal/tui`: owns transient UI states such as edit mode, repair screen, prompt fallback, column edit, and manual mark menu.
 
 State bugs to avoid:

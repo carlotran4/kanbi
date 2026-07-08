@@ -51,7 +51,7 @@ Fallback matching requires:
 | Start with prompt | `codex --no-alt-screen <prompt>` |
 | Resume | `codex resume --no-alt-screen <session_ref>` |
 
-The `--no-alt-screen` flag keeps Codex output in the normal scrollback buffer, which is required for tmux pane capture and prompt detection.
+The `--no-alt-screen` flag keeps Codex output in the normal scrollback buffer, which is required for multiplexer terminal capture and prompt detection.
 
 ### Session Ref Capture
 

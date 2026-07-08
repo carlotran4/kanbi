@@ -114,6 +114,8 @@ Avoid screenshot/golden terminal tests in early v1 unless necessary.
 Separate probe logic from output formatting so tests can simulate:
 
 - tmux missing
+- configured multiplexer (`tmux` default, optional `herdr`)
+- missing/unreachable configured Herdr binary
 - missing optional harness
 - unwritable config dir
 - unwritable DB dir
@@ -121,7 +123,9 @@ Separate probe logic from output formatting so tests can simulate:
 
 Expected behavior:
 
-- missing tmux: fatal doctor failure
+- configured multiplexer is displayed
+- missing tmux: fatal doctor failure for existing/default tmux runtime checks
+- selected Herdr missing or `herdr status` unavailable: warning with setup guidance
 - DB/config path unavailable: fatal doctor failure
 - missing `pi`, `codex`, or `gh`: warning only
 
@@ -132,13 +136,14 @@ Maintain a script such as:
 ./scripts/smoke.sh
 ```
 
-By default, the smoke script should run baseline checks plus the tmux-backed end-to-end path:
+By default, the smoke script should run baseline checks plus the tmux-backed end-to-end path and deterministic fake-multiplexer probes:
 
 ```bash
 go fmt ./...
 go vet ./...
 go test ./...
 kanbi doctor
+# with a temporary config, also run kanbi doctor against a fake Herdr binary
 kanbi add "Smoke test ticket" --body "Verify smoke path" --harness pi
 kanbi list
 ```
@@ -236,6 +241,17 @@ A change is verified when:
 - graceful close timeout is handled
 - session becomes `closed` and remains resumable
 
+### Multiplexers
+
+A multiplexer change is verified when:
+
+- config defaults still select `tmux`
+- `multiplexer.default: herdr` is accepted without changing harness config
+- doctor reports the configured multiplexer
+- doctor preserves tmux checks
+- fake Herdr scripts can simulate `herdr status` in deterministic tests/smoke
+- real Herdr lifecycle checks are opt-in only and not run by normal smoke
+
 ### Tmux Manager
 A change is verified when:
 
@@ -287,11 +303,15 @@ An autonomous agent should stop and ask before:
 - changing the product scope documented in current source-of-truth docs
 - adding a background daemon
 - adding a web UI
-- replacing tmux as v1 backend
+- removing tmux as the default v1 backend
 - making real harness behavior assumptions that cannot be simulated or verified
 - deleting ticket/session history
 - introducing external services
 - changing the command names for supported harnesses
+
+## Opt-In Real Multiplexer Checks
+
+Real Herdr checks are not part of normal smoke or CI because they depend on a locally installed Herdr server/session and can alter the user's workspaces. To verify manually, install Herdr, run `herdr` once, configure a disposable Kanbi config with `multiplexer.default: herdr`, run `kanbi doctor`, then open a disposable ticket and confirm the Herdr pane/agent is created and focusable.
 
 ## Opt-In Real Backend Smoke Tests
 
