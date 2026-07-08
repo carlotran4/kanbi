@@ -164,23 +164,60 @@ func ParseSessionRef(output, marker string) (string, bool) {
 }
 
 func CaptureSessionRef(name, promptText string, since time.Time) (string, bool) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	return CaptureSessionRefInCWD(name, promptText, cwd, since)
+}
+
+func CaptureSessionRefInCWD(name, promptText, cwd string, since time.Time) (string, bool) {
 	if promptText == "" {
 		return "", false
 	}
-	contract, ok := BuiltinContract(name)
-	if !ok || contract.CaptureRef == nil {
-		return "", false
+	if strings.TrimSpace(cwd) == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return "", false
+		}
 	}
-	return contract.CaptureRef(promptText, since)
+	switch name {
+	case "pi":
+		return latestPiSessionInCWD(promptText, cwd, since)
+	case "copilot":
+		return latestCopilotSessionInCWD(promptText, cwd, since)
+	default:
+		contract, ok := BuiltinContract(name)
+		if !ok || contract.CaptureRef == nil {
+			return "", false
+		}
+		return contract.CaptureRef(promptText, since)
+	}
 }
 
 func ValidateSessionRef(name, sessionRef, promptText string) bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	return ValidateSessionRefInCWD(name, sessionRef, promptText, cwd)
+}
+
+func ValidateSessionRefInCWD(name, sessionRef, promptText, cwd string) bool {
 	if strings.TrimSpace(sessionRef) == "" {
 		return false
 	}
+	if strings.TrimSpace(cwd) == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return false
+		}
+	}
 	switch name {
 	case "copilot":
-		return validateCopilotSessionRef(sessionRef, promptText)
+		return validateCopilotSessionRefInCWD(sessionRef, promptText, cwd)
 	default:
 		return true
 	}
@@ -249,11 +286,15 @@ type piEntry struct {
 }
 
 func latestPiSession(promptText string, since time.Time) (string, bool) {
-	home, err := os.UserHomeDir()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", false
 	}
-	cwd, err := os.Getwd()
+	return latestPiSessionInCWD(promptText, cwd, since)
+}
+
+func latestPiSessionInCWD(promptText, cwd string, since time.Time) (string, bool) {
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", false
 	}
@@ -346,6 +387,10 @@ func latestCopilotSession(promptText string, since time.Time) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	return latestCopilotSessionInCWD(promptText, cwd, since)
+}
+
+func latestCopilotSessionInCWD(promptText, cwd string, since time.Time) (string, bool) {
 	db, err := openCopilotSessionStore()
 	if err != nil {
 		return "", false
@@ -373,11 +418,7 @@ func latestCopilotSession(promptText string, since time.Time) (string, bool) {
 	return id, id != ""
 }
 
-func validateCopilotSessionRef(sessionRef, promptText string) bool {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return false
-	}
+func validateCopilotSessionRefInCWD(sessionRef, promptText, cwd string) bool {
 	db, err := openCopilotSessionStore()
 	if err != nil {
 		return false

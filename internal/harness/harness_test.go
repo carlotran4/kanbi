@@ -420,6 +420,7 @@ func TestCaptureCopilotSessionRefFromSessionStore(t *testing.T) {
 	}
 	defer db.Close()
 
+	promptText := "# T-001: Demo\n\nBody"
 	_, err = db.Exec(`
 		CREATE TABLE sessions (
 			id TEXT PRIMARY KEY,
@@ -438,7 +439,6 @@ func TestCaptureCopilotSessionRefFromSessionStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	promptText := "# T-001: Demo\n\nBody"
 	sessionID := "822133b3-a89f-4d2b-9e76-06111cab7d67"
 
 	// Old session with wrong prompt — should not be returned
@@ -566,5 +566,86 @@ func TestValidateCopilotSessionRefRejectsSessionWithoutPromptTurn(t *testing.T) 
 
 	if ValidateSessionRef("copilot", "bad-ref", "# T-001: Demo\n\nBody") {
 		t.Fatal("expected copilot ref without prompt turn to be rejected")
+	}
+}
+
+func TestCaptureCopilotSessionRefInExplicitWorkdir(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+	promptText := "# T-001: Demo\n\nBody"
+
+	if err := os.MkdirAll(filepath.Join(home, ".copilot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", filepath.Join(home, ".copilot", "session-store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE sessions (
+			id TEXT PRIMARY KEY,
+			cwd TEXT,
+			created_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE TABLE turns (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL REFERENCES sessions(id),
+			turn_index INTEGER NOT NULL,
+			user_message TEXT,
+			UNIQUE(session_id, turn_index)
+		);
+		INSERT INTO sessions(id, cwd, created_at) VALUES('workdir-ref', ?, '2030-01-01T00:00:02Z');
+		INSERT INTO turns(session_id, turn_index, user_message) VALUES('workdir-ref', 0, ?);
+	`, cwd, promptText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ref, ok := CaptureSessionRefInCWD("copilot", promptText, cwd, time.Unix(1893456000, 0))
+	if !ok || ref != "workdir-ref" {
+		t.Fatalf("ref=%q ok=%v", ref, ok)
+	}
+}
+
+func TestValidateCopilotSessionRefInExplicitWorkdir(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+	promptText := "# T-001: Demo\n\nBody"
+
+	if err := os.MkdirAll(filepath.Join(home, ".copilot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", filepath.Join(home, ".copilot", "session-store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE sessions (
+			id TEXT PRIMARY KEY,
+			cwd TEXT,
+			created_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE TABLE turns (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL REFERENCES sessions(id),
+			turn_index INTEGER NOT NULL,
+			user_message TEXT,
+			UNIQUE(session_id, turn_index)
+		);
+		INSERT INTO sessions(id, cwd, created_at) VALUES('workdir-ref', ?, '2030-01-01T00:00:02Z');
+		INSERT INTO turns(session_id, turn_index, user_message) VALUES('workdir-ref', 0, ?);
+	`, cwd, promptText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !ValidateSessionRefInCWD("copilot", "workdir-ref", promptText, cwd) {
+		t.Fatal("expected explicit workdir copilot ref to validate")
 	}
 }

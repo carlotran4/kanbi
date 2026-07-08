@@ -174,7 +174,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if ticket.SessionRef.Valid {
 		ses.HarnessSessionRef = sql.NullString{String: ticket.SessionRef.String, Valid: true}
 	} else if promptAlreadySent && l.manager.Store != nil {
-		if ref, ok := l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchStartedAt, refFile); ok {
+		if ref, ok := l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, ticket.BoardWorkdir, launchStartedAt, refFile); ok {
 			ses.HarnessSessionRef = sql.NullString{String: ref, Valid: true}
 		}
 	}

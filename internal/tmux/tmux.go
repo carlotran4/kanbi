@@ -147,8 +147,9 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 		return ticket, nil
 	}
 	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
+	cwd := ticket.BoardWorkdir
 	if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
-		if harness.ValidateSessionRef(ticket.Harness, ticket.SessionRef.String, promptText) {
+		if harness.ValidateSessionRefInCWD(ticket.Harness, ticket.SessionRef.String, promptText, cwd) {
 			return ticket, nil
 		}
 		if err := m.Store.UpdateSessionRef(ctx, ticket.SessionID.Int64, ""); err != nil {
@@ -171,7 +172,7 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 			return ticket, nil
 		}
 	}
-	ref, found := harness.CaptureSessionRef(ticket.Harness, promptText, ses.StartedAt.Time)
+	ref, found := harness.CaptureSessionRefInCWD(ticket.Harness, promptText, cwd, ses.StartedAt.Time)
 	if !found {
 		return ticket, nil
 	}
@@ -625,7 +626,7 @@ func readPiSessionRefFile(path string) (string, bool) {
 	return strings.TrimSpace(payload.SessionID), true
 }
 
-func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText string, since time.Time, refFile string) (string, bool) {
+func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText, cwd string, since time.Time, refFile string) (string, bool) {
 	if harnessName == "pi" && refFile != "" {
 		if ref, ok := readPiSessionRefFile(refFile); ok {
 			return ref, true
@@ -646,7 +647,7 @@ func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText
 				return ref, true
 			}
 		}
-		ref, ok := harness.CaptureSessionRef(harnessName, promptText, since)
+		ref, ok := harness.CaptureSessionRefInCWD(harnessName, promptText, cwd, since)
 		if ok {
 			return ref, true
 		}
