@@ -102,13 +102,13 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 	}
 	info := parseObject(out)
 	if workspaceID == "" {
-		workspaceID = firstString(info, "workspace_id", "workspaceId", "workspace.id")
+		workspaceID = firstString(info, "result.workspace.workspace_id", "result.workspace.id", "result.agent.workspace_id", "result.workspace_id", "result.workspaceId", "workspace_id", "workspaceId", "workspace.id")
 	}
-	paneID := firstString(info, "pane_id", "paneId", "pane.id", "terminal_id", "terminalId", "id")
+	paneID := firstString(info, "result.agent.pane_id", "result.pane_id", "result.paneId", "pane_id", "paneId", "pane.id")
 	if paneID != "" {
 		info["pane_id"] = paneID
 	}
-	agentTarget := firstString(info, "target", "agent_target", "agentTarget", "agent.name", "name")
+	agentTarget := firstString(info, "target", "agent_target", "agentTarget", "agent.name", "name", "result.agent.name")
 	if agentTarget == "" {
 		agentTarget = name
 	}
@@ -124,7 +124,7 @@ func (a *Adapter) Focus(ctx context.Context, ref multiplexer.ContainerRef) error
 	if _, err := a.run(ctx, "agent", "focus", target); err == nil {
 		return nil
 	}
-	paneID := refMeta(ref, "pane_id", "paneId")
+	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = target
 	}
@@ -143,9 +143,9 @@ func (a *Adapter) Read(ctx context.Context, ref multiplexer.ContainerRef, opts m
 	}
 	out, err := a.run(ctx, args...)
 	if err == nil {
-		return out, nil
+		return readText(out), nil
 	}
-	paneID := refMeta(ref, "pane_id", "paneId")
+	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = target
 	}
@@ -153,11 +153,15 @@ func (a *Adapter) Read(ctx context.Context, ref multiplexer.ContainerRef, opts m
 	if opts.Lines > 0 {
 		args = append(args, "--lines", fmt.Sprint(opts.Lines))
 	}
-	return a.run(ctx, args...)
+	out, err = a.run(ctx, args...)
+	if err != nil {
+		return out, err
+	}
+	return readText(out), nil
 }
 
 func (a *Adapter) SendKeys(ctx context.Context, ref multiplexer.ContainerRef, keys ...string) error {
-	paneID := refMeta(ref, "pane_id", "paneId")
+	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = ref.Target()
 	}
@@ -170,7 +174,7 @@ func (a *Adapter) SendKeys(ctx context.Context, ref multiplexer.ContainerRef, ke
 }
 
 func (a *Adapter) SendText(ctx context.Context, ref multiplexer.ContainerRef, text string) error {
-	paneID := refMeta(ref, "pane_id", "paneId")
+	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = ref.Target()
 	}
@@ -182,7 +186,7 @@ func (a *Adapter) SendText(ctx context.Context, ref multiplexer.ContainerRef, te
 }
 
 func (a *Adapter) Close(ctx context.Context, ref multiplexer.ContainerRef) error {
-	paneID := refMeta(ref, "pane_id", "paneId")
+	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = ref.Target()
 	}
@@ -240,7 +244,7 @@ func (a *Adapter) workspaceForLaunch(ctx context.Context, spec multiplexer.Launc
 		return "", err
 	}
 	obj := parseObject(out)
-	return firstString(obj, "workspace_id", "workspaceId", "id", "workspace.id"), nil
+	return firstString(obj, "result.workspace.workspace_id", "result.workspace.id", "result.workspace_id", "result.workspaceId", "workspace_id", "workspaceId", "workspace.id", "id"), nil
 }
 
 func (a *Adapter) run(ctx context.Context, args ...string) (string, error) {
@@ -339,10 +343,12 @@ func findWorkspace(out, cwd, label string) string {
 		if json.Unmarshal([]byte(out), &obj) != nil {
 			return ""
 		}
-		if v, ok := obj["workspaces"].([]any); ok {
-			for _, item := range v {
-				if m, ok := item.(map[string]any); ok && workspaceMatches(m, cwd, label) {
-					return firstString(m, "id", "workspace_id", "workspaceId")
+		for _, key := range []string{"workspaces", "result.workspaces"} {
+			if v, ok := dotted(obj, key).([]any); ok {
+				for _, item := range v {
+					if m, ok := item.(map[string]any); ok && workspaceMatches(m, cwd, label) {
+						return firstString(m, "id", "workspace_id", "workspaceId")
+					}
 				}
 			}
 		}
@@ -357,7 +363,7 @@ func findWorkspace(out, cwd, label string) string {
 }
 
 func workspaceMatches(m map[string]any, cwd, label string) bool {
-	if cwd != "" && firstString(m, "cwd", "foreground_cwd", "workspace.cwd") == cwd {
+	if cwd != "" && firstString(m, "cwd", "foreground_cwd", "workspace.cwd", "root_pane.cwd") == cwd {
 		return true
 	}
 	return label != "" && firstString(m, "label", "name") == label
@@ -404,6 +410,14 @@ func mergeMetadata(existing string, obj map[string]any) string {
 		return existing
 	}
 	return string(b)
+}
+
+func readText(out string) string {
+	obj := parseObject(out)
+	if text := firstString(obj, "result.read.text", "read.text", "text"); text != "" {
+		return text
+	}
+	return out
 }
 
 func refMeta(ref multiplexer.ContainerRef, keys ...string) string {

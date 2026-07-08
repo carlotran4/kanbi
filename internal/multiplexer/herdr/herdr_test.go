@@ -45,6 +45,23 @@ func TestLaunchCreatesWorkspaceAndAgent(t *testing.T) {
 	}
 }
 
+func TestLaunchParsesRealHerdrCLIEnvelope(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"workspace list": `{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"repo","active_tab_id":"w1:t1"}]}}`,
+		"agent start b1-T-001-demo --cwd /repo --workspace w1 --no-focus -- codex hello": `{"id":"cli:agent:start","result":{"type":"agent_started","agent":{"name":"agent-1","pane_id":"w1:p2","tab_id":"w1:t1","terminal_id":"term_123","workspace_id":"w1"}}}`,
+	}}
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
+	adapter.Runner = r
+
+	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{Name: "b1-T-001-demo", CWD: "/repo", Command: []string{"codex", "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Namespace != "w1" || ref.ID != "agent-1" || refMeta(ref, "result.agent.pane_id") != "w1:p2" {
+		t.Fatalf("unexpected ref from real Herdr envelope: %+v", ref)
+	}
+}
+
 func TestDetectMapsNativeHerdrStates(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -84,6 +101,21 @@ func TestDetectUnknownAllowsFallback(t *testing.T) {
 	}
 	if d.Source != multiplexer.DetectionSourceUnknown || d.Confidence != multiplexer.ConfidenceUnknown {
 		t.Fatalf("expected unknown fallback detection, got %+v", d)
+	}
+}
+
+func TestReadExtractsTextFromHerdrCLIEnvelope(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"agent read agent-1 --source recent-unwrapped --lines 50": `{"id":"cli:agent:read","result":{"read":{"text":"PROMPT_READY\nSESSION_REF=fake-ref","pane_id":"w1:p2"},"type":"pane_read"}}`,
+	}}
+	adapter := NewAdapter(Config{})
+	adapter.Runner = r
+	out, err := adapter.Read(context.Background(), multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, ID: "agent-1"}, multiplexer.ReadOptions{Lines: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "PROMPT_READY\nSESSION_REF=fake-ref" {
+		t.Fatalf("read text = %q", out)
 	}
 }
 
