@@ -106,11 +106,14 @@ func TestControlCommandsUsePaneFallbacks(t *testing.T) {
 	if err := adapter.SendKeys(context.Background(), ref, "C-c", "Enter"); err != nil {
 		t.Fatal(err)
 	}
+	if err := adapter.SendText(context.Background(), ref, "exit"); err != nil {
+		t.Fatal(err)
+	}
 	if err := adapter.Close(context.Background(), ref); err != nil {
 		t.Fatal(err)
 	}
-	gotLast := r.calls[len(r.calls)-2:]
-	want := [][]string{{"herdr", "pane", "send-keys", "pane-1", "ctrl+c", "enter"}, {"herdr", "pane", "close", "pane-1"}}
+	gotLast := r.calls[len(r.calls)-3:]
+	want := [][]string{{"herdr", "pane", "send-keys", "pane-1", "ctrl+c", "enter"}, {"herdr", "pane", "send-text", "pane-1", "exit"}, {"herdr", "pane", "close", "pane-1"}}
 	if !reflect.DeepEqual(gotLast, want) {
 		t.Fatalf("last calls = %#v, want %#v", gotLast, want)
 	}

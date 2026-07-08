@@ -276,11 +276,20 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	}
 	if sendPrompt && !promptAlreadySent {
 		ready := harness.PromptReadyPattern(l.manager.Config.Harnesses, ticket.Harness)
-		if err := l.manager.WaitAndPastePrompt(ctx, name, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout); err != nil {
-			return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: err}
+		var out string
+		if containerRef.Kind == multiplexer.KindHerdr {
+			adapter := l.manager.herdrAdapter()
+			if err := l.manager.WaitAndSendHerdrPrompt(ctx, adapter, containerRef, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout); err != nil {
+				return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: err}
+			}
+			out, _ = adapter.Read(ctx, containerRef, multiplexer.ReadOptions{Lines: 200})
+		} else {
+			if err := l.manager.WaitAndPastePrompt(ctx, name, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout); err != nil {
+				return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: err}
+			}
+			out, _ = l.manager.CapturePane(ctx, name)
 		}
 		if l.manager.Store != nil {
-			out, _ := l.manager.CapturePane(ctx, name)
 			if ref, ok := harness.ParseSessionRef(out, harness.SessionRefPattern(l.manager.Config.Harnesses, ticket.Harness)); ok {
 				if ses, active, err := l.manager.Store.ActiveSession(ctx, ticket.ID); err == nil && active {
 					_ = l.manager.Store.UpdateSessionRef(ctx, ses.ID, ref)

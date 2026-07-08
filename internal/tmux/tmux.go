@@ -374,12 +374,19 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 		if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateClosing, "system", "graceful close requested", "", false); err != nil {
 			return err
 		}
+		adapter := m.herdrAdapter()
 		for _, key := range harness.ExitKeys(m.Config.Harnesses, ses.Harness) {
-			if err := m.herdrAdapter().SendKeys(ctx, containerRef, key); err != nil {
+			if isTextExitCommand(key) {
+				if err := adapter.SendText(ctx, containerRef, key); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := adapter.SendKeys(ctx, containerRef, key); err != nil {
 				return err
 			}
 		}
-		if err := m.herdrAdapter().Close(ctx, containerRef); err != nil {
+		if err := adapter.Close(ctx, containerRef); err != nil {
 			return err
 		}
 		return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "herdr", "pane closed")
@@ -438,6 +445,24 @@ func (m *Manager) WaitAndPastePrompt(ctx context.Context, windowName, text, read
 	return err
 }
 
+func (m *Manager) WaitAndSendHerdrPrompt(ctx context.Context, adapter *herdrmux.Adapter, ref multiplexer.ContainerRef, text, ready string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		out, _ := adapter.Read(ctx, ref, multiplexer.ReadOptions{Lines: 200})
+		if strings.Contains(out, ready) {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("prompt readiness timeout waiting for %q", ready)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err := adapter.SendText(ctx, ref, text); err != nil {
+		return err
+	}
+	return adapter.SendKeys(ctx, ref, "Enter")
+}
+
 func (m *Manager) CapturePane(ctx context.Context, windowName string) (string, error) {
 	return m.capturePaneInSession(ctx, m.Config.TmuxSession, windowName)
 }
@@ -455,6 +480,15 @@ func (m *Manager) PastePromptNow(ctx context.Context, windowName, text string) e
 	}
 	_, err := m.run(ctx, "send-keys", "-t", target(m.Config.TmuxSession, windowName), "Enter")
 	return err
+}
+
+func isTextExitCommand(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "exit", "quit", "q":
+		return true
+	default:
+		return false
+	}
 }
 
 // waitWindowLive waits a fixed interval after launching a resume window, then

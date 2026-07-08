@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"kanbi/internal/config"
+	"kanbi/internal/harness"
 	"kanbi/internal/kanban"
 	"kanbi/internal/storage"
 )
@@ -40,6 +41,36 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	log := string(logBytes)
 	if !strings.Contains(log, "agent start") || !strings.Contains(log, "codex --no-alt-screen") {
 		t.Fatalf("fake herdr did not receive harness launch command; log=%s", log)
+	}
+}
+
+func TestOpenTicketWithHerdrPasteModeUsesHerdrInput(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Paste", "body", "paste")
+	bin, logPath := writeFakeHerdr(t, map[string]string{
+		"workspace list":   `[]`,
+		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
+		"agent start":      `{"pane_id":"pane-123","agent":{"name":"agent-789"}}`,
+		"agent read":       "PROMPT_READY\nSESSION_REF=ref-123",
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = bin
+	cfg.Harnesses["paste"] = harness.Config{Start: []string{"fake-agent"}, PromptMode: harness.PromptModePaste, PromptReady: "PROMPT_READY", SessionRef: "SESSION_REF="}
+	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+
+	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.TicketByID(ctx, ticket.ID)
+	if !got.SessionRef.Valid || got.SessionRef.String != "ref-123" {
+		t.Fatalf("session ref not captured from Herdr output: %+v", got.SessionRef)
+	}
+	logBytes, _ := os.ReadFile(logPath)
+	log := string(logBytes)
+	if !strings.Contains(log, "pane send-text pane-123 # T-001: Herdr Paste") || !strings.Contains(log, "pane send-keys pane-123 enter") {
+		t.Fatalf("fake herdr did not receive prompt via pane input; log=%s", log)
 	}
 }
 
@@ -95,6 +126,10 @@ case "$1 $2" in
   "agent start") echo '` + responses["agent start"] + `' ;;
   "agent focus") echo '` + responses["agent focus"] + `' ;;
   "agent get") echo '` + responses["agent get"] + `' ;;
+  "agent read") echo '` + responses["agent read"] + `' ;;
+  "pane read") echo '` + responses["agent read"] + `' ;;
+  "pane send-text") echo '{"ok":true}' ;;
+  "pane send-keys") echo '{"ok":true}' ;;
   *) echo '{}' ;;
 esac
 `

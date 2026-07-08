@@ -169,6 +169,18 @@ func (a *Adapter) SendKeys(ctx context.Context, ref multiplexer.ContainerRef, ke
 	return err
 }
 
+func (a *Adapter) SendText(ctx context.Context, ref multiplexer.ContainerRef, text string) error {
+	paneID := refMeta(ref, "pane_id", "paneId")
+	if paneID == "" {
+		paneID = ref.Target()
+	}
+	if paneID == "" {
+		return errors.New("herdr send target is empty")
+	}
+	_, err := a.run(ctx, "pane", "send-text", paneID, text)
+	return err
+}
+
 func (a *Adapter) Close(ctx context.Context, ref multiplexer.ContainerRef) error {
 	paneID := refMeta(ref, "pane_id", "paneId")
 	if paneID == "" {
