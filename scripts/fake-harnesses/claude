@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "FAKE_CLAUDE_START"
+echo "ARGS:$*"
+
+# Detect resume: `claude --resume <id>` — kanbi passes the ref as a separate arg.
+if [[ "${1:-}" == "--resume" ]]; then
+  echo "CLAUDE_RESUMED:${2:-missing-session-ref}"
+fi
+
+if (($# > 0)); then
+  last="${!#}"
+  # When kanbi launches with a prompt, the prompt is the final positional arg.
+  # Skip echoing it when the final arg is the resume id (in --resume mode).
+  if [[ "${1:-}" != "--resume" ]]; then
+    echo "CLAUDE_PROMPT_BEGIN"
+    printf '%s\n' "$last"
+    echo "CLAUDE_PROMPT_END"
+    echo "SESSION_REF=fake-claude-$(date +%s%N)"
+  fi
+fi
+
+echo "PROMPT_READY"
+
+while IFS= read -r line; do
+  printf 'CLAUDE_RECEIVED:%s\n' "$line"
+done

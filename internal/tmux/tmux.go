@@ -634,10 +634,12 @@ func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText
 	}
 	// Copilot writes to session-store.db asynchronously and may take several
 	// seconds after process start. Pi writes its JSONL file asynchronously too.
+	// Claude Code is slow on cold start (workspace-trust dialog, plugin sync,
+	// memory load) and only writes its session JSONL after the first turn lands.
 	// Use a longer deadline for these harnesses.
 	deadline := 2 * time.Second
 	switch harnessName {
-	case "copilot", "pi":
+	case "copilot", "pi", "claude":
 		deadline = 20 * time.Second
 	}
 	end := time.Now().Add(deadline)

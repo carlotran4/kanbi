@@ -187,6 +187,8 @@ func CaptureSessionRefInCWD(name, promptText, cwd string, since time.Time) (stri
 		return latestPiSessionInCWD(promptText, cwd, since)
 	case "copilot":
 		return latestCopilotSessionInCWD(promptText, cwd, since)
+	case "claude":
+		return latestClaudeSessionInCWD(promptText, cwd, since)
 	default:
 		contract, ok := BuiltinContract(name)
 		if !ok || contract.CaptureRef == nil {
@@ -445,4 +447,83 @@ func openCopilotSessionStore() (*sql.DB, error) {
 	}
 	dbPath := filepath.Join(home, ".copilot", "session-store.db")
 	return sql.Open("sqlite3", dbPath+"?mode=ro")
+}
+
+type claudeSessionEntry struct {
+	Type      string `json:"type"`
+	IsMeta    bool   `json:"isMeta"`
+	SessionID string `json:"sessionId"`
+	CWD       string `json:"cwd"`
+	Timestamp string `json:"timestamp"`
+	Message   struct {
+		Role    string `json:"role"`
+		Content any    `json:"content"`
+	} `json:"message"`
+}
+
+// latestClaudeSession scans ~/.claude/projects/**/*.jsonl for the most recent
+// Claude Code session whose first non-meta user turn matches promptText and
+// whose recorded cwd matches the current working directory. The sessionId is
+// stable and can be passed to `claude --resume <id>`.
+func latestClaudeSession(promptText string, since time.Time) (string, bool) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	return latestClaudeSessionInCWD(promptText, cwd, since)
+}
+
+func latestClaudeSessionInCWD(promptText, cwd string, since time.Time) (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	root := filepath.Join(home, ".claude", "projects")
+	var bestID string
+	var bestTime time.Time
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		id, ts, ok := inspectClaudeSession(path, cwd, promptText, since)
+		if ok && (bestID == "" || ts.After(bestTime)) {
+			bestID = id
+			bestTime = ts
+		}
+		return nil
+	})
+	return bestID, bestID != ""
+}
+
+func inspectClaudeSession(path, cwd, promptText string, since time.Time) (string, time.Time, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	var bestID string
+	var bestTime time.Time
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var entry claudeSessionEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.Type != "user" || entry.IsMeta || entry.SessionID == "" || entry.CWD != cwd {
+			continue
+		}
+		if entry.Message.Role != "user" || contentText(entry.Message.Content) != promptText {
+			continue
+		}
+		ts, err := time.Parse(time.RFC3339Nano, entry.Timestamp)
+		if err != nil || ts.Before(since.Add(-2*time.Second)) {
+			continue
+		}
+		if bestID == "" || ts.After(bestTime) {
+			bestID = entry.SessionID
+			bestTime = ts
+		}
+	}
+	return bestID, bestTime, bestID != ""
 }

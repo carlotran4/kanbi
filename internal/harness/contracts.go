@@ -66,6 +66,17 @@ func BuiltinContracts() map[string]Contract {
 			CaptureRef: latestCopilotSession,
 			DocsAnchor: "docs/harness-contracts.md#copilot",
 		},
+		"claude": {
+			Name: "claude",
+			Config: Config{
+				Start:      []string{"claude"},
+				Resume:     []string{"claude", "--resume", "{session_ref}"},
+				Exit:       []string{"C-c", "exit", "Enter"},
+				PromptMode: PromptModeArg,
+			},
+			CaptureRef: latestClaudeSession,
+			DocsAnchor: "docs/harness-contracts.md#claude",
+		},
 	}
 }
 

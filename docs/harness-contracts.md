@@ -4,6 +4,8 @@ This document specifies the verified command surface, session ref capture method
 
 Built-in harness contracts are localized in `internal/harness/contracts.go`: command defaults, prompt mode, exit keys, ref capture function, and this document's anchor are grouped per harness. `internal/config/config.go` loads those defaults while still allowing YAML overrides.
 
+Currently supported: Pi, Codex, Copilot, Claude.
+
 ## Pi
 
 **Binary:** `pi`
@@ -104,6 +106,47 @@ Kanbi intentionally does **not** accept a Copilot session row whose first user t
 The returned `sessions.id` (UUID) is passed to `copilot --resume=<id>` for resume.
 
 **Verified:** start, ref capture from `~/.copilot/session-store.db`, close, resume path. See `TestCaptureCopilotSessionRefFromSessionStore`.
+
+### Exit Keys
+
+`C-c`, `exit`, `Enter`
+
+---
+
+## Claude
+
+**Binary:** `claude` (Anthropic Claude Code CLI)
+
+### Commands
+
+| Action | Command |
+| --- | --- |
+| Start open-only | `claude` |
+| Start with prompt | `claude <prompt>` |
+| Resume | `claude --resume <session_ref>` |
+
+### Session Ref Capture
+
+Claude Code writes each session to `~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl`, where the directory name is the absolute working directory with `/` replaced by `-`. Each line is a JSON object; non-meta user turns have the shape:
+
+```json
+{"type":"user","isMeta":false,"sessionId":"<uuid>","cwd":"<absolute>","timestamp":"<RFC3339Nano>","message":{"role":"user","content":"<prompt>"}}
+```
+
+`message.content` may be a string or an array of content blocks; `contentText()` normalizes both.
+
+Capture logic in `harness.CaptureSessionRefInCWD` walks `~/.claude/projects/**/*.jsonl` and matches entries where:
+
+- `entry.cwd == cwd` (same working directory as the launch)
+- `entry.type == "user"` and `entry.isMeta == false` (skip slash-command caveats and tool turns)
+- `contentText(entry.message.content) == promptText`
+- `entry.timestamp` is within the capture window (`>= since - 2s`)
+
+Walking by directory rather than computing the encoded directory name avoids any mismatch between Kanbi's encoding and Claude Code's; matching is anchored on the `cwd` field inside each file.
+
+The returned `sessionId` is passed to `claude --resume <id>` for resume.
+
+**Verified:** start, ref capture, close, resume path. See `TestCaptureClaudeSessionRefFromProjectsDir` and `TestClaudeDefaultUsesPromptArgumentMode`.
 
 ### Exit Keys
 

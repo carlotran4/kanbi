@@ -206,6 +206,35 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 				}
 			}()
 		}
+		// Claude Code can sit on the workspace-trust dialog for an unbounded
+		// amount of time, so keep polling its projects dir well past the
+		// synchronous capture deadline.
+		if !ses.HarnessSessionRef.Valid && promptAlreadySent && ticket.Harness == "claude" {
+			ticketID := ticket.ID
+			harnessName := ticket.Harness
+			cwd := ticket.BoardWorkdir
+			prompt := renderedPrompt
+			since := launchStartedAt
+			store := l.manager.Store
+			go func() {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				end := time.Now().Add(5 * time.Minute)
+				for time.Now().Before(end) {
+					select {
+					case <-bgCtx.Done():
+						return
+					case <-time.After(time.Second):
+					}
+					if ref, ok := harness.CaptureSessionRefInCWD(harnessName, prompt, cwd, since); ok {
+						if activeSes, active, err := store.ActiveSession(bgCtx, ticketID); err == nil && active {
+							_ = store.UpdateSessionRef(bgCtx, activeSes.ID, ref)
+						}
+						return
+					}
+				}
+			}()
+		}
 	}
 	if sendPrompt && !promptAlreadySent {
 		ready := harness.PromptReadyPattern(l.manager.Config.Harnesses, ticket.Harness)

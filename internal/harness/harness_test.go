@@ -139,7 +139,7 @@ func TestFakePasteHarnessContractRemainsConfigurable(t *testing.T) {
 }
 
 func TestBuiltinContractsMapToHarnessDocs(t *testing.T) {
-	for _, name := range []string{"pi", "codex", "copilot"} {
+	for _, name := range []string{"pi", "codex", "copilot", "claude"} {
 		contract, ok := BuiltinContract(name)
 		if !ok {
 			t.Fatalf("missing built-in contract %q", name)
@@ -607,6 +607,104 @@ func TestCaptureCopilotSessionRefInExplicitWorkdir(t *testing.T) {
 	ref, ok := CaptureSessionRefInCWD("copilot", promptText, cwd, time.Unix(1893456000, 0))
 	if !ok || ref != "workdir-ref" {
 		t.Fatalf("ref=%q ok=%v", ref, ok)
+	}
+}
+
+func TestClaudeDefaultUsesPromptArgumentMode(t *testing.T) {
+	harnesses := DefaultConfigs()
+	// No-prompt open
+	noPromptStart, err := StartCommand(harnesses, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(noPromptStart, []string{"claude"}) {
+		t.Fatalf("no-prompt start=%#v", noPromptStart)
+	}
+	// Prompt open: prompt is appended as final positional arg
+	start, sent, err := StartCommandWithPrompt(harnesses, "claude", "# T-001: Demo\n\nBody", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"claude", "# T-001: Demo\n\nBody"}
+	if !sent || !reflect.DeepEqual(start, want) {
+		t.Fatalf("start=%#v sent=%v", start, sent)
+	}
+	resume, err := ResumeCommand(harnesses, "claude", "9852755a-49b4-45a8-8b90-3247d6f2efd0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"claude", "--resume", "9852755a-49b4-45a8-8b90-3247d6f2efd0"}
+	if !reflect.DeepEqual(resume, want) {
+		t.Fatalf("resume=%#v", resume)
+	}
+}
+
+func TestCaptureClaudeSessionRefFromProjectsDir(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+	promptText := "# T-001: Demo\n\nBody"
+
+	// Directory name doesn't matter — capture matches by the `cwd` field
+	// inside each jsonl entry, not by the encoded directory name.
+	projectDir := filepath.Join(home, ".claude", "projects", "encoded-cwd-arbitrary")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Session A: meta entry + matching user prompt → should be picked
+	sessionA := strings.Join([]string{
+		`{"type":"user","isMeta":true,"sessionId":"session-a","cwd":` + quote(cwd) + `,"timestamp":"2030-01-01T00:00:00.100Z","message":{"role":"user","content":"<local-command-caveat>...</local-command-caveat>"}}`,
+		`{"type":"user","isMeta":false,"sessionId":"session-a","cwd":` + quote(cwd) + `,"timestamp":"2030-01-01T00:00:01.000Z","message":{"role":"user","content":` + quote(promptText) + `}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "session-a.jsonl"), []byte(sessionA), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Session B: matching prompt but wrong cwd → should be ignored
+	wrongCWD := t.TempDir()
+	sessionB := `{"type":"user","isMeta":false,"sessionId":"session-b","cwd":` + quote(wrongCWD) + `,"timestamp":"2030-01-01T00:00:02.000Z","message":{"role":"user","content":` + quote(promptText) + `}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "session-b.jsonl"), []byte(sessionB), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Session C: right cwd but different prompt → ignored
+	sessionC := `{"type":"user","isMeta":false,"sessionId":"session-c","cwd":` + quote(cwd) + `,"timestamp":"2030-01-01T00:00:03.000Z","message":{"role":"user","content":"unrelated"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "session-c.jsonl"), []byte(sessionC), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	since := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	ref, ok := CaptureSessionRefInCWD("claude", promptText, cwd, since)
+	if !ok || ref != "session-a" {
+		t.Fatalf("ref=%q ok=%v, want session-a/true", ref, ok)
+	}
+
+	// CWD mismatch returns nothing
+	if ref, ok := CaptureSessionRefInCWD("claude", promptText, t.TempDir(), since); ok {
+		t.Fatalf("unexpected match for unrelated cwd: ref=%q", ref)
+	}
+}
+
+func TestCaptureClaudeSessionRefHonorsSinceWindow(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+	promptText := "# T-001: Demo\n\nBody"
+
+	projectDir := filepath.Join(home, ".claude", "projects", "encoded")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Session predates the since window by more than the 2s slack — ignored
+	oldSession := `{"type":"user","isMeta":false,"sessionId":"old","cwd":` + quote(cwd) + `,"timestamp":"2020-01-01T00:00:00Z","message":{"role":"user","content":` + quote(promptText) + `}}` + "\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "old.jsonl"), []byte(oldSession), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if ref, ok := CaptureSessionRefInCWD("claude", promptText, cwd, time.Now()); ok {
+		t.Fatalf("expected no match for pre-window session, got ref=%q", ref)
 	}
 }
 

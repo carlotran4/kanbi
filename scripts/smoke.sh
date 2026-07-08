@@ -32,6 +32,7 @@ SESSION="kanbi-smoke-$$"
 BIN="$TMP/kanbi"
 FAKE_PI="$ROOT/scripts/fake-harnesses/pi"
 FAKE_CODEX="$ROOT/scripts/fake-harnesses/codex"
+FAKE_CLAUDE="$ROOT/scripts/fake-harnesses/claude"
 
 cleanup() {
   tmux kill-session -t "$SESSION" 2>/dev/null || true
@@ -61,6 +62,10 @@ harnesses:
     start: ["$FAKE_CODEX", "--no-alt-screen"]
     resume: ["$FAKE_CODEX", "resume", "--no-alt-screen", "{session_ref}"]
     prompt_mode: "arg"
+  claude:
+    start: ["$FAKE_CLAUDE"]
+    resume: ["$FAKE_CLAUDE", "--resume", "{session_ref}"]
+    prompt_mode: "arg"
 YAML
 
 cd "$ROOT"
@@ -78,11 +83,15 @@ go build -buildvcs=false -o "$BIN" ./cmd/kanbi
 "$BIN" add "Codex smoke ticket" --body "Verify codex prompt arg" --harness codex
 "$BIN" list | grep -q "T-002"
 "$BIN" open T-002 --send-prompt
+"$BIN" add "Claude smoke ticket" --body "Verify claude prompt arg" --harness claude
+"$BIN" list | grep -q "T-003"
+"$BIN" open T-003 --send-prompt
 
 tmux has-session -t "$SESSION"
 tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^board$'
 tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-001-smoke-test-ticket$'
 tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-002-codex-smoke-ticket$'
+tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-003-claude-smoke-ticket$'
 sqlite3 "$KANBI_DB" "select tmux_window_id from sessions where is_active=1" | grep -q '^@'
 
 sleep 0.5
@@ -92,5 +101,8 @@ printf '%s\n' "$OUT" | grep -q 'Verify smoke path'
 CODEX_OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-002-codex-smoke-ticket")"
 printf '%s\n' "$CODEX_OUT" | grep -q '# T-002: Codex smoke ticket'
 printf '%s\n' "$CODEX_OUT" | grep -q 'Verify codex prompt arg'
+CLAUDE_OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-003-claude-smoke-ticket")"
+printf '%s\n' "$CLAUDE_OUT" | grep -q '# T-003: Claude smoke ticket'
+printf '%s\n' "$CLAUDE_OUT" | grep -q 'Verify claude prompt arg'
 
 echo "smoke ok"

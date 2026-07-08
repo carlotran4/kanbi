@@ -3,12 +3,12 @@
 #
 # REQUIRES opt-in:
 #   KANBI_REAL_HARNESS_TESTS=1  - must be set to run
-#   KANBI_REAL_HARNESSES=pi,codex,copilot  - selects harnesses (default: pi)
+#   KANBI_REAL_HARNESSES=pi,codex,copilot,claude  - selects harnesses (default: pi)
 #
 # WARNING: This script starts REAL agent harnesses which can:
 #   - consume model quota / token credits
 #   - depend on local auth (Pi, Codex API keys, gh auth)
-#   - modify local harness session histories (~/.pi, ~/.codex, etc.)
+#   - modify local harness session histories (~/.pi, ~/.codex, ~/.claude, etc.)
 #
 # Always run deterministic tests first:
 #   go fmt ./... && go test ./... && go vet ./... && ./scripts/smoke.sh
@@ -36,7 +36,7 @@ Real-harness lifecycle tests are opt-in.
 To run:
   KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi ./scripts/real-harness-lifecycle.sh
 
-Supported harnesses: pi, codex, copilot
+Supported harnesses: pi, codex, copilot, claude
 WARNING: Real harnesses consume model quota and require local auth.
 EOF
   exit 0
@@ -102,6 +102,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
     pi)     CMD="pi";;
     codex)  CMD="codex";;
     copilot) CMD="copilot";;
+    claude) CMD="claude";;
     *)      fail "unknown harness: $HARNESS";;
   esac
   if ! command -v "$CMD" &>/dev/null; then
@@ -152,7 +153,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
   PANE_OUT="$(tmux capture-pane -p -t "$SESSION:$WNAME" 2>/dev/null || true)"
   # Check harness-specific prompt echo
   case "$HARNESS" in
-    pi|codex)
+    pi|codex|claude)
       if echo "$PANE_OUT" | grep -qF "lifecycle test"; then
         pass "prompt text visible in pane"
       else
@@ -188,6 +189,15 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
       else
         echo "  NOTE: session ref not yet captured for $HARNESS (harness may need more time)"
         echo "  This is expected if the harness is still starting."
+      fi
+      ;;
+    claude)
+      if [[ -n "$SESSION_REF" && "$SESSION_REF" != "NULL" ]]; then
+        pass "session ref captured from ~/.claude/projects/: $SESSION_REF"
+      else
+        echo "  NOTE: session ref not yet in kanbi DB after 8s."
+        echo "  Claude Code may still be starting. Check ~/.claude/projects/ manually."
+        pass "claude window started; ref capture pending"
       fi
       ;;
     copilot)
@@ -272,7 +282,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
         pass "[$HARNESS] repair/start-fresh path expected as fallback"
       fi
       ;;
-    pi|codex)
+    pi|codex|claude)
       if [[ -n "$SESSION_REF" && "$SESSION_REF" != "NULL" ]]; then
         echo "  [$HARNESS] Attempting resume with ref=$SESSION_REF"
         # We don't re-run the harness here to avoid double-consuming quota.
@@ -283,6 +293,9 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
             ;;
           codex)
             EXPECTED_CMD="codex resume --no-alt-screen $SESSION_REF"
+            ;;
+          claude)
+            EXPECTED_CMD="claude --resume $SESSION_REF"
             ;;
         esac
         pass "[$HARNESS] resume ref available; command would be: $EXPECTED_CMD"
