@@ -82,8 +82,13 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 		return id + "\n", nil
 	case len(args) >= 1 && args[0] == "display-message":
 		if len(args) >= 4 && args[len(args)-1] == "#{window_name}" {
+			targetArg := args[len(args)-2]
+			targetID := targetArg
+			if idx := strings.Index(targetArg, ":"); idx >= 0 {
+				targetID = targetArg[idx+1:]
+			}
 			if f.windows != nil {
-				if name, ok := f.windows[args[len(args)-2]]; ok {
+				if name, ok := f.windows[targetID]; ok {
 					return name + "\n", nil
 				}
 			}
@@ -99,7 +104,7 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 				return "@0\n", nil
 			}
 			for id, name := range f.windows {
-				if targetArg == id || windowName == name {
+				if targetArg == id || windowName == id || windowName == name {
 					return id + "\n", nil
 				}
 			}
@@ -673,7 +678,7 @@ func TestOpenTicketCreatesWindowAndSwitchesClient(t *testing.T) {
 		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t kanbi" {
 			sawSwitchSession = true
 		}
-		if len(c.args) > 0 && c.args[0] == "select-window" && strings.Join(c.args, " ") == "select-window -t @7" {
+		if len(c.args) > 0 && c.args[0] == "select-window" && strings.Join(c.args, " ") == "select-window -t kanbi:@7" {
 			sawSelectWindow = true
 		}
 	}
@@ -947,7 +952,7 @@ func TestSwitchToTicketPrefersStoredWindowID(t *testing.T) {
 		if len(c.args) > 0 && c.args[0] == "switch-client" && strings.Join(c.args, " ") == "switch-client -t kanbi" {
 			sawSwitchSession = true
 		}
-		if len(c.args) > 0 && c.args[0] == "select-window" && strings.Join(c.args, " ") == "select-window -t @7" {
+		if len(c.args) > 0 && c.args[0] == "select-window" && strings.Join(c.args, " ") == "select-window -t kanbi:@7" {
 			sawSelectWindow = true
 		}
 	}

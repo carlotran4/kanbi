@@ -580,6 +580,14 @@ func (m *mockOpener) Run(ctx context.Context, name string, args ...string) (stri
 		return b.String(), nil
 	case len(args) > 0 && args[0] == "display-message":
 		if len(args) > 0 && args[len(args)-1] == "#{window_name}" {
+			targetArg := args[len(args)-2]
+			targetID := targetArg
+			if idx := strings.Index(targetArg, ":"); idx >= 0 {
+				targetID = targetArg[idx+1:]
+			}
+			if name, ok := m.windows[targetID]; ok {
+				return name + "\n", nil
+			}
 			for _, n := range m.windows {
 				return n + "\n", nil
 			}
@@ -768,11 +776,22 @@ func (r *routingRunner) Run(ctx context.Context, name string, args ...string) (s
 	case len(args) > 0 && args[0] == "display-message":
 		for id, n := range r.windows {
 			if len(args) >= 2 && args[len(args)-2] == "-t" {
-				if args[len(args)-1] == "#{window_name}" {
+				targetArg := args[len(args)-2]
+				targetID := targetArg
+				if idx := strings.Index(targetArg, ":"); idx >= 0 {
+					targetID = targetArg[idx+1:]
+				}
+				formatArg := args[len(args)-1]
+				if formatArg == "#{window_name}" {
+					if targetID == id {
+						return n + "\n", nil
+					}
 					return n + "\n", nil
 				}
-				if args[len(args)-1] == "#{window_id}" {
-					return id + "\n", nil
+				if formatArg == "#{window_id}" {
+					if targetID == id || targetID == n {
+						return id + "\n", nil
+					}
 				}
 			}
 		}

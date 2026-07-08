@@ -721,7 +721,10 @@ func target(session, window string) string {
 }
 
 func targetRef(session, ref string) string {
-	if strings.HasPrefix(ref, "@") {
+	if ref == "" || session == "" {
+		return ref
+	}
+	if strings.Contains(ref, ":") {
 		return ref
 	}
 	return target(session, ref)
