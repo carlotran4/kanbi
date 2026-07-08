@@ -57,9 +57,9 @@ func BuiltinContracts() map[string]Contract {
 		"copilot": {
 			Name: "copilot",
 			Config: Config{
-				Start:           []string{"gh", "copilot", "--"},
-				StartWithPrompt: []string{"gh", "copilot", "--", "-i"},
-				Resume:          []string{"gh", "copilot", "--", "--resume={session_ref}"},
+				Start:           []string{"copilot"},
+				StartWithPrompt: []string{"copilot", "-i"},
+				Resume:          []string{"copilot", "--resume={session_ref}"},
 				Exit:            []string{"C-c", "exit", "Enter"},
 				PromptMode:      PromptModeArg,
 			},

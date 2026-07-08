@@ -438,6 +438,70 @@ func TestOpenTicketRecoversMissingPiSessionRefFromRefFile(t *testing.T) {
 	t.Fatalf("resume command with recovered ref not called: %+v", runner.calls)
 }
 
+func TestOpenTicketRejectsInvalidStoredCopilotSessionRefBeforeResume(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Copilot Resume", "Body", "copilot")
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".copilot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", filepath.Join(home, ".copilot", "session-store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+		CREATE TABLE sessions (
+			id TEXT PRIMARY KEY,
+			cwd TEXT,
+			created_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE TABLE turns (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL REFERENCES sessions(id),
+			turn_index INTEGER NOT NULL,
+			user_message TEXT,
+			UNIQUE(session_id, turn_index)
+		);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO sessions(id, cwd, created_at) VALUES(?,?,?)`,
+		"bad-copilot-ref", cwd, "2030-01-01T00:00:02Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:         "copilot",
+		TmuxSessionName: "kanbi",
+		TmuxWindowName:  "T-001-copilot-resume",
+		Status:          "running",
+	})
+	_ = store.UpdateSessionRef(ctx, sessionID, "bad-copilot-ref")
+	_ = store.MarkSessionClosed(ctx, sessionID, "error", "tmux", "window missing")
+
+	ticket, _ = store.TicketByID(ctx, ticket.ID)
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: &fakeRunner{}}
+	err = manager.OpenTicket(ctx, ticket, false)
+	var repair RepairNeededError
+	if !errors.As(err, &repair) {
+		t.Fatalf("expected RepairNeededError, got %T: %v", err, err)
+	}
+	updated, _ := store.TicketByID(ctx, ticket.ID)
+	if updated.SessionRef.Valid {
+		t.Fatalf("expected invalid copilot ref to be cleared, got %+v", updated.SessionRef)
+	}
+}
+
 func TestOpenTicketResumeFailureReturnsResumeFailedError(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -1193,11 +1257,11 @@ func TestCopilotOpenTicketSendsPromptWithInteractiveFlag(t *testing.T) {
 	}
 	for _, c := range runner.calls {
 		if len(c.args) > 0 && c.args[0] == "new-window" {
-			joined := strings.Join(c.args, "\n")
-			if strings.Contains(joined, "gh copilot -- -i") && strings.Contains(joined, "# T-001: Copilot Demo\n\nBody") {
+			joined := strings.Join(c.args, " ")
+			if strings.Contains(joined, "copilot -i") && strings.Contains(joined, "# T-001: Copilot Demo") && strings.Contains(joined, "Body") {
 				return
 			}
-			t.Fatalf("copilot new-window command missing '-- -i' and prompt: %+v", c.args)
+			t.Fatalf("copilot new-window command missing '-i' and prompt: %+v", c.args)
 		}
 	}
 	t.Fatal("expected a new-window call")

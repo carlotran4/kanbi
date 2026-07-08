@@ -77,12 +77,12 @@ func TestPiDefaultUsesPromptArgumentModeAndSessionResume(t *testing.T) {
 
 func TestCopilotDefaultUsesInteractivePromptAndResumeFlag(t *testing.T) {
 	harnesses := DefaultConfigs()
-	// No-prompt open: should launch plain `gh copilot` without -i
+	// No-prompt open: should launch plain `copilot` without -i
 	noPromptStart, err := StartCommand(harnesses, "copilot")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantNoPrompt := []string{"gh", "copilot", "--"}
+	wantNoPrompt := []string{"copilot"}
 	if !reflect.DeepEqual(noPromptStart, wantNoPrompt) {
 		t.Fatalf("no-prompt start=%#v", noPromptStart)
 	}
@@ -91,7 +91,7 @@ func TestCopilotDefaultUsesInteractivePromptAndResumeFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"gh", "copilot", "--", "-i", "# T-001: Demo\n\nBody"}
+	want := []string{"copilot", "-i", "# T-001: Demo\n\nBody"}
 	if !sent || !reflect.DeepEqual(start, want) {
 		t.Fatalf("start=%#v sent=%v", start, sent)
 	}
@@ -99,7 +99,7 @@ func TestCopilotDefaultUsesInteractivePromptAndResumeFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = []string{"gh", "copilot", "--", "--resume=abc1234"}
+	want = []string{"copilot", "--resume=abc1234"}
 	if !reflect.DeepEqual(resume, want) {
 		t.Fatalf("resume=%#v", resume)
 	}
@@ -468,5 +468,103 @@ func TestCaptureCopilotSessionRefFromSessionStore(t *testing.T) {
 	ref, ok := CaptureSessionRef("copilot", promptText, time.Unix(1893456000, 0))
 	if !ok || ref != sessionID {
 		t.Fatalf("ref=%q ok=%v", ref, ok)
+	}
+}
+
+func TestCaptureCopilotSessionRefDoesNotMatchSessionWithoutPromptTurn(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldCwd) })
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(home, ".copilot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", filepath.Join(home, ".copilot", "session-store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE sessions (
+			id TEXT PRIMARY KEY,
+			cwd TEXT,
+			created_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE TABLE turns (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL REFERENCES sessions(id),
+			turn_index INTEGER NOT NULL,
+			user_message TEXT,
+			UNIQUE(session_id, turn_index)
+		);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.Exec(`INSERT INTO sessions(id, cwd, created_at) VALUES(?,?,?)`,
+		"session-without-turn", cwd, "2030-01-01T00:00:02Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ref, ok := CaptureSessionRef("copilot", "# T-001: Demo\n\nBody", time.Unix(1893456000, 0))
+	if ok || ref != "" {
+		t.Fatalf("ref=%q ok=%v", ref, ok)
+	}
+}
+
+func TestValidateCopilotSessionRefRejectsSessionWithoutPromptTurn(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldCwd) })
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(home, ".copilot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", filepath.Join(home, ".copilot", "session-store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE sessions (
+			id TEXT PRIMARY KEY,
+			cwd TEXT,
+			created_at TEXT DEFAULT (datetime('now'))
+		);
+		CREATE TABLE turns (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL REFERENCES sessions(id),
+			turn_index INTEGER NOT NULL,
+			user_message TEXT,
+			UNIQUE(session_id, turn_index)
+		);
+		INSERT INTO sessions(id, cwd, created_at) VALUES('bad-ref', ?, '2030-01-01T00:00:02Z');
+	`, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ValidateSessionRef("copilot", "bad-ref", "# T-001: Demo\n\nBody") {
+		t.Fatal("expected copilot ref without prompt turn to be rejected")
 	}
 }

@@ -75,15 +75,15 @@ Capture logic in `harness.CaptureSessionRef` scans for an entry where:
 
 ## Copilot
 
-**Binary:** `gh` (GitHub CLI with Copilot extension)
+**Binary:** `copilot` (GitHub Copilot CLI)
 
 ### Commands
 
 | Action | Command |
 | --- | --- |
-| Start open-only | `gh copilot --` |
-| Start with prompt | `gh copilot -- -i <prompt>` |
-| Resume | `gh copilot -- --resume=<session_ref>` |
+| Start open-only | `copilot` |
+| Start with prompt | `copilot -i <prompt>` |
+| Resume | `copilot --resume=<session_ref>` |
 
 Open-only and prompt-start use different base commands (`start` vs `start_with_prompt` in the contract) because `-i` requires a `<prompt>` argument and must not be included in open-only launches.
 
@@ -99,7 +99,9 @@ Capture logic in `harness.CaptureSessionRef` queries for the most recent session
 - `sessions.created_at >= session_start - 2s` (recency filter)
 - `turns.user_message == promptText` at `turn_index = 0` (first user turn matches prompt)
 
-The returned `sessions.id` (UUID) is passed to `gh copilot -- --resume=<id>` for resume.
+Kanbi intentionally does **not** accept a Copilot session row whose first user turn has not been written yet. That looser match was prone to capturing unrelated Copilot sessions from the same working directory and produced invalid resume ids.
+
+The returned `sessions.id` (UUID) is passed to `copilot --resume=<id>` for resume.
 
 **Verified:** start, ref capture from `~/.copilot/session-store.db`, close, resume path. See `TestCaptureCopilotSessionRefFromSessionStore`.
 

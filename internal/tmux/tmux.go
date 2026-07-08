@@ -143,8 +143,18 @@ func (m *Manager) SwitchToTicket(ctx context.Context, ticket storage.Ticket) err
 }
 
 func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.Ticket) (storage.Ticket, error) {
-	if m.Store == nil || !ticket.SessionID.Valid || (ticket.SessionRef.Valid && ticket.SessionRef.String != "") {
+	if m.Store == nil || !ticket.SessionID.Valid {
 		return ticket, nil
+	}
+	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
+	if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
+		if harness.ValidateSessionRef(ticket.Harness, ticket.SessionRef.String, promptText) {
+			return ticket, nil
+		}
+		if err := m.Store.UpdateSessionRef(ctx, ticket.SessionID.Int64, ""); err != nil {
+			return ticket, err
+		}
+		ticket.SessionRef = sql.NullString{}
 	}
 	ses, ok, err := m.Store.LatestSession(ctx, ticket.ID)
 	if err != nil || !ok || !ses.StartedAt.Valid || ses.HarnessSessionRef.Valid {
@@ -161,7 +171,6 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 			return ticket, nil
 		}
 	}
-	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
 	ref, found := harness.CaptureSessionRef(ticket.Harness, promptText, ses.StartedAt.Time)
 	if !found {
 		return ticket, nil

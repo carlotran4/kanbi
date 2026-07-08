@@ -57,7 +57,7 @@ Use integration tests for DB-backed behavior:
 Tests should use a temporary directory and temporary SQLite DB.
 
 ### 3. Fake Harnesses
-Do not rely on real `pi`, `codex`, or `gh copilot` in automated tests.
+Do not rely on real `pi`, `codex`, or `copilot` in automated tests.
 
 Create fake harness binaries/scripts in temporary directories that simulate:
 

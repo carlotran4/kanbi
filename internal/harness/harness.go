@@ -174,6 +174,18 @@ func CaptureSessionRef(name, promptText string, since time.Time) (string, bool) 
 	return contract.CaptureRef(promptText, since)
 }
 
+func ValidateSessionRef(name, sessionRef, promptText string) bool {
+	if strings.TrimSpace(sessionRef) == "" {
+		return false
+	}
+	switch name {
+	case "copilot":
+		return validateCopilotSessionRef(sessionRef, promptText)
+	default:
+		return true
+	}
+}
+
 type codexHistoryEntry struct {
 	SessionID string  `json:"session_id"`
 	Timestamp float64 `json:"ts"`
@@ -328,36 +340,29 @@ func contentText(content any) string {
 // latestCopilotSession scans ~/.copilot/session-store.db for the most recent
 // Copilot CLI session whose first user turn matches promptText and whose cwd
 // matches the current working directory. The session ID is stable and can be
-// passed to `gh copilot -- --resume=<id>`.
+// passed to `copilot --resume=<id>`.
 func latestCopilotSession(promptText string, since time.Time) (string, bool) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", false
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", false
 	}
-	dbPath := filepath.Join(home, ".copilot", "session-store.db")
-	db, err := sql.Open("sqlite3", dbPath+"?mode=ro")
+	db, err := openCopilotSessionStore()
 	if err != nil {
 		return "", false
 	}
 	defer db.Close()
 
-	// Find sessions in this cwd created after since, whose first user turn (if already written)
-	// matches promptText, OR where no turn exists yet but the session cwd+time matches.
-	// The turn is written asynchronously when the model first responds, which can take
-	// several seconds. We accept a session with no turn yet and verify the prompt match
-	// opportunistically; if a turn is present it must match.
+	// Match the first user turn exactly. Accepting sessions whose first turn has not
+	// been written yet is too loose and can capture unrelated Copilot sessions from
+	// the same cwd, which later makes resume fail with a stale session id.
 	sinceStr := since.UTC().Add(-10 * time.Second).Format(time.RFC3339)
 	query := `
 		SELECT s.id
 		FROM sessions s
-		LEFT JOIN turns t ON t.session_id = s.id AND t.turn_index = 0
+		JOIN turns t ON t.session_id = s.id AND t.turn_index = 0
 		WHERE s.cwd = ?
 		  AND s.created_at >= ?
-		  AND (t.user_message = ? OR t.user_message IS NULL)
+		  AND t.user_message = ?
 		ORDER BY s.created_at DESC
 		LIMIT 1`
 	var id string
@@ -366,4 +371,37 @@ func latestCopilotSession(promptText string, since time.Time) (string, bool) {
 		return "", false
 	}
 	return id, id != ""
+}
+
+func validateCopilotSessionRef(sessionRef, promptText string) bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	db, err := openCopilotSessionStore()
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+
+	var count int
+	err = db.QueryRow(`
+		SELECT count(*)
+		FROM sessions s
+		JOIN turns t ON t.session_id = s.id AND t.turn_index = 0
+		WHERE s.id = ?
+		  AND s.cwd = ?
+		  AND t.user_message = ?`,
+		sessionRef, cwd, promptText,
+	).Scan(&count)
+	return err == nil && count > 0
+}
+
+func openCopilotSessionStore() (*sql.DB, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	dbPath := filepath.Join(home, ".copilot", "session-store.db")
+	return sql.Open("sqlite3", dbPath+"?mode=ro")
 }

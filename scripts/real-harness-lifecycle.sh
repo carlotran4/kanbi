@@ -101,7 +101,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
   case "$HARNESS" in
     pi)     CMD="pi";;
     codex)  CMD="codex";;
-    copilot) CMD="gh";;
+    copilot) CMD="copilot";;
     *)      fail "unknown harness: $HARNESS";;
   esac
   if ! command -v "$CMD" &>/dev/null; then
@@ -264,7 +264,7 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
   case "$HARNESS" in
     copilot)
       if [[ -n "$SESSION_REF" && "$SESSION_REF" != "NULL" ]]; then
-        pass "[$HARNESS] resume ref available from session-store.db; command would be: gh copilot -- --resume=$SESSION_REF"
+        pass "[$HARNESS] resume ref available from session-store.db; command would be: copilot --resume=$SESSION_REF"
         echo "  NOTE: Actual resume not executed to avoid double quota consumption."
         echo "  Use '$BIN open $DISPLAY_ID' in a real board session to test resume."
       else
