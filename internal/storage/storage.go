@@ -227,6 +227,10 @@ type RemoteTicket struct {
 	Title             string
 	Body              string
 	ArchivedAt        *time.Time
+	// SourceTicketID optionally links a just-created remote issue back to the
+	// local placeholder ticket that produced it, instead of inserting a second
+	// ticket with the remote display ID.
+	SourceTicketID int64
 }
 
 func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
@@ -881,21 +885,41 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 	if existingErr != nil && !errors.Is(existingErr, sql.ErrNoRows) {
 		return Ticket{}, existingErr
 	}
-	displayNumber, err := s.remoteDisplayNumber(ctx, rt.BoardID, rt.DisplayNumber, id)
+	displayNumberCurrentID := id
+	if errors.Is(existingErr, sql.ErrNoRows) && rt.SourceTicketID != 0 {
+		displayNumberCurrentID = rt.SourceTicketID
+	}
+	displayNumber, err := s.remoteDisplayNumber(ctx, rt.BoardID, rt.DisplayNumber, displayNumberCurrentID)
 	if err != nil {
 		return Ticket{}, err
 	}
 	if errors.Is(existingErr, sql.ErrNoRows) {
-		pos, err := visibleTicketOrder.nextPosition(ctx, s.db, rt.ColumnID)
-		if err != nil {
-			return Ticket{}, err
+		if rt.SourceTicketID != 0 {
+			var sourceBoardID int64
+			if err := s.db.QueryRowContext(ctx, `select board_id from tickets where id=?`, rt.SourceTicketID).Scan(&sourceBoardID); err != nil {
+				return Ticket{}, err
+			}
+			if sourceBoardID != rt.BoardID {
+				return Ticket{}, errors.New("remote ticket source belongs to a different board")
+			}
+			_, err = s.db.ExecContext(ctx, `update tickets set column_id=?, external_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
+				rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, rt.SourceTicketID)
+			if err != nil {
+				return Ticket{}, err
+			}
+			id = rt.SourceTicketID
+		} else {
+			pos, err := visibleTicketOrder.nextPosition(ctx, s.db, rt.ColumnID)
+			if err != nil {
+				return Ticket{}, err
+			}
+			res, err := s.db.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				rt.BoardID, rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, "pi", pos, archived, now, rt.ExternalUpdatedAt)
+			if err != nil {
+				return Ticket{}, err
+			}
+			id, _ = res.LastInsertId()
 		}
-		res, err := s.db.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			rt.BoardID, rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, "pi", pos, archived, now, rt.ExternalUpdatedAt)
-		if err != nil {
-			return Ticket{}, err
-		}
-		id, _ = res.LastInsertId()
 	} else {
 		_, err = s.db.ExecContext(ctx, `update tickets set column_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
 			rt.ColumnID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, id)

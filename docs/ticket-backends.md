@@ -76,7 +76,7 @@ GitHub sync behavior:
 - Uses GitHub-native issue state for terminal work: closed issues appear visibly in the `Done` column by default, and moving a ticket to `Done` or `Closed` closes the GitHub issue. Only Kanbi's local archive action hides a ticket from the board. Open issues without a workflow label go to `Open`.
 - Uses plain workflow labels for non-terminal columns by default: `in-progress` -> `In Progress`, `needs-review` -> `Review`, and `blocked` -> `Blocked`. Override these with `workflow_labels` in `backend_config`. Legacy `status:*` labels are still read during transition but are stripped on the next push.
 - Pulls issue comments into ticket notes and pushes local notes as issue comments.
-- Pushes local ticket title/body/closed state/status-label changes back to GitHub. Local tickets created on a GitHub board are created as remote issues on the next sync.
+- Pushes local ticket title/body/closed state/status-label changes back to GitHub. Local tickets created on a GitHub board are temporary local placeholders until the next sync creates the remote issue; that same local row is then linked to the GitHub issue and its display ID changes from `T-*` to `GH-*`.
 - Uses newest `updated_at` wins for ticket and comment conflicts. GitHub issue/comment `updated_at` can lag immediately after writes; repeated syncs are expected to be idempotent, and automation should tolerate eventual consistency by polling/retrying before declaring a mismatch.
 - Follows GitHub pagination for issue and comment list pages (`per_page=100`) and includes rate-limit response headers in sync errors when GitHub returns them.
 - Does not sync tmux windows, sessions, harness refs, runtime state, or other local session history.

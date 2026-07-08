@@ -215,7 +215,8 @@ func TestGitHubSyncCreatesRemoteIssueForLocalTicket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "local only", "body", "pi"); err != nil {
+	local, err := store.CreateTicket(ctx, view.Columns[0].ID, "local only", "body", "pi")
+	if err != nil {
 		t.Fatal(err)
 	}
 	client := &fakeGitHubClient{comments: map[int][]GitHubComment{}}
@@ -229,8 +230,30 @@ func TestGitHubSyncCreatesRemoteIssueForLocalTicket(t *testing.T) {
 	if got := *client.createdIssues[0].Title; got != "local only" {
 		t.Fatalf("created title=%q", got)
 	}
-	if _, err := store.TicketByDisplayIDInBoard(ctx, "GH-1001", board.ID); err != nil {
+	created, err := store.TicketByDisplayIDInBoard(ctx, "GH-1001", board.ID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if created.ID != local.ID || !created.ExternalID.Valid || created.ExternalID.String != "1001" {
+		t.Fatalf("created ticket not linked to local placeholder: id=%d external=%+v local_id=%d", created.ID, created.ExternalID, local.ID)
+	}
+	if _, err := store.TicketByDisplayIDInBoard(ctx, local.DisplayID, board.ID); err == nil {
+		t.Fatalf("local placeholder %s should have been converted to GH display id", local.DisplayID)
+	}
+
+	res, err = (GitHubBackend{Client: client}).Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.createdIssues) != 1 || res.Pushed != 0 {
+		t.Fatalf("second sync created duplicate issue: pushed=%d created=%d", res.Pushed, len(client.createdIssues))
+	}
+	view, err = store.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Columns[0].Tickets) != 1 || view.Columns[0].Tickets[0].DisplayID != "GH-1001" {
+		t.Fatalf("tickets after sync = %+v", view.Columns[0].Tickets)
 	}
 }
 

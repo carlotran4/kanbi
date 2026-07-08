@@ -189,7 +189,9 @@ func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board sto
 		if err != nil {
 			return res, err
 		}
-		if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, local.ColumnID, created, archivedTime(local))); err != nil {
+		rt := githubRemoteTicket(board.ID, local.ColumnID, created, archivedTime(local))
+		rt.SourceTicketID = local.ID
+		if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
 			return res, err
 		}
 		res.Pushed++
