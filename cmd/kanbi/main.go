@@ -37,7 +37,7 @@ func run(args []string) error {
 	}
 
 	if len(args) == 0 {
-		if !tmux.InsideTmux() && os.Getenv("KANBI_INNER") == "" {
+		if shouldAttachTmuxForBoard(cfg) && !tmux.InsideTmux() && os.Getenv("KANBI_INNER") == "" {
 			exe, err := os.Executable()
 			if err != nil {
 				return err
@@ -345,7 +345,7 @@ func runOpen(ctx context.Context, cfg config.Config, args []string) error {
 			if err != nil {
 				return err
 			}
-			return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.open", "action": "opened", "ticket": cli.jsonTicket(ctx, updated, false), "tmux_window_name": tmux.TicketWindowName(ticket)})
+			return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.open", "action": "opened", "ticket": cli.jsonTicket(ctx, updated, false), "container_name": tmux.TicketWindowName(ticket), "tmux_window_name": tmux.TicketWindowName(ticket)})
 		}
 		fmt.Println("opened", ticket.BoardName, ticket.DisplayID, tmux.TicketWindowName(ticket))
 		return nil
@@ -791,6 +791,10 @@ func (c *cliContext) Manager() *tmux.Manager {
 	return tmux.NewManager(c.cfg, c.store)
 }
 
+func shouldAttachTmuxForBoard(cfg config.Config) bool {
+	return strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default)) != "herdr"
+}
+
 func (c *cliContext) BoardByName(name string) (storage.Board, error) {
 	return c.store.BoardByName(c.ctx, name)
 }
@@ -934,6 +938,11 @@ func jsonSession(s storage.Session) any {
 		"harness":               s.Harness,
 		"harness_session_ref":   nullString(s.HarnessSessionRef),
 		"harness_session_name":  nullString(s.HarnessSessionName),
+		"multiplexer":           s.Multiplexer,
+		"mux_namespace":         nullString(s.MuxNamespace),
+		"mux_container_id":      nullString(s.MuxContainerID),
+		"mux_container_name":    nullString(s.MuxContainerName),
+		"mux_metadata":          nullString(s.MuxMetadata),
 		"tmux_session_name":     s.TmuxSessionName,
 		"tmux_window_id":        nullString(s.TmuxWindowID),
 		"tmux_window_name":      s.TmuxWindowName,

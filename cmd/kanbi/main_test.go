@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -880,6 +881,30 @@ var _ interface {
 // Ensure os import is used.
 var _ = os.Getenv
 
+func TestShouldAttachTmuxForBoardDependsOnConfiguredMultiplexer(t *testing.T) {
+	cfg := config.Defaults(config.Paths{})
+	if !shouldAttachTmuxForBoard(cfg) {
+		t.Fatal("tmux default should attach board in tmux")
+	}
+	cfg.Multiplexer.Default = "herdr"
+	if shouldAttachTmuxForBoard(cfg) {
+		t.Fatal("herdr default should run board directly instead of wrapping in tmux")
+	}
+}
+
+func TestJSONSessionIncludesGenericMultiplexerRefs(t *testing.T) {
+	got := jsonSession(storage.Session{
+		Multiplexer:      "herdr",
+		MuxNamespace:     sql.NullString{String: "ws-1", Valid: true},
+		MuxContainerID:   sql.NullString{String: "agent-1", Valid: true},
+		MuxContainerName: sql.NullString{String: "Ticket", Valid: true},
+		MuxMetadata:      sql.NullString{String: `{"pane_id":"pane-1"}`, Valid: true},
+	}).(map[string]any)
+	if got["multiplexer"] != "herdr" || got["mux_namespace"] != "ws-1" || got["mux_container_id"] != "agent-1" || got["mux_container_name"] != "Ticket" || got["mux_metadata"] != `{"pane_id":"pane-1"}` {
+		t.Fatalf("generic mux refs missing from JSON: %#v", got)
+	}
+}
+
 // ---- doctor probes ----
 
 type noopCloser struct{}
@@ -993,7 +1018,7 @@ func TestProbeDoctorWarnsWhenConfiguredHerdrMissing(t *testing.T) {
 		ensureDirs:        func(config.Config) error { return nil },
 		insideTmux:        func() bool { return true },
 		getenv:            func(string) string { return "x" },
-		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
+		ensureTmuxSession: func(context.Context, config.Config) error { return errors.New("should not ensure tmux for Herdr") },
 	})
 
 	if err := report.FatalErr(); err != nil {
@@ -1001,6 +1026,36 @@ func TestProbeDoctorWarnsWhenConfiguredHerdrMissing(t *testing.T) {
 	}
 	assertDoctorResult(t, report, doctorOK, "multiplexer", "herdr")
 	assertDoctorResult(t, report, doctorWarn, "herdr", "not found: install Herdr or set multiplexer.herdr.binary")
+}
+
+func TestProbeDoctorHerdrDoesNotRequireTmux(t *testing.T) {
+	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
+	cfg.Multiplexer.Default = "herdr"
+	report := probeDoctor(context.Background(), cfg, doctorProber{
+		lookPath: func(name string) (string, error) {
+			if name == "herdr" {
+				return "/bin/herdr", nil
+			}
+			return "", os.ErrNotExist
+		},
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Contains(name, "herdr") {
+				return []byte("ok\n"), nil
+			}
+			return nil, os.ErrNotExist
+		},
+		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs:        func(config.Config) error { return nil },
+		insideTmux:        func() bool { return false },
+		getenv:            func(string) string { return "x" },
+		ensureTmuxSession: func(context.Context, config.Config) error { return errors.New("should not ensure tmux for Herdr") },
+	})
+
+	if err := report.FatalErr(); err != nil {
+		t.Fatalf("expected no fatal error, got %v", err)
+	}
+	assertDoctorResult(t, report, doctorOK, "herdr", "session default")
+	assertDoctorResult(t, report, doctorWarn, "tmux", "not found; existing tmux sessions cannot be controlled")
 }
 
 func TestProbeDoctorCanSimulatePathAndTmuxStateFailures(t *testing.T) {

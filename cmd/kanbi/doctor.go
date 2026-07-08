@@ -142,10 +142,12 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 
 	tmuxPath, err := prober.lookPath("tmux")
 	if err != nil {
-		add(doctorFatal, "tmux", "is required", fmt.Errorf("tmux is required: %w", err))
-		return doctorReport{Results: results}
-	}
-	if out, err := prober.commandOutput(tmuxPath, "-V"); err == nil {
+		if configuredMux == "tmux" {
+			add(doctorFatal, "tmux", "is required", fmt.Errorf("tmux is required: %w", err))
+			return doctorReport{Results: results}
+		}
+		add(doctorWarn, "tmux", "not found; existing tmux sessions cannot be controlled", nil)
+	} else if out, err := prober.commandOutput(tmuxPath, "-V"); err == nil {
 		add(doctorOK, "tmux", strings.TrimSpace(string(out)), nil)
 	} else {
 		add(doctorOK, "tmux", "", nil)
@@ -181,11 +183,13 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 		add(doctorWarn, "terminal", "unknown", nil)
 	}
 
-	if err := prober.ensureTmuxSession(ctx, cfg); err != nil {
-		add(doctorFatal, "tmux session", cfg.TmuxSession, fmt.Errorf("tmux session unusable: %w", err))
-		return doctorReport{Results: results}
+	if configuredMux == "tmux" {
+		if err := prober.ensureTmuxSession(ctx, cfg); err != nil {
+			add(doctorFatal, "tmux session", cfg.TmuxSession, fmt.Errorf("tmux session unusable: %w", err))
+			return doctorReport{Results: results}
+		}
+		add(doctorOK, "tmux session", cfg.TmuxSession, nil)
 	}
-	add(doctorOK, "tmux session", cfg.TmuxSession, nil)
 
 	for _, name := range sortedHarnessNames(cfg.Harnesses) {
 		h := cfg.Harnesses[name]

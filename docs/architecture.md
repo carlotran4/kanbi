@@ -93,7 +93,7 @@ windows:
 
 The board process runs in the stable `board` window of its instance session. Each active ticket session gets its own tmux window in the runtime session owned by the board instance that launched it. The app uses windows, not panes, for ticket sessions.
 
-When launched outside tmux, the CLI creates a unique board/client tmux session and sets that same session as the ticket runtime for the inner board process. When launched directly inside tmux without an explicit `KANBI_TMUX_SESSION`, the current tmux session is used as that executable's runtime. `KANBI_INNER=1` prevents recursive launching.
+When tmux is the configured multiplexer and Kanbi is launched outside tmux, the CLI creates a unique board/client tmux session and sets that same session as the ticket runtime for the inner board process. When Herdr is the configured multiplexer, the board UI runs directly in the invoking terminal and ticket sessions launch through Herdr. When launched directly inside tmux without an explicit `KANBI_TMUX_SESSION`, the current tmux session is used as that executable's runtime for tmux-backed sessions. `KANBI_INNER=1` prevents recursive tmux launching.
 
 Session rows persist generic multiplexer container fields (`multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, `mux_metadata`) plus legacy tmux fields for tmux sessions. Other Kanbi instances can see these rows through SQLite and validate/switch/capture/close using the stored container reference instead of assuming their own runtime session.
 
