@@ -207,11 +207,11 @@ func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (mul
 		return unknownDetection(err.Error()), nil
 	}
 	obj := parseObject(out)
-	state := strings.ToLower(firstString(obj, "state", "status", "agent_state", "agentState", "agent.state", "agent.status"))
+	state := strings.ToLower(firstString(obj, "result.agent.agent_status", "result.agent.status", "result.agent.state", "state", "status", "agent_state", "agentState", "agent.state", "agent.status"))
 	if state == "" || state == "unknown" {
 		return unknownDetection("Herdr returned unknown agent state"), nil
 	}
-	reason := firstString(obj, "message", "reason", "custom_status", "customStatus", "agent.message", "agent.custom_status")
+	reason := firstString(obj, "result.agent.message", "result.agent.custom_status", "result.agent.customStatus", "message", "reason", "custom_status", "customStatus", "agent.message", "agent.custom_status")
 	mapped, confidence := mapState(state, reason)
 	if mapped == "" {
 		return unknownDetection("Herdr returned unsupported agent state: " + state), nil

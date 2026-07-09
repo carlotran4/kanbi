@@ -91,6 +91,19 @@ func TestDetectMapsNativeHerdrStates(t *testing.T) {
 	}
 }
 
+func TestDetectParsesRealHerdrAgentEnvelope(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{"agent get agent-1": `{"id":"cli:agent:get","result":{"agent":{"agent_status":"idle","name":"agent-1"},"type":"agent_info"}}`}}
+	adapter := NewAdapter(Config{})
+	adapter.Runner = r
+	d, err := adapter.Detect(context.Background(), multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, ID: "agent-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Source != multiplexer.DetectionSourceNative || d.State != kanban.StateIdleUnknown {
+		t.Fatalf("detection = %+v", d)
+	}
+}
+
 func TestDetectUnknownAllowsFallback(t *testing.T) {
 	r := &fakeRunner{out: map[string]string{"agent get agent-1": `{"state":"unknown"}`}}
 	adapter := NewAdapter(Config{})
