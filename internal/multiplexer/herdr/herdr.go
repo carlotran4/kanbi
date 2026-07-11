@@ -69,6 +69,22 @@ func (a *Adapter) Ensure(ctx context.Context, namespace string) error {
 	return err
 }
 
+// CurrentWorkspace returns the workspace ID of the Herdr pane this process is
+// running in, so ticket panes can be opened as new tabs alongside it instead
+// of spawning a separate workspace.
+func (a *Adapter) CurrentWorkspace(ctx context.Context) (string, error) {
+	out, err := a.run(ctx, "pane", "current")
+	if err != nil {
+		return "", err
+	}
+	obj := parseObject(out)
+	workspaceID := firstString(obj, "result.pane.workspace_id", "pane.workspace_id", "workspace_id", "workspaceId")
+	if workspaceID == "" {
+		return "", errors.New("herdr pane current: missing workspace id")
+	}
+	return workspaceID, nil
+}
+
 func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (multiplexer.ContainerRef, error) {
 	workspaceID := spec.Namespace
 	if workspaceID == "" {
@@ -89,11 +105,9 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 	if workspaceID != "" {
 		args = append(args, "--workspace", workspaceID)
 	}
-	if a.Config.FocusOnOpen {
-		args = append(args, "--focus")
-	} else {
-		args = append(args, "--no-focus")
-	}
+	// Always start in the background; the agent is moved into its own tab
+	// below, and focus (if requested) is applied to that tab instead.
+	args = append(args, "--no-focus")
 	args = append(args, "--")
 	args = append(args, spec.Command...)
 	out, err := a.run(ctx, args...)
@@ -107,6 +121,10 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 	paneID := firstString(info, "result.agent.pane_id", "result.pane_id", "result.paneId", "pane_id", "paneId", "pane.id")
 	if paneID != "" {
 		info["pane_id"] = paneID
+		moveOut, moveErr := a.moveToNewTab(ctx, paneID, workspaceID, name)
+		if moveErr == nil {
+			info = mergeObjects(info, moveOut)
+		}
 	}
 	agentTarget := firstString(info, "target", "agent_target", "agentTarget", "agent.name", "name", "result.agent.name")
 	if agentTarget == "" {
@@ -114,6 +132,29 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 	}
 	metadata := mergeMetadata(spec.Metadata, info)
 	return multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: workspaceID, ID: agentTarget, Name: name, Metadata: metadata}, nil
+}
+
+// moveToNewTab relocates a freshly started agent pane into its own new tab
+// within the same workspace, so opening a ticket behaves like a new tmux
+// window rather than splitting the pane the user was already looking at.
+func (a *Adapter) moveToNewTab(ctx context.Context, paneID, workspaceID, label string) (map[string]any, error) {
+	args := []string{"pane", "move", paneID, "--new-tab"}
+	if workspaceID != "" {
+		args = append(args, "--workspace", workspaceID)
+	}
+	if label != "" {
+		args = append(args, "--label", label)
+	}
+	if a.Config.FocusOnOpen {
+		args = append(args, "--focus")
+	} else {
+		args = append(args, "--no-focus")
+	}
+	out, err := a.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseObject(out), nil
 }
 
 func (a *Adapter) Focus(ctx context.Context, ref multiplexer.ContainerRef) error {
@@ -383,6 +424,17 @@ func firstString(m map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func mergeObjects(base, overlay map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(overlay))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		out[k] = v
+	}
+	return out
 }
 
 func dotted(m map[string]any, key string) any {

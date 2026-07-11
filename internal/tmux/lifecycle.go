@@ -170,7 +170,8 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	}
 	var containerRef multiplexer.ContainerRef
 	if l.manager.defaultMultiplexerKind() == multiplexer.KindHerdr {
-		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: ticket.BoardWorkdir, Command: command})
+		namespace := l.manager.currentHerdrWorkspace(ctx)
+		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: ticket.BoardWorkdir, Command: command, Namespace: namespace})
 	} else {
 		var out string
 		out, err = l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, ticket.BoardWorkdir), ShellCommand(command))...)

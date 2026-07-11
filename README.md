@@ -73,7 +73,8 @@ Herdr basics:
 
 - Install Herdr from <https://herdr.dev/docs/install/> and run `herdr` once so its server/session is available.
 - `multiplexer.herdr.session` selects the Herdr session namespace (`default` is fine for most users).
-- `workspace_strategy: board` groups ticket panes by Kanbi board/project.
+- Ticket panes always open as a new tab in the Herdr workspace the Kanbi board itself is running in — never a separate workspace — mirroring tmux windows inside one session.
+- `workspace_strategy: board` groups ticket panes by Kanbi board/project when Kanbi isn't running inside a Herdr pane (e.g. detection falls back to matching an existing workspace by board directory).
 - `focus_on_open: false` lets Kanbi start/focus containers without stealing focus unless requested.
 - Harness config remains separate; `pi`, `codex`, `copilot`, and `claude` still define agent commands and resume refs.
 - Run `kanbi doctor` after changing multiplexer config. If Herdr is selected, doctor checks the configured Herdr binary and `herdr status`.

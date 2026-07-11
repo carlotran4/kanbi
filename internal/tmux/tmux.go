@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -100,6 +101,9 @@ type Manager struct {
 	// before deciding whether the tmux window survived startup. Zero uses the
 	// production default.
 	ResumeCheckAfter time.Duration
+
+	herdrWorkspaceOnce sync.Once
+	herdrWorkspaceID   string
 }
 
 func NewManager(cfg config.Config, store *storage.Store) *Manager {
@@ -116,6 +120,18 @@ func (m *Manager) defaultMultiplexerKind() multiplexer.Kind {
 func (m *Manager) herdrAdapter() *herdrmux.Adapter {
 	cfg := m.Config.Multiplexer.Herdr
 	return herdrmux.NewAdapter(herdrmux.Config{Binary: cfg.Binary, Session: cfg.Session, WorkspaceStrategy: cfg.WorkspaceStrategy, FocusOnOpen: cfg.FocusOnOpen})
+}
+
+// currentHerdrWorkspace returns the Herdr workspace this Kanbi process is
+// running in, resolved once and cached. Tickets are launched as new tabs in
+// this workspace so opening a ticket never spawns a separate Herdr space.
+func (m *Manager) currentHerdrWorkspace(ctx context.Context) string {
+	m.herdrWorkspaceOnce.Do(func() {
+		if id, err := m.herdrAdapter().CurrentWorkspace(ctx); err == nil {
+			m.herdrWorkspaceID = id
+		}
+	})
+	return m.herdrWorkspaceID
 }
 
 func (m *Manager) EnsureSession(ctx context.Context) error {

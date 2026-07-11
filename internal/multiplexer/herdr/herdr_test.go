@@ -62,6 +62,50 @@ func TestLaunchParsesRealHerdrCLIEnvelope(t *testing.T) {
 	}
 }
 
+func TestLaunchMovesAgentIntoNewTab(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"agent start b1-T-001-demo --cwd /repo --workspace ws-1 --no-focus -- codex hello": `{"pane_id":"w1:p2","agent":{"name":"agent-1"},"tab_id":"w1:t1"}`,
+		"pane move w1:p2 --new-tab --workspace ws-1 --label b1-T-001-demo --no-focus":       `{"tab_id":"w1:t9"}`,
+	}}
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
+	adapter.Runner = r
+
+	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{Name: "b1-T-001-demo", CWD: "/repo", Command: []string{"codex", "hello"}, Namespace: "ws-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Namespace != "ws-1" || ref.ID != "agent-1" {
+		t.Fatalf("unexpected ref: %+v", ref)
+	}
+	foundMove := false
+	for _, call := range r.calls {
+		if strings.Join(call, " ") == "herdr pane move w1:p2 --new-tab --workspace ws-1 --label b1-T-001-demo --no-focus" {
+			foundMove = true
+		}
+		if len(call) >= 2 && call[0] == "herdr" && call[1] == "workspace" {
+			t.Fatalf("Launch with a namespace should not touch workspace list/create, got %v", call)
+		}
+	}
+	if !foundMove {
+		t.Fatalf("expected pane move --new-tab call, got calls: %#v", r.calls)
+	}
+}
+
+func TestCurrentWorkspaceParsesPaneCurrent(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"pane current": `{"id":"cli:pane:current","result":{"pane":{"pane_id":"w4:p2","workspace_id":"w4"},"type":"pane_current"}}`,
+	}}
+	adapter := NewAdapter(Config{})
+	adapter.Runner = r
+	id, err := adapter.CurrentWorkspace(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "w4" {
+		t.Fatalf("workspace id = %q, want w4", id)
+	}
+}
+
 func TestDetectMapsNativeHerdrStates(t *testing.T) {
 	cases := []struct {
 		name   string
