@@ -224,9 +224,7 @@ func (s *Service) AddNote(ctx context.Context, ticketID int64, body string) (sto
 	if err != nil {
 		return storage.Note{}, err
 	}
-	if ticket, err := s.Store.TicketByID(ctx, ticketID); err == nil {
-		s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
-	}
+	s.syncTicketBoardAfterChange(ctx, ticketID)
 	return note, nil
 }
 func (s *Service) UpdateNote(ctx context.Context, id int64, body string) error {
@@ -237,9 +235,7 @@ func (s *Service) UpdateNote(ctx context.Context, id int64, body string) error {
 	if err := s.Store.UpdateNote(ctx, id, body); err != nil {
 		return err
 	}
-	if ticket, err := s.Store.TicketByID(ctx, note.TicketID); err == nil {
-		s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
-	}
+	s.syncTicketBoardAfterChange(ctx, note.TicketID)
 	return nil
 }
 func (s *Service) DeleteNote(ctx context.Context, id int64) error {
@@ -250,10 +246,14 @@ func (s *Service) DeleteNote(ctx context.Context, id int64) error {
 	if err := s.Store.DeleteNote(ctx, id); err != nil {
 		return err
 	}
-	if ticket, err := s.Store.TicketByID(ctx, note.TicketID); err == nil {
+	s.syncTicketBoardAfterChange(ctx, note.TicketID)
+	return nil
+}
+
+func (s *Service) syncTicketBoardAfterChange(ctx context.Context, ticketID int64) {
+	if ticket, err := s.Store.TicketByID(ctx, ticketID); err == nil {
 		s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
 	}
-	return nil
 }
 
 func (s *Service) syncBoardAfterTicketChange(ctx context.Context, boardID int64) {

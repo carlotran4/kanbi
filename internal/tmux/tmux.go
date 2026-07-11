@@ -484,14 +484,6 @@ func (m *Manager) WaitAndSendPrompt(ctx context.Context, adapter multiplexer.Int
 	return adapter.SendKeys(ctx, ref, "Enter")
 }
 
-func (m *Manager) CapturePane(ctx context.Context, windowName string) (string, error) {
-	return m.capturePaneInSession(ctx, m.Config.TmuxSession, windowName)
-}
-
-func (m *Manager) capturePaneInSession(ctx context.Context, sessionName, windowName string) (string, error) {
-	return m.run(ctx, "capture-pane", "-p", "-t", target(sessionName, windowName))
-}
-
 func (m *Manager) PastePromptNow(ctx context.Context, windowName, text string) error {
 	if _, err := m.run(ctx, "set-buffer", "--", text); err != nil {
 		return err
@@ -555,20 +547,12 @@ func (m *Manager) capturePaneRef(ctx context.Context, sessionName, ref string) (
 	return m.run(ctx, "capture-pane", "-p", "-t", targetRef(sessionName, ref))
 }
 
-func (m *Manager) windowExists(ctx context.Context, windowName string) (bool, error) {
-	return m.windowExistsInSession(ctx, m.Config.TmuxSession, windowName)
-}
-
 func (m *Manager) windowExistsInSession(ctx context.Context, sessionName, windowName string) (bool, error) {
 	_, err := m.windowIDByNameInSession(ctx, sessionName, windowName)
 	if errors.Is(err, ErrWindowMissing) {
 		return false, nil
 	}
 	return err == nil, err
-}
-
-func (m *Manager) availableWindowName(ctx context.Context, base string) (string, error) {
-	return m.availableWindowNameInSession(ctx, m.Config.TmuxSession, base)
 }
 
 func (m *Manager) availableWindowNameInSession(ctx context.Context, sessionName, base string) (string, error) {
@@ -585,10 +569,6 @@ func (m *Manager) availableWindowNameInSession(ctx context.Context, sessionName,
 			return name, nil
 		}
 	}
-}
-
-func (m *Manager) windowIDByName(ctx context.Context, windowName string) (string, error) {
-	return m.windowIDByNameInSession(ctx, m.Config.TmuxSession, windowName)
 }
 
 func (m *Manager) windowIDByNameInSession(ctx context.Context, sessionName, windowName string) (string, error) {
@@ -608,10 +588,6 @@ func (m *Manager) windowIDByNameInSession(ctx context.Context, sessionName, wind
 		}
 	}
 	return "", ErrWindowMissing
-}
-
-func (m *Manager) displayWindowID(ctx context.Context, windowName string) (string, error) {
-	return m.displayWindowIDInSession(ctx, m.Config.TmuxSession, windowName)
 }
 
 func (m *Manager) displayWindowIDInSession(ctx context.Context, sessionName, windowName string) (string, error) {
@@ -660,10 +636,6 @@ func (m *Manager) ticketWindowRefInSession(ctx context.Context, sessionName stri
 		return "", false, err
 	}
 	return expectedName, exists, nil
-}
-
-func (m *Manager) windowNameByID(ctx context.Context, id string) (string, bool, error) {
-	return m.windowNameByIDInSession(ctx, m.Config.TmuxSession, id)
 }
 
 func (m *Manager) windowNameByIDInSession(ctx context.Context, sessionName, id string) (string, bool, error) {

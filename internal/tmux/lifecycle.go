@@ -125,7 +125,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		renderedPrompt = prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
 	}
 	if l.manager.defaultMultiplexerKind() != multiplexer.KindHerdr {
-		name, err = l.manager.availableWindowName(ctx, name)
+		name, err = l.manager.availableWindowNameInSession(ctx, l.manager.Config.TmuxSession, name)
 		if err != nil {
 			return err
 		}
