@@ -233,10 +233,28 @@ func (s *Store) Init(ctx context.Context) error {
 	if err := s.migrate(ctx); err != nil {
 		return err
 	}
+	if err := s.enforceSessionInvariant(ctx); err != nil {
+		return err
+	}
 	if err := s.ensureDefaultBoard(ctx); err != nil {
 		return err
 	}
 	return s.verifyForeignKeys(ctx)
+}
+
+func (s *Store) enforceSessionInvariant(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `update sessions set is_active=0 where is_active=1 and id not in (select max(id) from sessions where is_active=1 group by ticket_id)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `create unique index if not exists sessions_one_active_per_ticket on sessions(ticket_id) where is_active=1`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DefaultBoard(ctx context.Context) (Board, error) {
@@ -1113,7 +1131,7 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 		}
 		if ticketID != 0 {
 			var active int
-			if err := s.db.QueryRowContext(ctx, `select count(*) from sessions where ticket_id=? and is_active=1`, ticketID).Scan(&active); err != nil {
+			if err := tx.QueryRowContext(ctx, `select count(*) from sessions where ticket_id=? and is_active=1`, ticketID).Scan(&active); err != nil {
 				return Ticket{}, err
 			}
 			if active > 0 {
@@ -1454,7 +1472,7 @@ func migrateLegacySchema(ctx context.Context, tx *sql.Tx) error {
 		`create unique index if not exists tickets_board_external_id_uq on tickets(board_id,external_id) where external_id is not null`,
 		`create unique index if not exists notes_ticket_external_id_uq on ticket_notes(ticket_id,external_id) where external_id is not null`,
 	} {
-		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("enforce storage identity invariant: %w", err)
 		}
 	}
