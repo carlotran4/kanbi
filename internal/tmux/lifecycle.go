@@ -223,12 +223,18 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if containerRef.Kind == multiplexer.KindTmux {
 		windowID = containerRef.ID
 	}
-	if resuming && containerRef.Kind == multiplexer.KindTmux {
+	if resuming {
 		checkAfter := l.manager.ResumeCheckAfter
 		if checkAfter <= 0 {
 			checkAfter = defaultResumeCheckAfter
 		}
-		if liveErr := l.manager.waitWindowLive(ctx, l.manager.Config.TmuxSession, windowID, name, checkAfter); liveErr != nil {
+		var liveErr error
+		if containerRef.Kind == multiplexer.KindHerdr {
+			liveErr = l.manager.waitHerdrContainerLive(ctx, containerRef, checkAfter)
+		} else {
+			liveErr = l.manager.waitWindowLive(ctx, l.manager.Config.TmuxSession, windowID, name, checkAfter)
+		}
+		if liveErr != nil {
 			if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
 				liveErr = errors.Join(liveErr, fmt.Errorf("cleanup failed container: %w", cleanupErr))
 			}

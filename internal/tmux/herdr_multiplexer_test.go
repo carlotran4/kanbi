@@ -3,6 +3,7 @@ package tmux
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,6 +176,52 @@ func TestMoveTicketToDefaultMultiplexerClosesTmuxAndResumesHerdr(t *testing.T) {
 	}
 }
 
+func TestHerdrResumeFailureReturnsRepairErrorAndDeactivatesClaim(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Bad Herdr ref", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldID, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: "old", TmuxWindowName: TicketWindowName(ticket), Status: kanban.StateError})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkSessionClosed(ctx, oldID, kanban.StateError, "test", "missing"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateSessionRef(ctx, oldID, "invalid-ref"); err != nil {
+		t.Fatal(err)
+	}
+	bin, _ := writeFakeHerdr(t, map[string]string{
+		"workspace list":   `[]`,
+		"workspace create": `{"id":"ws-board"}`,
+		"agent start":      `{"pane_id":"pane-123","agent":{"name":"agent-789"}}`,
+		"agent read":       "__ERROR__",
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = bin
+	manager := &Manager{Config: cfg, Store: store, Runner: &fakeRunner{}, ResumeCheckAfter: time.Millisecond}
+
+	refreshed, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = manager.OpenTicket(ctx, refreshed, false)
+	var resumeErr ResumeFailedError
+	if !errors.As(err, &resumeErr) {
+		t.Fatalf("open error = %T %v, want ResumeFailedError", err, err)
+	}
+	latest, ok, lookupErr := store.LatestSession(ctx, ticket.ID)
+	if lookupErr != nil || !ok {
+		t.Fatalf("latest session: ok=%v err=%v", ok, lookupErr)
+	}
+	if latest.IsActive || latest.Status != kanban.StateError {
+		t.Fatalf("failed resume claim = %+v, want inactive error", latest)
+	}
+}
+
 func TestHerdrDefaultResumesStaleTmuxSessionWithRefIntoHerdr(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -303,8 +350,8 @@ case "$1 $2" in
   "agent start") echo '` + responses["agent start"] + `' ;;
   "agent focus") echo '` + responses["agent focus"] + `' ;;
   "agent get") echo '` + responses["agent get"] + `' ;;
-  "agent read") echo '` + responses["agent read"] + `' ;;
-  "pane read") echo '` + responses["agent read"] + `' ;;
+  "agent read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; else echo '` + responses["agent read"] + `'; fi ;;
+  "pane read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; else echo '` + responses["agent read"] + `'; fi ;;
   "pane send-text") echo '{"ok":true}' ;;
   "pane send-keys") echo '{"ok":true}' ;;
   *) echo '{}' ;;

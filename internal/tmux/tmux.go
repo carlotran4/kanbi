@@ -567,6 +567,18 @@ func isTextExitCommand(key string) bool {
 //
 // The wait duration must exceed the typical time a failing harness takes to
 // display its error and exit. For pi, a bad --session ref causes exit in ~1.8s.
+func (m *Manager) waitHerdrContainerLive(ctx context.Context, ref multiplexer.ContainerRef, checkAfter time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(checkAfter):
+	}
+	if _, err := m.herdrAdapter().Read(ctx, ref, multiplexer.ReadOptions{Lines: 1}); err != nil {
+		return fmt.Errorf("Herdr pane exited immediately (harness may have rejected the session ref): %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) waitWindowLive(ctx context.Context, sessionName, windowID, windowName string, checkAfter time.Duration) error {
 	select {
 	case <-ctx.Done():
