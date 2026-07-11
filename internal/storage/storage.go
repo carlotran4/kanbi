@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -147,29 +148,82 @@ func (f MasterFilter) Empty() bool {
 	return len(f.BoardIDs) == 0 && len(f.Runtimes) == 0 && len(f.Harnesses) == 0 && strings.TrimSpace(f.Search) == "" && !f.IncludeArchived
 }
 
+const sqliteBusyTimeout = 5 * time.Second
+
 func Open(path string) (*Store, error) {
 	if err := ensureParent(path); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite3", sqliteDSN(path, false))
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
 func OpenMemory() (*Store, error) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite3", sqliteDSN(":memory:", true))
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+func sqliteDSN(path string, memory bool) string {
+	if memory {
+		return fmt.Sprintf(":memory:?_foreign_keys=on&_busy_timeout=%d", sqliteBusyTimeout.Milliseconds())
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		absolute = path
+	}
+	u := url.URL{Scheme: "file", Path: absolute}
+	query := u.Query()
+	query.Set("_foreign_keys", "on")
+	query.Set("_busy_timeout", strconv.FormatInt(sqliteBusyTimeout.Milliseconds(), 10))
+	query.Set("_journal_mode", "WAL")
+	query.Set("_synchronous", "NORMAL")
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+func (s *Store) verifyForeignKeys(ctx context.Context) error {
+	var enabled int
+	if err := s.db.QueryRowContext(ctx, `pragma foreign_keys`).Scan(&enabled); err != nil {
+		return fmt.Errorf("read SQLite foreign-key setting: %w", err)
+	}
+	if enabled != 1 {
+		return errors.New("SQLite foreign-key enforcement is disabled")
+	}
+	rows, err := s.db.QueryContext(ctx, `pragma foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("check SQLite foreign keys: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var table, parent string
+		var rowID sql.NullInt64
+		var foreignKeyID int
+		if err := rows.Scan(&table, &rowID, &parent, &foreignKeyID); err != nil {
+			return err
+		}
+		return fmt.Errorf("foreign-key violation in table %s row %v referencing %s (constraint %d)", table, rowID, parent, foreignKeyID)
+	}
+	return rows.Err()
 }
 
 func (s *Store) Init(ctx context.Context) error {
@@ -179,7 +233,10 @@ func (s *Store) Init(ctx context.Context) error {
 	if err := s.migrate(ctx); err != nil {
 		return err
 	}
-	return s.ensureDefaultBoard(ctx)
+	if err := s.ensureDefaultBoard(ctx); err != nil {
+		return err
+	}
+	return s.verifyForeignKeys(ctx)
 }
 
 func (s *Store) DefaultBoard(ctx context.Context) (Board, error) {
@@ -1246,110 +1303,125 @@ func (s *Store) ensureDefaultBoard(ctx context.Context) error {
 	return tx.Commit()
 }
 
+type migration struct {
+	version int
+	name    string
+	apply   func(context.Context, *sql.Tx) error
+}
+
+var migrations = []migration{
+	{version: 1, name: "legacy schema compatibility", apply: migrateLegacySchema},
+	{version: 2, name: "projection and lifecycle indexes", apply: migrateIndexes},
+}
+
 func (s *Store) migrate(ctx context.Context) error {
-	boardColumns, err := tableColumns(ctx, s.db, "boards")
+	if _, err := s.db.ExecContext(ctx, `create table if not exists schema_migrations (
+  version integer primary key,
+  name text not null,
+  applied_at datetime not null
+)`); err != nil {
+		return fmt.Errorf("create schema migration ledger: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if !boardColumns["workdir"] {
-		if _, err := s.db.ExecContext(ctx, `alter table boards add column workdir text`); err != nil {
+	defer tx.Rollback()
+	// This sentinel write serializes migration runners across Kanbi processes.
+	if _, err := tx.ExecContext(ctx, `insert into schema_migrations(version,name,applied_at) values(0,'migration lock',?) on conflict(version) do update set applied_at=schema_migrations.applied_at`, time.Now().UTC()); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	var current int
+	if err := tx.QueryRowContext(ctx, `select coalesce(max(version),0) from schema_migrations`).Scan(&current); err != nil {
+		return err
+	}
+	latest := migrations[len(migrations)-1].version
+	if current > latest {
+		return fmt.Errorf("database schema version %d is newer than supported version %d", current, latest)
+	}
+	for _, m := range migrations {
+		if m.version <= current {
+			continue
+		}
+		if err := m.apply(ctx, tx); err != nil {
+			return fmt.Errorf("apply migration %d (%s): %w", m.version, m.name, err)
+		}
+		if _, err := tx.ExecContext(ctx, `insert into schema_migrations(version,name,applied_at) values(?,?,?)`, m.version, m.name, time.Now().UTC()); err != nil {
 			return err
 		}
 	}
-	for _, col := range []struct {
-		name string
-		typ  string
-	}{
-		{"ticket_backend", "text not null default 'local'"},
-		{"backend_query", "text"},
-		{"backend_config", "text"},
-		{"last_sync_at", "datetime"},
-		{"last_sync_error", "text"},
+	return tx.Commit()
+}
+
+func migrateLegacySchema(ctx context.Context, tx *sql.Tx) error {
+	boardColumns, err := tableColumns(ctx, tx, "boards")
+	if err != nil {
+		return err
+	}
+	for _, col := range []struct{ name, typ string }{
+		{"workdir", "text"}, {"ticket_backend", "text not null default 'local'"},
+		{"backend_query", "text"}, {"backend_config", "text"},
+		{"last_sync_at", "datetime"}, {"last_sync_error", "text"},
 	} {
 		if !boardColumns[col.name] {
-			if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table boards add column %s %s`, col.name, col.typ)); err != nil {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`alter table boards add column %s %s`, col.name, col.typ)); err != nil {
 				return err
 			}
 		}
 	}
 	if cwd, err := os.Getwd(); err == nil && cwd != "" {
-		if _, err := s.db.ExecContext(ctx, `update boards set workdir=? where workdir is null or workdir=''`, cwd); err != nil {
+		if _, err := tx.ExecContext(ctx, `update boards set workdir=? where workdir is null or workdir=''`, cwd); err != nil {
 			return err
 		}
 	}
-	ticketColumns, err := tableColumns(ctx, s.db, "tickets")
+	ticketColumns, err := tableColumns(ctx, tx, "tickets")
 	if err != nil {
 		return err
 	}
-	for _, col := range []struct {
-		name string
-		typ  string
-	}{
-		{"external_id", "text"},
-		{"external_url", "text"},
-		{"external_updated_at", "datetime"},
-		{"sync_version", "text"},
-	} {
+	for _, col := range []struct{ name, typ string }{{"external_id", "text"}, {"external_url", "text"}, {"external_updated_at", "datetime"}, {"sync_version", "text"}} {
 		if !ticketColumns[col.name] {
-			if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table tickets add column %s %s`, col.name, col.typ)); err != nil {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`alter table tickets add column %s %s`, col.name, col.typ)); err != nil {
 				return err
 			}
 		}
 	}
-	columns, err := tableColumns(ctx, s.db, "sessions")
+	sessionColumns, err := tableColumns(ctx, tx, "sessions")
 	if err != nil {
 		return err
 	}
-	add := func(name, typ string) error {
-		if columns[name] {
-			return nil
-		}
-		_, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table sessions add column %s %s`, name, typ))
-		return err
-	}
-	for _, col := range []struct {
-		name string
-		typ  string
-	}{
-		{"started_at", "datetime"},
-		{"closed_at", "datetime"},
-		{"last_output_at", "datetime"},
-		{"last_state_change_at", "datetime"},
-		{"last_detected_state", "text"},
-		{"last_attention_reason", "text"},
-		{"last_detection_source", "text"},
-		{"last_observed_excerpt", "text"},
-		{"multiplexer", "text not null default 'tmux'"},
-		{"mux_namespace", "text"},
-		{"mux_container_id", "text"},
-		{"mux_container_name", "text"},
-		{"mux_metadata", "text"},
+	for _, col := range []struct{ name, typ string }{
+		{"started_at", "datetime"}, {"closed_at", "datetime"}, {"last_output_at", "datetime"},
+		{"last_state_change_at", "datetime"}, {"last_detected_state", "text"},
+		{"last_attention_reason", "text"}, {"last_detection_source", "text"},
+		{"last_observed_excerpt", "text"}, {"multiplexer", "text not null default 'tmux'"},
+		{"mux_namespace", "text"}, {"mux_container_id", "text"},
+		{"mux_container_name", "text"}, {"mux_metadata", "text"},
 	} {
-		if err := add(col.name, col.typ); err != nil {
+		if !sessionColumns[col.name] {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`alter table sessions add column %s %s`, col.name, col.typ)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, statement := range []string{
+		`update sessions set multiplexer='tmux' where multiplexer is null or multiplexer=''`,
+		`update sessions set mux_namespace=tmux_session_name where mux_namespace is null and tmux_session_name is not null`,
+		`update sessions set mux_container_id=tmux_window_id where mux_container_id is null and tmux_window_id is not null`,
+		`update sessions set mux_container_name=tmux_window_name where mux_container_name is null and tmux_window_name is not null`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return err
 		}
 	}
-	if _, err := s.db.ExecContext(ctx, `update sessions set multiplexer='tmux' where multiplexer is null or multiplexer=''`); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `update sessions set mux_namespace=tmux_session_name where mux_namespace is null and tmux_session_name is not null`); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `update sessions set mux_container_id=tmux_window_id where mux_container_id is null and tmux_window_id is not null`); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `update sessions set mux_container_name=tmux_window_name where mux_container_name is null and tmux_window_name is not null`); err != nil {
-		return err
-	}
 	// Repair legacy duplicate active rows before enforcing the durable invariant.
-	if _, err := s.db.ExecContext(ctx, `update sessions set is_active=0 where is_active=1 and id not in (select max(id) from sessions where is_active=1 group by ticket_id)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `update sessions set is_active=0 where is_active=1 and id not in (select max(id) from sessions where is_active=1 group by ticket_id)`); err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `create unique index if not exists sessions_one_active_per_ticket on sessions(ticket_id) where is_active=1`); err != nil {
+	if _, err := tx.ExecContext(ctx, `create unique index if not exists sessions_one_active_per_ticket on sessions(ticket_id) where is_active=1`); err != nil {
 		return err
 	}
 	// Create ticket_notes table for existing databases that predate it.
-	if _, err := s.db.ExecContext(ctx, `create table if not exists ticket_notes (
+	if _, err := tx.ExecContext(ctx, `create table if not exists ticket_notes (
   id integer primary key autoincrement,
   ticket_id integer not null references tickets(id) on delete cascade,
   external_id text,
@@ -1361,20 +1433,13 @@ func (s *Store) migrate(ctx context.Context) error {
 )`); err != nil {
 		return err
 	}
-	noteColumns, err := tableColumns(ctx, s.db, "ticket_notes")
+	noteColumns, err := tableColumns(ctx, tx, "ticket_notes")
 	if err != nil {
 		return err
 	}
-	for _, col := range []struct {
-		name string
-		typ  string
-	}{
-		{"external_id", "text"},
-		{"external_updated_at", "datetime"},
-		{"sync_version", "text"},
-	} {
+	for _, col := range []struct{ name, typ string }{{"external_id", "text"}, {"external_updated_at", "datetime"}, {"sync_version", "text"}} {
 		if !noteColumns[col.name] {
-			if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table ticket_notes add column %s %s`, col.name, col.typ)); err != nil {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`alter table ticket_notes add column %s %s`, col.name, col.typ)); err != nil {
 				return err
 			}
 		}
@@ -1396,7 +1461,27 @@ func (s *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
-func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+func migrateIndexes(ctx context.Context, tx *sql.Tx) error {
+	for _, statement := range []string{
+		`create index if not exists idx_columns_board_position on columns(board_id,position)`,
+		`create index if not exists idx_tickets_column_archived_position on tickets(column_id,archived_at,position)`,
+		`create index if not exists idx_tickets_board_external_id on tickets(board_id,external_id) where external_id is not null`,
+		`create index if not exists idx_sessions_ticket_latest on sessions(ticket_id,id desc)`,
+		`create index if not exists idx_sessions_ticket_active on sessions(ticket_id,is_active)`,
+		`create index if not exists idx_ticket_notes_ticket on ticket_notes(ticket_id,id)`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type contextQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func tableColumns(ctx context.Context, db contextQueryer, table string) (map[string]bool, error) {
 	rows, err := db.QueryContext(ctx, `pragma table_info(`+table+`)`)
 	if err != nil {
 		return nil, err

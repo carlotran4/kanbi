@@ -52,9 +52,13 @@ Use integration tests for DB-backed behavior:
 - create/list/update/archive tickets
 - create sessions and mark active/inactive
 - startup reconciliation state changes
-- migration idempotency
+- migration idempotency and rollback/recovery
+- concurrent initialization against one file database
+- foreign-key integrity rejection
+- busy-timeout behavior for concurrent writers
+- WAL configuration for file databases
 
-Tests should use a temporary directory and temporary SQLite DB.
+Tests should use a temporary directory and temporary SQLite DB. Migration tests must exercise both a pre-ledger database and repeated initialization of the current schema; they must not rewrite or discard durable history.
 
 ### 3. Fake Harnesses
 Do not rely on real `pi`, `codex`, `copilot`, or `claude` in automated tests.

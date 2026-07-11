@@ -21,7 +21,7 @@ flowchart LR
     Sync[Ticket backend sync] --> Store
 ```
 
-- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, and session history live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite.
+- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, and session history live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite. File databases use WAL mode and a busy timeout for concurrent Kanbi processes. Foreign-key enforcement is enabled on every store connection and integrity is verified during initialization.
 - **The configured multiplexer is observed runtime state.** tmux windows are validated against live tmux. Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions.
@@ -203,6 +203,12 @@ Always update [`docs/harness-contracts.md`](./harness-contracts.md) when harness
 | Change card rendering/keybindings | `internal/tui/model.go`, `internal/tui/model_test.go` | `README.md` or a controls doc if user-facing |
 | Change multi-board behavior | `internal/storage/*`, `internal/tui/*`, CLI board commands | `docs/multi-board-behavior.md`, `README.md` |
 | Change verification process | `scripts/*`, tests | `docs/autonomous-verification.md`, `AGENTS.md` if onboarding changes |
+
+## Schema Evolution
+
+SQLite schema changes are applied through the ordered `schema_migrations` ledger. Migration runners serialize through a database write lock, apply pending migrations atomically, and record a version only in the transaction that successfully applied it. Existing pre-ledger databases enter through the idempotent legacy compatibility migration; no ticket or session history is flattened or deleted. Kanbi refuses to open a database created by a newer unsupported schema version or one that fails SQLite's foreign-key integrity check.
+
+Indexes used by board projection, latest-session lookup, external identity lookup, and note listing are installed by migration. Domain uniqueness constraints must only be added with an explicit compatibility strategy for existing durable history.
 
 ## Testing Strategy
 
