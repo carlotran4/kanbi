@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -815,6 +816,9 @@ func shouldLaunchHerdrBoard(cfg config.Config) bool {
 }
 
 func launchHerdrBoard(cfg config.Config, exe string) error {
+	if err := ensureHerdrAvailableForBoard(cfg); err != nil {
+		return err
+	}
 	create := herdrBoardWorkspaceCommand(cfg)
 	out, err := create.Output()
 	if err != nil {
@@ -829,6 +833,77 @@ func launchHerdrBoard(cfg config.Config, exe string) error {
 		return fmt.Errorf("start kanbi in Herdr pane: %w", err)
 	}
 	return herdrAttachCommand(cfg).Run()
+}
+
+func ensureHerdrAvailableForBoard(cfg config.Config) error {
+	if _, err := herdrStatusCommand(cfg).CombinedOutput(); err == nil {
+		return nil
+	}
+	start := herdrServerCommand(cfg)
+	if err := start.Start(); err != nil {
+		return herdrUnavailableError(cfg, err.Error())
+	}
+	_ = start.Process.Release()
+	out, err := waitForHerdrStatus(cfg, 5*time.Second)
+	if err == nil {
+		return nil
+	}
+	detail := strings.TrimSpace(string(out))
+	if detail == "" {
+		detail = err.Error()
+	}
+	return herdrUnavailableError(cfg, detail)
+}
+
+func waitForHerdrStatus(cfg config.Config, timeout time.Duration) ([]byte, error) {
+	deadline := time.Now().Add(timeout)
+	var lastOut []byte
+	var lastErr error
+	for {
+		out, err := herdrStatusCommand(cfg).CombinedOutput()
+		if err == nil {
+			return out, nil
+		}
+		lastOut, lastErr = out, err
+		if time.Now().After(deadline) {
+			return lastOut, lastErr
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func herdrUnavailableError(cfg config.Config, detail string) error {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		detail = "unknown error"
+	}
+	advice := "run `herdr status` for details, start Herdr with `herdr`, or set `multiplexer.default: tmux`"
+	if cfg.Paths.ConfigFile != "" {
+		advice += " in " + cfg.Paths.ConfigFile
+	}
+	return fmt.Errorf("Herdr is configured as Kanbi's multiplexer but is unavailable (%s); %s", detail, advice)
+}
+
+func herdrStatusCommand(cfg config.Config) *exec.Cmd {
+	bin := cfg.Multiplexer.Herdr.Binary
+	if bin == "" {
+		bin = "herdr"
+	}
+	cmd := exec.Command(bin, "status")
+	cmd.Env = herdrCommandEnv(cfg)
+	return cmd
+}
+
+func herdrServerCommand(cfg config.Config) *exec.Cmd {
+	bin := cfg.Multiplexer.Herdr.Binary
+	if bin == "" {
+		bin = "herdr"
+	}
+	cmd := exec.Command(bin, "server")
+	cmd.Env = herdrCommandEnv(cfg)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd
 }
 
 func herdrBoardWorkspaceCommand(cfg config.Config) *exec.Cmd {

@@ -940,6 +940,10 @@ func TestHerdrBoardLaunchUsesWorkspaceRootPane(t *testing.T) {
 	cfg.Multiplexer.Herdr.Binary = "herdr"
 	cfg.Multiplexer.Herdr.Session = "default"
 	t.Setenv("KANBI_CONFIG", "/tmp/kanbi config.yaml")
+	status := herdrStatusCommand(cfg)
+	if got := strings.Join(status.Args, " "); !strings.Contains(got, "herdr status") {
+		t.Fatalf("unexpected Herdr status command: %v", status.Args)
+	}
 	workspace := herdrBoardWorkspaceCommand(cfg)
 	workspaceArgs := strings.Join(workspace.Args, " ")
 	if !strings.Contains(workspaceArgs, "workspace create --label kanbi --focus") {
@@ -956,6 +960,40 @@ func TestHerdrBoardLaunchUsesWorkspaceRootPane(t *testing.T) {
 	}
 	if run.Stdout != io.Discard {
 		t.Fatalf("Herdr pane run JSON should be discarded, stdout=%#v", run.Stdout)
+	}
+}
+
+func TestHerdrBoardLaunchStartsServerWhenUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	callsPath := filepath.Join(dir, "calls")
+	serverStartedPath := filepath.Join(dir, "server-started")
+	fakeHerdr := filepath.Join(dir, "herdr")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + shellQuoteArg(callsPath) + "\n" +
+		"if [ \"$1\" = status ]; then\n" +
+		"  if [ -f " + shellQuoteArg(serverStartedPath) + " ]; then echo ok; exit 0; fi\n" +
+		"  echo 'Error: Os { code: 111, kind: ConnectionRefused, message: \"Connection refused\" }' >&2; exit 1\n" +
+		"fi\n" +
+		"if [ \"$1\" = server ]; then touch " + shellQuoteArg(serverStartedPath) + "; exit 0; fi\n" +
+		"echo unexpected command >&2\n" +
+		"exit 99\n"
+	if err := os.WriteFile(fakeHerdr, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(config.Paths{ConfigFile: filepath.Join(dir, "config.yaml")})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = fakeHerdr
+
+	if err := ensureHerdrAvailableForBoard(cfg); err != nil {
+		t.Fatalf("expected Kanbi to start Herdr server, got %v", err)
+	}
+	calls, readErr := os.ReadFile(callsPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	got := strings.Fields(strings.TrimSpace(string(calls)))
+	if len(got) < 3 || got[0] != "status" || got[1] != "server" || got[len(got)-1] != "status" {
+		t.Fatalf("unexpected Herdr calls: got %v", got)
 	}
 }
 
