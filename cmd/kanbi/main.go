@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -45,7 +43,7 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
-			return launchHerdrBoard(cfg, exe)
+			return boardruntime.LaunchHerdrBoard(cfg, exe)
 		}
 		if shouldAttachTmuxForBoard(cfg) && !tmux.InsideTmux() && os.Getenv("KANBI_INNER") == "" {
 			exe, err := os.Executable()
@@ -814,58 +812,6 @@ func shouldAttachTmuxForBoard(cfg config.Config) bool {
 
 func shouldLaunchHerdrBoard(cfg config.Config) bool {
 	return strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default)) == "herdr" && os.Getenv("HERDR_ENV") != "1"
-}
-
-func launchHerdrBoard(cfg config.Config, exe string) error {
-	return boardruntime.LaunchHerdrBoard(cfg, exe)
-}
-
-func ensureHerdrAvailableForBoard(cfg config.Config) error {
-	return boardruntime.EnsureHerdrAvailable(cfg)
-}
-
-func waitForHerdrStatus(cfg config.Config, timeout time.Duration) ([]byte, error) {
-	return boardruntime.WaitForHerdrStatus(cfg, timeout)
-}
-
-func herdrUnavailableError(cfg config.Config, detail string) error {
-	return boardruntime.HerdrUnavailableError(cfg, detail)
-}
-
-func herdrStatusCommand(cfg config.Config) *exec.Cmd {
-	return boardruntime.HerdrStatusCommand(cfg)
-}
-
-func herdrServerCommand(cfg config.Config) *exec.Cmd {
-	return boardruntime.HerdrServerCommand(cfg)
-}
-
-func herdrBoardWorkspaceCommand(cfg config.Config) *exec.Cmd {
-	return boardruntime.HerdrWorkspaceCommand(cfg)
-}
-
-func herdrBoardPaneRunCommand(cfg config.Config, paneID, exe string) *exec.Cmd {
-	return boardruntime.HerdrPaneRunCommand(cfg, paneID, exe)
-}
-
-func herdrBoardShellCommand(exe string) string {
-	return boardruntime.HerdrBoardShellCommand(exe)
-}
-
-func herdrRootPaneID(out []byte) string {
-	return boardruntime.RootPaneID(out)
-}
-
-func shellQuoteArg(s string) string {
-	return boardruntime.ShellQuoteArg(s)
-}
-
-func herdrAttachCommand(cfg config.Config) *exec.Cmd {
-	return boardruntime.HerdrAttachCommand(cfg)
-}
-
-func herdrCommandEnv(cfg config.Config) []string {
-	return boardruntime.HerdrCommandEnv(cfg)
 }
 
 func (c *cliContext) BoardByName(name string) (storage.Board, error) {

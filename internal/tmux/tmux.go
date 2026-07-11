@@ -466,32 +466,10 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 	return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "tmux", "graceful exit timed out; window closed")
 }
 
-func (m *Manager) WaitAndPastePrompt(ctx context.Context, windowName, text, ready string, timeout time.Duration) error {
+func (m *Manager) WaitAndSendPrompt(ctx context.Context, adapter multiplexer.Interface, ref multiplexer.ContainerRef, readOptions multiplexer.ReadOptions, text, ready string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		out, _ := m.CapturePane(ctx, windowName)
-		if strings.Contains(out, ready) {
-			break
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("prompt readiness timeout waiting for %q", ready)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if _, err := m.run(ctx, "set-buffer", "--", text); err != nil {
-		return err
-	}
-	if _, err := m.run(ctx, "paste-buffer", "-t", target(m.Config.TmuxSession, windowName)); err != nil {
-		return err
-	}
-	_, err := m.run(ctx, "send-keys", "-t", target(m.Config.TmuxSession, windowName), "Enter")
-	return err
-}
-
-func (m *Manager) WaitAndSendHerdrPrompt(ctx context.Context, adapter *herdrmux.Adapter, ref multiplexer.ContainerRef, text, ready string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		out, _ := adapter.Read(ctx, ref, multiplexer.ReadOptions{Lines: 200})
+		out, _ := adapter.Read(ctx, ref, readOptions)
 		if strings.Contains(out, ready) {
 			break
 		}
