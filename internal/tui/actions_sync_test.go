@@ -2,9 +2,12 @@ package tui
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"kanbi/internal/attachments"
 	"kanbi/internal/storage"
 	"kanbi/internal/ticketbackend"
 )
@@ -75,6 +78,44 @@ func TestServiceSyncsBoardAfterSavedTicketChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertSyncedBoard(t, syncer, board.ID)
+}
+
+func TestServiceDeleteBoardRemovesOwnedAttachments(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	board, err := store.CreateBoard(ctx, "Disposable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Delete with board", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment := filepath.Join(attachments.TicketDir(ticket.ID), "image.png")
+	if err := os.MkdirAll(filepath.Dir(attachment), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(attachment, []byte("image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewService(store, nil).DeleteBoard(ctx, board.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(attachments.TicketDir(ticket.ID)); !os.IsNotExist(err) {
+		t.Fatalf("attachment directory remains after board deletion: %v", err)
+	}
 }
 
 func assertNoImmediateSync(t *testing.T, syncer *recordingTicketSyncer) {

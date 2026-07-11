@@ -133,6 +133,7 @@ stateDiagram-v2
 
 - Column deletion is blocked by active tickets only, because archived tickets are not visible board cards.
 - Archived tickets are preserved by moving them to a surviving column before deleting the column.
+- Ticket archival is rejected at the storage seam while a session is active. Lifecycle callers must successfully close the active runtime container before archiving; remote backend sync follows the same rule.
 
 ## Implementation Audit Notes
 

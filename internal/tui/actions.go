@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"kanbi/internal/attachments"
 	"kanbi/internal/storage"
 	"kanbi/internal/ticketbackend"
 	"kanbi/internal/tmux"
@@ -102,7 +104,29 @@ func (s *Service) SetBoardWorkdir(ctx context.Context, boardID int64, workdir st
 	return s.Store.SetBoardWorkdir(ctx, boardID, workdir)
 }
 func (s *Service) DeleteBoard(ctx context.Context, boardID int64) error {
-	return s.Store.DeleteBoard(ctx, boardID)
+	tickets, err := s.Store.ListTickets(ctx, true)
+	if err != nil {
+		return err
+	}
+	var attachmentTicketIDs []int64
+	for _, ticket := range tickets {
+		if ticket.BoardID == boardID {
+			attachmentTicketIDs = append(attachmentTicketIDs, ticket.ID)
+		}
+	}
+	if err := s.Store.DeleteBoard(ctx, boardID); err != nil {
+		return err
+	}
+	var cleanupErrs []error
+	for _, ticketID := range attachmentTicketIDs {
+		if err := attachments.DeleteTicket(ticketID); err != nil {
+			cleanupErrs = append(cleanupErrs, err)
+		}
+	}
+	if err := errors.Join(cleanupErrs...); err != nil {
+		return fmt.Errorf("board deleted, but attachment cleanup failed: %w", err)
+	}
+	return nil
 }
 func (s *Service) ColumnIDByBoardAndName(ctx context.Context, boardID int64, name string) (int64, error) {
 	return s.Store.ColumnIDByBoardAndName(ctx, boardID, name)

@@ -906,6 +906,39 @@ func assertContiguousColumnPositions(t *testing.T, columns []Column) {
 	}
 }
 
+func TestArchiveTicketRejectsActiveSession(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Still running", "", "pi")
+	if _, err := s.UpsertActiveSession(ctx, ticket.ID, Session{Harness: "pi", TmuxSessionName: "test", TmuxWindowName: "ticket", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveTicket(ctx, ticket.ID); !errors.Is(err, ErrTicketHasActiveSession) {
+		t.Fatalf("ArchiveTicket() error=%v, want %v", err, ErrTicketHasActiveSession)
+	}
+	got, err := s.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ArchivedAt.Valid {
+		t.Fatal("active ticket was archived")
+	}
+}
+
+func TestRemoteArchiveRejectsActiveSession(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Remote running", "", "pi")
+	if _, err := s.UpsertActiveSession(ctx, ticket.ID, Session{Harness: "pi", TmuxSessionName: "test", TmuxWindowName: "ticket", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	_, err := s.UpsertRemoteTicket(ctx, RemoteTicket{BoardID: ticket.BoardID, ColumnID: ticket.ColumnID, ExternalID: "remote-1", DisplayID: "R-1", DisplayNumber: 1, Title: ticket.Title, SourceTicketID: ticket.ID, ExternalUpdatedAt: now, ArchivedAt: &now})
+	if !errors.Is(err, ErrTicketHasActiveSession) {
+		t.Fatalf("UpsertRemoteTicket() error=%v, want %v", err, ErrTicketHasActiveSession)
+	}
+}
+
 func TestDeleteBoardRemovesBoardAndTickets(t *testing.T) {
 	s, ctx := newTestStore(t)
 	b, err := s.CreateBoard(ctx, "Delete Me")
@@ -913,7 +946,21 @@ func TestDeleteBoardRemovesBoardAndTickets(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, _ := s.BoardViewByID(ctx, b.ID)
-	if _, err := s.CreateTicket(ctx, view.Columns[0].ID, "Gone", "", "pi"); err != nil {
+	ticket, err := s.CreateTicket(ctx, view.Columns[0].ID, "Gone", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddNote(ctx, ticket.ID, "also gone"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertActiveSession(ctx, ticket.ID, Session{Harness: "pi", TmuxSessionName: "test", TmuxWindowName: "ticket", Status: "closed"}); err != nil {
+		t.Fatal(err)
+	}
+	active, _, err := s.ActiveSession(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSessionClosed(ctx, active.ID, "closed", "test", "done"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteBoard(ctx, b.ID); err != nil {

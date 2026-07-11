@@ -19,6 +19,8 @@ type Store struct {
 	db *sql.DB
 }
 
+var ErrTicketHasActiveSession = errors.New("cannot archive ticket with an active session; close it first")
+
 const boardSelectSQL = `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,''), last_sync_at, last_sync_error from boards`
 
 func boardScanDest(b *Board) []any {
@@ -244,34 +246,27 @@ type RemoteTicket struct {
 }
 
 func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	var count int
-	if err := s.db.QueryRowContext(ctx, `select count(*) from boards`).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `select count(*) from boards`).Scan(&count); err != nil {
 		return err
 	}
 	if count <= 1 {
 		return errors.New("cannot delete the last board")
 	}
 	var active int
-	if err := s.db.QueryRowContext(ctx, `select count(*) from sessions s join tickets t on t.id=s.ticket_id where t.board_id=? and s.is_active=1`, boardID).Scan(&active); err != nil {
+	if err := tx.QueryRowContext(ctx, `select count(*) from sessions s join tickets t on t.id=s.ticket_id where t.board_id=? and s.is_active=1`, boardID).Scan(&active); err != nil {
 		return err
 	}
 	if active > 0 {
 		return errors.New("cannot delete board with active sessions")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `delete from sessions where ticket_id in (select id from tickets where board_id=?)`, boardID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `delete from tickets where board_id=?`, boardID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `delete from columns where board_id=?`, boardID); err != nil {
-		return err
-	}
+	// The schema owns deletion order through foreign-key cascades. Keeping the
+	// operation at the board aggregate avoids duplicating child-table knowledge.
 	res, err := tx.ExecContext(ctx, `delete from boards where id=?`, boardID)
 	if err != nil {
 		return err
@@ -697,8 +692,12 @@ func (s *Store) ArchiveTicket(ctx context.Context, id int64) error {
 	}
 	defer tx.Rollback()
 	var columnID int64
-	if err := tx.QueryRowContext(ctx, `select column_id from tickets where id=?`, id).Scan(&columnID); err != nil {
+	var activeSessions int
+	if err := tx.QueryRowContext(ctx, `select t.column_id, count(s.id) from tickets t left join sessions s on s.ticket_id=t.id and s.is_active=1 where t.id=? group by t.id`, id).Scan(&columnID, &activeSessions); err != nil {
 		return err
+	}
+	if activeSessions > 0 {
+		return ErrTicketHasActiveSession
 	}
 	if _, err := tx.ExecContext(ctx, `update tickets set archived_at=?, updated_at=? where id=?`, time.Now().UTC(), time.Now().UTC(), id); err != nil {
 		return err
@@ -926,6 +925,21 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 	displayNumber, err := s.remoteDisplayNumber(ctx, rt.BoardID, rt.DisplayNumber, displayNumberCurrentID)
 	if err != nil {
 		return Ticket{}, err
+	}
+	if rt.ArchivedAt != nil {
+		ticketID := id
+		if errors.Is(existingErr, sql.ErrNoRows) {
+			ticketID = rt.SourceTicketID
+		}
+		if ticketID != 0 {
+			var active int
+			if err := s.db.QueryRowContext(ctx, `select count(*) from sessions where ticket_id=? and is_active=1`, ticketID).Scan(&active); err != nil {
+				return Ticket{}, err
+			}
+			if active > 0 {
+				return Ticket{}, ErrTicketHasActiveSession
+			}
+		}
 	}
 	if errors.Is(existingErr, sql.ErrNoRows) {
 		if rt.SourceTicketID != 0 {

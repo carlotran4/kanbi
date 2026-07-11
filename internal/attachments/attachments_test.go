@@ -53,6 +53,42 @@ func TestSavePastedImageWritesPerTicketFileAndMarkdownRef(t *testing.T) {
 	}
 }
 
+func TestSavePastedImageRejectsOversizedImageBeforeDecoding(t *testing.T) {
+	payload := "data:image/png;base64," + strings.Repeat("A", maxEncodedImageBytes+1)
+	_, _, isImage, err := SavePastedImage(47, payload, time.Now())
+	if err == nil || !isImage {
+		t.Fatalf("SavePastedImage() isImage=%v err=%v, want recognized size error", isImage, err)
+	}
+}
+
+func TestDecodePastedImageRejectsOversizedPayload(t *testing.T) {
+	data, ext, ok := DecodePastedImage("iVBOR" + strings.Repeat("A", maxEncodedImageBytes))
+	if ok || data != nil || ext != "" {
+		t.Fatalf("DecodePastedImage() data=%d bytes ext=%q ok=%v", len(data), ext, ok)
+	}
+}
+
+func TestDeleteTicketRemovesOnlyItsAttachmentDirectory(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	for _, id := range []int64{47, 48} {
+		if err := os.MkdirAll(TicketDir(id), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(TicketDir(id), "image.png"), tinyPNG, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := DeleteTicket(47); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(TicketDir(47)); !os.IsNotExist(err) {
+		t.Fatalf("deleted ticket directory still exists: %v", err)
+	}
+	if _, err := os.Stat(TicketDir(48)); err != nil {
+		t.Fatalf("unrelated ticket directory removed: %v", err)
+	}
+}
+
 func TestSavePastedImageAvoidsFilenameCollisions(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)

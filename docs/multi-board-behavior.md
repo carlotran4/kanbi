@@ -219,11 +219,13 @@ Needed options:
 
 ### 2. Board deletion is destructive
 
-Deleting a board deletes its tickets and closed sessions. Deletion is blocked if the board has active sessions, but there is no archive/export flow yet.
+Deleting a board permanently deletes its tickets, notes, session history, and local attachment directories. Deletion is blocked if the board has active sessions and requires confirmation in the board picker. Database deletion is one board-aggregate transaction; attachment cleanup runs only after that transaction succeeds.
+
+There is no archive/export or restore flow yet. Before deletion, users must back up both the SQLite database and the Kanbi attachment data directory. External ticket providers do not contain local runtime/session history or attachments.
 
 Needed:
 
-- Consider archive/export before delete.
+- Add archive/export before delete without flattening ticket/session history.
 - Consider a stronger typed confirmation for destructive deletes.
 
 ### 3. Master filter scope

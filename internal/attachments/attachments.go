@@ -11,7 +11,11 @@ import (
 	"time"
 )
 
-const appDir = "kanbi"
+const (
+	appDir               = "kanbi"
+	MaxDecodedImageBytes = 10 << 20 // 10 MiB
+	maxEncodedImageBytes = (MaxDecodedImageBytes+2)/3*4 + 1024
+)
 
 var dataImageRE = regexp.MustCompile(`^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$`)
 
@@ -34,6 +38,9 @@ func TicketDir(ticketID int64) string {
 // SavePastedImage detects base64-encoded image clipboard content, writes it to
 // the ticket attachment directory, and returns a markdown image reference.
 func SavePastedImage(ticketID int64, pasted string, now time.Time) (string, string, bool, error) {
+	if len(pasted) > maxEncodedImageBytes && looksLikeEncodedImage(pasted) {
+		return "", "", true, fmt.Errorf("pasted image exceeds %d MiB limit", MaxDecodedImageBytes>>20)
+	}
 	data, ext, ok := DecodePastedImage(pasted)
 	if !ok {
 		return "", "", false, nil
@@ -46,6 +53,9 @@ func SavePastedImage(ticketID int64, pasted string, now time.Time) (string, stri
 }
 
 func DecodePastedImage(pasted string) ([]byte, string, bool) {
+	if len(pasted) > maxEncodedImageBytes {
+		return nil, "", false
+	}
 	payload := strings.TrimSpace(extractOSC52(pasted))
 	if matches := dataImageRE.FindStringSubmatch(payload); len(matches) == 3 {
 		data, err := decodeBase64ImagePayload(matches[2])
@@ -102,6 +112,9 @@ func WriteImage(ticketID int64, data []byte, ext string, now time.Time) (string,
 }
 
 func decodeBase64ImagePayload(payload string) ([]byte, error) {
+	if len(payload) > maxEncodedImageBytes {
+		return nil, fmt.Errorf("encoded image exceeds size limit")
+	}
 	payload = strings.Map(func(r rune) rune {
 		switch r {
 		case ' ', '\n', '\r', '\t':
@@ -113,10 +126,20 @@ func decodeBase64ImagePayload(payload string) ([]byte, error) {
 	if payload == "" {
 		return nil, fmt.Errorf("empty base64 payload")
 	}
-	if data, err := base64.StdEncoding.DecodeString(payload); err == nil {
-		return data, nil
+	if base64.StdEncoding.DecodedLen(len(payload)) > MaxDecodedImageBytes {
+		return nil, fmt.Errorf("decoded image exceeds size limit")
 	}
-	return base64.RawStdEncoding.DecodeString(payload)
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		data, err = base64.RawStdEncoding.DecodeString(payload)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxDecodedImageBytes {
+		return nil, fmt.Errorf("decoded image exceeds size limit")
+	}
+	return data, nil
 }
 
 func extensionForImage(data []byte, mediaType string) string {
@@ -164,6 +187,28 @@ func extensionForImage(data []byte, mediaType string) string {
 
 func hasPrefix(data, prefix []byte) bool {
 	return len(data) >= len(prefix) && string(data[:len(prefix)]) == string(prefix)
+}
+
+// DeleteTicket removes attachment files owned by a permanently deleted ticket.
+// Archiving intentionally preserves attachments with the durable ticket.
+func DeleteTicket(ticketID int64) error {
+	if ticketID <= 0 {
+		return fmt.Errorf("invalid ticket id")
+	}
+	return os.RemoveAll(TicketDir(ticketID))
+}
+
+func looksLikeEncodedImage(pasted string) bool {
+	trimmed := strings.TrimSpace(pasted)
+	if strings.HasPrefix(strings.ToLower(trimmed), "data:image/") || strings.Contains(trimmed, "\x1b]52;") {
+		return true
+	}
+	for _, prefix := range []string{"iVBOR", "/9j/", "R0lG", "UklG"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractOSC52(s string) string {

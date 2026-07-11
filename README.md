@@ -28,7 +28,9 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - Create boards from the CLI with `kanbi boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `kanbi boards`. Provider `--config` JSON is stored unencrypted in SQLite, so keep credentials in the documented environment variables rather than embedding tokens in `--config`.
 - Sync ticket backends from the CLI with `kanbi sync` or `kanbi sync --board "Board Name"`.
 - Rename/update boards with `kanbi boards rename OLD NEW` and `kanbi boards set-cwd NAME /path/to/project`.
-- In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes.
+- In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes. Board deletion is permanent, is blocked while any ticket session is active, and removes locally stored attachments for that board's tickets after the database deletion succeeds.
+
+Kanbi does not currently provide a board export or restore command. Back up the SQLite database and `~/.local/share/kanbi/attachments/` (or the configured XDG data directory) together before destructive deletion. External ticket providers are not a backup of local runtime/session history or attachments.
 
 ## CLI automation surface
 
