@@ -769,9 +769,10 @@ func parseNoteAddArgs(args []string) (noteAddOptions, error) {
 }
 
 type cliContext struct {
-	ctx   context.Context
-	cfg   config.Config
-	store *storage.Store
+	ctx     context.Context
+	cfg     config.Config
+	store   *storage.Store
+	manager *tmux.Manager
 }
 
 func newCLIContext(ctx context.Context, cfg config.Config) (*cliContext, error) {
@@ -779,7 +780,7 @@ func newCLIContext(ctx context.Context, cfg config.Config) (*cliContext, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &cliContext{ctx: ctx, cfg: cfg, store: store}, nil
+	return &cliContext{ctx: ctx, cfg: cfg, store: store, manager: tmux.NewManagerWithContext(ctx, cfg, store)}, nil
 }
 
 func withCLIContext(ctx context.Context, cfg config.Config, fn func(*cliContext) error) error {
@@ -792,11 +793,17 @@ func withCLIContext(ctx context.Context, cfg config.Config, fn func(*cliContext)
 }
 
 func (c *cliContext) Close() error {
+	if c.manager != nil {
+		c.manager.Close()
+	}
 	return c.store.Close()
 }
 
 func (c *cliContext) Manager() *tmux.Manager {
-	return tmux.NewManager(c.cfg, c.store)
+	if c.manager == nil {
+		c.manager = tmux.NewManagerWithContext(c.ctx, c.cfg, c.store)
+	}
+	return c.manager
 }
 
 func shouldAttachTmuxForBoard(cfg config.Config) bool {

@@ -22,7 +22,7 @@ Currently supported: Pi, Codex, Copilot, Claude.
 
 Primary capture uses Kanbi's bundled Pi extension. When starting Pi with a prompt, Kanbi materializes `pi-session-ref-extension.ts` under its state directory and launches Pi with `-e <extension>`. The extension reads Pi's `ctx.sessionManager.getSessionId()` during `session_start` and writes it to the `KANBI_SESSION_REF_FILE` JSON handoff path. Kanbi stores that `sessionId` as `harness_session_ref`.
 
-The handoff file uses a **stable per-ticket path** (`<stateDir>/pi-session-refs/ticket-<id>.json`, no timestamp) so that recovery can reconstruct the path from the ticket ID alone. A background goroutine continues polling the handoff file for up to 30 seconds after the session row is written, ensuring the ref is saved even when the Pi `session_start` event fires several seconds after launch.
+The handoff file uses a **stable per-ticket path** (`<stateDir>/pi-session-refs/ticket-<id>.json`, no timestamp) so that recovery can reconstruct the path from the ticket ID alone. Manager-owned background capture continues polling the handoff file for up to 30 seconds after the session row is written, ensuring the ref is saved even when the Pi `session_start` event fires several seconds after launch. The captured ref is written to the exact session row inserted for that launch, never whichever attempt happens to be active later, and capture is canceled when the runtime manager shuts down.
 
 Fallback capture still scans Pi JSONL session files under `~/.pi/agent/sessions/**/*.jsonl` for sessions where the handoff file is unavailable. Each file begins with a `{"type":"session","id":"<id>","cwd":"<cwd>",...}` header line. Subsequent lines are message entries, one of which will be the first user message with the prompt text.
 
@@ -31,7 +31,7 @@ Fallback matching requires:
 - `header.Timestamp` is recent (within the capture window)
 - A `{"type":"message","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}` entry matches the rendered prompt
 
-**Verified:** start, extension ref capture, fallback ref capture, close, resume path, recovery from handoff file. See `TestOpenTicketWithPiPromptCapturesSessionRefFromBundledExtension`, `TestCapturePiSessionRefFromSessionFile`, and `TestOpenTicketRecoversMissingPiSessionRefFromRefFile`.
+**Verified:** start, extension ref capture, fallback ref capture, close, resume path, recovery from handoff file, and attempt-bound asynchronous persistence. See `TestOpenTicketWithPiPromptCapturesSessionRefFromBundledExtension`, `TestCapturePiSessionRefFromSessionFile`, `TestOpenTicketRecoversMissingPiSessionRefFromRefFile`, and `TestAsyncSessionRefCaptureUpdatesExactInsertedAttempt`.
 
 ### Exit Keys
 
@@ -144,7 +144,7 @@ Capture logic in `harness.CaptureSessionRefInCWD` walks `~/.claude/projects/**/*
 
 Walking by directory rather than computing the encoded directory name avoids any mismatch between Kanbi's encoding and Claude Code's; matching is anchored on the `cwd` field inside each file.
 
-The returned `sessionId` is passed to `claude --resume <id>` for resume.
+The returned `sessionId` is passed to `claude --resume <id>` for resume. Because the workspace-trust dialog can delay creation, manager-owned background capture continues for up to five minutes. Any delayed ref is persisted to the exact session attempt that launched the capture, and polling is canceled when the runtime manager shuts down.
 
 **Verified:** start, ref capture, close, resume path. See `TestCaptureClaudeSessionRefFromProjectsDir` and `TestClaudeDefaultUsesPromptArgumentMode`.
 

@@ -53,7 +53,9 @@ erDiagram
   }
 ```
 
-- A board owns columns, ticket numbering, a working directory, and exactly one ticket metadata backend chosen at creation.
+- A board owns columns, ticket numbering, a working directory, and exactly one implemented ticket metadata backend chosen at creation. Board names are unique without regard to case.
+- Column names must be unique by exact spelling within one board. Their case is significant because Master grouping, creation, and movement use exact column-name matching.
+- Tickets cannot be moved to columns owned by another board; Master moves resolve a destination on the ticket's existing board.
 - `display_id` values are unique only within a board, so multiple boards can have `T-001`.
 - A ticket projects its owning board metadata into TUI/storage reads as `BoardName` and `BoardWorkdir`.
 - `Master` is synthetic: it is not stored as a row in `boards` and has no real columns.

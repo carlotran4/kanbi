@@ -97,6 +97,15 @@ type Manager struct {
 	Store  *storage.Store
 	Runner Runner
 
+	// BackgroundError receives asynchronous session-ref persistence failures.
+	// When nil, failures are written through the standard logger.
+	BackgroundError func(error)
+	// RefCapturePollInterval is configurable for deterministic tests. Zero uses
+	// the production default.
+	RefCapturePollInterval time.Duration
+
+	background *backgroundState
+
 	// ResumeCheckAfter is how long to wait after launching a resume command
 	// before deciding whether the tmux window survived startup. Zero uses the
 	// production default.
@@ -107,7 +116,13 @@ type Manager struct {
 }
 
 func NewManager(cfg config.Config, store *storage.Store) *Manager {
-	return &Manager{Config: cfg, Store: store, Runner: ExecRunner{}, ResumeCheckAfter: defaultResumeCheckAfter}
+	return NewManagerWithContext(context.Background(), cfg, store)
+}
+
+// NewManagerWithContext ties asynchronous manager work to the application
+// context. Call Close before closing the store to cancel and join that work.
+func NewManagerWithContext(ctx context.Context, cfg config.Config, store *storage.Store) *Manager {
+	return &Manager{Config: cfg, Store: store, Runner: ExecRunner{}, ResumeCheckAfter: defaultResumeCheckAfter, background: newBackgroundState(ctx)}
 }
 
 func (m *Manager) defaultMultiplexerKind() multiplexer.Kind {

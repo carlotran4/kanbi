@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,6 +65,197 @@ func TestCreateBoardWithOptionsPersistsBackendMetadata(t *testing.T) {
 	}
 	if got.TicketBackend != "atlassian" || got.BackendQuery != "project = AK ORDER BY updated DESC" || got.BackendConfig == "" {
 		t.Fatalf("backend metadata not persisted: %+v", got)
+	}
+}
+
+func TestStorageRejectsUnsupportedBackendAndHarness(t *testing.T) {
+	s, ctx := newTestStore(t)
+	if _, err := s.CreateBoardWithOptions(ctx, CreateBoardOptions{Name: "Bad", Workdir: t.TempDir(), TicketBackend: "asana"}); err == nil {
+		t.Fatal("expected unsupported backend error")
+	}
+	view := defaultBoardView(t, ctx, s)
+	if _, err := s.CreateTicket(ctx, view.Columns[0].ID, "ticket", "", "unknown"); err == nil {
+		t.Fatal("expected unsupported harness error")
+	}
+	if _, err := s.CreateTicket(ctx, view.Columns[0].ID, "   ", "", "pi"); err == nil {
+		t.Fatal("expected whitespace title error")
+	}
+}
+
+func TestBoardAndColumnIdentityRules(t *testing.T) {
+	s, ctx := newTestStore(t)
+	if _, err := s.CreateBoard(ctx, "default"); err == nil {
+		t.Fatal("board names must be unique without regard to case")
+	}
+	view := defaultBoardView(t, ctx, s)
+	if _, err := s.AddColumn(ctx, view.Board.ID, "Open"); err == nil {
+		t.Fatal("expected duplicate exact column name error")
+	}
+	if _, err := s.AddColumn(ctx, view.Board.ID, "open"); err != nil {
+		t.Fatalf("column names are documented as exact and case-sensitive: %v", err)
+	}
+	if err := s.RenameColumn(ctx, view.Columns[1].ID, "Open"); err == nil {
+		t.Fatal("expected duplicate column rename error")
+	}
+}
+
+func TestMoveTicketRejectsCrossBoardDestination(t *testing.T) {
+	s, ctx := newTestStore(t)
+	first := defaultBoardView(t, ctx, s)
+	secondBoard, err := s.CreateBoard(ctx, "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.BoardViewByID(ctx, secondBoard.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := s.CreateTicket(ctx, first.Columns[0].ID, "Stay owned", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MoveTicket(ctx, ticket.ID, second.Columns[0].ID); err == nil {
+		t.Fatal("expected cross-board move error")
+	}
+	got, err := s.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BoardID != first.Board.ID || got.ColumnID != first.Columns[0].ID {
+		t.Fatalf("ticket ownership changed after rejected move: %+v", got)
+	}
+}
+
+func TestMutationsReportMissingRowsAndRejectBlankContent(t *testing.T) {
+	s, ctx := newTestStore(t)
+	for name, err := range map[string]error{
+		"rename board":  s.RenameBoard(ctx, 9999, "missing"),
+		"set workdir":   s.SetBoardWorkdir(ctx, 9999, t.TempDir()),
+		"update ticket": s.UpdateTicket(ctx, 9999, "missing", "", "pi"),
+		"update note":   s.UpdateNote(ctx, 9999, "body"),
+		"delete note":   s.DeleteNote(ctx, 9999),
+		"session ref":   s.UpdateSessionRef(ctx, 9999, "ref"),
+	} {
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("%s error = %v, want sql.ErrNoRows", name, err)
+		}
+	}
+	view := defaultBoardView(t, ctx, s)
+	ticket, err := s.CreateTicket(ctx, view.Columns[0].ID, "valid", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTicket(ctx, ticket.ID, "  ", "", "pi"); err == nil {
+		t.Fatal("expected blank updated title error")
+	}
+	if _, err := s.AddNote(ctx, ticket.ID, " \n "); err == nil {
+		t.Fatal("expected blank note error")
+	}
+}
+
+func TestExternalIdentityIndexesRejectAmbiguousRows(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	now := time.Now().UTC()
+	for i := 0; i < 2; i++ {
+		_, err := s.db.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,display_id,display_number,title,body,harness,position,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?)`,
+			view.Board.ID, view.Columns[0].ID, "remote-1", "R-"+string(rune('1'+i)), 100+i, "remote", "", "pi", 100+i, now, now)
+		if i == 0 && err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 && err == nil {
+			t.Fatal("expected duplicate external ticket identity constraint")
+		}
+	}
+	ticket, err := s.CreateTicket(ctx, view.Columns[0].ID, "notes", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertRemoteNote(ctx, ticket.ID, "comment-1", "one", now); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.db.ExecContext(ctx, `insert into ticket_notes(ticket_id,external_id,body,created_at,updated_at) values(?,?,?,?,?)`, ticket.ID, "comment-1", "duplicate", now, now)
+	if err == nil {
+		t.Fatal("expected duplicate external note identity constraint")
+	}
+}
+
+func TestClaimSessionRejectsSecondActiveAttemptAndCompletesClaim(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Claim", "", "pi")
+	claim := Session{Harness: "pi", TmuxSessionName: "kanbi", TmuxWindowName: "T-001-claim"}
+
+	claimID, err := s.ClaimSession(ctx, ticket.ID, claim, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimSession(ctx, ticket.ID, claim, false); !errors.Is(err, ErrActiveSessionExists) {
+		t.Fatalf("second claim error = %v, want ErrActiveSessionExists", err)
+	}
+	active, ok, err := s.ActiveSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("active claim = %+v, %v, %v", active, ok, err)
+	}
+	if active.ID != claimID || active.Status != kanban.StateStarting {
+		t.Fatalf("active claim = %+v, want id=%d status=starting", active, claimID)
+	}
+
+	claim.TmuxWindowID = sql.NullString{String: "@9", Valid: true}
+	if err := s.CompleteSessionLaunch(ctx, claimID, claim); err != nil {
+		t.Fatal(err)
+	}
+	active, ok, err = s.ActiveSession(ctx, ticket.ID)
+	if err != nil || !ok || active.Status != kanban.StateRunning || active.TmuxWindowID.String != "@9" {
+		t.Fatalf("completed session = %+v, %v, %v", active, ok, err)
+	}
+}
+
+func TestInitRepairsLegacyDuplicateActiveSessionsBeforeAddingUniqueIndex(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Legacy duplicate", "", "pi")
+	if _, err := s.db.ExecContext(ctx, `drop index sessions_one_active_per_ticket`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for i := 0; i < 2; i++ {
+		if _, err := s.db.ExecContext(ctx, `insert into sessions(ticket_id,harness,tmux_session_name,tmux_window_name,status,is_active,created_at,updated_at) values(?,?,?,?,?,1,?,?)`, ticket.ID, "pi", "kanbi", fmt.Sprintf("legacy-%d", i), kanban.StateRunning, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var active int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from sessions where ticket_id=? and is_active=1`, ticket.ID).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active != 1 {
+		t.Fatalf("active rows = %d, want 1", active)
+	}
+	if _, err := s.db.ExecContext(ctx, `insert into sessions(ticket_id,harness,tmux_session_name,tmux_window_name,status,is_active,created_at,updated_at) values(?,?,?,?,?,1,?,?)`, ticket.ID, "pi", "kanbi", "duplicate", kanban.StateRunning, now, now); err == nil {
+		t.Fatal("recreated unique index allowed a second active row")
+	}
+}
+
+func TestFailSessionLaunchMakesClaimInactiveError(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Failed claim", "", "pi")
+	claimID, err := s.ClaimSession(ctx, ticket.ID, Session{Harness: "pi", TmuxSessionName: "kanbi", TmuxWindowName: "failed"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FailSessionLaunch(ctx, claimID, "launch failed"); err != nil {
+		t.Fatal(err)
+	}
+	latest, ok, err := s.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("latest = %+v, %v, %v", latest, ok, err)
+	}
+	if latest.IsActive || latest.Status != kanban.StateError || latest.LastAttentionReason.String != "launch failed" {
+		t.Fatalf("failed claim = %+v", latest)
 	}
 }
 

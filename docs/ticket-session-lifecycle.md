@@ -60,13 +60,16 @@ flowchart TD
     Validate -- valid --> Switch[focus container]
     Validate -- invalid --> Ref{session_ref?}
     Decision -- inactive --> Ref
-    Ref -- yes --> Resume[start harness resume command]
+    Ref -- yes --> Resume[prepare harness resume command]
     Ref -- no --> Repair[repair/start fresh screen]
-    Start --> Upsert[upsert active session with multiplexer container ref]
-    Resume --> Upsert
+    Start --> Claim[write durable starting claim]
+    Resume --> Claim
+    Claim --> Launch[launch runtime container]
+    Launch --> Activate[attach container ref and mark running]
     Switch --> NoWrite[no DB session row]
-    Upsert --> CaptureRef[best-effort session ref capture]
+    Activate --> CaptureRef[best-effort session ref capture]
     CaptureRef --> Board[reload board]
+    Launch -- failure --> Compensate[close container if created; mark claim inactive error]
 ```
 
 ## Harness Matrix
@@ -89,8 +92,9 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - Uses the ticket body rendered as Markdown prompt.
 - For arg-mode harnesses, append prompt to the harness command.
 - For paste-mode harnesses, wait for prompt-ready, paste via tmux buffer, send Enter.
-- Creates exactly one active session row.
-- Attempts harness-specific session ref capture.
+- Creates exactly one active session row. The row is claimed as `starting` before runtime launch and becomes `running` only after its container reference is persisted.
+- Attempts harness-specific session ref capture. Delayed Pi/Claude capture is owned by the runtime manager and updates the exact session attempt that initiated it, even if a newer attempt becomes active before capture completes.
+- If launch or prompt delivery fails, closes any newly-created container best-effort and leaves the attempt as an inactive `error` row.
 
 ### `Enter`: Default Ticket Action
 

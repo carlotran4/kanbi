@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"kanbi/internal/config"
+	"kanbi/internal/harness"
+	"kanbi/internal/kanban"
 	"kanbi/internal/storage"
 )
 
@@ -30,6 +32,22 @@ type fakeRunner struct {
 type piRefWritingRunner struct {
 	fakeRunner
 	ref string
+}
+
+type invalidatingLaunchRunner struct {
+	fakeRunner
+	store    *storage.Store
+	ticketID int64
+}
+
+func (r *invalidatingLaunchRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	out, err := r.fakeRunner.Run(ctx, name, args...)
+	if err == nil && len(args) > 0 && args[0] == "new-window" {
+		if ses, active, lookupErr := r.store.ActiveSession(ctx, r.ticketID); lookupErr == nil && active {
+			_ = r.store.FailSessionLaunch(ctx, ses.ID, "simulated persistence race")
+		}
+	}
+	return out, err
 }
 
 func (r *piRefWritingRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
@@ -525,6 +543,89 @@ func TestOpenTicketResumeFailureReturnsResumeFailedError(t *testing.T) {
 	if !errors.As(err, &resumeErr) {
 		t.Fatalf("expected ResumeFailedError, got %T: %v", err, err)
 	}
+}
+
+func TestOpenTicketRejectsSecondLaunchAfterDurableClaim(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Claim race", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: "kanbi", TmuxWindowName: TicketWindowName(ticket)}, false); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+
+	err = manager.OpenTicket(ctx, ticket, false)
+	if !errors.Is(err, storage.ErrActiveSessionExists) {
+		t.Fatalf("open error = %v, want ErrActiveSessionExists", err)
+	}
+	if hasCall(runner.calls, "new-window") {
+		t.Fatal("second caller launched a container after another caller claimed the ticket")
+	}
+}
+
+func TestLaunchPersistenceFailureClosesContainerAndInactivatesClaim(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Persist failure", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &invalidatingLaunchRunner{store: store, ticketID: ticket.ID}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+
+	if err := manager.OpenTicket(ctx, ticket, false); err == nil {
+		t.Fatal("expected completion failure")
+	}
+	if !hasCall(runner.calls, "kill-window") {
+		t.Fatal("launched window was not cleaned up after persistence failure")
+	}
+	latest, ok, err := store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok || latest.IsActive || latest.Status != kanban.StateError {
+		t.Fatalf("latest session = %+v, %v, %v", latest, ok, err)
+	}
+}
+
+func TestPastePromptFailureClosesContainerAndMarksAttemptError(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Paste failure", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(config.Paths{})
+	cfg.PromptReadyTimeout = time.Millisecond
+	pi := cfg.Harnesses["pi"]
+	pi.PromptMode = harness.PromptModePaste
+	pi.PromptReady = "NEVER_READY"
+	cfg.Harnesses["pi"] = pi
+	runner := &fakeRunner{pane: "still booting"}
+	manager := &Manager{Config: cfg, Store: store, Runner: runner}
+
+	err = manager.OpenTicket(ctx, ticket, true)
+	var promptErr PromptReadyError
+	if !errors.As(err, &promptErr) {
+		t.Fatalf("open error = %T %v, want PromptReadyError", err, err)
+	}
+	if !hasCall(runner.calls, "kill-window") {
+		t.Fatal("prompt failure did not clean up launched window")
+	}
+	latest, ok, err := store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok || latest.IsActive || latest.Status != kanban.StateError {
+		t.Fatalf("latest session = %+v, %v, %v", latest, ok, err)
+	}
+}
+
+func hasCall(calls []call, command string) bool {
+	for _, c := range calls {
+		if len(c.args) > 0 && c.args[0] == command {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRefreshRuntimeMarksSessionMissingWhenWindowDisappears(t *testing.T) {
@@ -1286,6 +1387,9 @@ func TestResumeWithImmediatelyExitingProcessReturnsResumeFailedError(t *testing.
 	}
 	if resumeErr.Ticket.ID != ticket.ID {
 		t.Fatalf("ResumeFailedError.Ticket.ID = %d, want %d", resumeErr.Ticket.ID, ticket.ID)
+	}
+	if !hasCall(base.calls, "kill-window") {
+		t.Fatal("failed resume did not attempt compensating container cleanup")
 	}
 }
 

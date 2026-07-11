@@ -108,9 +108,11 @@ erDiagram
   tickets ||--o{ ticket_notes : has
 ```
 
-- A **board** owns columns, display numbering, a working directory, and exactly one ticket metadata backend.
+- A **board** owns columns, display numbering, a working directory, and exactly one implemented ticket metadata backend. Board names are unique without regard to case.
 - The **Master board** is a synthetic all-boards view; it is not a stored board row.
-- A **ticket** is durable work metadata: title, body, harness preference, workflow column, archive status.
+- A **ticket** is durable work metadata: non-blank title, body, supported harness preference, workflow column, archive status. A ticket may move only between columns owned by its board.
+- Column names are unique by exact spelling within a board. Case remains meaningful because Master aggregation also matches exact column names.
+- External ticket and note identities are unique within their owning board/ticket so sync never has to choose an ambiguous local row.
 - A **session** is one attempt to run an agent for a ticket.
 - **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while the GitHub and Atlassian/Jira backends map notes to provider comments.
 - An **active session** is a session believed to own a live terminal container, but it must still pass validation before being trusted.

@@ -12,12 +12,15 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"kanbi/internal/harness"
 	"kanbi/internal/kanban"
 )
 
 type Store struct {
 	db *sql.DB
 }
+
+var ErrActiveSessionExists = errors.New("ticket already has an active session")
 
 var ErrTicketHasActiveSession = errors.New("cannot archive ticket with an active session; close it first")
 
@@ -203,8 +206,8 @@ func (s *Store) RenameBoard(ctx context.Context, boardID int64, name string) err
 	if existing > 0 {
 		return errors.New("board name already exists")
 	}
-	_, err := s.db.ExecContext(ctx, `update boards set name=?, updated_at=? where id=?`, name, time.Now().UTC(), boardID)
-	return err
+	res, err := s.db.ExecContext(ctx, `update boards set name=?, updated_at=? where id=?`, name, time.Now().UTC(), boardID)
+	return requireAffected(res, err)
 }
 
 func (s *Store) SetBoardWorkdir(ctx context.Context, boardID int64, workdir string) error {
@@ -212,8 +215,8 @@ func (s *Store) SetBoardWorkdir(ctx context.Context, boardID int64, workdir stri
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `update boards set workdir=?, updated_at=? where id=?`, nullableString(workdir), time.Now().UTC(), boardID)
-	return err
+	res, err := s.db.ExecContext(ctx, `update boards set workdir=?, updated_at=? where id=?`, nullableString(workdir), time.Now().UTC(), boardID)
+	return requireAffected(res, err)
 }
 
 func (s *Store) MarkBoardSync(ctx context.Context, boardID int64, syncErr error) error {
@@ -346,9 +349,12 @@ func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOpti
 	if name == "" {
 		return Board{}, errors.New("board name is required")
 	}
-	backend := strings.TrimSpace(opts.TicketBackend)
+	backend := strings.ToLower(strings.TrimSpace(opts.TicketBackend))
 	if backend == "" {
 		backend = "local"
+	}
+	if !validTicketBackend(backend) {
+		return Board{}, fmt.Errorf("unsupported ticket backend %q", backend)
 	}
 	query := strings.TrimSpace(opts.BackendQuery)
 	backendConfig := strings.TrimSpace(opts.BackendConfig)
@@ -553,11 +559,16 @@ func (s *Store) TicketByID(ctx context.Context, id int64) (Ticket, error) {
 }
 
 func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, harnessName string) (Ticket, error) {
+	title = strings.TrimSpace(title)
 	if title == "" {
 		return Ticket{}, errors.New("ticket title is required")
 	}
+	harnessName = strings.ToLower(strings.TrimSpace(harnessName))
 	if harnessName == "" {
 		harnessName = "pi"
+	}
+	if !validHarness(harnessName) {
+		return Ticket{}, fmt.Errorf("unsupported harness %q", harnessName)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -600,7 +611,8 @@ func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, h
 }
 
 func (s *Store) AddColumn(ctx context.Context, boardID int64, name string) (Column, error) {
-	if strings.TrimSpace(name) == "" {
+	name = strings.TrimSpace(name)
+	if name == "" {
 		return Column{}, errors.New("column name is required")
 	}
 	if boardID == 0 {
@@ -610,25 +622,44 @@ func (s *Store) AddColumn(ctx context.Context, boardID int64, name string) (Colu
 		}
 		boardID = board.ID
 	}
+	var existing int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from columns where board_id=? and name=?`, boardID, name).Scan(&existing); err != nil {
+		return Column{}, err
+	}
+	if existing > 0 {
+		return Column{}, errors.New("column name already exists on this board")
+	}
 	pos, err := columnOrder.nextPosition(ctx, s.db, boardID)
 	if err != nil {
 		return Column{}, err
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, strings.TrimSpace(name), pos, now, now)
+	res, err := s.db.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, pos, now, now)
 	if err != nil {
 		return Column{}, err
 	}
 	id, _ := res.LastInsertId()
-	return Column{ID: id, BoardID: boardID, Name: strings.TrimSpace(name), Position: pos}, nil
+	return Column{ID: id, BoardID: boardID, Name: name, Position: pos}, nil
 }
 
 func (s *Store) RenameColumn(ctx context.Context, columnID int64, name string) error {
-	if strings.TrimSpace(name) == "" {
+	name = strings.TrimSpace(name)
+	if name == "" {
 		return errors.New("column name is required")
 	}
-	_, err := s.db.ExecContext(ctx, `update columns set name=?, updated_at=? where id=?`, strings.TrimSpace(name), time.Now().UTC(), columnID)
-	return err
+	var boardID int64
+	if err := s.db.QueryRowContext(ctx, `select board_id from columns where id=?`, columnID).Scan(&boardID); err != nil {
+		return err
+	}
+	var existing int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from columns where board_id=? and name=? and id<>?`, boardID, name, columnID).Scan(&existing); err != nil {
+		return err
+	}
+	if existing > 0 {
+		return errors.New("column name already exists on this board")
+	}
+	res, err := s.db.ExecContext(ctx, `update columns set name=?, updated_at=? where id=?`, name, time.Now().UTC(), columnID)
+	return requireAffected(res, err)
 }
 
 func (s *Store) DeleteColumn(ctx context.Context, columnID int64) error {
@@ -681,8 +712,16 @@ func (s *Store) ReorderColumn(ctx context.Context, columnID int64, delta int) er
 }
 
 func (s *Store) UpdateTicket(ctx context.Context, id int64, title, body, harnessName string) error {
-	_, err := s.db.ExecContext(ctx, `update tickets set title=?, body=?, harness=?, updated_at=? where id=?`, title, body, harnessName, time.Now().UTC(), id)
-	return err
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return errors.New("ticket title is required")
+	}
+	harnessName = strings.ToLower(strings.TrimSpace(harnessName))
+	if !validHarness(harnessName) {
+		return fmt.Errorf("unsupported harness %q", harnessName)
+	}
+	res, err := s.db.ExecContext(ctx, `update tickets set title=?, body=?, harness=?, updated_at=? where id=?`, title, body, harnessName, time.Now().UTC(), id)
+	return requireAffected(res, err)
 }
 
 func (s *Store) ArchiveTicket(ctx context.Context, id int64) error {
@@ -720,6 +759,16 @@ func (s *Store) MoveTicket(ctx context.Context, ticketID, toColumnID int64) erro
 		return err
 	}
 	defer tx.Rollback()
+	var ticketBoardID, columnBoardID int64
+	if err := tx.QueryRowContext(ctx, `select board_id from tickets where id=?`, ticketID).Scan(&ticketBoardID); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, `select board_id from columns where id=?`, toColumnID).Scan(&columnBoardID); err != nil {
+		return err
+	}
+	if ticketBoardID != columnBoardID {
+		return errors.New("cannot move a ticket to a column on another board")
+	}
 	if err := visibleTicketOrder.moveToFront(ctx, tx, ticketID, toColumnID); err != nil {
 		return err
 	}
@@ -739,15 +788,37 @@ func (s *Store) ReorderTicket(ctx context.Context, ticketID int64, delta int) er
 }
 
 func (s *Store) UpsertActiveSession(ctx context.Context, ticketID int64, session Session) (int64, error) {
+	return s.claimSession(ctx, ticketID, session, true)
+}
+
+// ClaimSession durably reserves the ticket before a runtime container is
+// launched. A second caller cannot claim the same ticket while this attempt is
+// active, even when it is using another Store/process.
+func (s *Store) ClaimSession(ctx context.Context, ticketID int64, session Session, replaceActive bool) (int64, error) {
+	session.Status = kanban.StateStarting
+	return s.claimSession(ctx, ticketID, session, replaceActive)
+}
+
+func (s *Store) claimSession(ctx context.Context, ticketID int64, session Session, replaceActive bool) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `update sessions set is_active=0, updated_at=? where ticket_id=?`, time.Now().UTC(), ticketID); err != nil {
-		return 0, err
-	}
 	now := time.Now().UTC()
+	if replaceActive {
+		if _, err := tx.ExecContext(ctx, `update sessions set is_active=0, updated_at=? where ticket_id=? and is_active=1`, now, ticketID); err != nil {
+			return 0, err
+		}
+	} else {
+		var active int
+		if err := tx.QueryRowContext(ctx, `select count(*) from sessions where ticket_id=? and is_active=1`, ticketID).Scan(&active); err != nil {
+			return 0, err
+		}
+		if active > 0 {
+			return 0, ErrActiveSessionExists
+		}
+	}
 	status := session.Status
 	if status == "" {
 		status = kanban.StateRunning
@@ -756,10 +827,38 @@ func (s *Store) UpsertActiveSession(ctx context.Context, ticketID int64, session
 	res, err := tx.ExecContext(ctx, `insert into sessions(ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,multiplexer,mux_namespace,mux_container_id,mux_container_name,mux_metadata,status,is_active,started_at,last_seen_tmux_at,last_state_change_at,last_detected_state,last_detection_source,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		ticketID, session.Harness, nullableString(session.HarnessSessionRef.String), nullableString(session.HarnessSessionName.String), session.TmuxSessionName, nullableString(session.TmuxWindowID.String), session.TmuxWindowName, session.Multiplexer, nullableString(session.MuxNamespace.String), nullableString(session.MuxContainerID.String), nullableString(session.MuxContainerName.String), nullableString(session.MuxMetadata.String), status, 1, now, now, now, status, "system", now, now)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
+			return 0, ErrActiveSessionExists
+		}
 		return 0, err
 	}
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
 	return id, tx.Commit()
+}
+
+// CompleteSessionLaunch attaches the newly-created runtime container to the
+// durable claim and transitions it from starting to running.
+func (s *Store) CompleteSessionLaunch(ctx context.Context, sessionID int64, session Session) error {
+	applySessionMuxDefaults(&session)
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, `update sessions set harness_session_ref=?,harness_session_name=?,tmux_session_name=?,tmux_window_id=?,tmux_window_name=?,multiplexer=?,mux_namespace=?,mux_container_id=?,mux_container_name=?,mux_metadata=?,status=?,last_seen_tmux_at=?,last_state_change_at=?,last_detected_state=?,last_detection_source='system',updated_at=? where id=? and is_active=1 and status=?`,
+		nullableString(session.HarnessSessionRef.String), nullableString(session.HarnessSessionName.String), session.TmuxSessionName, nullableString(session.TmuxWindowID.String), session.TmuxWindowName, session.Multiplexer, nullableString(session.MuxNamespace.String), nullableString(session.MuxContainerID.String), nullableString(session.MuxContainerName.String), nullableString(session.MuxMetadata.String), kanban.StateRunning, now, now, kanban.StateRunning, now, sessionID, kanban.StateStarting)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return errors.New("session launch claim is no longer active")
+	}
+	return nil
+}
+
+func (s *Store) FailSessionLaunch(ctx context.Context, sessionID int64, reason string) error {
+	return s.MarkSessionClosed(ctx, sessionID, kanban.StateError, "system", reason)
 }
 
 func (s *Store) ActiveSession(ctx context.Context, ticketID int64) (Session, bool, error) {
@@ -768,6 +867,10 @@ func (s *Store) ActiveSession(ctx context.Context, ticketID int64) (Session, boo
 
 func (s *Store) LatestSession(ctx context.Context, ticketID int64) (Session, bool, error) {
 	return s.sessionByQuery(ctx, sessionSelectSQL+` where ticket_id=? order by id desc limit 1`, ticketID)
+}
+
+func (s *Store) SessionByID(ctx context.Context, sessionID int64) (Session, bool, error) {
+	return s.sessionByQuery(ctx, sessionSelectSQL+` where id=?`, sessionID)
 }
 
 const sessionSelectSQL = `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,coalesce(multiplexer,'tmux'),coalesce(mux_namespace,tmux_session_name),coalesce(mux_container_id,tmux_window_id),coalesce(mux_container_name,tmux_window_name),mux_metadata,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions`
@@ -808,13 +911,16 @@ func (s *Store) RenameSessionWindow(ctx context.Context, ticketID int64, name st
 }
 
 func (s *Store) UpdateSessionRef(ctx context.Context, sessionID int64, ref string) error {
-	_, err := s.db.ExecContext(ctx, `update sessions set harness_session_ref=?, updated_at=? where id=?`, nullableString(ref), time.Now().UTC(), sessionID)
-	return err
+	res, err := s.db.ExecContext(ctx, `update sessions set harness_session_ref=?, updated_at=? where id=?`, nullableString(ref), time.Now().UTC(), sessionID)
+	return requireAffected(res, err)
 }
 
 // Note CRUD
 
 func (s *Store) AddNote(ctx context.Context, ticketID int64, body string) (Note, error) {
+	if strings.TrimSpace(body) == "" {
+		return Note{}, errors.New("note body is required")
+	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx, `insert into ticket_notes(ticket_id,body,created_at,updated_at) values(?,?,?,?)`, ticketID, body, now, now)
 	if err != nil {
@@ -831,13 +937,16 @@ func (s *Store) NoteByID(ctx context.Context, noteID int64) (Note, error) {
 }
 
 func (s *Store) UpdateNote(ctx context.Context, noteID int64, body string) error {
-	_, err := s.db.ExecContext(ctx, `update ticket_notes set body=?, updated_at=? where id=?`, body, time.Now().UTC(), noteID)
-	return err
+	if strings.TrimSpace(body) == "" {
+		return errors.New("note body is required")
+	}
+	res, err := s.db.ExecContext(ctx, `update ticket_notes set body=?, updated_at=? where id=?`, body, time.Now().UTC(), noteID)
+	return requireAffected(res, err)
 }
 
 func (s *Store) DeleteNote(ctx context.Context, noteID int64) error {
-	_, err := s.db.ExecContext(ctx, `delete from ticket_notes where id=?`, noteID)
-	return err
+	res, err := s.db.ExecContext(ctx, `delete from ticket_notes where id=?`, noteID)
+	return requireAffected(res, err)
 }
 
 func (s *Store) ListNotes(ctx context.Context, ticketID int64) ([]Note, error) {
@@ -1211,6 +1320,13 @@ func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `update sessions set mux_container_name=tmux_window_name where mux_container_name is null and tmux_window_name is not null`); err != nil {
 		return err
 	}
+	// Repair legacy duplicate active rows before enforcing the durable invariant.
+	if _, err := s.db.ExecContext(ctx, `update sessions set is_active=0 where is_active=1 and id not in (select max(id) from sessions where is_active=1 group by ticket_id)`); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `create unique index if not exists sessions_one_active_per_ticket on sessions(ticket_id) where is_active=1`); err != nil {
+		return err
+	}
 	// Create ticket_notes table for existing databases that predate it.
 	if _, err := s.db.ExecContext(ctx, `create table if not exists ticket_notes (
   id integer primary key autoincrement,
@@ -1240,6 +1356,20 @@ func (s *Store) migrate(ctx context.Context) error {
 			if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`alter table ticket_notes add column %s %s`, col.name, col.typ)); err != nil {
 				return err
 			}
+		}
+	}
+	// These indexes make durable identity rules authoritative across multiple
+	// Kanbi processes. If an older database contains ambiguous rows, fail rather
+	// than silently choosing or deleting one; the conflicting data must be
+	// explicitly renamed before upgrading.
+	for _, statement := range []string{
+		`create unique index if not exists boards_name_nocase_uq on boards(name collate nocase)`,
+		`create unique index if not exists columns_board_name_uq on columns(board_id,name)`,
+		`create unique index if not exists tickets_board_external_id_uq on tickets(board_id,external_id) where external_id is not null`,
+		`create unique index if not exists notes_ticket_external_id_uq on ticket_notes(ticket_id,external_id) where external_id is not null`,
+	} {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("enforce storage identity invariant: %w", err)
 		}
 	}
 	return nil
@@ -1278,6 +1408,34 @@ func nullableString(v string) any {
 		return nil
 	}
 	return v
+}
+
+func requireAffected(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func validHarness(name string) bool {
+	_, ok := harness.BuiltinContract(name)
+	return ok
+}
+
+func validTicketBackend(name string) bool {
+	switch name {
+	case "local", "github", "atlassian":
+		return true
+	default:
+		return false
+	}
 }
 
 const schema = `

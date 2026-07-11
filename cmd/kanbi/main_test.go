@@ -72,6 +72,37 @@ func captureStdout(t *testing.T, fn func() error) string {
 	return string(out)
 }
 
+func TestCLIRejectsInvalidTicketValues(t *testing.T) {
+	run, _ := setupCLI(t)
+	if err := run("add", "   "); err == nil {
+		t.Fatal("expected whitespace-only title to be rejected")
+	}
+	if err := run("add", "Bad harness", "--harness", "unknown"); err == nil || !strings.Contains(err.Error(), "unsupported harness") {
+		t.Fatalf("unexpected invalid harness error: %v", err)
+	}
+}
+
+func TestCLIUpdateRejectsInvalidValuesWithoutChangingTicket(t *testing.T) {
+	run, openStore := setupCLI(t)
+	if err := run("add", "Original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("update", "T-001", "--title", "   "); err == nil {
+		t.Fatal("expected whitespace-only title to be rejected")
+	}
+	if err := run("update", "T-001", "--harness", "unknown"); err == nil {
+		t.Fatal("expected unsupported harness to be rejected")
+	}
+	s := openStore()
+	ticket, err := s.TicketByDisplayID(context.Background(), "T-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.Title != "Original" || ticket.Harness != "pi" {
+		t.Fatalf("invalid update changed ticket: %+v", ticket)
+	}
+}
+
 // ---- parseAddArgs ----
 
 func TestParseAddArgsPositional(t *testing.T) {

@@ -48,7 +48,13 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 func TestOpenTicketWithHerdrPasteModeUsesHerdrInput(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
-	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Paste", "body", "paste")
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Paste", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Paste is a test-only configured command, not a persistable compiled
+	// harness contract. Override the projected value only for manager coverage.
+	ticket.Harness = "paste"
 	bin, logPath := writeFakeHerdr(t, map[string]string{
 		"workspace list":   `[]`,
 		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,

@@ -3,6 +3,7 @@ package tmux
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -30,10 +31,11 @@ type lifecycleRequest struct {
 }
 
 type lifecycleDecision struct {
-	Ticket storage.Ticket
-	Action lifecycleAction
-	Ref    string
-	Reason string
+	Ticket        storage.Ticket
+	Action        lifecycleAction
+	Ref           string
+	Reason        string
+	ReplaceActive bool
 }
 
 type ticketLifecycle struct {
@@ -91,7 +93,7 @@ func (l ticketLifecycle) Decide(ctx context.Context, req lifecycleRequest) (life
 	}
 	name := TicketWindowName(ticket)
 	if req.StartFresh {
-		return lifecycleDecision{Ticket: ticket, Action: lifecycleActionStart}, nil
+		return lifecycleDecision{Ticket: ticket, Action: lifecycleActionStart, ReplaceActive: true}, nil
 	}
 	if ticket.SessionID.Valid && ticket.SessionActive {
 		containerRef := ContainerRefFromTicket(ticket)
@@ -114,7 +116,7 @@ func (l ticketLifecycle) Decide(ctx context.Context, req lifecycleRequest) (life
 			}
 		}
 		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
-			return lifecycleDecision{Ticket: ticket, Action: lifecycleActionResume}, nil
+			return lifecycleDecision{Ticket: ticket, Action: lifecycleActionResume, ReplaceActive: true}, nil
 		}
 		return lifecycleDecision{Ticket: ticket, Action: lifecycleActionRepair, Reason: "tmux window is missing and no session ref is known"}, nil
 	}
@@ -168,9 +170,40 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			return err
 		}
 	}
+
+	muxKind := l.manager.defaultMultiplexerKind()
+	claim := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Multiplexer: string(muxKind), Status: kanban.StateStarting}
+	if ticket.SessionRef.Valid {
+		claim.HarnessSessionRef = ticket.SessionRef
+	}
+	if muxKind == multiplexer.KindHerdr {
+		claim.TmuxSessionName = ""
+		claim.TmuxWindowName = ""
+		claim.MuxContainerName = sql.NullString{String: name, Valid: true}
+		if namespace := l.manager.currentHerdrWorkspace(ctx); namespace != "" {
+			claim.MuxNamespace = sql.NullString{String: namespace, Valid: true}
+		}
+	}
+	var claimID int64
+	if l.manager.Store != nil {
+		claimID, err = l.manager.Store.ClaimSession(ctx, ticket.ID, claim, decision.ReplaceActive)
+		if err != nil {
+			return err
+		}
+	}
+	failClaim := func(cause error) error {
+		if l.manager.Store == nil || claimID == 0 {
+			return cause
+		}
+		if markErr := l.manager.Store.FailSessionLaunch(ctx, claimID, cause.Error()); markErr != nil {
+			return errors.Join(cause, fmt.Errorf("mark launch failed: %w", markErr))
+		}
+		return cause
+	}
+
 	var containerRef multiplexer.ContainerRef
-	if l.manager.defaultMultiplexerKind() == multiplexer.KindHerdr {
-		namespace := l.manager.currentHerdrWorkspace(ctx)
+	if muxKind == multiplexer.KindHerdr {
+		namespace := claim.MuxNamespace.String
 		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: ticket.BoardWorkdir, Command: command, Namespace: namespace})
 	} else {
 		var out string
@@ -181,9 +214,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 	}
 	if err != nil {
-		if l.manager.Store != nil && ticket.SessionID.Valid {
-			_ = l.manager.Store.UpdateSessionRuntime(ctx, ticket.SessionID.Int64, kanban.StateError, "tmux", err.Error(), "", false)
-		}
+		err = failClaim(err)
 		if resuming {
 			return ResumeFailedError{Ticket: ticket, Err: err}
 		}
@@ -198,7 +229,10 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			checkAfter = defaultResumeCheckAfter
 		}
 		if liveErr := l.manager.waitWindowLive(ctx, l.manager.Config.TmuxSession, windowID, name, checkAfter); liveErr != nil {
-			return ResumeFailedError{Ticket: ticket, Err: liveErr}
+			if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
+				liveErr = errors.Join(liveErr, fmt.Errorf("cleanup failed container: %w", cleanupErr))
+			}
+			return ResumeFailedError{Ticket: ticket, Err: failClaim(liveErr)}
 		}
 	}
 
@@ -218,61 +252,31 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 	}
 	if l.manager.Store != nil && (launchedNew || !ticket.SessionID.Valid || !ticket.SessionActive) {
-		if _, err := l.manager.Store.UpsertActiveSession(ctx, ticket.ID, ses); err != nil {
-			return err
+		if err := l.manager.Store.CompleteSessionLaunch(ctx, claimID, ses); err != nil {
+			if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("cleanup failed container: %w", cleanupErr))
+			}
+			return failClaim(err)
 		}
+		insertedSessionID := claimID
 		// If we didn't capture the ref before upserting (e.g. Pi extension fires slowly),
-		// start a background goroutine to keep polling and update the DB once found.
+		// keep polling and update exactly the session row created by this launch.
 		if !ses.HarnessSessionRef.Valid && promptAlreadySent && refFile != "" {
-			ticketID := ticket.ID
-			store := l.manager.Store
-			go func() {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				end := time.Now().Add(30 * time.Second)
-				for time.Now().Before(end) {
-					select {
-					case <-bgCtx.Done():
-						return
-					case <-time.After(500 * time.Millisecond):
-					}
-					if ref, ok := readPiSessionRefFile(refFile); ok {
-						if activeSes, active, err := store.ActiveSession(bgCtx, ticketID); err == nil && active {
-							_ = store.UpdateSessionRef(bgCtx, activeSes.ID, ref)
-						}
-						return
-					}
-				}
-			}()
+			l.manager.startSessionRefCapture(insertedSessionID, ticket.Harness, defaultPiRefCaptureTimeout, func() (string, bool) {
+				return readPiSessionRefFile(refFile)
+			})
 		}
 		// Claude Code can sit on the workspace-trust dialog for an unbounded
 		// amount of time, so keep polling its projects dir well past the
 		// synchronous capture deadline.
 		if !ses.HarnessSessionRef.Valid && promptAlreadySent && ticket.Harness == "claude" {
-			ticketID := ticket.ID
 			harnessName := ticket.Harness
 			cwd := ticket.BoardWorkdir
-			prompt := renderedPrompt
+			promptText := renderedPrompt
 			since := launchStartedAt
-			store := l.manager.Store
-			go func() {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				defer cancel()
-				end := time.Now().Add(5 * time.Minute)
-				for time.Now().Before(end) {
-					select {
-					case <-bgCtx.Done():
-						return
-					case <-time.After(time.Second):
-					}
-					if ref, ok := harness.CaptureSessionRefInCWD(harnessName, prompt, cwd, since); ok {
-						if activeSes, active, err := store.ActiveSession(bgCtx, ticketID); err == nil && active {
-							_ = store.UpdateSessionRef(bgCtx, activeSes.ID, ref)
-						}
-						return
-					}
-				}
-			}()
+			l.manager.startSessionRefCapture(insertedSessionID, harnessName, defaultClaudeRefCaptureTimeout, func() (string, bool) {
+				return harness.CaptureSessionRefInCWD(harnessName, promptText, cwd, since)
+			})
 		}
 	}
 	if sendPrompt && !promptAlreadySent {
@@ -281,12 +285,18 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		if containerRef.Kind == multiplexer.KindHerdr {
 			adapter := l.manager.herdrAdapter()
 			if err := l.manager.WaitAndSendHerdrPrompt(ctx, adapter, containerRef, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout); err != nil {
-				return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: err}
+				if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
+					err = errors.Join(err, fmt.Errorf("cleanup failed container: %w", cleanupErr))
+				}
+				return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: failClaim(err)}
 			}
 			out, _ = adapter.Read(ctx, containerRef, multiplexer.ReadOptions{Lines: 200})
 		} else {
 			if err := l.manager.WaitAndPastePrompt(ctx, name, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout); err != nil {
-				return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: err}
+				if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
+					err = errors.Join(err, fmt.Errorf("cleanup failed container: %w", cleanupErr))
+				}
+				return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: failClaim(err)}
 			}
 			out, _ = l.manager.CapturePane(ctx, name)
 		}
@@ -309,6 +319,16 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		return nil
 	}
 	return l.manager.switchWindow(ctx, l.manager.Config.TmuxSession, switchRef)
+}
+
+func (l ticketLifecycle) cleanupLaunchedContainer(ctx context.Context, ref multiplexer.ContainerRef) error {
+	if ref.Target() == "" {
+		return nil
+	}
+	if ref.Kind == multiplexer.KindHerdr {
+		return l.manager.herdrAdapter().Close(ctx, ref)
+	}
+	return NewMultiplexerAdapter(l.manager).Close(ctx, ref)
 }
 
 func (m *Manager) switchWindow(ctx context.Context, sessionName, ref string) error {
