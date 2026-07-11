@@ -218,6 +218,39 @@ func TestHerdrDefaultResumesStaleTmuxSessionWithRefIntoHerdr(t *testing.T) {
 	}
 }
 
+func TestRefreshRuntimeDoesNotObserveHerdrLaunchClaimBeforeContainerIsAttached(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr starting", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimID, err := store.ClaimSession(ctx, ticket.ID, storage.Session{
+		Harness:          "pi",
+		Multiplexer:      "herdr",
+		MuxNamespace:     sql.NullString{String: "ws-board", Valid: true},
+		MuxContainerName: sql.NullString{String: "b1-T-001-herdr-starting", Valid: true},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, _ := writeFakeHerdr(t, map[string]string{})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Herdr.Binary = bin
+	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+
+	if err := manager.RefreshRuntime(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ses, ok, err := store.SessionByID(ctx, claimID)
+	if err != nil || !ok {
+		t.Fatalf("claim lookup = %+v, %v, %v", ses, ok, err)
+	}
+	if ses.Status != kanban.StateStarting || !ses.IsActive {
+		t.Fatalf("watcher changed in-flight claim to status=%q active=%v", ses.Status, ses.IsActive)
+	}
+}
+
 func TestRefreshRuntimePrefersHerdrNativeState(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)

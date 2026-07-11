@@ -338,6 +338,12 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			}
 			continue
 		}
+		// A starting session is a durable launch claim, not an observable runtime
+		// container yet. Polling it can race the launch, change its status, and
+		// cause CompleteSessionLaunch to reject the claim and close the new pane.
+		if ses.Status == kanban.StateStarting {
+			continue
+		}
 		var out string
 		detectionSource := "tmux"
 		if ses.Multiplexer == string(multiplexer.KindHerdr) {
