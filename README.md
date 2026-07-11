@@ -9,6 +9,7 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - [`docs/multi-board-behavior.md`](./docs/multi-board-behavior.md) — current multi-board and Master view behavior
 - [`docs/harness-contracts.md`](./docs/harness-contracts.md) — current supported harness commands/ref capture contracts
 - [`docs/multiplexer-contracts.md`](./docs/multiplexer-contracts.md) — tmux/Herdr runtime substrate contract
+- [`docs/tmux-to-herdr-migration.md`](./docs/tmux-to-herdr-migration.md) — recommended semantics for moving existing tmux workflows to Herdr
 - [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — how autonomous agents should verify their work
 - [`docs/archive/design-spec.md`](./docs/archive/design-spec.md) — historical product/design context; current docs win on conflicts
 
@@ -67,7 +68,7 @@ multiplexer:
     focus_on_open: false
 ```
 
-Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches. With `default: herdr`, running `kanbi` outside Herdr starts the board UI in a focused Herdr pane and attaches to Herdr; when already inside a Herdr pane it runs the board directly to avoid nesting. For one-off testing, `KANBI_MULTIPLEXER=herdr` overrides `multiplexer.default`.
+Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches. Stale or inactive tmux sessions can resume into Herdr only through a valid harness session ref, while start-fresh creates a new Herdr attempt and preserves old tmux history; see [`docs/tmux-to-herdr-migration.md`](./docs/tmux-to-herdr-migration.md). With `default: herdr`, running `kanbi` outside Herdr starts the board UI in a focused Herdr pane and attaches to Herdr; when already inside a Herdr pane it runs the board directly to avoid nesting. For one-off testing, `KANBI_MULTIPLEXER=herdr` overrides `multiplexer.default`.
 
 Herdr basics:
 

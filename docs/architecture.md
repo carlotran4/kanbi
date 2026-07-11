@@ -118,7 +118,7 @@ erDiagram
 - A **harness session ref** is the harness-native resume handle when the harness exposes one.
 - **Start fresh** creates a new active session attempt while preserving prior session rows.
 
-See [`docs/multiplexer-contracts.md`](./multiplexer-contracts.md) for the tmux/Herdr adapter contract. See [`docs/multi-board-behavior.md`](./multi-board-behavior.md) for board aggregation and Master view behavior. See [`docs/ticket-backends.md`](./ticket-backends.md) for the board-scoped ticket backend model.
+See [`docs/multiplexer-contracts.md`](./multiplexer-contracts.md) for the tmux/Herdr adapter contract and [`docs/tmux-to-herdr-migration.md`](./tmux-to-herdr-migration.md) for recommended migration semantics when changing existing boards from tmux to Herdr. See [`docs/multi-board-behavior.md`](./multi-board-behavior.md) for board aggregation and Master view behavior. See [`docs/ticket-backends.md`](./ticket-backends.md) for the board-scoped ticket backend model.
 
 ## Ticket/Session Lifecycle Invariants
 
