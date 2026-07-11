@@ -2,7 +2,10 @@ package ticketbackend
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -11,12 +14,13 @@ import (
 )
 
 type fakeJiraClient struct {
-	issues          []JiraIssue
-	comments        map[string][]JiraComment
-	createdIssues   []JiraIssueUpdate
-	updatedIssues   []JiraIssueUpdate
-	createdComments []string
-	lastSearchJQL   string
+	issues            []JiraIssue
+	comments          map[string][]JiraComment
+	createdIssues     []JiraIssueUpdate
+	updatedIssues     []JiraIssueUpdate
+	updateIssueErrors []error
+	createdComments   []string
+	lastSearchJQL     string
 }
 
 func (f *fakeJiraClient) SearchIssues(_ context.Context, cfg JiraConfig) ([]JiraIssue, error) {
@@ -35,6 +39,13 @@ func (f *fakeJiraClient) CreateIssue(_ context.Context, _ JiraConfig, u JiraIssu
 }
 func (f *fakeJiraClient) UpdateIssue(_ context.Context, _ JiraConfig, issueID string, u JiraIssueUpdate) (JiraIssue, error) {
 	f.updatedIssues = append(f.updatedIssues, u)
+	if len(f.updateIssueErrors) > 0 {
+		err := f.updateIssueErrors[0]
+		f.updateIssueErrors = f.updateIssueErrors[1:]
+		if err != nil {
+			return JiraIssue{}, err
+		}
+	}
 	for i := range f.issues {
 		if f.issues[i].ID == issueID {
 			f.issues[i].Summary = u.Summary
@@ -168,6 +179,128 @@ func TestJiraSyncCreatesRemoteIssueForLocalTicket(t *testing.T) {
 	}
 	if _, err := store.TicketByDisplayIDInBoard(ctx, "AK-1001", board.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestJiraSyncDoesNotCountPartialUpdateAndRetries(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Jira", Workdir: t.TempDir(), TicketBackend: KindAtlassian, BackendConfig: `{"site_url":"https://acme.atlassian.net","project_key":"AK","email":"me@example.com","api_token":"tok"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteUpdated := time.Now().UTC().Add(-2 * time.Hour)
+	client := &fakeJiraClient{issues: []JiraIssue{{ID: "1007", Key: "AK-7", BrowseURL: "url", Summary: "old", Description: "old", Status: "Open", UpdatedAt: remoteUpdated}}, comments: map[string][]JiraComment{}}
+	if _, err := (JiraBackend{Client: client}).Sync(ctx, store, board); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.TicketByDisplayIDInBoard(ctx, "AK-7", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateTicket(ctx, ticket.ID, "local title", "local body", ticket.Harness); err != nil {
+		t.Fatal(err)
+	}
+	client.updateIssueErrors = []error{errors.New("transition failed after metadata update")}
+
+	res, err := (JiraBackend{Client: client}).Sync(ctx, store, board)
+	if err == nil || !strings.Contains(err.Error(), "transition failed") {
+		t.Fatalf("first sync error=%v", err)
+	}
+	if res.Pushed != 0 {
+		t.Fatalf("partial update counted as pushed: %+v", res)
+	}
+	unsynced, err := store.TicketByDisplayIDInBoard(ctx, "AK-7", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !unsynced.ExternalUpdatedAt.Time.Equal(remoteUpdated) {
+		t.Fatalf("partial update advanced local sync marker: got %v want %v", unsynced.ExternalUpdatedAt.Time, remoteUpdated)
+	}
+
+	res, err = (JiraBackend{Client: client}).Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pushed != 1 || len(client.updatedIssues) != 2 {
+		t.Fatalf("retry did not push update: result=%+v attempts=%d", res, len(client.updatedIssues))
+	}
+}
+
+func TestJiraHTTPUpdateIssueTransitionFailures(t *testing.T) {
+	tests := []struct {
+		name               string
+		transitionGetCode  int
+		transitionsBody    string
+		transitionPostCode int
+		want               string
+	}{
+		{name: "lookup fails", transitionGetCode: http.StatusBadGateway, want: "GET /rest/api/3/issue/1007/transitions"},
+		{name: "requested transition unavailable", transitionGetCode: http.StatusOK, transitionsBody: `{"transitions":[{"id":"2","to":{"name":"Review"}}]}`, want: `no available transition to "Done"`},
+		{name: "transition post fails", transitionGetCode: http.StatusOK, transitionsBody: `{"transitions":[{"id":"3","to":{"name":"Done"}}]}`, transitionPostCode: http.StatusConflict, want: "POST /rest/api/3/issue/1007/transitions"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := "Open"
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPut && r.URL.Path == "/rest/api/3/issue/1007":
+					w.WriteHeader(http.StatusNoContent)
+				case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/1007":
+					fmt.Fprintf(w, `{"id":"1007","key":"AK-7","fields":{"summary":"local","description":"body","status":{"name":%q},"updated":"2026-01-01T00:00:00Z"}}`, status)
+				case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/1007/transitions":
+					w.WriteHeader(tt.transitionGetCode)
+					if tt.transitionsBody != "" {
+						_, _ = w.Write([]byte(tt.transitionsBody))
+					}
+				case r.Method == http.MethodPost && r.URL.Path == "/rest/api/3/issue/1007/transitions":
+					code := tt.transitionPostCode
+					if code == 0 {
+						code = http.StatusNoContent
+					}
+					w.WriteHeader(code)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			client := NewJiraHTTPClient(server.Client())
+			_, err := client.UpdateIssue(context.Background(), JiraConfig{SiteURL: server.URL, ProjectKey: "AK", BearerToken: "token"}, "1007", JiraIssueUpdate{Summary: "local", Description: "body", Status: "Done"})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v, want substring %q", err, tt.want)
+			}
+			if !strings.Contains(err.Error(), "after updating summary/description") {
+				t.Fatalf("error does not explain partial metadata update: %v", err)
+			}
+		})
+	}
+}
+
+func TestJiraHTTPUpdateIssueSkipsTransitionWhenStatusAlreadyMatches(t *testing.T) {
+	transitionRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/rest/api/3/issue/1007":
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/1007":
+			_, _ = w.Write([]byte(`{"id":"1007","key":"AK-7","fields":{"summary":"local","description":"body","status":{"name":"Open"},"updated":"2026-01-01T00:00:00Z"}}`))
+		case strings.HasSuffix(r.URL.Path, "/transitions"):
+			transitionRequests++
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewJiraHTTPClient(server.Client())
+	issue, err := client.UpdateIssue(context.Background(), JiraConfig{SiteURL: server.URL, ProjectKey: "AK", BearerToken: "token"}, "1007", JiraIssueUpdate{Summary: "local", Description: "body", Status: "open"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issue.Status != "Open" || transitionRequests != 0 {
+		t.Fatalf("issue=%+v transitionRequests=%d", issue, transitionRequests)
 	}
 }
 

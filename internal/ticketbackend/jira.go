@@ -388,8 +388,16 @@ func (c JiraHTTPClient) UpdateIssue(ctx context.Context, cfg JiraConfig, issueID
 	if err := c.do(ctx, cfg, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(issueID), in, nil); err != nil {
 		return JiraIssue{}, err
 	}
-	if strings.TrimSpace(u.Status) != "" {
-		_ = c.transitionIssue(ctx, cfg, issueID, u.Status)
+	issue, err := c.GetIssue(ctx, cfg, issueID)
+	if err != nil {
+		return JiraIssue{}, err
+	}
+	desiredStatus := strings.TrimSpace(u.Status)
+	if desiredStatus == "" || strings.EqualFold(issue.Status, desiredStatus) {
+		return issue, nil
+	}
+	if err := c.transitionIssue(ctx, cfg, issueID, desiredStatus); err != nil {
+		return JiraIssue{}, fmt.Errorf("transition Jira issue %s to %q after updating summary/description: %w", issueID, desiredStatus, err)
 	}
 	return c.GetIssue(ctx, cfg, issueID)
 }
@@ -429,7 +437,7 @@ func (c JiraHTTPClient) transitionIssue(ctx context.Context, cfg JiraConfig, iss
 			return c.do(ctx, cfg, http.MethodPost, "/rest/api/3/issue/"+url.PathEscape(issueID)+"/transitions", map[string]any{"transition": map[string]string{"id": tr.ID}}, nil)
 		}
 	}
-	return nil
+	return fmt.Errorf("no available transition to %q", status)
 }
 
 func (c JiraHTTPClient) do(ctx context.Context, cfg JiraConfig, method, path string, in, out any) error {
