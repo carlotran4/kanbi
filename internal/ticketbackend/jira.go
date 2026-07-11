@@ -68,7 +68,7 @@ type JiraBackend struct{ Client JiraClient }
 
 func (JiraBackend) Kind() string { return KindAtlassian }
 
-func (b JiraBackend) Sync(ctx context.Context, store *storage.Store, board storage.Board) (Result, error) {
+func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board storage.Board) (Result, error) {
 	cfg, err := ParseJiraConfig(board.BackendConfig, board.BackendQuery)
 	if err != nil {
 		return Result{}, err
@@ -179,7 +179,7 @@ func (b JiraBackend) Sync(ctx context.Context, store *storage.Store, board stora
 	return res, nil
 }
 
-func (b JiraBackend) syncComments(ctx context.Context, store *storage.Store, client JiraClient, cfg JiraConfig, ticketID int64, issueID string) error {
+func (b JiraBackend) syncComments(ctx context.Context, store SyncRepository, client JiraClient, cfg JiraConfig, ticketID int64, issueID string) error {
 	comments, err := client.ListComments(ctx, cfg, issueID)
 	if err != nil {
 		return err

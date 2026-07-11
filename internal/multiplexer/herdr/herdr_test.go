@@ -161,6 +161,36 @@ func TestDetectUnknownAllowsFallback(t *testing.T) {
 	}
 }
 
+func TestValidateUsesNativeStateThenReadFallback(t *testing.T) {
+	tests := []struct {
+		name string
+		out  map[string]string
+		err  map[string]error
+		want bool
+	}{
+		{name: "native state", out: map[string]string{"agent get agent-1": `{"state":"working"}`}, want: true},
+		{name: "read fallback", out: map[string]string{"agent get agent-1": `{"state":"unknown"}`, "agent read agent-1 --source recent-unwrapped --lines 1": "output"}, want: true},
+		{name: "unreadable", out: map[string]string{"agent get agent-1": `{"state":"unknown"}`}, err: map[string]error{"agent read agent-1 --source recent-unwrapped --lines 1": errors.New("missing"), "pane read agent-1 --source recent-unwrapped --lines 1": errors.New("missing")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{out: tt.out, err: tt.err}
+			adapter := NewAdapter(Config{})
+			adapter.Runner = runner
+			valid, err := adapter.Validate(context.Background(), multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, ID: "agent-1"})
+			if valid != tt.want {
+				t.Fatalf("Validate() valid = %v, want %v (err %v)", valid, tt.want, err)
+			}
+			if tt.want && err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if !tt.want && err == nil {
+				t.Fatal("Validate() error = nil, want read failure")
+			}
+		})
+	}
+}
+
 func TestReadExtractsTextFromHerdrCLIEnvelope(t *testing.T) {
 	r := &fakeRunner{out: map[string]string{
 		"agent read agent-1 --source recent-unwrapped --lines 50": `{"id":"cli:agent:read","result":{"read":{"text":"PROMPT_READY\nSESSION_REF=fake-ref","pane_id":"w1:p2"},"type":"pane_read"}}`,

@@ -1,0 +1,165 @@
+package storage
+
+import (
+	"database/sql"
+	"errors"
+	"time"
+)
+
+var ErrActiveSessionExists = errors.New("ticket already has an active session")
+
+var ErrTicketHasActiveSession = errors.New("cannot archive ticket with an active session; close it first")
+
+type Board struct {
+	ID            int64
+	Name          string
+	Workdir       string
+	TicketBackend string
+	BackendQuery  string
+	BackendConfig string
+	LastSyncAt    sql.NullTime
+	LastSyncError sql.NullString
+}
+
+// ColumnView is a query model for a board column and its projected tickets.
+// It is not a direct representation of a columns table row.
+type ColumnView struct {
+	ID       int64
+	BoardID  int64
+	Name     string
+	Position int
+	Tickets  []Ticket
+}
+
+// Column is retained as a compatibility name for the column query model.
+type Column = ColumnView
+
+// TicketProjection is the read model returned by ticket and board queries. It
+// combines durable ticket fields with board metadata, the latest session, its
+// observed runtime state, and the ticket's note count.
+//
+// It is intentionally not a direct representation of a tickets table row.
+type TicketProjection struct {
+	ID                  int64
+	BoardID             int64
+	BoardName           string
+	BoardWorkdir        string
+	ColumnID            int64
+	ExternalID          sql.NullString
+	ExternalURL         sql.NullString
+	ExternalUpdatedAt   sql.NullTime
+	SyncVersion         sql.NullString
+	DisplayID           string
+	DisplayNum          int
+	Title               string
+	Body                string
+	Harness             string
+	Position            int
+	ArchivedAt          sql.NullTime
+	Runtime             string
+	SessionActive       bool
+	TmuxSessionName     sql.NullString
+	WindowID            sql.NullString
+	WindowName          sql.NullString
+	Multiplexer         sql.NullString
+	MuxNamespace        sql.NullString
+	MuxContainerID      sql.NullString
+	MuxContainerName    sql.NullString
+	MuxMetadata         sql.NullString
+	SessionID           sql.NullInt64
+	SessionRef          sql.NullString
+	LastOutputAt        sql.NullTime
+	LastStateChangeAt   sql.NullTime
+	LastDetectedState   sql.NullString
+	LastAttentionReason sql.NullString
+	LastDetectionSource sql.NullString
+	LastObservedExcerpt sql.NullString
+	NoteCount           int
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+// Ticket is retained as a compatibility name for the ticket query model.
+type Ticket = TicketProjection
+
+type Note struct {
+	ID                int64
+	TicketID          int64
+	ExternalID        sql.NullString
+	ExternalUpdatedAt sql.NullTime
+	SyncVersion       sql.NullString
+	Body              string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type Session struct {
+	ID                  int64
+	TicketID            int64
+	Harness             string
+	HarnessSessionRef   sql.NullString
+	HarnessSessionName  sql.NullString
+	TmuxSessionName     string
+	TmuxWindowID        sql.NullString
+	TmuxWindowName      string
+	Multiplexer         string
+	MuxNamespace        sql.NullString
+	MuxContainerID      sql.NullString
+	MuxContainerName    sql.NullString
+	MuxMetadata         sql.NullString
+	Status              string
+	IsActive            bool
+	StartedAt           sql.NullTime
+	ClosedAt            sql.NullTime
+	LastSeenTmuxAt      sql.NullTime
+	LastOutputAt        sql.NullTime
+	LastStateChangeAt   sql.NullTime
+	LastDetectedState   sql.NullString
+	LastAttentionReason sql.NullString
+	LastDetectionSource sql.NullString
+	LastObservedExcerpt sql.NullString
+}
+
+// BoardView is a query model containing a board and its populated columns.
+type BoardView struct {
+	Board   Board
+	Columns []Column
+}
+
+// MasterFilter describes query controls for the cross-board Master view.
+// Empty slices mean "all" for that dimension. Filters are intentionally
+// runtime-only UI state; callers decide whether to persist them.
+type MasterFilter struct {
+	BoardIDs        []int64
+	Runtimes        []string
+	Harnesses       []string
+	Search          string
+	IncludeArchived bool
+}
+
+// RemoteTicket is the ticket metadata projection written by external ticket
+// backends. It intentionally excludes local runtime/session fields.
+type RemoteTicket struct {
+	BoardID           int64
+	ColumnID          int64
+	ExternalID        string
+	ExternalURL       string
+	ExternalUpdatedAt time.Time
+	DisplayID         string
+	DisplayNumber     int
+	Title             string
+	Body              string
+	ArchivedAt        *time.Time
+	// SourceTicketID optionally links a just-created remote issue back to the
+	// local placeholder ticket that produced it, instead of inserting a second
+	// ticket with the remote display ID.
+	SourceTicketID int64
+}
+
+type CreateBoardOptions struct {
+	Name          string
+	Workdir       string
+	TicketBackend string
+	BackendQuery  string
+	BackendConfig string
+}

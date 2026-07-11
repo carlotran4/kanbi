@@ -1,0 +1,202 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+
+	"strconv"
+	"strings"
+	"time"
+)
+
+// SyncBoardColumns mirrors an external backend's workflow columns for a board
+// and returns the local column ID by name. Existing columns are reused by exact
+// name; missing columns are created; absent columns are left in place to avoid
+// destructive ticket/session history changes.
+func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []string) (map[string]int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	result := map[string]int64{}
+	seen := map[string]bool{}
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		var id int64
+		err := tx.QueryRowContext(ctx, `select id from columns where board_id=? and name=? order by position limit 1`, boardID, name).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			now := time.Now().UTC()
+			insertPos, err := columnOrder.nextPosition(ctx, tx, boardID)
+			if err != nil {
+				return nil, err
+			}
+			res, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, insertPos, now, now)
+			if err != nil {
+				return nil, err
+			}
+			id, _ = res.LastInsertId()
+		} else if err != nil {
+			return nil, err
+		}
+		result[name] = id
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Store) SyncTicketsForBoard(ctx context.Context, boardID int64) ([]Ticket, error) {
+	return s.queryProjectedTickets(ctx, `where t.board_id=? order by t.position`, boardID)
+}
+
+func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket, error) {
+	if rt.BoardID == 0 || rt.ColumnID == 0 || strings.TrimSpace(rt.ExternalID) == "" {
+		return Ticket{}, errors.New("remote ticket requires board, column, and external id")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Ticket{}, err
+	}
+	defer tx.Rollback()
+	displayID := strings.TrimSpace(rt.DisplayID)
+	if displayID == "" {
+		displayID = rt.ExternalID
+	}
+	if rt.DisplayNumber == 0 {
+		if n, err := strconv.Atoi(strings.TrimPrefix(strings.ToUpper(displayID), "GH-")); err == nil {
+			rt.DisplayNumber = n
+		}
+	}
+	now := time.Now().UTC()
+	var archived any
+	if rt.ArchivedAt != nil {
+		archived = *rt.ArchivedAt
+	}
+	var id int64
+	existingErr := tx.QueryRowContext(ctx, `select id from tickets where board_id=? and external_id=?`, rt.BoardID, rt.ExternalID).Scan(&id)
+	if existingErr != nil && !errors.Is(existingErr, sql.ErrNoRows) {
+		return Ticket{}, existingErr
+	}
+	displayNumberCurrentID := id
+	if errors.Is(existingErr, sql.ErrNoRows) && rt.SourceTicketID != 0 {
+		displayNumberCurrentID = rt.SourceTicketID
+	}
+	displayNumber, err := remoteDisplayNumber(ctx, tx, rt.BoardID, rt.DisplayNumber, displayNumberCurrentID)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if rt.ArchivedAt != nil {
+		ticketID := id
+		if errors.Is(existingErr, sql.ErrNoRows) {
+			ticketID = rt.SourceTicketID
+		}
+		if ticketID != 0 {
+			var active int
+			if err := tx.QueryRowContext(ctx, `select count(*) from sessions where ticket_id=? and is_active=1`, ticketID).Scan(&active); err != nil {
+				return Ticket{}, err
+			}
+			if active > 0 {
+				return Ticket{}, ErrTicketHasActiveSession
+			}
+		}
+	}
+	if errors.Is(existingErr, sql.ErrNoRows) {
+		if rt.SourceTicketID != 0 {
+			var sourceBoardID int64
+			if err := tx.QueryRowContext(ctx, `select board_id from tickets where id=?`, rt.SourceTicketID).Scan(&sourceBoardID); err != nil {
+				return Ticket{}, err
+			}
+			if sourceBoardID != rt.BoardID {
+				return Ticket{}, errors.New("remote ticket source belongs to a different board")
+			}
+			_, err = tx.ExecContext(ctx, `update tickets set column_id=?, external_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
+				rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, rt.SourceTicketID)
+			if err != nil {
+				return Ticket{}, err
+			}
+			id = rt.SourceTicketID
+		} else {
+			pos, err := visibleTicketOrder.nextPosition(ctx, tx, rt.ColumnID)
+			if err != nil {
+				return Ticket{}, err
+			}
+			res, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				rt.BoardID, rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, "pi", pos, archived, now, rt.ExternalUpdatedAt)
+			if err != nil {
+				return Ticket{}, err
+			}
+			id, _ = res.LastInsertId()
+		}
+	} else {
+		_, err = tx.ExecContext(ctx, `update tickets set column_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
+			rt.ColumnID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, id)
+		if err != nil {
+			return Ticket{}, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `update boards set next_ticket_number=max(next_ticket_number, ?) where id=?`, displayNumber+1, rt.BoardID); err != nil {
+		return Ticket{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Ticket{}, err
+	}
+	return s.TicketByID(ctx, id)
+}
+
+type sqlQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func remoteDisplayNumber(ctx context.Context, q sqlQueryer, boardID int64, desired int, currentTicketID int64) (int, error) {
+	if desired <= 0 {
+		if err := q.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&desired); err != nil {
+			return 0, err
+		}
+	}
+	var existing int64
+	err := q.QueryRowContext(ctx, `select id from tickets where board_id=? and display_number=?`, boardID, desired).Scan(&existing)
+	if errors.Is(err, sql.ErrNoRows) || existing == currentTicketID {
+		return desired, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var next int
+	if err := q.QueryRowContext(ctx, `select coalesce(max(display_number),0)+1 from tickets where board_id=?`, boardID).Scan(&next); err != nil {
+		return 0, err
+	}
+	if next <= desired {
+		next = desired + 1
+	}
+	return next, nil
+}
+
+func (s *Store) UpsertRemoteNote(ctx context.Context, ticketID int64, externalID, body string, externalUpdatedAt time.Time) error {
+	if strings.TrimSpace(externalID) == "" {
+		return errors.New("remote note requires external id")
+	}
+	var id int64
+	err := s.db.QueryRowContext(ctx, `select id from ticket_notes where ticket_id=? and external_id=?`, ticketID, externalID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = s.db.ExecContext(ctx, `insert into ticket_notes(ticket_id,external_id,external_updated_at,sync_version,body,created_at,updated_at) values(?,?,?,?,?,?,?)`, ticketID, externalID, externalUpdatedAt, externalUpdatedAt.Format(time.RFC3339Nano), body, time.Now().UTC(), externalUpdatedAt)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `update ticket_notes set external_updated_at=?, sync_version=?, body=?, updated_at=? where id=?`, externalUpdatedAt, externalUpdatedAt.Format(time.RFC3339Nano), body, externalUpdatedAt, id)
+	return err
+}
+
+func (s *Store) LinkLocalNoteToRemote(ctx context.Context, noteID int64, externalID string, externalUpdatedAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `update ticket_notes set external_id=?, external_updated_at=?, sync_version=?, updated_at=? where id=?`, externalID, externalUpdatedAt, externalUpdatedAt.Format(time.RFC3339Nano), externalUpdatedAt, noteID)
+	return err
+}

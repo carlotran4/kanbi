@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"kanbi/internal/boardruntime"
 	"kanbi/internal/config"
 	"kanbi/internal/storage"
 	"kanbi/internal/ticketbackend"
@@ -816,188 +817,55 @@ func shouldLaunchHerdrBoard(cfg config.Config) bool {
 }
 
 func launchHerdrBoard(cfg config.Config, exe string) error {
-	if err := ensureHerdrAvailableForBoard(cfg); err != nil {
-		return err
-	}
-	create := herdrBoardWorkspaceCommand(cfg)
-	out, err := create.Output()
-	if err != nil {
-		return fmt.Errorf("create Kanbi Herdr workspace: %w", err)
-	}
-	paneID := herdrRootPaneID(out)
-	if paneID == "" {
-		return fmt.Errorf("create Kanbi Herdr workspace: missing root pane id")
-	}
-	runCmd := herdrBoardPaneRunCommand(cfg, paneID, exe)
-	if err := runCmd.Run(); err != nil {
-		return fmt.Errorf("start kanbi in Herdr pane: %w", err)
-	}
-	return herdrAttachCommand(cfg).Run()
+	return boardruntime.LaunchHerdrBoard(cfg, exe)
 }
 
 func ensureHerdrAvailableForBoard(cfg config.Config) error {
-	if _, err := herdrStatusCommand(cfg).CombinedOutput(); err == nil {
-		return nil
-	}
-	start := herdrServerCommand(cfg)
-	if err := start.Start(); err != nil {
-		return herdrUnavailableError(cfg, err.Error())
-	}
-	_ = start.Process.Release()
-	out, err := waitForHerdrStatus(cfg, 5*time.Second)
-	if err == nil {
-		return nil
-	}
-	detail := strings.TrimSpace(string(out))
-	if detail == "" {
-		detail = err.Error()
-	}
-	return herdrUnavailableError(cfg, detail)
+	return boardruntime.EnsureHerdrAvailable(cfg)
 }
 
 func waitForHerdrStatus(cfg config.Config, timeout time.Duration) ([]byte, error) {
-	deadline := time.Now().Add(timeout)
-	var lastOut []byte
-	var lastErr error
-	for {
-		out, err := herdrStatusCommand(cfg).CombinedOutput()
-		if err == nil {
-			return out, nil
-		}
-		lastOut, lastErr = out, err
-		if time.Now().After(deadline) {
-			return lastOut, lastErr
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	return boardruntime.WaitForHerdrStatus(cfg, timeout)
 }
 
 func herdrUnavailableError(cfg config.Config, detail string) error {
-	detail = strings.TrimSpace(detail)
-	if detail == "" {
-		detail = "unknown error"
-	}
-	advice := "run `herdr status` for details, start Herdr with `herdr`, or set `multiplexer.default: tmux`"
-	if cfg.Paths.ConfigFile != "" {
-		advice += " in " + cfg.Paths.ConfigFile
-	}
-	return fmt.Errorf("Herdr is configured as Kanbi's multiplexer but is unavailable (%s); %s", detail, advice)
+	return boardruntime.HerdrUnavailableError(cfg, detail)
 }
 
 func herdrStatusCommand(cfg config.Config) *exec.Cmd {
-	bin := cfg.Multiplexer.Herdr.Binary
-	if bin == "" {
-		bin = "herdr"
-	}
-	cmd := exec.Command(bin, "status")
-	cmd.Env = herdrCommandEnv(cfg)
-	return cmd
+	return boardruntime.HerdrStatusCommand(cfg)
 }
 
 func herdrServerCommand(cfg config.Config) *exec.Cmd {
-	bin := cfg.Multiplexer.Herdr.Binary
-	if bin == "" {
-		bin = "herdr"
-	}
-	cmd := exec.Command(bin, "server")
-	cmd.Env = herdrCommandEnv(cfg)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd
+	return boardruntime.HerdrServerCommand(cfg)
 }
 
 func herdrBoardWorkspaceCommand(cfg config.Config) *exec.Cmd {
-	bin := cfg.Multiplexer.Herdr.Binary
-	if bin == "" {
-		bin = "herdr"
-	}
-	args := []string{"workspace", "create", "--label", "kanbi", "--focus"}
-	if cwd, err := os.Getwd(); err == nil && cwd != "" {
-		args = append(args, "--cwd", cwd)
-	}
-	cmd := exec.Command(bin, args...)
-	cmd.Env = herdrCommandEnv(cfg)
-	cmd.Stderr = os.Stderr
-	return cmd
+	return boardruntime.HerdrWorkspaceCommand(cfg)
 }
 
 func herdrBoardPaneRunCommand(cfg config.Config, paneID, exe string) *exec.Cmd {
-	bin := cfg.Multiplexer.Herdr.Binary
-	if bin == "" {
-		bin = "herdr"
-	}
-	cmdline := herdrBoardShellCommand(exe)
-	cmd := exec.Command(bin, "pane", "run", paneID, cmdline)
-	cmd.Env = herdrCommandEnv(cfg)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = os.Stderr
-	return cmd
+	return boardruntime.HerdrPaneRunCommand(cfg, paneID, exe)
 }
 
 func herdrBoardShellCommand(exe string) string {
-	parts := []string{"env", "KANBI_INNER=1"}
-	for _, key := range []string{"KANBI_CONFIG", "KANBI_DB", "KANBI_DATA_DIR", "KANBI_STATE_DIR"} {
-		if val := os.Getenv(key); val != "" {
-			parts = append(parts, shellQuoteArg(key+"="+val))
-		}
-	}
-	parts = append(parts, shellQuoteArg(exe), "--board")
-	return strings.Join(parts, " ")
+	return boardruntime.HerdrBoardShellCommand(exe)
 }
 
 func herdrRootPaneID(out []byte) string {
-	var obj map[string]any
-	if err := json.Unmarshal(out, &obj); err != nil {
-		return ""
-	}
-	for _, key := range []string{"result.root_pane.pane_id", "root_pane.pane_id", "pane_id"} {
-		if v := dottedJSON(obj, key); v != nil {
-			if s, ok := v.(string); ok {
-				return s
-			}
-		}
-	}
-	return ""
-}
-
-func dottedJSON(obj map[string]any, key string) any {
-	var cur any = obj
-	for _, part := range strings.Split(key, ".") {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return nil
-		}
-		cur = m[part]
-	}
-	return cur
+	return boardruntime.RootPaneID(out)
 }
 
 func shellQuoteArg(s string) string {
-	if s == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+	return boardruntime.ShellQuoteArg(s)
 }
 
 func herdrAttachCommand(cfg config.Config) *exec.Cmd {
-	bin := cfg.Multiplexer.Herdr.Binary
-	if bin == "" {
-		bin = "herdr"
-	}
-	cmd := exec.Command(bin)
-	cmd.Env = herdrCommandEnv(cfg)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd
+	return boardruntime.HerdrAttachCommand(cfg)
 }
 
 func herdrCommandEnv(cfg config.Config) []string {
-	env := os.Environ()
-	if session := cfg.Multiplexer.Herdr.Session; session != "" {
-		env = append(env, "HERDR_SESSION="+session)
-	}
-	return env
+	return boardruntime.HerdrCommandEnv(cfg)
 }
 
 func (c *cliContext) BoardByName(name string) (storage.Board, error) {

@@ -43,6 +43,19 @@ type Result struct {
 	Conflicts int
 }
 
+// SyncRepository is the persistence surface available to ticket metadata
+// providers. Board discovery and sync bookkeeping remain Manager concerns.
+type SyncRepository interface {
+	SyncBoardColumns(context.Context, int64, []string) (map[string]int64, error)
+	SyncTicketsForBoard(context.Context, int64) ([]storage.Ticket, error)
+	UpsertRemoteTicket(context.Context, storage.RemoteTicket) (storage.Ticket, error)
+	ListNotes(context.Context, int64) ([]storage.Note, error)
+	UpsertRemoteNote(context.Context, int64, string, string, time.Time) error
+	LinkLocalNoteToRemote(context.Context, int64, string, time.Time) error
+}
+
+var _ SyncRepository = (*storage.Store)(nil)
+
 // Backend is implemented once per ticket metadata provider. A board has exactly
 // one Backend, selected at board creation. Implementations should sync columns,
 // tickets, and comments/notes according to the remote source's model. When the
@@ -51,7 +64,7 @@ type Result struct {
 // labels, assignee, mentioned, milestone, since); Atlassian/Jira must use JQL.
 type Backend interface {
 	Kind() string
-	Sync(ctx context.Context, store *storage.Store, board storage.Board) (Result, error)
+	Sync(ctx context.Context, store SyncRepository, board storage.Board) (Result, error)
 }
 
 type Registry struct {
@@ -101,7 +114,7 @@ type LocalBackend struct{}
 
 func (LocalBackend) Kind() string { return KindLocal }
 
-func (LocalBackend) Sync(context.Context, *storage.Store, storage.Board) (Result, error) {
+func (LocalBackend) Sync(context.Context, SyncRepository, storage.Board) (Result, error) {
 	return Result{}, nil
 }
 

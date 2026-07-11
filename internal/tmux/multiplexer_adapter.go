@@ -57,6 +57,24 @@ func (a MultiplexerAdapter) Launch(ctx context.Context, spec multiplexer.LaunchS
 	return multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: namespace, ID: strings.TrimSpace(out), Name: name, Metadata: spec.Metadata}, nil
 }
 
+func (a MultiplexerAdapter) Validate(ctx context.Context, ref multiplexer.ContainerRef) (bool, error) {
+	namespace := adapterNamespace(a.Manager, ref)
+	if ref.ID != "" {
+		actualName, exists, err := a.Manager.windowNameByIDInSession(ctx, namespace, ref.ID)
+		if err != nil || !exists {
+			return false, err
+		}
+		if ref.Name != "" && actualName != ref.Name {
+			return false, nil
+		}
+		return true, nil
+	}
+	if ref.Name == "" {
+		return false, nil
+	}
+	return a.Manager.windowExistsInSession(ctx, namespace, ref.Name)
+}
+
 func (a MultiplexerAdapter) Focus(ctx context.Context, ref multiplexer.ContainerRef) error {
 	return a.Manager.switchWindow(ctx, adapterNamespace(a.Manager, ref), ref.Target())
 }
@@ -68,6 +86,18 @@ func (a MultiplexerAdapter) Read(ctx context.Context, ref multiplexer.ContainerR
 	}
 	args = append(args, "-t", targetRef(adapterNamespace(a.Manager, ref), ref.Target()))
 	return a.Manager.run(ctx, args...)
+}
+
+func (a MultiplexerAdapter) SendText(ctx context.Context, ref multiplexer.ContainerRef, text string) error {
+	target := ref.Target()
+	if target == "" {
+		return ErrWindowMissing
+	}
+	if _, err := a.Manager.run(ctx, "set-buffer", "--", text); err != nil {
+		return err
+	}
+	_, err := a.Manager.run(ctx, "paste-buffer", "-t", targetRef(adapterNamespace(a.Manager, ref), target))
+	return err
 }
 
 func (a MultiplexerAdapter) SendKeys(ctx context.Context, ref multiplexer.ContainerRef, keys ...string) error {

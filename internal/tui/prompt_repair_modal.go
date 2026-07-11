@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"kanbi/internal/session"
 	"kanbi/internal/storage"
-	"kanbi/internal/tmux"
 )
 
 func (m Model) updatePromptFallback(key tea.KeyMsg) (Model, tea.Cmd) {
@@ -30,8 +30,8 @@ func (m Model) updatePromptFallback(key tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func isRepairError(err error) bool {
-	var repair tmux.RepairNeededError
-	var resume tmux.ResumeFailedError
+	var repair session.RepairNeededError
+	var resume session.ResumeFailedError
 	return errors.As(err, &repair) || errors.As(err, &resume)
 }
 

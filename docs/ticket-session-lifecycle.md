@@ -108,7 +108,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 - `r` retries the open path.
 - `e` edits the session ref, saves it, then tries to open/resume.
-- `f` starts fresh with the rendered ticket prompt. The previous session history remains; the new run becomes the only active session and is launched through the currently configured multiplexer. tmux launches use the current executable's runtime tmux session and a separate window rather than reusing any existing same-named window; Herdr launches use the configured Herdr session/workspace strategy.
+- `f` starts fresh with the rendered ticket prompt. The previous session history remains; legacy tmux and generic multiplexer references from that attempt are cleared from the new lifecycle request, and the new run becomes the only active session. It is launched through the currently configured multiplexer. tmux launches use the current executable's runtime tmux session and a separate window rather than reusing any existing same-named window; Herdr launches use the configured Herdr session/workspace strategy.
 - `M` in the board view explicitly moves a tmux-backed ticket to the configured Herdr multiplexer when a harness session ref exists: Kanbi gracefully closes the active tmux window, then resumes the harness in a new Herdr pane/agent and stores that new container metadata. Without a session ref, use start-fresh instead.
 - `c` cancels.
 

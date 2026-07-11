@@ -81,7 +81,7 @@ type GitHubBackend struct{ Client GitHubClient }
 
 func (GitHubBackend) Kind() string { return KindGitHub }
 
-func (b GitHubBackend) Sync(ctx context.Context, store *storage.Store, board storage.Board) (Result, error) {
+func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board storage.Board) (Result, error) {
 	cfg, err := ParseGitHubConfig(board.BackendConfig, board.BackendQuery)
 	if err != nil {
 		return Result{}, err
@@ -216,7 +216,7 @@ func archivedTime(t storage.Ticket) *time.Time {
 	return &archived
 }
 
-func (b GitHubBackend) syncComments(ctx context.Context, store *storage.Store, client GitHubClient, cfg GitHubConfig, ticketID int64, issueNumber int) (int, error) {
+func (b GitHubBackend) syncComments(ctx context.Context, store SyncRepository, client GitHubClient, cfg GitHubConfig, ticketID int64, issueNumber int) (int, error) {
 	comments, err := client.ListComments(ctx, cfg, issueNumber)
 	if err != nil {
 		return 0, err

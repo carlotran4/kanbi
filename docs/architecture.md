@@ -6,10 +6,12 @@ Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent se
 
 ```mermaid
 flowchart LR
-    CLI[CLI commands] --> Store[(SQLite)]
-    TUI[Bubble Tea TUI] --> Store
-    TUI --> Manager[Runtime manager]
+    CLI[CLI commands] --> Store
     CLI --> Manager
+    TUI[Bubble Tea TUI] --> App[Application service]
+    App --> Store[(SQLite)]
+    App --> Manager[Runtime manager]
+    Manager --> Policy[Session lifecycle policy]
     Manager --> Mux[Configured multiplexer: tmux or Herdr]
     Mux --> Tmux[tmux session/windows]
     Mux --> Herdr[Herdr workspaces/panes/agents]
@@ -62,15 +64,19 @@ Stop and ask before:
 | Path | Responsibility |
 | --- | --- |
 | `cmd/kanbi` | CLI entrypoint, command parsing, board startup, doctor command, board/ticket CLI actions. |
+| `internal/app` | Presentation-independent board, ticket, note, and session use-case orchestration. |
+| `internal/boardruntime` | Starts the board process in the configured runtime, including Herdr availability, workspace, pane, environment, and attach orchestration. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
-| `internal/storage` | SQLite migrations, board/column/ticket/session persistence, external ticket identity/cache fields, board projections, master-board filtering. |
-| `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Implements the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
+| `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. `TicketProjection` and `ColumnView` are explicit read models. |
+| `internal/session` | Provider-neutral lifecycle policy and errors, durable session repository contract, and compiled-in multiplexer registry. |
+| `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Providers receive a narrow sync repository instead of the complete SQLite store. Implements the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
 | `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. Includes the Herdr adapter under `internal/multiplexer/herdr`. |
-| `internal/tmux` | Dedicated tmux session/window orchestration, ticket open/resume/close/start-fresh, runtime polling, session reconciliation, and the tmux multiplexer adapter. |
+| `internal/tmux` | tmux adapter and compatibility runtime manager. Launch execution, runtime polling, and reconciliation remain here while lifecycle policy lives in `internal/session`. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
 | `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, and terminal-gated image previews. |
 | `internal/prompt` | Ticket body/prompt rendering. |
 | `internal/attachments` | XDG data-dir ticket attachment storage and pasted image detection. |
+| `internal/architecture` | Dependency-boundary tests that keep presentation and concrete runtime adapters out of inward-facing packages. |
 | `scripts/` | Development launcher, deterministic smoke tests, fake harnesses, opt-in real harness lifecycle script. |
 | `docs/` | Source-of-truth docs for state, lifecycle, harness contracts, verification, multi-board behavior, and archived product context. |
 
@@ -152,7 +158,9 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Enter[Enter on selected ticket] --> Latest{Latest session?}
+    Enter[Enter on selected ticket] --> Recover[Recover verified harness ref if available]
+    Recover --> Policy[Apply pure session lifecycle policy]
+    Policy --> Latest{Latest session?}
     Latest -- none --> Start[Start harness with rendered prompt]
     Latest -- active --> Validate[Validate container ref]
     Validate -- valid --> Switch[Focus container]
@@ -179,7 +187,7 @@ flowchart TD
 
 ## Harness Architecture
 
-Built-in harness contracts are localized in `internal/harness`: command defaults, prompt mode, exit keys, ref capture, and docs anchors are grouped per supported harness. `internal/config` applies those defaults and preserves YAML overrides, while `internal/tmux` currently owns lifecycle orchestration across tmux and Herdr adapters. Current supported harnesses:
+Built-in harness contracts are localized in `internal/harness`: command defaults, prompt mode, exit keys, ref capture, and docs anchors are grouped per supported harness. `internal/config` applies those defaults and preserves YAML overrides. `internal/session` owns the pure lifecycle decision table, while the compatibility runtime manager in `internal/tmux` still executes launches across tmux and Herdr adapters. Current supported harnesses:
 
 | Harness | Start with prompt | Resume | Ref source |
 | --- | --- | --- | --- |

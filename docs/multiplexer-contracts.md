@@ -17,8 +17,10 @@ A multiplexer adapter must provide these operations for one terminal container:
 | Operation | Contract |
 | --- | --- |
 | Launch | Start a harness command in the ticket board working directory and return a durable container reference. |
+| Validate | Confirm that a durable container reference still identifies the expected live container in its stored namespace. |
 | Focus | Bring an existing live container to the user without creating a new session row. |
 | Read | Return recent terminal output for pattern detection and session-ref capture. |
+| Send text | Deliver literal text without interpreting it as shell input or key names. |
 | Send keys | Deliver harness exit keys or user input to the container. |
 | Close | Close the container after graceful harness exit attempts. |
 | Detect | Report provider-native state when available, otherwise allow pane-output fallback. |

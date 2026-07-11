@@ -85,8 +85,10 @@ type Interface interface {
 	Kind() Kind
 	Ensure(ctx context.Context, namespace string) error
 	Launch(ctx context.Context, spec LaunchSpec) (ContainerRef, error)
+	Validate(ctx context.Context, ref ContainerRef) (bool, error)
 	Focus(ctx context.Context, ref ContainerRef) error
 	Read(ctx context.Context, ref ContainerRef, opts ReadOptions) (string, error)
+	SendText(ctx context.Context, ref ContainerRef, text string) error
 	SendKeys(ctx context.Context, ref ContainerRef, keys ...string) error
 	Close(ctx context.Context, ref ContainerRef) error
 	Detect(ctx context.Context, ref ContainerRef) (Detection, error)

@@ -78,6 +78,56 @@ func TestMultiplexerAdapterControlsMappedContainerRef(t *testing.T) {
 	assertCalledWithTarget(t, runner.calls, "kill-window", "runtime:@9")
 }
 
+func TestMultiplexerAdapterValidateRequiresStoredIDNameMatchInNamespace(t *testing.T) {
+	ctx := context.Background()
+	cfg := config.Defaults(config.Paths{})
+	cfg.TmuxSession = "fallback"
+	runner := &fakeRunner{windows: map[string]string{"@9": "ticket-window", "@10": "other-window"}}
+	manager := NewManager(cfg, nil)
+	manager.Runner = runner
+	adapter := NewMultiplexerAdapter(manager)
+
+	valid, err := adapter.Validate(ctx, multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: "stored-runtime", ID: "@9", Name: "ticket-window"})
+	if err != nil || !valid {
+		t.Fatalf("Validate(matching) = %v, %v, want true, nil", valid, err)
+	}
+	valid, err = adapter.Validate(ctx, multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: "stored-runtime", ID: "@10", Name: "ticket-window"})
+	if err != nil || valid {
+		t.Fatalf("Validate(wrong name) = %v, %v, want false, nil", valid, err)
+	}
+	assertCalledWithTarget(t, runner.calls, "display-message", "stored-runtime:@9")
+	assertCalledWithTarget(t, runner.calls, "display-message", "stored-runtime:@10")
+}
+
+func TestMultiplexerAdapterValidateByNameAndSendTextUseStoredNamespace(t *testing.T) {
+	ctx := context.Background()
+	cfg := config.Defaults(config.Paths{})
+	cfg.TmuxSession = "fallback"
+	runner := &fakeRunner{windows: map[string]string{"@9": "ticket-window"}}
+	manager := NewManager(cfg, nil)
+	manager.Runner = runner
+	adapter := NewMultiplexerAdapter(manager)
+	ref := multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: "stored-runtime", Name: "ticket-window"}
+
+	valid, err := adapter.Validate(ctx, ref)
+	if err != nil || !valid {
+		t.Fatalf("Validate(name) = %v, %v, want true, nil", valid, err)
+	}
+	if err := adapter.SendText(ctx, ref, "multi-line\nprompt ' text"); err != nil {
+		t.Fatalf("SendText() error = %v", err)
+	}
+	assertCalledWithTarget(t, runner.calls, "paste-buffer", "stored-runtime:ticket-window")
+	foundBuffer := false
+	for _, call := range runner.calls {
+		if reflect.DeepEqual(call.args, []string{"set-buffer", "--", "multi-line\nprompt ' text"}) {
+			foundBuffer = true
+		}
+	}
+	if !foundBuffer {
+		t.Fatalf("SendText did not pass text directly to tmux buffer: %#v", runner.calls)
+	}
+}
+
 func TestContainerRefFromSessionUsesGenericMuxFieldsWhenPresent(t *testing.T) {
 	session := storage.Session{
 		Multiplexer:      "herdr",

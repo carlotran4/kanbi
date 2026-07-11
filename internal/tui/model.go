@@ -14,8 +14,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"kanbi/internal/kanban"
+	"kanbi/internal/session"
 	"kanbi/internal/storage"
-	"kanbi/internal/tmux"
 )
 
 type Model struct {
@@ -169,7 +169,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case openTicketMsg:
-		var promptErr tmux.PromptReadyError
+		var promptErr session.PromptReadyError
 		switch {
 		case msg.err == nil:
 			if msg.sendPrompt {
@@ -184,7 +184,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.promptText = promptErr.Prompt
 			m.promptTicket = msg.ticket
 			m.status = msg.err.Error()
-		case errors.Is(msg.err, tmux.ErrPromptAlreadySent):
+		case errors.Is(msg.err, session.ErrPromptAlreadySent):
 			m.status = "Prompt already sent; open session instead?"
 		case isRepairError(msg.err):
 			m.startRepair(msg.ticket, msg.err)

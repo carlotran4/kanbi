@@ -12,16 +12,17 @@ import (
 	"kanbi/internal/kanban"
 	"kanbi/internal/multiplexer"
 	"kanbi/internal/prompt"
+	"kanbi/internal/session"
 	"kanbi/internal/storage"
 )
 
-type lifecycleAction string
+type lifecycleAction = session.Action
 
 const (
-	lifecycleActionStart  lifecycleAction = "start"
-	lifecycleActionResume lifecycleAction = "resume"
-	lifecycleActionSwitch lifecycleAction = "switch"
-	lifecycleActionRepair lifecycleAction = "repair"
+	lifecycleActionStart  = session.ActionStart
+	lifecycleActionResume = session.ActionResume
+	lifecycleActionSwitch = session.ActionFocus
+	lifecycleActionRepair = session.ActionRepair
 )
 
 type lifecycleRequest struct {
@@ -30,13 +31,7 @@ type lifecycleRequest struct {
 	StartFresh bool
 }
 
-type lifecycleDecision struct {
-	Ticket        storage.Ticket
-	Action        lifecycleAction
-	Ref           string
-	Reason        string
-	ReplaceActive bool
-}
+type lifecycleDecision = session.Decision
 
 type ticketLifecycle struct {
 	manager *Manager
@@ -74,59 +69,47 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 
 func (l ticketLifecycle) Decide(ctx context.Context, req lifecycleRequest) (lifecycleDecision, error) {
 	ticket := req.Ticket
-	if req.StartFresh {
-		ticket.SessionID = sql.NullInt64{}
-		ticket.SessionRef = sql.NullString{}
-		ticket.WindowID = sql.NullString{}
-		ticket.WindowName = sql.NullString{}
-		ticket.SessionActive = false
-	}
 	var err error
-	if !req.SendPrompt {
+	if !req.SendPrompt && !req.StartFresh {
 		ticket, err = l.manager.recoverMissingSessionRef(ctx, ticket)
 		if err != nil {
 			return lifecycleDecision{}, err
 		}
 	}
-	if req.SendPrompt && (ticket.SessionID.Valid || ticket.SessionRef.Valid || ticket.WindowName.Valid) {
-		return lifecycleDecision{}, ErrPromptAlreadySent
-	}
-	name := TicketWindowName(ticket)
-	if req.StartFresh {
-		return lifecycleDecision{Ticket: ticket, Action: lifecycleActionStart, ReplaceActive: true}, nil
-	}
-	if ticket.SessionID.Valid && ticket.SessionActive {
+	policyReq := session.Request{Ticket: ticket, SendPrompt: req.SendPrompt, StartFresh: req.StartFresh}
+	if !req.StartFresh && !req.SendPrompt && ticket.SessionID.Valid && ticket.SessionActive {
+		name := TicketWindowName(ticket)
 		containerRef := ContainerRefFromTicket(ticket)
-		if containerRef.Kind == multiplexer.KindHerdr {
-			adapter := l.manager.herdrAdapter()
-			detection, err := adapter.Detect(ctx, containerRef)
-			if err == nil && detection.Source != multiplexer.DetectionSourceUnknown {
-				return lifecycleDecision{Ticket: ticket, Action: lifecycleActionSwitch, Ref: containerRef.Target()}, nil
+		if containerRef.Name == "" {
+			containerRef.Name = name
+		}
+		adapter, err := l.manager.multiplexerAdapter(containerRef.Kind)
+		if err != nil {
+			return lifecycleDecision{}, err
+		}
+		valid, validateErr := adapter.Validate(ctx, containerRef)
+		if validateErr != nil && containerRef.Kind != multiplexer.KindHerdr {
+			return lifecycleDecision{}, validateErr
+		}
+		if valid {
+			policyReq.ContainerValid = true
+			policyReq.ContainerRef = containerRef.Target()
+		} else if containerRef.Kind != multiplexer.KindHerdr && containerRef.ID != "" {
+			// Preserve the existing safe name fallback: a stale stored ID may
+			// focus only an expected-name match in the stored namespace.
+			byName := containerRef
+			byName.ID = ""
+			valid, validateErr = adapter.Validate(ctx, byName)
+			if validateErr != nil {
+				return lifecycleDecision{}, validateErr
 			}
-			if _, readErr := adapter.Read(ctx, containerRef, multiplexer.ReadOptions{Lines: 1}); readErr == nil {
-				return lifecycleDecision{Ticket: ticket, Action: lifecycleActionSwitch, Ref: containerRef.Target()}, nil
-			}
-		} else {
-			ref, exists, err := l.manager.ticketWindowRef(ctx, ticket, name)
-			if err != nil {
-				return lifecycleDecision{}, err
-			}
-			if exists {
-				return lifecycleDecision{Ticket: ticket, Action: lifecycleActionSwitch, Ref: ref}, nil
+			if valid {
+				policyReq.ContainerValid = true
+				policyReq.ContainerRef = byName.Name
 			}
 		}
-		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
-			return lifecycleDecision{Ticket: ticket, Action: lifecycleActionResume, ReplaceActive: true}, nil
-		}
-		return lifecycleDecision{Ticket: ticket, Action: lifecycleActionRepair, Reason: "tmux window is missing and no session ref is known"}, nil
 	}
-	if ticket.SessionID.Valid {
-		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
-			return lifecycleDecision{Ticket: ticket, Action: lifecycleActionResume}, nil
-		}
-		return lifecycleDecision{Ticket: ticket, Action: lifecycleActionRepair, Reason: "ticket has no active window and no session ref is known"}, nil
-	}
-	return lifecycleDecision{Ticket: ticket, Action: lifecycleActionStart}, nil
+	return session.Decide(policyReq)
 }
 
 func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision, sendPrompt bool) error {

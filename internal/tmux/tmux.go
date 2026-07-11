@@ -23,10 +23,11 @@ import (
 	"kanbi/internal/multiplexer"
 	herdrmux "kanbi/internal/multiplexer/herdr"
 	"kanbi/internal/prompt"
+	"kanbi/internal/session"
 	"kanbi/internal/storage"
 )
 
-var ErrPromptAlreadySent = errors.New("prompt already sent; open session instead")
+var ErrPromptAlreadySent = session.ErrPromptAlreadySent
 
 const defaultResumeCheckAfter = 2500 * time.Millisecond
 
@@ -35,47 +36,9 @@ var boardSessionSeq atomic.Uint64
 //go:embed pi_session_ref_extension.ts
 var piSessionRefExtension string
 
-type RepairNeededError struct {
-	Ticket storage.Ticket
-	Reason string
-}
-
-func (e RepairNeededError) Error() string {
-	if e.Reason == "" {
-		return "ticket session needs repair"
-	}
-	return e.Reason
-}
-
-type ResumeFailedError struct {
-	Ticket storage.Ticket
-	Err    error
-}
-
-func (e ResumeFailedError) Error() string {
-	if e.Err == nil {
-		return "resume failed"
-	}
-	return "resume failed: " + e.Err.Error()
-}
-
-func (e ResumeFailedError) Unwrap() error { return e.Err }
-
-type PromptReadyError struct {
-	WindowName string
-	Prompt     string
-	Ready      string
-	Err        error
-}
-
-func (e PromptReadyError) Error() string {
-	if e.Err == nil {
-		return "prompt readiness timeout"
-	}
-	return e.Err.Error()
-}
-
-func (e PromptReadyError) Unwrap() error { return e.Err }
+type RepairNeededError = session.RepairNeededError
+type ResumeFailedError = session.ResumeFailedError
+type PromptReadyError = session.PromptReadyError
 
 type Runner interface {
 	Run(ctx context.Context, name string, args ...string) (string, error)
@@ -135,6 +98,20 @@ func (m *Manager) defaultMultiplexerKind() multiplexer.Kind {
 func (m *Manager) herdrAdapter() *herdrmux.Adapter {
 	cfg := m.Config.Multiplexer.Herdr
 	return herdrmux.NewAdapter(herdrmux.Config{Binary: cfg.Binary, Session: cfg.Session, WorkspaceStrategy: cfg.WorkspaceStrategy, FocusOnOpen: cfg.FocusOnOpen})
+}
+
+func (m *Manager) multiplexerAdapter(kind multiplexer.Kind) (multiplexer.Interface, error) {
+	// Empty durable kinds predate the generic multiplexer columns and are tmux.
+	// Any non-empty unknown kind is rejected rather than being attached through
+	// the wrong runtime provider.
+	if kind == "" {
+		kind = multiplexer.KindTmux
+	}
+	registry, err := session.NewRegistry(NewMultiplexerAdapter(m), m.herdrAdapter())
+	if err != nil {
+		return nil, err
+	}
+	return registry.For(kind)
 }
 
 // currentHerdrWorkspace returns the Herdr workspace this Kanbi process is

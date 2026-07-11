@@ -134,6 +134,20 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 	return multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: workspaceID, ID: agentTarget, Name: name, Metadata: metadata}, nil
 }
 
+func (a *Adapter) Validate(ctx context.Context, ref multiplexer.ContainerRef) (bool, error) {
+	detection, err := a.Detect(ctx, ref)
+	if err != nil {
+		return false, err
+	}
+	if detection.Source != multiplexer.DetectionSourceUnknown {
+		return true, nil
+	}
+	if _, err := a.Read(ctx, ref, multiplexer.ReadOptions{Lines: 1}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // moveToNewTab relocates a freshly started agent pane into its own new tab
 // within the same workspace, so opening a ticket behaves like a new tmux
 // window rather than splitting the pane the user was already looking at.

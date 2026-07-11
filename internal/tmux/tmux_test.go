@@ -15,6 +15,7 @@ import (
 	"kanbi/internal/config"
 	"kanbi/internal/harness"
 	"kanbi/internal/kanban"
+	"kanbi/internal/session"
 	"kanbi/internal/storage"
 )
 
@@ -259,6 +260,22 @@ func TestLifecycleDecideStartFreshIgnoresPriorSessionMetadata(t *testing.T) {
 	}
 	if decision.Action != lifecycleActionStart || decision.Ticket.SessionID.Valid || decision.Ticket.SessionRef.Valid || decision.Ticket.WindowID.Valid {
 		t.Fatalf("decision = %+v, want fresh start with cleared prior metadata", decision)
+	}
+}
+
+func TestLifecycleDecideRejectsUnknownStoredMultiplexer(t *testing.T) {
+	manager := NewManager(config.Defaults(config.Paths{}), nil)
+	defer manager.Close()
+	ticket := storage.Ticket{
+		SessionID:     sql.NullInt64{Int64: 1, Valid: true},
+		SessionActive: true,
+		Multiplexer:   sql.NullString{String: "future", Valid: true},
+		WindowName:    sql.NullString{String: "ticket", Valid: true},
+	}
+
+	_, err := manager.lifecycle().Decide(context.Background(), lifecycleRequest{Ticket: ticket})
+	if !errors.Is(err, session.ErrMultiplexerNotRegistered) {
+		t.Fatalf("Decide() error = %v, want ErrMultiplexerNotRegistered", err)
 	}
 }
 

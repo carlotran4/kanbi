@@ -992,7 +992,13 @@ func TestHerdrBoardLaunchStartsServerWhenUnavailable(t *testing.T) {
 		t.Fatal(readErr)
 	}
 	got := strings.Fields(strings.TrimSpace(string(calls)))
-	if len(got) < 3 || got[0] != "status" || got[1] != "server" || got[len(got)-1] != "status" {
+	serverCalls := 0
+	for _, call := range got {
+		if call == "server" {
+			serverCalls++
+		}
+	}
+	if len(got) < 3 || got[0] != "status" || got[len(got)-1] != "status" || serverCalls != 1 {
 		t.Fatalf("unexpected Herdr calls: got %v", got)
 	}
 }

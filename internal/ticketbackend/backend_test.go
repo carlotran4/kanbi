@@ -15,7 +15,7 @@ type recordingBackend struct {
 }
 
 func (b *recordingBackend) Kind() string { return b.kind }
-func (b *recordingBackend) Sync(ctx context.Context, store *storage.Store, board storage.Board) (Result, error) {
+func (b *recordingBackend) Sync(ctx context.Context, store SyncRepository, board storage.Board) (Result, error) {
 	b.boards = append(b.boards, board.ID)
 	return Result{Pulled: 1}, nil
 }
@@ -28,7 +28,7 @@ type blockingBackend struct {
 }
 
 func (b *blockingBackend) Kind() string { return b.kind }
-func (b *blockingBackend) Sync(ctx context.Context, store *storage.Store, board storage.Board) (Result, error) {
+func (b *blockingBackend) Sync(ctx context.Context, store SyncRepository, board storage.Board) (Result, error) {
 	defer close(b.done)
 	select {
 	case b.started <- board.ID:
@@ -119,7 +119,7 @@ type gatedBackend struct {
 }
 
 func (b *gatedBackend) Kind() string { return b.kind }
-func (b *gatedBackend) Sync(ctx context.Context, _ *storage.Store, board storage.Board) (Result, error) {
+func (b *gatedBackend) Sync(ctx context.Context, _ SyncRepository, board storage.Board) (Result, error) {
 	select {
 	case b.started <- board.ID:
 	case <-ctx.Done():
