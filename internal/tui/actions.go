@@ -44,6 +44,7 @@ type Actions interface {
 	CloseTicketSession(context.Context, storage.Ticket) error
 	KillAllSessions(context.Context) error
 	StartFreshTicket(context.Context, storage.Ticket, bool) error
+	MoveTicketToDefaultMultiplexer(context.Context, storage.Ticket) error
 	UpdateSessionRef(context.Context, storage.Ticket, string) error
 
 	ListNotes(context.Context, int64) ([]storage.Note, error)
@@ -203,6 +204,12 @@ func (s *Service) StartFreshTicket(ctx context.Context, ticket storage.Ticket, s
 		return fmt.Errorf("start fresh unavailable")
 	}
 	return s.Manager.StartFreshTicket(ctx, ticket, sendPrompt)
+}
+func (s *Service) MoveTicketToDefaultMultiplexer(ctx context.Context, ticket storage.Ticket) error {
+	if s.Manager == nil {
+		return fmt.Errorf("move to default multiplexer unavailable")
+	}
+	return s.Manager.MoveTicketToDefaultMultiplexer(ctx, ticket)
 }
 func (s *Service) UpdateSessionRef(ctx context.Context, ticket storage.Ticket, ref string) error {
 	if ticket.SessionID.Valid {

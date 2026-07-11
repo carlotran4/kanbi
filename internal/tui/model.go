@@ -119,6 +119,11 @@ type closeSessionMsg struct {
 	err       error
 }
 
+type moveMultiplexerMsg struct {
+	displayID string
+	err       error
+}
+
 type editorFinishedMsg struct {
 	ticketID int64
 	body     string
@@ -192,6 +197,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = msg.err.Error()
 		} else {
 			m.status = "closed " + msg.displayID
+			m.reload()
+		}
+		return m, nil
+	case moveMultiplexerMsg:
+		if msg.err != nil {
+			m.status = msg.err.Error()
+		} else {
+			m.status = "moved " + msg.displayID + " to default multiplexer"
 			m.reload()
 		}
 		return m, nil
@@ -304,6 +317,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.openExternalTicket()
 	case "m":
 		m.startStateMenu()
+	case "M":
+		return m, m.moveToDefaultMultiplexerCmd()
 	case "enter":
 		return m, withClearKittyImages(m.defaultTicketCmd())
 	case "x":
@@ -567,6 +582,22 @@ func (m *Model) closeSessionCmd() tea.Cmd {
 		return closeSessionMsg{
 			displayID: displayID,
 			err:       m.actions.CloseTicketSession(ctx, t),
+		}
+	}
+}
+
+func (m *Model) moveToDefaultMultiplexerCmd() tea.Cmd {
+	t, ok := m.selectedTicket()
+	if !ok {
+		return nil
+	}
+	m.status = "moving " + t.DisplayID + " to default multiplexer…"
+	ctx := m.ctx
+	displayID := t.DisplayID
+	return func() tea.Msg {
+		return moveMultiplexerMsg{
+			displayID: displayID,
+			err:       m.actions.MoveTicketToDefaultMultiplexer(ctx, t),
 		}
 	}
 }

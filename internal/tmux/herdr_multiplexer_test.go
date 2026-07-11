@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kanbi/internal/config"
 	"kanbi/internal/harness"
@@ -107,6 +108,64 @@ func TestHerdrDefaultKeepsValidActiveTmuxSessionInTmux(t *testing.T) {
 		if len(c.args) > 0 && c.args[0] == "new-window" {
 			t.Fatalf("valid active tmux session under Herdr default must not launch replacement: %+v", c.args)
 		}
+	}
+}
+
+func TestMoveTicketToDefaultMultiplexerClosesTmuxAndResumesHerdr(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Move active tmux", "", "pi")
+	windowName := TicketWindowName(ticket)
+	oldID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:         "pi",
+		TmuxSessionName: "old-live-tmux",
+		TmuxWindowID:    sql.NullString{String: "@7", Valid: true},
+		TmuxWindowName:  windowName,
+		Multiplexer:     "tmux",
+		Status:          kanban.StateRunning,
+	})
+	if err := store.UpdateSessionRef(ctx, oldID, "move-ref-123"); err != nil {
+		t.Fatal(err)
+	}
+	bin, logPath := writeFakeHerdr(t, map[string]string{
+		"workspace list":   `[]`,
+		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
+		"agent start":      `{"pane_id":"pane-123","agent":{"name":"agent-789"}}`,
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = bin
+	cfg.GracefulExitTimeout = time.Nanosecond
+	runner := &fakeRunner{windows: map[string]string{"@7": windowName}}
+	manager := &Manager{Config: cfg, Store: store, Runner: runner}
+
+	refreshed, _ := store.TicketByID(ctx, ticket.ID)
+	if err := manager.MoveTicketToDefaultMultiplexer(ctx, refreshed); err != nil {
+		t.Fatal(err)
+	}
+	latest, ok, err := store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("latest session: ok=%v err=%v", ok, err)
+	}
+	if latest.ID == oldID || latest.Multiplexer != "herdr" || latest.HarnessSessionRef.String != "move-ref-123" {
+		t.Fatalf("move should create Herdr resume session, got latest=%+v oldID=%d", latest, oldID)
+	}
+	var sentExit, killed bool
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "send-keys" {
+			sentExit = true
+		}
+		if len(c.args) > 0 && c.args[0] == "kill-window" {
+			killed = true
+		}
+	}
+	if !sentExit || !killed {
+		t.Fatalf("expected graceful close attempts before Herdr resume, calls=%+v", runner.calls)
+	}
+	logBytes, _ := os.ReadFile(logPath)
+	log := string(logBytes)
+	if !strings.Contains(log, "agent start") || !strings.Contains(log, "pi --session move-ref-123") {
+		t.Fatalf("fake Herdr did not launch resume command; log=%s", log)
 	}
 }
 

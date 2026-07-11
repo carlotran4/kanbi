@@ -25,12 +25,13 @@ latest session: tmux · default: Herdr
 Possible actions:
 
 - **Open/keep tmux** — focus the valid tmux window; no DB session row is created.
-- **Resume in Herdr** — available only when a harness session ref exists; creates a new active Herdr session row with real Herdr container metadata.
+- **Move to Herdr** — available when the latest session is tmux and a harness session ref exists; gracefully closes the tmux window, then resumes the harness in a newly created Herdr pane/agent.
+- **Resume in Herdr** — available only when a harness session ref exists and there is no valid tmux window to keep; creates a new active Herdr session row with real Herdr container metadata.
 - **Start fresh in Herdr** — always available from repair/migration UI; creates a new active attempt with the ticket prompt and preserves history.
 - **Mark old tmux session closed** — explicit repair action for stale rows after the user confirms the tmux process is gone.
 - **Edit ref, then resume in Herdr** — for older rows whose refs were missing or captured incorrectly.
 
-The modal should avoid saying “convert session”. Preferred wording is “resume/start a new Herdr attempt” because the old terminal container cannot be transformed.
+The modal should avoid saying “convert session”. Preferred wording is “move to Herdr” for the explicit close-then-resume operation, or “resume/start a new Herdr attempt” when no live tmux window is being closed.
 
 ## Suggested CLI affordance
 

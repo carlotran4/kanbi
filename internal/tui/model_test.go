@@ -340,6 +340,24 @@ func TestModelPromptFallbackCanPasteNow(t *testing.T) {
 	}
 }
 
+func TestModelMoveToDefaultMultiplexerHotkey(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Move me", "", "pi")
+	wrapped := &openingStore{Service: NewService(store, nil)}
+	model := New(ctx, wrapped)
+
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
+	model = runCmd(t, model, cmd)
+
+	if !wrapped.movedToDefault {
+		t.Fatalf("move to default multiplexer not invoked")
+	}
+	if !strings.Contains(model.status, "moved T-001 to default multiplexer") {
+		t.Fatalf("unexpected status: %q", model.status)
+	}
+}
+
 func TestModelRepairStartFresh(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -376,6 +394,7 @@ type openingStore struct {
 	pastedPrompt           string
 	startedFresh           bool
 	startedFreshSendPrompt bool
+	movedToDefault         bool
 }
 
 func (s *openingStore) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
@@ -404,6 +423,11 @@ func (s *openingStore) PastePromptNow(ctx context.Context, windowName, text stri
 func (s *openingStore) StartFreshTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
 	s.startedFresh = true
 	s.startedFreshSendPrompt = sendPrompt
+	return nil
+}
+
+func (s *openingStore) MoveTicketToDefaultMultiplexer(ctx context.Context, ticket storage.Ticket) error {
+	s.movedToDefault = true
 	return nil
 }
 

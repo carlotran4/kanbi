@@ -757,6 +757,7 @@ func (m Model) helpView() string {
 	section("Tickets")
 	row("Enter", "send prompt for never-started tickets; otherwise open / switch")
 	row("x", "close ticket session")
+	row("M", "move session to configured multiplexer (close then resume)")
 	row("n", "new ticket in current column")
 	row("e", "open polished ticket inspector/editor")
 	row("E", "open body in $EDITOR")

@@ -168,6 +168,35 @@ func (m *Manager) StartFreshTicket(ctx context.Context, ticket storage.Ticket, s
 	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt, StartFresh: true})
 }
 
+func (m *Manager) MoveTicketToDefaultMultiplexer(ctx context.Context, ticket storage.Ticket) error {
+	if m.defaultMultiplexerKind() != multiplexer.KindHerdr {
+		return fmt.Errorf("move unavailable: configured multiplexer is not Herdr")
+	}
+	if !ticket.SessionRef.Valid || strings.TrimSpace(ticket.SessionRef.String) == "" {
+		return fmt.Errorf("cannot move %s to Herdr: no harness session ref; start fresh instead", ticket.DisplayID)
+	}
+	if ticket.Multiplexer.Valid && ticket.Multiplexer.String == string(multiplexer.KindHerdr) {
+		return fmt.Errorf("%s is already using Herdr", ticket.DisplayID)
+	}
+	if ticket.SessionActive {
+		if err := m.CloseSession(ctx, ticket); err != nil {
+			return fmt.Errorf("close tmux before Herdr resume: %w", err)
+		}
+	}
+	updated := ticket
+	if m.Store != nil {
+		fresh, err := m.Store.TicketByID(ctx, ticket.ID)
+		if err != nil {
+			return err
+		}
+		updated = fresh
+	}
+	if !updated.SessionRef.Valid || strings.TrimSpace(updated.SessionRef.String) == "" {
+		updated.SessionRef = ticket.SessionRef
+	}
+	return m.OpenTicket(ctx, updated, false)
+}
+
 func (m *Manager) SwitchToTicket(ctx context.Context, ticket storage.Ticket) error {
 	return m.OpenTicket(ctx, ticket, false)
 }

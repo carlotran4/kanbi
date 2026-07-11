@@ -68,7 +68,7 @@ multiplexer:
     focus_on_open: false
 ```
 
-Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches. Stale or inactive tmux sessions can resume into Herdr only through a valid harness session ref, while start-fresh creates a new Herdr attempt and preserves old tmux history; see [`docs/tmux-to-herdr-migration.md`](./docs/tmux-to-herdr-migration.md). With `default: herdr`, running `kanbi` outside Herdr starts the board UI in a focused Herdr pane and attaches to Herdr; when already inside a Herdr pane it runs the board directly to avoid nesting. For one-off testing, `KANBI_MULTIPLEXER=herdr` overrides `multiplexer.default`.
+Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches. Press `M` on a tmux-backed ticket with a session ref to explicitly move it to Herdr by gracefully closing tmux and resuming in a new Herdr pane. Stale or inactive tmux sessions can resume into Herdr only through a valid harness session ref, while start-fresh creates a new Herdr attempt and preserves old tmux history; see [`docs/tmux-to-herdr-migration.md`](./docs/tmux-to-herdr-migration.md). With `default: herdr`, running `kanbi` outside Herdr starts the board UI in a focused Herdr pane and attaches to Herdr; when already inside a Herdr pane it runs the board directly to avoid nesting. For one-off testing, `KANBI_MULTIPLEXER=herdr` overrides `multiplexer.default`.
 
 Herdr basics:
 

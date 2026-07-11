@@ -65,7 +65,7 @@ func TestLaunchParsesRealHerdrCLIEnvelope(t *testing.T) {
 func TestLaunchMovesAgentIntoNewTab(t *testing.T) {
 	r := &fakeRunner{out: map[string]string{
 		"agent start b1-T-001-demo --cwd /repo --workspace ws-1 --no-focus -- codex hello": `{"pane_id":"w1:p2","agent":{"name":"agent-1"},"tab_id":"w1:t1"}`,
-		"pane move w1:p2 --new-tab --workspace ws-1 --label b1-T-001-demo --no-focus":       `{"tab_id":"w1:t9"}`,
+		"pane move w1:p2 --new-tab --workspace ws-1 --label b1-T-001-demo --no-focus":      `{"tab_id":"w1:t9"}`,
 	}}
 	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
 	adapter.Runner = r
