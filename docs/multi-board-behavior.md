@@ -184,7 +184,7 @@ kanbi open T-001 --board "Client C"
 
 Current behavior:
 
-- `boards add` creates a board with default columns, a workdir, and the selected ticket backend. Supported backends are `local`, `github`, and `atlassian`; GitHub boards accept `--config JSON` for owner/repo/auth settings and `--query QUERY` for Issues list filters, while Atlassian/Jira boards use `--query` as JQL and `--config JSON` for site/project/auth settings.
+- `boards add` creates a board with default columns, a workdir, and the selected ticket backend. Supported backends are `local`, `github`, and `atlassian`; GitHub boards accept `--config JSON` for owner/repo settings and `--query QUERY` for Issues list filters, while Atlassian/Jira boards use `--query` as JQL and `--config JSON` for site/project settings. The JSON is stored unencrypted in SQLite, so use the documented environment variables for tokens and other credentials.
 - `--cwd` defaults to the current directory.
 - `boards rename OLD NEW` renames a board.
 - `boards set-cwd NAME /path` updates a board workdir.

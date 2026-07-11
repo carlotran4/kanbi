@@ -25,7 +25,7 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - Board-local ticket numbers are preserved, so different boards may both have `T-001`; CLI ticket commands accept `--board NAME` when needed.
 - tmux is the default multiplexer. Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
 - Agent terminal container names include the board id to avoid cross-board collisions within a runtime namespace.
-- Create boards from the CLI with `kanbi boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `kanbi boards`.
+- Create boards from the CLI with `kanbi boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `kanbi boards`. Provider `--config` JSON is stored unencrypted in SQLite, so keep credentials in the documented environment variables rather than embedding tokens in `--config`.
 - Sync ticket backends from the CLI with `kanbi sync` or `kanbi sync --board "Board Name"`.
 - Rename/update boards with `kanbi boards rename OLD NEW` and `kanbi boards set-cwd NAME /path/to/project`.
 - In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes.
@@ -120,7 +120,7 @@ KANBI_JIRA_API_TOKEN="TOKEN" \
 
 ## Status
 
-Alpha lifecycle hardening is complete: multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot command wiring and ref capture, fake and real harness verification, tests, and smoke verification are in place. Current follow-up work is tracked as tickets on the board.
+Kanbi is an alpha with multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot/Claude command wiring and ref capture, deterministic fake-harness coverage, and opt-in real-harness verification. Lifecycle and data-safety hardening remain active work; current follow-up work is tracked as tickets on the board.
 
 ## Ticket Inspector And Notes
 
@@ -129,7 +129,7 @@ Press `e` to open the unified ticket inspector/editor. The inspector renders the
 - `Tab` / `Shift+Tab` — move focus between title, description, harness, and notes
 - `Ctrl+S` — save the ticket
 - `Ctrl+E` — open the description in `$EDITOR`
-- paste base64 image data while the description is focused — save it under `~/.local/share/kanbi/attachments/<ticket-id>/` and insert a Markdown image reference
+- paste base64 image data while the description is focused — save it under `~/.local/share/kanbi/attachments/<internal-ticket-database-id>/` and insert a Markdown image reference
 - image references render as inline Kitty graphics in capable terminals during description preview, including Kitty-compatible terminals detected through tmux's environment, or as `[image: filename]` placeholders otherwise
 - `Esc` — cancel/close the inspector
 
@@ -142,4 +142,4 @@ Inside the notes section:
 - `Ctrl+S` while editing — save the note
 - `Esc` while editing — cancel
 
-Notes are not sent to the agent session. On local boards they are personal/local annotations; future external ticket backends should sync them as provider comments.
+Notes are not sent to the agent session. On local boards they remain personal/local annotations. On GitHub and Atlassian/Jira boards, sync maps notes to provider issue comments.

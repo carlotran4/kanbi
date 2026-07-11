@@ -13,9 +13,9 @@ The agent should not claim completion unless it has run the relevant verificatio
 Run these before considering any implementation task complete:
 
 ```bash
+go fmt ./...
 go test ./...
 go vet ./...
-go fmt ./...
 ```
 
 If linting is later added, also run:
@@ -57,7 +57,7 @@ Use integration tests for DB-backed behavior:
 Tests should use a temporary directory and temporary SQLite DB.
 
 ### 3. Fake Harnesses
-Do not rely on real `pi`, `codex`, or `copilot` in automated tests.
+Do not rely on real `pi`, `codex`, `copilot`, or `claude` in automated tests.
 
 Create fake harness binaries/scripts in temporary directories that simulate:
 
@@ -73,25 +73,19 @@ Create fake harness binaries/scripts in temporary directories that simulate:
 
 The test should prepend the fake binary directory to `PATH`.
 
-### 4. Tmux Integration Tests
-Tmux-dependent tests should be separate from normal unit tests because they require the environment to have tmux installed.
+### 4. Tmux Manager And Real-Tmux Tests
 
-Use a build tag or explicit environment variable, e.g.:
+Deterministic manager tests in `internal/tmux` use injected fake command runners and belong in the normal `go test ./...` suite. They verify command construction, lifecycle decisions, stored-container routing, and failure handling without requiring a tmux binary or live server.
 
-```bash
-KANBI_TMUX_TESTS=1 go test ./internal/tmux ./internal/harness
-```
-
-Tmux integration tests should:
+Tests that execute the real `tmux` binary are environment-dependent integration tests. Keep them clearly identified and make them skip when tmux is unavailable; they may run during `go test ./...` on hosts with tmux. Real-tmux tests should:
 
 - create a uniquely named test tmux session, e.g. `kanbi-test-$PID`
-- create a board window
-- create ticket windows
-- send/paste text into panes
-- capture pane output
-- gracefully kill the test session in cleanup
+- register cleanup immediately after creating the session
+- create a board window and isolated ticket windows
+- send/paste text into panes and capture pane output
+- remove only their own session during cleanup
 
-Every tmux test must register cleanup immediately after creating a session.
+`scripts/smoke.sh` is the required real-tmux end-to-end check. It creates a unique temporary session, uses fake harnesses, and cleans up on exit. Do not describe an environment variable or build tag as supported unless the test implementation actually checks it.
 
 ### 5. TUI Model Tests
 Bubble Tea apps can be tested at the model/update level without rendering a real terminal.
@@ -127,7 +121,7 @@ Expected behavior:
 - missing tmux: fatal doctor failure for existing/default tmux runtime checks
 - selected Herdr missing or `herdr status` unavailable: warning with setup guidance
 - DB/config path unavailable: fatal doctor failure
-- missing `pi`, `codex`, or `gh`: warning only
+- a missing configured harness start binary (including `pi`, `codex`, `copilot`, or `claude` defaults): warning only
 
 ### 7. Manual Smoke Test Script
 Maintain a script such as:
@@ -140,8 +134,8 @@ By default, the smoke script should run baseline checks plus the tmux-backed end
 
 ```bash
 go fmt ./...
-go vet ./...
 go test ./...
+go vet ./...
 kanbi doctor
 # with a temporary config, also run kanbi doctor against a fake Herdr binary
 kanbi add "Smoke test ticket" --body "Verify smoke path" --harness pi
@@ -218,6 +212,7 @@ A change is verified when:
 - Pi start/resume command is correct
 - Codex start/resume command is correct
 - Copilot start/resume command is correct
+- Claude start/resume command is correct
 - `{session_ref}` substitution works
 - command path override works
 
@@ -345,8 +340,8 @@ When the repo is ready for CI, add GitHub Actions that run:
 
 ```bash
 go fmt ./...
-go vet ./...
 go test ./...
+go vet ./...
 ```
 
-Tmux integration tests should be optional or run only on Linux CI with tmux installed.
+Keep deterministic tmux manager tests in the normal CI suite. Run real-tmux integration and smoke checks only on a Linux job that installs tmux and isolates its test sessions.

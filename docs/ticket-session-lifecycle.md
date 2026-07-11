@@ -73,10 +73,11 @@ flowchart TD
 
 | Harness | Start, open-only | Start, send prompt | Resume | Prompt injection mode | Ref capture |
 | --- | --- | --- | --- | --- | --- |
-| Pi | `pi` | `pi <prompt>` | `pi --session <ref>` | arg | scan `~/.pi/agent/sessions` for matching prompt |
+| Pi | `pi` | `pi <prompt>` plus bundled ref extension | `pi --session <ref>` | arg | extension handoff; fallback scan of `~/.pi/agent/sessions` |
 | Codex | `codex --no-alt-screen` | `codex --no-alt-screen <prompt>` | `codex resume --no-alt-screen <ref>` | arg | scan `~/.codex/history.jsonl` for matching prompt |
 | Copilot | `copilot` | `copilot -i <prompt>` | `copilot --resume=<ref>` | arg | query `~/.copilot/session-store.db` for matching cwd/prompt |
-| Fake/smoke paste harness | configured command | start, wait for ready, tmux paste | configured resume | paste | parse pane marker such as `SESSION_REF=` |
+| Claude | `claude` | `claude <prompt>` | `claude --resume <ref>` | arg | scan `~/.claude/projects/**/*.jsonl` for matching cwd/prompt |
+| Fake/smoke paste harness | configured command | start, wait for ready, multiplexer text send | configured resume | paste | parse terminal marker such as `SESSION_REF=` |
 
 ## Command Rules
 

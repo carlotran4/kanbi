@@ -7,7 +7,7 @@ Kanbi supports one ticket metadata backend per board. Implemented backends are `
 - A board chooses its ticket backend at creation time.
 - Only one ticket backend is active for a board.
 - SQLite remains the local cache/projection store for tickets and the canonical store for local runtime/session state.
-- External backends own ticket metadata for their boards once implemented.
+- The implemented GitHub and Atlassian/Jira backends own ticket metadata for their boards.
 - tmux session history remains local and is never synced to ticketing providers.
 - Sync starts in the background on executable startup, then runs periodically while the executable is running, and on demand through `kanbi sync`. Startup does not block the TUI on remote/cloud ticket providers. There is no background daemon after Kanbi exits.
 - Conflict resolution is newest `updated_at` wins.
@@ -19,7 +19,7 @@ Boards store backend metadata:
 
 - `ticket_backend`: backend kind, currently `local`, `github`, or `atlassian`; planned kinds include `asana`.
 - `backend_query`: optional remote query/filter. GitHub uses URL query parameters for the Issues list API (`state`, `labels`, `assignee`, `mentioned`, `milestone`, `since`). For Atlassian/Jira this must be JQL.
-- `backend_config`: provider-specific JSON config such as site/repo/project identifiers.
+- `backend_config`: provider-specific JSON config such as site/repo/project identifiers. This value is stored unencrypted in SQLite; prefer environment variables for credentials and do not embed tokens unless the database is protected accordingly.
 - sync bookkeeping fields for last sync time/error.
 
 Tickets and notes have optional external identity/version fields so adapters can map local cached rows to remote issues and comments.
@@ -68,7 +68,7 @@ kanbi boards add "Repo" \
   --query 'state=open,closed&labels=kanbi'
 ```
 
-Auth uses `token` in `backend_config`, `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. `owner`/`repo` may also come from `KANBI_GITHUB_OWNER` and `KANBI_GITHUB_REPO`.
+Auth uses `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`; `token` in `backend_config` is also supported. Prefer the environment/CLI sources because `backend_config` is persisted unencrypted in SQLite. `owner`/`repo` may also come from `KANBI_GITHUB_OWNER` and `KANBI_GITHUB_REPO`.
 
 GitHub sync behavior:
 
@@ -96,13 +96,15 @@ Auth uses `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. The token mu
 Create a Jira-backed board with:
 
 ```bash
+KANBI_JIRA_EMAIL="you@example.com" \
+KANBI_JIRA_API_TOKEN="TOKEN" \
 kanbi boards add "Jira" \
   --backend atlassian \
-  --config '{"site_url":"https://ORG.atlassian.net","project_key":"AK","email":"you@example.com","api_token":"TOKEN"}' \
+  --config '{"site_url":"https://ORG.atlassian.net","project_key":"AK"}' \
   --query 'project = AK AND labels = kanbi ORDER BY updated DESC'
 ```
 
-Auth uses `email` plus `api_token`, or `bearer_token`, in `backend_config`; corresponding environment fallbacks are `KANBI_JIRA_SITE_URL`, `KANBI_JIRA_PROJECT_KEY`, `KANBI_JIRA_EMAIL`, `KANBI_JIRA_API_TOKEN`, and `KANBI_JIRA_BEARER_TOKEN`.
+Auth uses `KANBI_JIRA_EMAIL` plus `KANBI_JIRA_API_TOKEN`, or `KANBI_JIRA_BEARER_TOKEN`. `email` plus `api_token`, or `bearer_token`, in `backend_config` are also supported, but are stored unencrypted in SQLite and should be avoided when environment-based auth is available. Site/project values also fall back to `KANBI_JIRA_SITE_URL` and `KANBI_JIRA_PROJECT_KEY`.
 
 Run the opt-in real Jira smoke test with:
 
@@ -120,8 +122,8 @@ Jira sync behavior:
 
 - Treats board `BackendQuery` as JQL. If empty, it defaults to `project = <project_key> ORDER BY updated DESC`.
 - Pulls issues selected by JQL and projects them as local cached tickets with display IDs matching Jira keys such as `AK-42`.
-- Inherits workflow columns from remote issue status names. Local column changes are pushed by requesting a matching Jira transition. If transition lookup fails, no matching transition is available, or the transition request fails, sync reports an error rather than treating the issue as fully updated.
-- Pulls/pushes issue summary, description, status, and comments. Notes map to Jira issue comments. Because Jira updates summary/description separately from workflow transitions, a failed transition may leave those metadata fields updated remotely; Kanbi does not advance its local sync marker or count the push as successful, so the full update remains retryable.
+- Inherits workflow columns from remote issue status names. Local column changes are pushed by requesting a matching Jira transition when available.
+- Pulls/pushes issue summary, description, status, and comments. Notes map to Jira issue comments.
 - Uses newest `updated_at` wins for ticket and comment conflicts.
 - Does not sync terminal containers, sessions, harness refs, runtime state, or other local session history.
 

@@ -13,7 +13,7 @@ flowchart LR
     Manager --> Mux[Configured multiplexer: tmux or Herdr]
     Mux --> Tmux[tmux session/windows]
     Mux --> Herdr[Herdr workspaces/panes/agents]
-    Manager --> Harness[Pi/Codex/Copilot/Fake harness]
+    Manager --> Harness[Pi/Codex/Copilot/Claude/Fake harness]
     Harness --> Ref[Harness session ref]
     Manager --> Store
     Store --> Projection[Board/ticket projection]
@@ -21,7 +21,7 @@ flowchart LR
     Sync[Ticket backend sync] --> Store
 ```
 
-- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, and session history live there; external ticket backends, when implemented, are cached/projected through SQLite while owning their board's ticket metadata.
+- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, and session history live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite.
 - **The configured multiplexer is observed runtime state.** tmux windows are validated against live tmux. Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions.
@@ -29,7 +29,7 @@ flowchart LR
 
 ## Current Objective And Scope
 
-Keep Kanbi a trustworthy alpha for multi-board ticket/session lifecycle management across Pi, Codex, Copilot, and fake harnesses. tmux remains the default runtime backend; Herdr support is opt-in through multiplexer config.
+Keep Kanbi a trustworthy alpha for multi-board ticket/session lifecycle management across Pi, Codex, Copilot, Claude, and fake harnesses. tmux remains the default runtime backend; Herdr support is opt-in through multiplexer config.
 
 Maintain these behaviors as boring, reliable, documented alpha behavior:
 
@@ -112,7 +112,7 @@ erDiagram
 - The **Master board** is a synthetic all-boards view; it is not a stored board row.
 - A **ticket** is durable work metadata: title, body, harness preference, workflow column, archive status.
 - A **session** is one attempt to run an agent for a ticket.
-- **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while future external backends should map notes to provider comments.
+- **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while the GitHub and Atlassian/Jira backends map notes to provider comments.
 - An **active session** is a session believed to own a live terminal container, but it must still pass validation before being trusted.
 - A **terminal container** is the live process container for an active session: a tmux window for tmux, or a Herdr pane/agent for Herdr.
 - A **harness session ref** is the harness-native resume handle when the harness exposes one.
@@ -184,6 +184,7 @@ Built-in harness contracts are localized in `internal/harness`: command defaults
 | Pi | `pi <prompt>` plus bundled ref extension | `pi --session <ref>` | extension handoff, fallback session JSONL scan |
 | Codex | `codex --no-alt-screen <prompt>` | `codex resume --no-alt-screen <ref>` | `~/.codex/history.jsonl` |
 | Copilot | `copilot -i <prompt>` | `copilot --resume=<ref>` | `~/.copilot/session-store.db` |
+| Claude | `claude <prompt>` | `claude --resume <ref>` | `~/.claude/projects/**/*.jsonl` |
 | Fake/smoke | script-dependent | script-dependent | pane marker such as `SESSION_REF=` |
 
 Always update [`docs/harness-contracts.md`](./harness-contracts.md) when harness behavior changes.
