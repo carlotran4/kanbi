@@ -112,19 +112,33 @@ type Manager struct {
 	Registry *Registry
 	Interval time.Duration
 
-	mu sync.Mutex
+	locksMu    sync.Mutex
+	boardLocks map[int64]*sync.Mutex
 }
 
 func NewManager(store *storage.Store) *Manager {
-	return &Manager{Store: store, Registry: DefaultRegistry(), Interval: time.Minute}
+	return &Manager{Store: store, Registry: DefaultRegistry(), Interval: time.Minute, boardLocks: map[int64]*sync.Mutex{}}
+}
+
+func (m *Manager) boardLock(boardID int64) *sync.Mutex {
+	m.locksMu.Lock()
+	defer m.locksMu.Unlock()
+	if m.boardLocks == nil {
+		m.boardLocks = map[int64]*sync.Mutex{}
+	}
+	if m.boardLocks[boardID] == nil {
+		m.boardLocks[boardID] = &sync.Mutex{}
+	}
+	return m.boardLocks[boardID]
 }
 
 func (m *Manager) SyncBoard(ctx context.Context, board storage.Board) (Result, error) {
 	if m == nil || m.Store == nil {
 		return Result{}, nil
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	lock := m.boardLock(board.ID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	registry := m.Registry
 	if registry == nil {
@@ -154,12 +168,22 @@ func (m *Manager) SyncAll(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var wg sync.WaitGroup
+	var errsMu sync.Mutex
 	var errs []error
 	for _, board := range boards {
-		if _, err := m.SyncBoard(ctx, board); err != nil {
-			errs = append(errs, err)
-		}
+		board := board
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := m.SyncBoard(ctx, board); err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Errorf("sync board %q: %w", board.Name, err))
+				errsMu.Unlock()
+			}
+		}()
 	}
+	wg.Wait()
 	return errors.Join(errs...)
 }
 
@@ -169,7 +193,9 @@ func (m *Manager) Start(ctx context.Context) func() {
 		interval = time.Minute
 	}
 	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_ = m.SyncAll(ctx)
 
 		ticker := time.NewTicker(interval)
@@ -183,5 +209,8 @@ func (m *Manager) Start(ctx context.Context) func() {
 			}
 		}
 	}()
-	return cancel
+	return func() {
+		cancel()
+		<-done
+	}
 }

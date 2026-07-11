@@ -10,6 +10,8 @@ Kanbi supports one ticket metadata backend per board. Implemented backends are `
 - The implemented GitHub and Atlassian/Jira backends own ticket metadata for their boards.
 - tmux session history remains local and is never synced to ticketing providers.
 - Sync starts in the background on executable startup, then runs periodically while the executable is running, and on demand through `kanbi sync`. Startup does not block the TUI on remote/cloud ticket providers. There is no background daemon after Kanbi exits.
+- Boards are scheduled independently: a slow provider call for one board does not block unrelated boards. Repeated sync requests for the same board are serialized within the running executable.
+- Every sync attempt durably updates the board's `last_sync_at` and `last_sync_error`. Background startup/periodic failures therefore remain visible in the board picker, `kanbi boards`, and JSON board output instead of being transient goroutine errors.
 - Conflict resolution is newest `updated_at` wins.
 - When a provider exposes a query language, board config stores the query used to scope the synced subset. Atlassian/Jira must use JQL.
 
@@ -22,7 +24,7 @@ Boards store backend metadata:
 - `backend_config`: provider-specific JSON config such as site/repo/project identifiers. This value is stored unencrypted in SQLite; prefer environment variables for credentials and do not embed tokens unless the database is protected accordingly.
 - sync bookkeeping fields for last sync time/error.
 
-Tickets and notes have optional external identity/version fields so adapters can map local cached rows to remote issues and comments.
+Tickets and notes have optional external identity/version fields so adapters can map local cached rows to remote issues and comments. Applying a remote ticket and advancing the board's next ticket number is one SQLite transaction; synchronizing a provider's column set is also all-or-nothing. A failed sync does not expose partially-created columns or a ticket/numbering mismatch.
 
 ## Sync Boundary
 

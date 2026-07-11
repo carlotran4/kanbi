@@ -1080,6 +1080,50 @@ func TestMigrateAddsGenericMuxFieldsAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestSyncBoardColumnsRollsBackPartialWrites(t *testing.T) {
+	s, ctx := newTestStore(t)
+	board := defaultBoardView(t, ctx, s).Board
+	if _, err := s.db.ExecContext(ctx, `create trigger fail_second_sync_column before insert on columns when new.name='Second Remote' begin select raise(abort, 'injected column failure'); end`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SyncBoardColumns(ctx, board.ID, []string{"First Remote", "Second Remote"}); err == nil {
+		t.Fatal("expected injected column sync failure")
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from columns where board_id=? and name in ('First Remote','Second Remote')`, board.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("partial synchronized columns remained after rollback: %d", count)
+	}
+}
+
+func TestUpsertRemoteTicketRollsBackTicketAndNumberTogether(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	board := view.Board
+	if _, err := s.db.ExecContext(ctx, `create trigger fail_remote_number before update of next_ticket_number on boards begin select raise(abort, 'injected number failure'); end`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.UpsertRemoteTicket(ctx, RemoteTicket{
+		BoardID: board.ID, ColumnID: view.Columns[0].ID, ExternalID: "remote-42",
+		DisplayID: "GH-42", DisplayNumber: 42, Title: "Remote", ExternalUpdatedAt: time.Now().UTC(),
+	})
+	if err == nil {
+		t.Fatal("expected injected board number failure")
+	}
+	var ticketCount, next int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from tickets where board_id=? and external_id='remote-42'`, board.ID).Scan(&ticketCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, board.ID).Scan(&next); err != nil {
+		t.Fatal(err)
+	}
+	if ticketCount != 0 || next != 1 {
+		t.Fatalf("remote upsert was partially committed: tickets=%d next=%d", ticketCount, next)
+	}
+}
+
 func assertContiguousTicketPositions(t *testing.T, tickets []Ticket) {
 	t.Helper()
 	for i, ticket := range tickets {

@@ -971,6 +971,12 @@ func (s *Store) ListNotes(ctx context.Context, ticketID int64) ([]Note, error) {
 // name; missing columns are created; absent columns are left in place to avoid
 // destructive ticket/session history changes.
 func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []string) (map[string]int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
 	result := map[string]int64{}
 	seen := map[string]bool{}
 	for _, raw := range names {
@@ -980,14 +986,14 @@ func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []str
 		}
 		seen[name] = true
 		var id int64
-		err := s.db.QueryRowContext(ctx, `select id from columns where board_id=? and name=? order by position limit 1`, boardID, name).Scan(&id)
+		err := tx.QueryRowContext(ctx, `select id from columns where board_id=? and name=? order by position limit 1`, boardID, name).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			now := time.Now().UTC()
-			insertPos, err := columnOrder.nextPosition(ctx, s.db, boardID)
+			insertPos, err := columnOrder.nextPosition(ctx, tx, boardID)
 			if err != nil {
 				return nil, err
 			}
-			res, err := s.db.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, insertPos, now, now)
+			res, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, insertPos, now, now)
 			if err != nil {
 				return nil, err
 			}
@@ -996,6 +1002,9 @@ func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []str
 			return nil, err
 		}
 		result[name] = id
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -1008,6 +1017,11 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 	if rt.BoardID == 0 || rt.ColumnID == 0 || strings.TrimSpace(rt.ExternalID) == "" {
 		return Ticket{}, errors.New("remote ticket requires board, column, and external id")
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Ticket{}, err
+	}
+	defer tx.Rollback()
 	displayID := strings.TrimSpace(rt.DisplayID)
 	if displayID == "" {
 		displayID = rt.ExternalID
@@ -1023,7 +1037,7 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 		archived = *rt.ArchivedAt
 	}
 	var id int64
-	existingErr := s.db.QueryRowContext(ctx, `select id from tickets where board_id=? and external_id=?`, rt.BoardID, rt.ExternalID).Scan(&id)
+	existingErr := tx.QueryRowContext(ctx, `select id from tickets where board_id=? and external_id=?`, rt.BoardID, rt.ExternalID).Scan(&id)
 	if existingErr != nil && !errors.Is(existingErr, sql.ErrNoRows) {
 		return Ticket{}, existingErr
 	}
@@ -1031,7 +1045,7 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 	if errors.Is(existingErr, sql.ErrNoRows) && rt.SourceTicketID != 0 {
 		displayNumberCurrentID = rt.SourceTicketID
 	}
-	displayNumber, err := s.remoteDisplayNumber(ctx, rt.BoardID, rt.DisplayNumber, displayNumberCurrentID)
+	displayNumber, err := remoteDisplayNumber(ctx, tx, rt.BoardID, rt.DisplayNumber, displayNumberCurrentID)
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -1053,24 +1067,24 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 	if errors.Is(existingErr, sql.ErrNoRows) {
 		if rt.SourceTicketID != 0 {
 			var sourceBoardID int64
-			if err := s.db.QueryRowContext(ctx, `select board_id from tickets where id=?`, rt.SourceTicketID).Scan(&sourceBoardID); err != nil {
+			if err := tx.QueryRowContext(ctx, `select board_id from tickets where id=?`, rt.SourceTicketID).Scan(&sourceBoardID); err != nil {
 				return Ticket{}, err
 			}
 			if sourceBoardID != rt.BoardID {
 				return Ticket{}, errors.New("remote ticket source belongs to a different board")
 			}
-			_, err = s.db.ExecContext(ctx, `update tickets set column_id=?, external_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
+			_, err = tx.ExecContext(ctx, `update tickets set column_id=?, external_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
 				rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, rt.SourceTicketID)
 			if err != nil {
 				return Ticket{}, err
 			}
 			id = rt.SourceTicketID
 		} else {
-			pos, err := visibleTicketOrder.nextPosition(ctx, s.db, rt.ColumnID)
+			pos, err := visibleTicketOrder.nextPosition(ctx, tx, rt.ColumnID)
 			if err != nil {
 				return Ticket{}, err
 			}
-			res, err := s.db.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			res, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				rt.BoardID, rt.ColumnID, rt.ExternalID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, "pi", pos, archived, now, rt.ExternalUpdatedAt)
 			if err != nil {
 				return Ticket{}, err
@@ -1078,26 +1092,33 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 			id, _ = res.LastInsertId()
 		}
 	} else {
-		_, err = s.db.ExecContext(ctx, `update tickets set column_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
+		_, err = tx.ExecContext(ctx, `update tickets set column_id=?, external_url=?, external_updated_at=?, sync_version=?, display_id=?, display_number=?, title=?, body=?, archived_at=?, updated_at=? where id=?`,
 			rt.ColumnID, nullableString(rt.ExternalURL), rt.ExternalUpdatedAt, rt.ExternalUpdatedAt.Format(time.RFC3339Nano), displayID, displayNumber, rt.Title, rt.Body, archived, rt.ExternalUpdatedAt, id)
 		if err != nil {
 			return Ticket{}, err
 		}
 	}
-	if _, err := s.db.ExecContext(ctx, `update boards set next_ticket_number=max(next_ticket_number, ?) where id=?`, displayNumber+1, rt.BoardID); err != nil {
+	if _, err := tx.ExecContext(ctx, `update boards set next_ticket_number=max(next_ticket_number, ?) where id=?`, displayNumber+1, rt.BoardID); err != nil {
+		return Ticket{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Ticket{}, err
 	}
 	return s.TicketByID(ctx, id)
 }
 
-func (s *Store) remoteDisplayNumber(ctx context.Context, boardID int64, desired int, currentTicketID int64) (int, error) {
+type sqlQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func remoteDisplayNumber(ctx context.Context, q sqlQueryer, boardID int64, desired int, currentTicketID int64) (int, error) {
 	if desired <= 0 {
-		if err := s.db.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&desired); err != nil {
+		if err := q.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&desired); err != nil {
 			return 0, err
 		}
 	}
 	var existing int64
-	err := s.db.QueryRowContext(ctx, `select id from tickets where board_id=? and display_number=?`, boardID, desired).Scan(&existing)
+	err := q.QueryRowContext(ctx, `select id from tickets where board_id=? and display_number=?`, boardID, desired).Scan(&existing)
 	if errors.Is(err, sql.ErrNoRows) || existing == currentTicketID {
 		return desired, nil
 	}
@@ -1105,7 +1126,7 @@ func (s *Store) remoteDisplayNumber(ctx context.Context, boardID int64, desired 
 		return 0, err
 	}
 	var next int
-	if err := s.db.QueryRowContext(ctx, `select coalesce(max(display_number),0)+1 from tickets where board_id=?`, boardID).Scan(&next); err != nil {
+	if err := q.QueryRowContext(ctx, `select coalesce(max(display_number),0)+1 from tickets where board_id=?`, boardID).Scan(&next); err != nil {
 		return 0, err
 	}
 	if next <= desired {
