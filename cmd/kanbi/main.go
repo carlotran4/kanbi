@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/carlotran4/kanbi/internal/backup"
+	"github.com/carlotran4/kanbi/internal/boardpackage"
 	"github.com/carlotran4/kanbi/internal/boardruntime"
 	"github.com/carlotran4/kanbi/internal/config"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -164,7 +165,9 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		stopSync := syncer.Start(ctx)
 		defer stopSync()
 		defer manager.Close()
-		_, err := tea.NewProgram(tui.NewWithPickerOptions(ctx, tui.NewServiceWithSyncer(cli.store, manager, syncer), reconcileWarning)).Run()
+		svc := tui.NewServiceWithSyncer(cli.store, manager, syncer)
+		svc.DataDir = cfg.Paths.DataDir
+		_, err := tea.NewProgram(tui.NewWithPickerOptions(ctx, svc, reconcileWarning)).Run()
 		return err
 	})
 }
@@ -203,7 +206,17 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 	}
 	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
 		if len(args) == 0 || args[0] == "list" {
-			boards, err := cli.store.ListBoards(ctx)
+			includeArchived := false
+			listArgs := args
+			if len(listArgs) > 0 && listArgs[0] == "list" {
+				listArgs = listArgs[1:]
+			}
+			for _, a := range listArgs {
+				if a == "--include-archived" {
+					includeArchived = true
+				}
+			}
+			boards, err := cli.store.ListBoardsFiltered(ctx, includeArchived)
 			if err != nil {
 				return err
 			}
@@ -213,6 +226,11 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			fmt.Println("Master\t(all boards)")
 			for _, b := range boards {
 				status := "ok"
+				if b.ArchivedAt.Valid {
+					status = "archived"
+				} else if !b.SyncEnabled {
+					status = "sync_disabled"
+				}
 				if b.LastSyncError.Valid && strings.TrimSpace(b.LastSyncError.String) != "" {
 					status = "sync_error=" + b.LastSyncError.String
 				}
@@ -274,7 +292,153 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			fmt.Printf("%d\t%s\t%s\t%s\n", updated.ID, updated.Name, updated.Workdir, updated.TicketBackend)
 			return nil
 		}
-		return fmt.Errorf("usage: kanbi boards [list|add \"Name\" [--cwd /path] [--backend local|github|atlassian] [--query QUERY] [--config JSON]|rename OLD NEW|set-cwd NAME /path]")
+		if args[0] == "archive" || args[0] == "unarchive" || args[0] == "enable-sync" || args[0] == "disable-sync" {
+			if len(args) != 2 {
+				return fmt.Errorf("usage: kanbi boards %s NAME", args[0])
+			}
+			b, err := cli.BoardByName(args[1])
+			if err != nil {
+				return err
+			}
+			switch args[0] {
+			case "archive":
+				err = cli.store.ArchiveBoard(ctx, b.ID)
+			case "unarchive":
+				err = cli.store.UnarchiveBoard(ctx, b.ID)
+			case "enable-sync":
+				err = cli.store.SetBoardSyncEnabled(ctx, b.ID, true)
+			case "disable-sync":
+				err = cli.store.SetBoardSyncEnabled(ctx, b.ID, false)
+			}
+			if err != nil {
+				return err
+			}
+			updated, err := cli.store.BoardByID(ctx, b.ID)
+			if err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.board", "board": jsonBoard(updated)})
+			}
+			fmt.Printf("%d\t%s\tarchived=%v\tsync_enabled=%v\n", updated.ID, updated.Name, updated.ArchivedAt.Valid, updated.SyncEnabled)
+			return nil
+		}
+		if args[0] == "export" {
+			if len(args) != 3 {
+				return fmt.Errorf("usage: kanbi boards export NAME PATH")
+			}
+			b, err := cli.BoardByName(args[1])
+			if err != nil {
+				return err
+			}
+			if err := boardpackage.Export(ctx, cli.store, cfg.Paths.DataDir, b.ID, args[2]); err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.board_export", "board": jsonBoard(b), "path": args[2]})
+			}
+			fmt.Printf("exported\t%s\t%s\n", b.Name, args[2])
+			return nil
+		}
+		if args[0] == "import" {
+			if len(args) < 2 {
+				return fmt.Errorf("usage: kanbi boards import PATH [--name NEW] [--preview]")
+			}
+			path := args[1]
+			nameOverride := ""
+			previewOnly := false
+			for i := 2; i < len(args); i++ {
+				switch args[i] {
+				case "--preview":
+					previewOnly = true
+				case "--name":
+					if i+1 >= len(args) {
+						return fmt.Errorf("--name requires a value")
+					}
+					i++
+					nameOverride = args[i]
+				default:
+					return fmt.Errorf("unknown boards import flag %s", args[i])
+				}
+			}
+			if previewOnly {
+				report, err := boardpackage.Preview(ctx, cli.store, path)
+				if err != nil {
+					return err
+				}
+				if format.JSON {
+					return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.board_package_preview", "report": report})
+				}
+				fmt.Printf("preview\t%s\ttickets=%d\tnotes=%d\tsessions=%d\tattachments=%d\tcollision=%v\n", report.BoardName, report.TicketCount, report.NoteCount, report.SessionCount, report.AttachmentCount, report.NameCollision)
+				for _, w := range report.Warnings {
+					fmt.Printf("warning\t%s\n", w)
+				}
+				return nil
+			}
+			result, err := boardpackage.Import(ctx, cli.store, cfg.Paths.DataDir, path, boardpackage.ImportOptions{NameOverride: nameOverride})
+			if err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{
+					"schema": "kanbi.v1.board_import",
+					"result": jsonBoardImportResult(result),
+					"board":  jsonBoard(result.Board),
+				})
+			}
+			fmt.Printf("imported\t%d\t%s\tarchived=true\tsync_enabled=false\n", result.Board.ID, result.Board.Name)
+			return nil
+		}
+		if args[0] == "set-column-key" {
+			// kanbi boards set-column-key NAME --column "Display" --key review
+			if len(args) < 2 {
+				return fmt.Errorf("usage: kanbi boards set-column-key NAME --column DISPLAY --key KEY")
+			}
+			boardName := args[1]
+			columnName, key := "", ""
+			for i := 2; i < len(args); i++ {
+				switch args[i] {
+				case "--column":
+					if i+1 >= len(args) {
+						return fmt.Errorf("--column requires a value")
+					}
+					i++
+					columnName = args[i]
+				case "--key":
+					if i+1 >= len(args) {
+						return fmt.Errorf("--key requires a value")
+					}
+					i++
+					key = args[i]
+				default:
+					return fmt.Errorf("unknown boards set-column-key flag %s", args[i])
+				}
+			}
+			if columnName == "" || key == "" {
+				return fmt.Errorf("usage: kanbi boards set-column-key NAME --column DISPLAY --key KEY")
+			}
+			b, err := cli.BoardByName(boardName)
+			if err != nil {
+				return err
+			}
+			colID, err := cli.store.ColumnIDByBoardAndName(ctx, b.ID, columnName)
+			if err != nil {
+				return fmt.Errorf("column %q not found on board %q", columnName, b.Name)
+			}
+			if err := cli.store.SetColumnWorkflowKey(ctx, colID, key); err != nil {
+				return err
+			}
+			col, err := cli.store.ColumnByID(ctx, colID)
+			if err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.column", "column": map[string]any{"id": col.ID, "board_id": col.BoardID, "name": col.Name, "workflow_key": col.WorkflowKey, "position": col.Position}})
+			}
+			fmt.Printf("%d\t%s\tworkflow_key=%s\n", col.ID, col.Name, col.WorkflowKey)
+			return nil
+		}
+		return fmt.Errorf("usage: kanbi boards [list [--include-archived]|add NAME ...|rename OLD NEW|set-cwd NAME PATH|archive NAME|unarchive NAME|enable-sync NAME|disable-sync NAME|export NAME PATH|import PATH [--name NEW] [--preview]|set-column-key NAME --column DISPLAY --key KEY]")
 	})
 }
 
@@ -371,6 +535,20 @@ func runSync(ctx context.Context, cfg config.Config, args []string) error {
 		for _, board := range boards {
 			res, err := syncer.SyncBoard(ctx, board)
 			if err != nil {
+				if errors.Is(err, storage.ErrBoardSyncSkipped) {
+					reason := "sync_disabled"
+					if board.ArchivedAt.Valid {
+						reason = "archived"
+					} else if !board.SyncEnabled {
+						reason = "sync_disabled"
+					}
+					if format.JSON {
+						results = append(results, map[string]any{"board": jsonBoard(board), "status": "sync_skipped", "reason": reason})
+					} else {
+						fmt.Printf("sync-skipped\t%s\t%s\treason=%s\n", board.Name, board.TicketBackend, reason)
+					}
+					continue
+				}
 				if format.JSON {
 					results = append(results, map[string]any{"board": jsonBoard(board), "status": "sync_error", "error": err.Error()})
 				} else {
@@ -929,7 +1107,7 @@ func (c *cliContext) jsonBoardView(ctx context.Context, view storage.BoardView) 
 		for _, ticket := range col.Tickets {
 			tickets = append(tickets, c.jsonTicket(ctx, ticket, true))
 		}
-		columns = append(columns, map[string]any{"id": col.ID, "board_id": col.BoardID, "name": col.Name, "position": col.Position, "tickets": tickets})
+		columns = append(columns, map[string]any{"id": col.ID, "board_id": col.BoardID, "name": col.Name, "workflow_key": col.WorkflowKey, "position": col.Position, "tickets": tickets})
 	}
 	return map[string]any{"board": jsonBoard(view.Board), "columns": columns}
 }
@@ -1005,14 +1183,28 @@ func jsonBoards(boards []storage.Board) []any {
 
 func jsonBoard(b storage.Board) any {
 	return map[string]any{
-		"id":              b.ID,
-		"name":            b.Name,
-		"workdir":         b.Workdir,
-		"ticket_backend":  b.TicketBackend,
-		"backend_query":   b.BackendQuery,
-		"backend_config":  b.BackendConfig,
-		"last_sync_at":    nullTime(b.LastSyncAt),
-		"last_sync_error": nullString(b.LastSyncError),
+		"id":                 b.ID,
+		"uuid":               b.UUID,
+		"name":               b.Name,
+		"workdir":            b.Workdir,
+		"ticket_backend":     b.TicketBackend,
+		"backend_query":      b.BackendQuery,
+		"backend_config":     b.BackendConfig,
+		"last_sync_at":       nullTime(b.LastSyncAt),
+		"last_sync_error":    nullString(b.LastSyncError),
+		"archived_at":        nullTime(b.ArchivedAt),
+		"sync_enabled":       b.SyncEnabled,
+		"source_export_uuid": nullString(b.SourceExportUUID),
+	}
+}
+
+func jsonBoardImportResult(result boardpackage.Result) any {
+	return map[string]any{
+		"board":                jsonBoard(result.Board),
+		"ticket_id_remap":      result.TicketIDRemap,
+		"source_board_uuid":    result.SourceBoardUUID,
+		"duplicate_provenance": result.DuplicateProvenance,
+		"warnings":             result.Warnings,
 	}
 }
 

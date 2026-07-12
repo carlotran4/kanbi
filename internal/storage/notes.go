@@ -51,6 +51,12 @@ func (s *Store) DeleteNote(ctx context.Context, noteID int64) error {
 	return requireAffected(res, err)
 }
 
+// RestoreNote clears a local note tombstone. It does not resurrect remote comments.
+func (s *Store) RestoreNote(ctx context.Context, noteID int64) error {
+	res, err := s.db.ExecContext(ctx, `update ticket_notes set deleted_at=null, updated_at=? where id=? and deleted_at is not null`, time.Now().UTC(), noteID)
+	return requireAffected(res, err)
+}
+
 func (s *Store) ListNotes(ctx context.Context, ticketID int64) ([]Note, error) {
 	return s.listNotes(ctx, ticketID, false)
 }

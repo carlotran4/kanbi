@@ -33,9 +33,9 @@ See [`docs/installation.md`](./docs/installation.md) for supported platforms, pr
 - `kanbi` then opens with a board picker. Choose `Master (all boards)` or a named board; press `c` there to create a board and set the directory where its agent commands will run.
 - Press `b` inside the TUI to switch boards without restarting.
 - Press `g` on a GitHub-backed ticket to open its GitHub issue URL in your browser.
-- `Master` aggregates unarchived tickets from every board by matching column name (for example, all `Open` tickets together).
-- Press `f` in `Master` to filter/search by board, runtime/state, harness, text, or archived tickets. Filters reset on app restart but persist while switching boards during one run; press `C` in the filter panel to clear them.
-- Pressing `n` in `Master` prompts for the target board, then creates the ticket in that board's matching column.
+- `Master` aggregates unarchived tickets from non-archived boards by matching column `workflow_key` (defaults to each column's display name; rename does not change the key).
+- Press `f` in `Master` to filter/search by board, runtime/state, harness, text, or archived tickets. Save (`S`) / apply (`P`) named presets; filters are never auto-applied on startup. Press `C` to clear.
+- Pressing `n` in `Master` prompts for the target board, then creates the ticket in that board's column with the same workflow key.
 - Each board has a working directory. Opening/sending a ticket starts its agent terminal container in the ticket's board directory, including from `Master`.
 - Board-local ticket numbers are preserved, so different boards may both have `T-001`; CLI ticket commands accept `--board NAME` when needed.
 - tmux is the default multiplexer. Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
@@ -43,7 +43,7 @@ See [`docs/installation.md`](./docs/installation.md) for supported platforms, pr
 - Create boards from the CLI with `kanbi boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `kanbi boards`. Provider `--config` JSON is stored unencrypted in SQLite, so keep credentials in the documented environment variables rather than embedding tokens in `--config`.
 - Sync ticket backends from the CLI with `kanbi sync` or `kanbi sync --board "Board Name"`.
 - Rename/update boards with `kanbi boards rename OLD NEW` and `kanbi boards set-cwd NAME /path/to/project`.
-- In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes. Board deletion is permanent, is blocked while any ticket session is active, and removes locally stored attachments for that board's tickets after the database deletion succeeds.
+- In the TUI board picker: `c` creates, `r` renames, `w` sets cwd, `a` archives/unarchives, `s` toggles provider sync, `e`/`i` export/import board packages, `A` shows archived boards, and `d` hard-deletes. Archive is the non-destructive default hide path; hard delete is permanent, blocked while sessions are active, local-only, and removes attachments after the SQL commit.
 
 ## Backup, restore, and deletion safety
 
@@ -60,9 +60,11 @@ kanbi restore ~/kanbi-backup.kanbi          # only when no database exists
 kanbi restore ~/kanbi-backup.kanbi --force  # atomically replace an existing database
 ```
 
-Backups contain a versioned manifest, a SQLite snapshot, and attachment files. Restore validates archive paths, the manifest/schema version, and SQLite integrity before replacement. It refuses an existing database without `--force` and refuses restore while SQLite WAL/SHM sidecars exist. Database replacement uses an atomic rename; database and attachment replacement are rollback-protected but cannot be one filesystem transaction, so do not run restore concurrently with Kanbi. External ticket providers are not a backup of local runtime/session history or attachments.
+Full backups contain a versioned `kanbi-backup` manifest, a SQLite snapshot, and attachment files. Restore validates archive paths, the manifest/schema version, and SQLite integrity before replacement. It refuses an existing database without `--force` and refuses restore while SQLite WAL/SHM sidecars exist. Database replacement uses an atomic rename; database and attachment replacement are rollback-protected but cannot be one filesystem transaction, so do not run restore concurrently with Kanbi. External ticket providers are not a backup of local runtime/session history or attachments.
 
-Board deletion is permanent and blocked while sessions are active. The TUI requires typing the exact board name and explicitly warns that tickets, notes, complete session history, and attachments will be deleted. Create and verify a backup first.
+Single-board packages use a separate `kanbi-board-package` format (`kanbi boards export|import`). Import is create-new-only (no merge), remaps IDs in one SQLite transaction, stages attachments with compensating board delete on failure, and always leaves the imported board archived with sync disabled.
+
+Prefer board archive over hard delete. Hard delete is permanent, local-only, blocked while sessions are active, and requires typing the exact board name in the TUI.
 
 ## CLI automation surface
 

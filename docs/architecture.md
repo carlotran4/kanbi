@@ -42,7 +42,7 @@ Maintain these behaviors as boring, reliable, documented alpha behavior:
 - resumable sessions use the correct harness-native resume command;
 - unresumable sessions route through repair/start-fresh without corrupting history;
 - each board owns its ticket numbers and working directory;
-- Master aggregates tickets across boards without changing ticket ownership;
+- Master aggregates tickets across boards by workflow key without changing ticket ownership;
 - each harness has clearly documented behavior and verification coverage.
 
 Current follow-up work is tracked as tickets on the board. Known focus areas are docs reconciliation, runtime detection confidence, TUI readability/attention styling, board deletion/archive/export semantics, and possible canonical column types for Master aggregation.
@@ -68,8 +68,9 @@ Stop and ask before:
 | `internal/boardruntime` | Starts the board process in the configured runtime, including Herdr availability, workspace, pane, environment, and attach orchestration. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
 | `internal/buildinfo` | Release-injected semantic version, commit/build metadata, Go platform, and schema compatibility reporting. |
-| `internal/backup` | Versioned SQLite-and-attachments export/restore archives with validation. |
-| `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. `TicketProjection` and `ColumnView` are explicit read models. |
+| `internal/backup` | Versioned full SQLite-and-attachments export/restore archives (`kanbi-backup`) with validation. |
+| `internal/boardpackage` | Versioned single-board packages (`kanbi-board-package`) with path-safe attachments, preview, create-new import, and compensating rollback. |
+| `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. Includes board archive/sync flags, workflow keys, filter presets, and board aggregate load/import. `TicketProjection` and `ColumnView` are explicit read models. |
 | `internal/session` | Provider-neutral lifecycle policy and errors, durable session repository contract, and compiled-in multiplexer registry. |
 | `internal/ticketbackend` | Board-scoped ticket metadata backend registry and owned startup/periodic/mutation sync orchestration (cancel + WaitGroup drain). Providers receive a narrow sync repository. Implements timeouts, GET retry classification, durable find-or-link create recovery, the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
 | `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. Includes the Herdr adapter under `internal/multiplexer/herdr`. |
@@ -119,7 +120,7 @@ erDiagram
 - A **board** owns columns, display numbering, a working directory, and exactly one implemented ticket metadata backend. Board names are unique without regard to case.
 - The **Master board** is a synthetic all-boards view; it is not a stored board row.
 - A **ticket** is durable work metadata: non-blank title, body, supported harness preference, workflow column, archive status. A ticket may move only between columns owned by its board.
-- Column names are unique by exact spelling within a board. Case remains meaningful because Master aggregation also matches exact column names.
+- Column names are unique by exact spelling within a board. Master aggregation matches column `workflow_key` values (defaulted to each column's display name at creation; rename does not change the key). At most one column per workflow key is allowed on a board.
 - External ticket and note identities are unique within their owning board/ticket so sync never has to choose an ambiguous local row.
 - A **session** is one attempt to run an agent for a ticket.
 - **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while the GitHub and Atlassian/Jira backends map notes to provider comments.

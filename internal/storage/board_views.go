@@ -20,7 +20,7 @@ func (s *Store) BoardView(ctx context.Context) (BoardView, error) {
 
 func (s *Store) BoardViewByID(ctx context.Context, boardID int64) (BoardView, error) {
 	var board Board
-	if err := s.db.QueryRowContext(ctx, boardSelectSQL+` where id=?`, boardID).Scan(boardScanDest(&board)...); err != nil {
+	if err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where id=?`, boardID), &board); err != nil {
 		return BoardView{}, err
 	}
 	return s.boardViewFor(ctx, board)
@@ -31,7 +31,21 @@ func (s *Store) MasterBoardView(ctx context.Context) (BoardView, error) {
 }
 
 func (s *Store) MasterBoardViewWithFilter(ctx context.Context, filter MasterFilter) (BoardView, error) {
-	rows, err := s.db.QueryContext(ctx, `select name from columns group by name order by min(position), lower(name)`)
+	// Aggregate by workflow_key across non-archived boards. Representative display
+	// name is the Name of the min-position column among boards contributing that key.
+	rows, err := s.db.QueryContext(ctx, `
+select c.workflow_key,
+       (select c2.name from columns c2
+         join boards b2 on b2.id=c2.board_id
+        where b2.archived_at is null
+          and c2.workflow_key=c.workflow_key
+        order by c2.position, lower(c2.name), c2.id
+        limit 1) as display_name
+  from columns c
+  join boards b on b.id=c.board_id
+ where b.archived_at is null
+ group by c.workflow_key
+ order by min(c.position), lower(c.workflow_key)`)
 	if err != nil {
 		return BoardView{}, err
 	}
@@ -39,18 +53,27 @@ func (s *Store) MasterBoardViewWithFilter(ctx context.Context, filter MasterFilt
 	view := BoardView{Board: Board{ID: 0, Name: "Master"}}
 	pos := 0
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var key, displayName string
+		if err := rows.Scan(&key, &displayName); err != nil {
 			return BoardView{}, err
 		}
-		view.Columns = append(view.Columns, Column{ID: -int64(pos + 1), BoardID: 0, Name: name, Position: pos})
+		if displayName == "" {
+			displayName = key
+		}
+		view.Columns = append(view.Columns, Column{
+			ID:          -int64(pos + 1),
+			BoardID:     0,
+			Name:        displayName,
+			WorkflowKey: key,
+			Position:    pos,
+		})
 		pos++
 	}
 	if err := rows.Err(); err != nil {
 		return BoardView{}, err
 	}
 	for i := range view.Columns {
-		suffix, args := masterFilterQuery(view.Columns[i].Name, filter)
+		suffix, args := masterFilterQuery(view.Columns[i].WorkflowKey, filter)
 		tickets, err := s.queryProjectedTickets(ctx, suffix, args...)
 		if err != nil {
 			return BoardView{}, err
@@ -61,7 +84,7 @@ func (s *Store) MasterBoardViewWithFilter(ctx context.Context, filter MasterFilt
 }
 
 func (s *Store) boardViewFor(ctx context.Context, board Board) (BoardView, error) {
-	rows, err := s.db.QueryContext(ctx, `select id, board_id, name, position from columns where board_id=? order by position`, board.ID)
+	rows, err := s.db.QueryContext(ctx, `select id, board_id, name, coalesce(workflow_key,name), position from columns where board_id=? order by position`, board.ID)
 	if err != nil {
 		return BoardView{}, err
 	}
@@ -69,7 +92,7 @@ func (s *Store) boardViewFor(ctx context.Context, board Board) (BoardView, error
 	view := BoardView{Board: board}
 	for rows.Next() {
 		var c Column
-		if err := rows.Scan(&c.ID, &c.BoardID, &c.Name, &c.Position); err != nil {
+		if err := rows.Scan(&c.ID, &c.BoardID, &c.Name, &c.WorkflowKey, &c.Position); err != nil {
 			return BoardView{}, err
 		}
 		view.Columns = append(view.Columns, c)
@@ -90,9 +113,9 @@ func (s *Store) boardViewFor(ctx context.Context, board Board) (BoardView, error
 	return view, nil
 }
 
-func masterFilterQuery(columnName string, filter MasterFilter) (string, []any) {
-	clauses := []string{`c.name=?`}
-	args := []any{columnName}
+func masterFilterQuery(workflowKey string, filter MasterFilter) (string, []any) {
+	clauses := []string{`c.workflow_key=?`, `b.archived_at is null`}
+	args := []any{workflowKey}
 	if !filter.IncludeArchived {
 		clauses = append(clauses, `t.archived_at is null`)
 	}
@@ -119,7 +142,7 @@ func masterFilterQuery(columnName string, filter MasterFilter) (string, []any) {
 		clauses = append(clauses, `(lower(t.display_id) like ? or lower(t.title) like ? or lower(t.body) like ? or lower((select name from boards where id=t.board_id)) like ? or lower(t.harness) like ?)`)
 		args = append(args, like, like, like, like, like)
 	}
-	return `join columns c on c.id=t.column_id where ` + strings.Join(clauses, ` and `) + ` order by t.board_id,t.position`, args
+	return `join columns c on c.id=t.column_id join boards b on b.id=t.board_id where ` + strings.Join(clauses, ` and `) + ` order by t.board_id,t.position`, args
 }
 
 func placeholders(n int) string {

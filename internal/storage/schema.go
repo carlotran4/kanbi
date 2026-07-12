@@ -8,6 +8,7 @@ pragma foreign_keys = on;
 create table if not exists boards (
   id integer primary key autoincrement,
   name text not null,
+  uuid text not null,
   workdir text,
   next_ticket_number integer not null default 1,
   ticket_backend text not null default 'local',
@@ -15,6 +16,9 @@ create table if not exists boards (
   backend_config text,
   last_sync_at datetime,
   last_sync_error text,
+  archived_at datetime,
+  sync_enabled integer not null default 1,
+  source_export_uuid text,
   created_at datetime not null,
   updated_at datetime not null
 );
@@ -23,10 +27,19 @@ create table if not exists columns (
   id integer primary key autoincrement,
   board_id integer not null references boards(id) on delete cascade,
   name text not null,
+  workflow_key text not null,
   position integer not null,
   created_at datetime not null,
   updated_at datetime not null,
   unique(board_id, position)
+);
+
+create table if not exists master_filter_presets (
+  id integer primary key autoincrement,
+  name text not null,
+  payload_json text not null,
+  created_at datetime not null,
+  updated_at datetime not null
 );
 
 create table if not exists tickets (

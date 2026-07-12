@@ -62,6 +62,88 @@ func (m *Model) reloadMasterFilterOptions() {
 }
 
 func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
+	if m.filterPresetMode == "save" {
+		switch key.String() {
+		case "esc":
+			m.filterPresetMode = ""
+		case "enter":
+			durable, err := m.actions.DurableFromMasterFilter(m.ctx, m.masterFilter)
+			if err != nil {
+				m.status = err.Error()
+				return m
+			}
+			p, err := m.actions.SaveFilterPreset(m.ctx, strings.TrimSpace(m.filterPresetName), durable)
+			if err != nil {
+				m.status = err.Error()
+				return m
+			}
+			m.activePresetName = p.Name
+			m.filterPresetMode = ""
+			m.status = "saved filter preset " + p.Name
+		case "backspace":
+			m.filterPresetName = popRune(m.filterPresetName)
+		default:
+			if len(key.Runes) > 0 {
+				m.filterPresetName += string(key.Runes)
+			}
+		}
+		return m
+	}
+	if m.filterPresetMode == "list" {
+		switch key.String() {
+		case "esc":
+			m.filterPresetMode = ""
+		case "j", "down":
+			if len(m.filterPresets) > 0 {
+				m.filterPresetIndex = (m.filterPresetIndex + 1) % len(m.filterPresets)
+			}
+		case "k", "up":
+			if len(m.filterPresets) > 0 {
+				m.filterPresetIndex--
+				if m.filterPresetIndex < 0 {
+					m.filterPresetIndex = len(m.filterPresets) - 1
+				}
+			}
+		case "enter":
+			if len(m.filterPresets) == 0 {
+				return m
+			}
+			p := m.filterPresets[m.filterPresetIndex]
+			resolved, missing, err := m.actions.ResolveMasterFilter(m.ctx, p.Filter)
+			if err != nil {
+				m.status = err.Error()
+				return m
+			}
+			m.masterFilter = resolved
+			m.activePresetName = p.Name
+			m.filterPresetMode = ""
+			m.masterFilterOpen = false
+			if len(missing) > 0 {
+				m.status = "applied preset " + p.Name + "; missing boards: " + strings.Join(missing, ", ")
+			} else {
+				m.status = "applied preset " + p.Name
+			}
+			m.reload()
+		case "d", "x":
+			if len(m.filterPresets) == 0 {
+				return m
+			}
+			p := m.filterPresets[m.filterPresetIndex]
+			if err := m.actions.DeleteFilterPreset(m.ctx, p.ID); err != nil {
+				m.status = err.Error()
+				return m
+			}
+			if m.activePresetName == p.Name {
+				m.activePresetName = ""
+			}
+			m.filterPresets, _ = m.actions.ListFilterPresets(m.ctx)
+			if m.filterPresetIndex >= len(m.filterPresets) {
+				m.filterPresetIndex = max(0, len(m.filterPresets)-1)
+			}
+			m.status = "deleted preset " + p.Name
+		}
+		return m
+	}
 	max := 2 + len(m.boards) + len(m.masterFilterRuntimes) + len(m.masterFilterHarnesses) - 1
 	if max < 1 {
 		max = 1
@@ -71,13 +153,29 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 		m.masterFilterOpen = false
 	case "enter":
 		m.masterFilterOpen = false
+		m.activePresetName = ""
 		m.status = "applied Master filters"
 		m.reload()
 	case "C":
 		m.masterFilter = storage.MasterFilter{}
+		m.activePresetName = ""
 		m.masterFilterOpen = false
 		m.status = "cleared Master filters"
 		m.reload()
+	case "S":
+		m.filterPresetMode = "save"
+		m.filterPresetName = ""
+		return m
+	case "P":
+		presets, err := m.actions.ListFilterPresets(m.ctx)
+		if err != nil {
+			m.status = err.Error()
+			return m
+		}
+		m.filterPresets = presets
+		m.filterPresetIndex = 0
+		m.filterPresetMode = "list"
+		return m
 	case "j", "down":
 		m.masterFilterField++
 		if m.masterFilterField > max {
@@ -165,9 +263,29 @@ func (m Model) masterFilterView() string {
 		lines = append(lines, row(idx, rowText(hasString(m.masterFilter.Harnesses, harness), harness)))
 		idx++
 	}
-	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · C clear · Esc close"))
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · C clear · S save preset · P presets · Esc close"))
+	if m.filterPresetMode == "save" {
+		lines = append(lines, "", "Save preset name: "+renderWithCursor(m.filterPresetName, len([]rune(m.filterPresetName))))
+	}
+	if m.filterPresetMode == "list" {
+		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Presets (Enter apply · d delete · Esc back)"))
+		if len(m.filterPresets) == 0 {
+			lines = append(lines, "  (none)")
+		}
+		for i, p := range m.filterPresets {
+			mark := "  "
+			if i == m.filterPresetIndex {
+				mark = "> "
+			}
+			lines = append(lines, mark+p.Name)
+		}
+	}
 	if summary := m.masterFilterSummary(); summary != "" {
-		lines = append(lines, lipgloss.NewStyle().Foreground(palette.warning).Render("Active: "+summary))
+		label := "Active: " + summary
+		if m.activePresetName != "" {
+			label = "Preset " + m.activePresetName + ": " + summary
+		}
+		lines = append(lines, lipgloss.NewStyle().Foreground(palette.warning).Render(label))
 	}
 	popupW := popupWidth(m.width)
 	return lipgloss.NewStyle().

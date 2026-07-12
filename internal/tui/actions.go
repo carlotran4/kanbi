@@ -4,16 +4,19 @@ import (
 	"context"
 
 	"github.com/carlotran4/kanbi/internal/app"
+	"github.com/carlotran4/kanbi/internal/boardpackage"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 type BoardQueries interface {
 	BoardView(context.Context) (storage.BoardView, error)
 	ListBoards(context.Context) ([]storage.Board, error)
+	ListBoardsFiltered(context.Context, bool) ([]storage.Board, error)
 	BoardViewByID(context.Context, int64) (storage.BoardView, error)
 	MasterBoardView(context.Context) (storage.BoardView, error)
 	MasterBoardViewWithFilter(context.Context, storage.MasterFilter) (storage.BoardView, error)
 	ListTickets(context.Context, bool) ([]storage.Ticket, error)
+	ListFilterPresets(context.Context) ([]storage.MasterFilterPreset, error)
 }
 
 type BoardCommands interface {
@@ -21,7 +24,19 @@ type BoardCommands interface {
 	RenameBoard(context.Context, int64, string) error
 	SetBoardWorkdir(context.Context, int64, string) error
 	DeleteBoard(context.Context, int64) error
+	ArchiveBoard(context.Context, int64) error
+	UnarchiveBoard(context.Context, int64) error
+	SetBoardSyncEnabled(context.Context, int64, bool) error
+	ExportBoard(context.Context, int64, string) error
+	PreviewBoardPackage(context.Context, string) (boardpackage.Report, error)
+	ImportBoardPackage(context.Context, string, boardpackage.ImportOptions) (boardpackage.Result, error)
 	ColumnIDByBoardAndName(context.Context, int64, string) (int64, error)
+	ColumnIDByBoardAndWorkflowKey(context.Context, int64, string) (int64, error)
+	SetColumnWorkflowKey(context.Context, int64, string) error
+	SaveFilterPreset(context.Context, string, storage.DurableMasterFilter) (storage.MasterFilterPreset, error)
+	DeleteFilterPreset(context.Context, int64) error
+	ResolveMasterFilter(context.Context, storage.DurableMasterFilter) (storage.MasterFilter, []string, error)
+	DurableFromMasterFilter(context.Context, storage.MasterFilter) (storage.DurableMasterFilter, error)
 }
 
 type TicketCommands interface {

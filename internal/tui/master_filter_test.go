@@ -84,3 +84,111 @@ func TestMasterFilterCanToggleBoardHarnessRuntimeAndArchived(t *testing.T) {
 		t.Fatalf("active filter summary missing:\n%s", model.View())
 	}
 }
+
+func TestMasterFilterPresetSaveApplyDelete(t *testing.T) {
+	store, ctx := newTestStore(t)
+	client, _ := store.CreateBoard(ctx, "Client B")
+	clientView, _ := store.BoardViewByID(ctx, client.ID)
+	_, _ = store.CreateTicket(ctx, clientView.Columns[0].ID, "Codex handoff", "", "codex")
+
+	model := New(ctx, NewService(store, nil))
+	model.masterBoard = true
+	model.reloadBoards()
+	model.reload()
+	model, _ = mustUpdate(t, model, "f")
+	model.masterFilter.Search = "codex"
+	model, _ = mustUpdate(t, model, "S")
+	if model.filterPresetMode != "save" {
+		t.Fatalf("expected filter preset save mode, got %q status=%s", model.filterPresetMode, model.status)
+	}
+	model, _ = mustUpdate(t, model, "codex-only")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	presets, err := store.ListFilterPresets(ctx)
+	if err != nil || len(presets) != 1 || presets[0].Name != "codex-only" {
+		t.Fatalf("presets=%+v err=%v", presets, err)
+	}
+	// Clear and re-apply.
+	model, _ = mustUpdate(t, model, "f")
+	model, _ = mustUpdate(t, model, "C")
+	model, _ = mustUpdate(t, model, "f")
+	model, _ = mustUpdate(t, model, "P")
+	if model.filterPresetMode != "list" {
+		t.Fatalf("expected preset list mode status=%s mode=%q", model.status, model.filterPresetMode)
+	}
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.masterFilter.Search != "codex" {
+		t.Fatalf("preset apply search=%q", model.masterFilter.Search)
+	}
+}
+
+func TestBoardPickerArchiveAndSyncToggle(t *testing.T) {
+	store, ctx := newTestStore(t)
+	board, err := store.CreateBoard(ctx, "Ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := NewWithPicker(ctx, NewService(store, nil))
+	model.firstRun = false
+	// Startup picker: select real board index 1 (0 is Master).
+	model.boardIndex = 1
+	if len(model.boards) == 0 {
+		model.reloadBoards()
+	}
+	// Find Ops index
+	for i, b := range model.boards {
+		if b.ID == board.ID {
+			model.boardIndex = i + 1
+		}
+	}
+	model, _ = mustUpdate(t, model, "s")
+	reloaded, err := store.BoardByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// toggled from default enabled
+	if reloaded.SyncEnabled {
+		// default was enabled; toggle should disable
+		t.Fatalf("expected sync disabled after toggle: %+v status=%s", reloaded, model.status)
+	}
+	model, _ = mustUpdate(t, model, "a")
+	reloaded, err = store.BoardByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.ArchivedAt.Valid {
+		t.Fatalf("expected archive: %+v status=%s", reloaded, model.status)
+	}
+	if reloaded.SyncEnabled {
+		t.Fatalf("archive must force sync off: %+v", reloaded)
+	}
+}
+
+func TestMasterCreateUsesWorkflowKey(t *testing.T) {
+	store, ctx := newTestStore(t)
+	board, err := store.CreateBoard(ctx, "Client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rename display while keeping default key equal to original name of first default column Quiet.
+	col := view.Columns[0]
+	origKey := col.WorkflowKey
+	if err := store.RenameColumn(ctx, col.ID, "Renamed Open"); err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.ColumnIDByBoardAndWorkflowKey(ctx, board.ID, origKey)
+	if err != nil || id != col.ID {
+		t.Fatalf("workflow key lookup failed id=%d err=%v", id, err)
+	}
+	// Direct API path used by Master create must hit this method.
+	ticket, err := NewService(store, nil).CreateTicket(ctx, id, "From key", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.ColumnID != col.ID {
+		t.Fatalf("ticket column=%d want %d", ticket.ColumnID, col.ID)
+	}
+}

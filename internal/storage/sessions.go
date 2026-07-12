@@ -43,6 +43,18 @@ func (s *Store) claimSession(ctx context.Context, ticketID int64, session Sessio
 		return 0, err
 	}
 	defer tx.Rollback()
+	// Refuse active claims on archived boards so archive cannot race a load.
+	var archived sql.NullTime
+	if err := tx.QueryRowContext(ctx, `select b.archived_at from tickets t join boards b on b.id=t.board_id where t.id=?`, ticketID).Scan(&archived); err != nil {
+		return 0, err
+	}
+	if archived.Valid {
+		return 0, errors.New("cannot start a session on an archived board")
+	}
+	// Touch the parent board row so archive and session claims serialize.
+	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=(select board_id from tickets where id=?)`, ticketID); err != nil {
+		return 0, err
+	}
 	now := time.Now().UTC()
 	if replaceActive {
 		if _, err := tx.ExecContext(ctx, `update sessions set is_active=0, updated_at=? where ticket_id=? and is_active=1`, now, ticketID); err != nil {

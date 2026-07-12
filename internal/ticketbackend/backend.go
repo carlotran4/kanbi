@@ -2,6 +2,7 @@ package ticketbackend
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -166,6 +167,15 @@ func (m *Manager) SyncBoard(ctx context.Context, board storage.Board) (Result, e
 	if m == nil || m.Store == nil {
 		return Result{}, nil
 	}
+	// Prefer freshest board metadata when caller only passed an ID/name snapshot.
+	if m.Store != nil && board.ID != 0 {
+		if fresh, err := m.Store.BoardByID(ctx, board.ID); err == nil {
+			board = fresh
+		}
+	}
+	if board.ArchivedAt.Valid || !board.SyncEnabled {
+		return Result{}, storage.ErrBoardSyncSkipped
+	}
 	lock := m.boardLock(board.ID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -184,6 +194,18 @@ func (m *Manager) SyncBoard(ctx context.Context, board storage.Board) (Result, e
 	if !acquired {
 		return Result{}, storage.ErrBoardSyncInProgress
 	}
+	// Re-check after lease acquisition. This closes the race where a board is
+	// archived between the initial snapshot and acquiring the durable lease.
+	fresh, err := m.Store.BoardByID(ctx, board.ID)
+	if err != nil {
+		_ = m.Store.ReleaseBoardSyncLease(context.WithoutCancel(ctx), board.ID, owner)
+		return Result{}, err
+	}
+	if fresh.ArchivedAt.Valid || !fresh.SyncEnabled {
+		_ = m.Store.ReleaseBoardSyncLease(context.WithoutCancel(ctx), board.ID, owner)
+		return Result{}, storage.ErrBoardSyncSkipped
+	}
+	board = fresh
 	syncCtx, cancelSync := context.WithCancel(ctx)
 	renewCtx, stopRenew := context.WithCancel(context.Background())
 	renewDone := make(chan struct{})
@@ -251,10 +273,16 @@ func (m *Manager) SyncAll(ctx context.Context) error {
 	var errs []error
 	for _, board := range boards {
 		board := board
+		if board.ArchivedAt.Valid || !board.SyncEnabled {
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if _, err := m.SyncBoard(ctx, board); err != nil {
+				if errors.Is(err, storage.ErrBoardSyncSkipped) {
+					return
+				}
 				errsMu.Lock()
 				errs = append(errs, fmt.Errorf("sync board %q: %w", board.Name, err))
 				errsMu.Unlock()
@@ -349,23 +377,17 @@ func (m *Manager) ScheduleBoardSync(boardID int64) {
 	go func() {
 		defer m.wg.Done()
 		ctx := parent
-		boards, err := m.Store.ListBoards(ctx)
+		board, err := m.Store.BoardByID(ctx, boardID)
 		if err != nil {
-			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-				m.recordSyncDiagnostic(boardID, 0, "schedule_list_boards", 1, err)
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, sql.ErrNoRows) {
+				m.recordSyncDiagnostic(boardID, 0, "schedule_board_by_id", 1, err)
 			}
 			return
 		}
-		for _, board := range boards {
-			if board.ID != boardID {
-				continue
+		if _, err := m.SyncBoard(ctx, board); err != nil && !errors.Is(err, storage.ErrBoardSyncInProgress) && !errors.Is(err, storage.ErrBoardSyncSkipped) {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				m.recordSyncDiagnostic(board.ID, 0, "schedule_sync_board", 1, err)
 			}
-			if _, err := m.SyncBoard(ctx, board); err != nil && !errors.Is(err, storage.ErrBoardSyncInProgress) {
-				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-					m.recordSyncDiagnostic(board.ID, 0, "schedule_sync_board", 1, err)
-				}
-			}
-			return
 		}
 	}()
 }

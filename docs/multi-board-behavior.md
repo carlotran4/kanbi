@@ -54,7 +54,7 @@ erDiagram
 ```
 
 - A board owns columns, ticket numbering, a working directory, and exactly one implemented ticket metadata backend chosen at creation. Board names are unique without regard to case.
-- Column names must be unique by exact spelling within one board. Their case is significant because Master grouping, creation, and movement use exact column-name matching.
+- Column names must be unique by exact spelling within one board. Master grouping, creation, and movement use free-form `workflow_key` values (defaulted to the column's exact current display name at creation time). Renaming a column's display name does not change its workflow key. At most one column per workflow key is allowed on a board.
 - Tickets cannot be moved to columns owned by another board; Master moves resolve a destination on the ticket's existing board.
 - `display_id` values are unique only within a board, so multiple boards can have `T-001`.
 - A ticket projects its owning board metadata into TUI/storage reads as `BoardName` and `BoardWorkdir`.
@@ -79,21 +79,21 @@ stateDiagram-v2
   MasterView --> [*]: q
 ```
 
-Startup opens a board picker. While running, `b` reopens the picker and switches without restarting. Inside the board picker, `c` creates a board, `r` renames the selected real board, `w` updates cwd, and `d` deletes. `Master` cannot be renamed or deleted.
+Startup opens a board picker. While running, `b` reopens the picker and switches without restarting. Inside the board picker: `c` creates a board, `r` renames, `w` updates cwd, `a` archives/unarchives, `s` toggles sync (when not archived), `e` exports a board package, `i` imports a package, `A` shows archived boards, and `d` hard-deletes with exact-name confirmation. `Master` cannot be renamed or deleted. Archive hides a board and pauses sync without removing tickets, sessions, or attachments.
 
 ## Master board aggregation
 
 ```mermaid
 flowchart TD
-  A[Store.MasterBoardViewWithFilter] --> B[Query distinct column names from all boards]
+  A[Store.MasterBoardViewWithFilter] --> B[Query distinct workflow keys from all non-archived boards]
   B --> C[Create synthetic columns ID < 0]
-  C --> D[For each synthetic column name]
-  D --> E[Query matching tickets whose real column has same exact name]
+  C --> D[For each synthetic workflow key]
+  D --> E[Query matching tickets whose real column has same workflow key]
   E --> F[Attach tickets ordered by board_id, position]
   F --> G[Render Master]
 ```
 
-Master groups tickets by exact column name. Example: every board's `Open` tickets appear in the synthetic `Open` column. By default it shows unarchived tickets only.
+Master groups tickets by column `workflow_key`. Example: every board column keyed `Open` contributes tickets to the synthetic `Open` column even if a board renames the display label. Workflow keys default to the column display name at creation and are preserved across renames. By default Master shows unarchived tickets only.
 
 ## Master filters
 
@@ -107,7 +107,7 @@ Available filters:
 - Search: case-insensitive text search over ticket display id, title, body, board name, and harness.
 - Archived: off by default; toggle `show archived` to include archived tickets in Master queries.
 
-Active filters are shown in the Master header as `filter: ...`. Press `C` in the filter panel to clear all filters. Filters are in-memory UI state: they reset on app restart, but persist while switching between Master and named boards during one run.
+Active filters are shown in the Master header as `filter: ...`. Press `C` in the filter panel to clear all filters. Runtime filters are not auto-applied on process startup. Named presets can be saved (`S`) and applied (`P`) from the filter panel; preset board selection is stored by stable board UUID. Unresolved UUIDs surface as missing boards instead of being silently dropped. Named-board filters remain out of scope.
 
 Master cards include board context:
 
@@ -134,7 +134,7 @@ sequenceDiagram
   T-->>U: open edit form
 ```
 
-If the selected board does not have a column matching the current Master column name, creation fails with a status message.
+If the selected board does not have a column with the current Master column's workflow key, creation fails with a status message. Kanbi never auto-creates provider columns from Master.
 
 ## Moving a ticket from Master
 
@@ -146,7 +146,7 @@ flowchart LR
   D --> E[Reload Master]
 ```
 
-Moves from Master do not change the owning board. They only move the ticket to another column on the same board, resolved by column name.
+Moves from Master do not change the owning board. They only move the ticket to another column on the same board, resolved by workflow key.
 
 ## Opening/sending tickets and working directory flow
 
@@ -176,9 +176,18 @@ If `BoardWorkdir` is empty, the configured multiplexer falls back to the current
 
 ```text
 kanbi boards
+kanbi boards list --include-archived
 kanbi boards add "Client B" --cwd /path/to/project
 kanbi boards rename "Client B" "Client C"
 kanbi boards set-cwd "Client C" /path/to/project
+kanbi boards archive "Client C"
+kanbi boards unarchive "Client C"
+kanbi boards enable-sync "Client C"
+kanbi boards disable-sync "Client C"
+kanbi boards export "Client C" ./client-c.kanbi-board.zip
+kanbi boards import ./client-c.kanbi-board.zip --preview
+kanbi boards import ./client-c.kanbi-board.zip --name "Client C Copy"
+kanbi boards set-column-key "Client C" --column "Code Review" --key review
 kanbi add "Title" --board "Client C"
 kanbi list --board "Client C"
 kanbi open T-001 --board "Client C"
@@ -186,10 +195,13 @@ kanbi open T-001 --board "Client C"
 
 Current behavior:
 
-- `boards add` creates a board with default columns, a workdir, and the selected ticket backend. Supported backends are `local`, `github`, and `atlassian`; GitHub boards accept `--config JSON` for owner/repo settings and `--query QUERY` for Issues list filters, while Atlassian/Jira boards use `--query` as JQL and `--config JSON` for site/project settings. The JSON is stored unencrypted in SQLite, so use the documented environment variables for tokens and other credentials.
+- `boards add` creates a board with default columns (workflow keys equal to display names), a workdir, stable UUID, sync enabled, and the selected ticket backend. Supported backends are `local`, `github`, and `atlassian`; GitHub boards accept `--config JSON` for owner/repo settings and `--query QUERY` for Issues list filters, while Atlassian/Jira boards use `--query` as JQL and `--config JSON` for site/project settings. The JSON is stored unencrypted in SQLite, so use the documented environment variables for tokens and other credentials.
 - `--cwd` defaults to the current directory.
 - `boards rename OLD NEW` renames a board.
 - `boards set-cwd NAME /path` updates a board workdir.
+- `boards archive`/`unarchive` hide or restore a board without deleting history. Archive forces `sync_enabled=0`. Unarchive clears `archived_at` only so provider boards stay paused until `enable-sync`.
+- `boards export`/`import` use versioned `kanbi-board-package` zips (not full DB backups). Export rejects active sessions. Import is create-new-only (new integer PKs, remapped FKs, always archived + sync disabled, sessions forced inactive). Name collisions require `--name`. Preview with `--preview` is non-mutating.
+- `boards set-column-key` maps a display column onto a Master workflow key without renaming the column.
 - `add` creates tickets on the default board unless `--board NAME` is supplied.
 - `list` lists tickets across all boards and includes board context; `--board NAME` filters.
 - `open T-001` works only if the display ID is unambiguous; use `--board NAME` when duplicate board-local IDs exist.
@@ -202,42 +214,23 @@ GitHub boards use native issue state for terminal work (`Done`/`Closed` closes t
 
 See [`docs/ticket-backends.md`](./ticket-backends.md).
 
-## Known logical gaps / risks
+## Board archive vs delete vs package export
 
-### 1. Master depends on exact column-name matching
+- **Board archive** is non-destructive local hide + sync pause. Tickets, notes, sessions, and attachments remain. Active sessions block archive.
+- **Board package export/import** (`kanbi-board-package`) is a single-board portable archive with path-safe attachments and checksum inventory. It is not a full database backup (`kanbi-backup`).
+- **Hard board delete** remains distinct, confirmation-gated, local-only, and cascading. Deletion is blocked with active sessions. Attachment cleanup runs only after the SQL commit. Provider-backed note tombstones and remote issues are never hard-deleted by EG-related local flows.
 
-Master aggregation, Master create, and Master move all depend on exact column names.
+Kanbi still provides `kanbi backup PATH` / `kanbi restore PATH [--force]` for whole-DB SQLite-plus-attachments archives.
 
-Impact:
+## Known residual gaps / risks
 
-- `Review` and `Code Review` are separate Master columns.
-- Creating from Master into a board without the selected column fails.
-
-Needed options:
-
-- Keep exact matching but make the failure explicit and friendly.
-- Add column templates per board.
-- Add canonical column types independent of display names.
-
-### 2. Board deletion is destructive
-
-Deleting a board permanently deletes its tickets, notes, session history, and local attachment directories. Deletion is blocked if the board has active sessions and requires confirmation in the board picker. Database deletion is one board-aggregate transaction; attachment cleanup runs only after that transaction succeeds.
-
-Kanbi provides `kanbi backup PATH` and `kanbi restore PATH [--force]` for a consistent SQLite-plus-attachments archive. Restore must run with all Kanbi processes stopped and validates the manifest, paths, schema, and database integrity before replacement. External ticket providers do not contain local runtime/session history or attachments.
-
-Deletion requires typing the exact board name, explicitly enumerates tickets, notes, complete session history, and attachments, and remains blocked while active sessions exist.
-
-### 3. Master filter scope
-
-Master has in-memory filters for board, harness, runtime, search text, and archived state. These filters intentionally apply only to the synthetic Master view.
-
-Needed if desired:
-
-- Persist filter presets across restarts.
-- Extend equivalent filters to named board views.
+- Free-form workflow keys have no automatic synonym mapping (`review` vs `code-review` stay separate unless mapped intentionally).
+- Attachment absolute markdown paths outside package inventory are not rewritten on import.
+- Named-board filters and merge-import remain out of scope.
+- Synthetic Master labels when many display names share one key use a single representative name.
 
 ## Recommended next implementation priorities
 
-1. Decide whether Master should use canonical column types instead of exact display-name matching.
-2. Add archive/export semantics for board deletion.
-3. Decide whether Master filter presets should persist across restarts or whether named-board views should gain equivalent filters.
+1. Optional TUI editor for workflow keys beyond CLI `set-column-key`.
+2. Consider attachment markdown path rewrite completeness for absolute package-owned body links.
+3. Decide whether named-board views should gain equivalent filter capabilities.

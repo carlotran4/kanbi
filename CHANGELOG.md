@@ -6,6 +6,11 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Added
 
+- Schema migration v5: board UUID/archive/sync flags, column `workflow_key`, and Master filter presets.
+- Board archive/unarchive and enable/disable-sync via CLI and TUI (archive pauses sync; unarchive does not auto-enable).
+- Versioned `kanbi-board-package` export/import with preview, path safety, checksum inventory, create-new-only remap, and attachment rollback.
+- Master aggregation by workflow key; `kanbi boards set-column-key` maps display columns to keys.
+- Master filter presets persisted in SQLite by board UUID (never auto-applied on startup).
 - Production release archives for Linux and macOS on x86-64 and ARM64.
 - Build/version and database-schema reporting.
 - Root and per-command CLI help.
@@ -14,6 +19,8 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Changed
 
+- Local ticket archive no longer closes GitHub issues; only terminal columns (`Done`/`Closed`) push closed.
+- Archived / sync-disabled boards are skipped by sync manager and CLI reports `sync_skipped`.
 - Configured Herdr availability and unknown multiplexer values are fatal doctor results.
 - The Go module now uses its canonical GitHub import path.
 

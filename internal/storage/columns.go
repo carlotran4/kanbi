@@ -33,12 +33,12 @@ func (s *Store) AddColumn(ctx context.Context, boardID int64, name string) (Colu
 		return Column{}, err
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, pos, now, now)
+	res, err := s.db.ExecContext(ctx, `insert into columns(board_id,name,workflow_key,position,created_at,updated_at) values(?,?,?,?,?,?)`, boardID, name, name, pos, now, now)
 	if err != nil {
 		return Column{}, err
 	}
 	id, _ := res.LastInsertId()
-	return Column{ID: id, BoardID: boardID, Name: name, Position: pos}, nil
+	return Column{ID: id, BoardID: boardID, Name: name, WorkflowKey: name, Position: pos}, nil
 }
 
 func (s *Store) RenameColumn(ctx context.Context, columnID int64, name string) error {
@@ -57,8 +57,35 @@ func (s *Store) RenameColumn(ctx context.Context, columnID int64, name string) e
 	if existing > 0 {
 		return errors.New("column name already exists on this board")
 	}
+	// Renaming display name intentionally preserves workflow_key so Master joins stay stable.
 	res, err := s.db.ExecContext(ctx, `update columns set name=?, updated_at=? where id=?`, name, time.Now().UTC(), columnID)
 	return requireAffected(res, err)
+}
+
+func (s *Store) SetColumnWorkflowKey(ctx context.Context, columnID int64, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return errors.New("workflow key is required")
+	}
+	var boardID int64
+	if err := s.db.QueryRowContext(ctx, `select board_id from columns where id=?`, columnID).Scan(&boardID); err != nil {
+		return err
+	}
+	var existing int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from columns where board_id=? and workflow_key=? and id<>?`, boardID, key, columnID).Scan(&existing); err != nil {
+		return err
+	}
+	if existing > 0 {
+		return errors.New("workflow key already exists on this board")
+	}
+	res, err := s.db.ExecContext(ctx, `update columns set workflow_key=?, updated_at=? where id=?`, key, time.Now().UTC(), columnID)
+	return requireAffected(res, err)
+}
+
+func (s *Store) ColumnByID(ctx context.Context, columnID int64) (Column, error) {
+	var c Column
+	err := s.db.QueryRowContext(ctx, `select id, board_id, name, coalesce(workflow_key,name), position from columns where id=?`, columnID).Scan(&c.ID, &c.BoardID, &c.Name, &c.WorkflowKey, &c.Position)
+	return c, err
 }
 
 func (s *Store) DeleteColumn(ctx context.Context, columnID int64) error {

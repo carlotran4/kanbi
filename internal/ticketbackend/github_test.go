@@ -430,7 +430,7 @@ func TestGitHubSyncUpdatesExistingCommentWithoutDuplicate(t *testing.T) {
 	}
 }
 
-func TestGitHubSyncLocalArchivePushesClosedState(t *testing.T) {
+func TestGitHubSyncLocalArchiveDoesNotPushClosedState(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t, ctx)
 	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj"}`})
@@ -450,8 +450,11 @@ func TestGitHubSyncLocalArchivePushesClosedState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Pushed != 1 || len(client.updatedIssues) != 1 || *client.updatedIssues[0].State != "closed" {
-		t.Fatalf("archive did not close remote: res=%+v updates=%+v", res, client.updatedIssues)
+	// Local archive is hide-only; it must not close the remote GitHub issue.
+	for _, update := range client.updatedIssues {
+		if update.State != nil && *update.State == "closed" {
+			t.Fatalf("archive should not push closed state: res=%+v updates=%+v", res, client.updatedIssues)
+		}
 	}
 }
 

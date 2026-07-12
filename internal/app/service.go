@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/carlotran4/kanbi/internal/attachments"
+	"github.com/carlotran4/kanbi/internal/boardpackage"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/ticketbackend"
 )
@@ -36,6 +39,8 @@ type Service struct {
 	Store   *storage.Store
 	Manager SessionManager
 	Syncer  TicketSyncer
+	// DataDir is the Kanbi data root (parent of attachments/). Used by board package ops.
+	DataDir string
 }
 
 func NewService(store *storage.Store, manager SessionManager) *Service {
@@ -51,6 +56,35 @@ func (s *Service) BoardView(ctx context.Context) (storage.BoardView, error) {
 }
 func (s *Service) ListBoards(ctx context.Context) ([]storage.Board, error) {
 	return s.Store.ListBoards(ctx)
+}
+func (s *Service) ListBoardsFiltered(ctx context.Context, includeArchived bool) ([]storage.Board, error) {
+	return s.Store.ListBoardsFiltered(ctx, includeArchived)
+}
+func (s *Service) ArchiveBoard(ctx context.Context, boardID int64) error {
+	return s.Store.ArchiveBoard(ctx, boardID)
+}
+func (s *Service) UnarchiveBoard(ctx context.Context, boardID int64) error {
+	return s.Store.UnarchiveBoard(ctx, boardID)
+}
+func (s *Service) SetBoardSyncEnabled(ctx context.Context, boardID int64, enabled bool) error {
+	return s.Store.SetBoardSyncEnabled(ctx, boardID, enabled)
+}
+func (s *Service) ExportBoard(ctx context.Context, boardID int64, dest string) error {
+	dataDir := s.dataDir()
+	return boardpackage.Export(ctx, s.Store, dataDir, boardID, dest)
+}
+func (s *Service) PreviewBoardPackage(ctx context.Context, path string) (boardpackage.Report, error) {
+	return boardpackage.Preview(ctx, s.Store, path)
+}
+func (s *Service) ImportBoardPackage(ctx context.Context, path string, opts boardpackage.ImportOptions) (boardpackage.Result, error) {
+	return boardpackage.Import(ctx, s.Store, s.dataDir(), path, opts)
+}
+func (s *Service) dataDir() string {
+	if s != nil && strings.TrimSpace(s.DataDir) != "" {
+		return s.DataDir
+	}
+	// Fall back to attachment base parent.
+	return filepath.Dir(attachments.BaseDir())
 }
 func (s *Service) BoardViewByID(ctx context.Context, id int64) (storage.BoardView, error) {
 	return s.Store.BoardViewByID(ctx, id)
@@ -102,6 +136,27 @@ func (s *Service) DeleteBoard(ctx context.Context, boardID int64) error {
 
 func (s *Service) ColumnIDByBoardAndName(ctx context.Context, boardID int64, name string) (int64, error) {
 	return s.Store.ColumnIDByBoardAndName(ctx, boardID, name)
+}
+func (s *Service) ColumnIDByBoardAndWorkflowKey(ctx context.Context, boardID int64, key string) (int64, error) {
+	return s.Store.ColumnIDByBoardAndWorkflowKey(ctx, boardID, key)
+}
+func (s *Service) SetColumnWorkflowKey(ctx context.Context, columnID int64, key string) error {
+	return s.Store.SetColumnWorkflowKey(ctx, columnID, key)
+}
+func (s *Service) ListFilterPresets(ctx context.Context) ([]storage.MasterFilterPreset, error) {
+	return s.Store.ListFilterPresets(ctx)
+}
+func (s *Service) SaveFilterPreset(ctx context.Context, name string, filter storage.DurableMasterFilter) (storage.MasterFilterPreset, error) {
+	return s.Store.SaveFilterPreset(ctx, name, filter)
+}
+func (s *Service) DeleteFilterPreset(ctx context.Context, id int64) error {
+	return s.Store.DeleteFilterPreset(ctx, id)
+}
+func (s *Service) ResolveMasterFilter(ctx context.Context, d storage.DurableMasterFilter) (storage.MasterFilter, []string, error) {
+	return s.Store.ResolveMasterFilter(ctx, d)
+}
+func (s *Service) DurableFromMasterFilter(ctx context.Context, f storage.MasterFilter) (storage.DurableMasterFilter, error) {
+	return s.Store.DurableFromMasterFilter(ctx, f)
 }
 func (s *Service) CreateTicket(ctx context.Context, columnID int64, title, body, harness string) (storage.Ticket, error) {
 	ticket, err := s.Store.CreateTicket(ctx, columnID, title, body, harness)

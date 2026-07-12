@@ -152,6 +152,12 @@ func (s *Store) ColumnIDByBoardAndName(ctx context.Context, boardID int64, name 
 	return id, err
 }
 
+func (s *Store) ColumnIDByBoardAndWorkflowKey(ctx context.Context, boardID int64, key string) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `select id from columns where board_id=? and workflow_key=? order by position limit 1`, boardID, strings.TrimSpace(key)).Scan(&id)
+	return id, err
+}
+
 func (s *Store) MoveTicket(ctx context.Context, ticketID, toColumnID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

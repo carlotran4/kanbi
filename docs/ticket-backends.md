@@ -65,7 +65,7 @@ A backend implementation should:
 5. push local changes and pull remote changes;
 6. persist external IDs, URLs, update timestamps, and sync versions.
 
-Run on-demand sync for all boards with `kanbi sync`, or one board with `kanbi sync --board "Board Name"`. Inside the TUI, successful ticket metadata saves schedule a manager-owned background sync for that ticket's board: creating a ticket, saving an edited ticket, moving/archive changes, and note/comment saves are pushed without waiting for the next periodic tick.
+Run on-demand sync for all boards with `kanbi sync`, or one board with `kanbi sync --board "Board Name"`. Boards with `archived_at` set or `sync_enabled=0` are skipped before lease acquisition. CLI JSON reports `status=sync_skipped` with a reason instead of pretending a successful zero pull. Inside the TUI, successful ticket metadata saves schedule a manager-owned background sync for that ticket's board: creating a ticket, saving an edited ticket, moving/archive changes, and note/comment saves are pushed without waiting for the next periodic tick (still skipped when the board is archived or sync-disabled).
 
 ## GitHub Issues Backend
 
@@ -83,7 +83,7 @@ Auth uses `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`; `token` in `
 GitHub sync behavior:
 
 - Pulls issues selected by `backend_query` and projects them as local cached tickets with display IDs like `GH-42`. Queries should usually include a narrow label such as `labels=kanbi` (or a project/team label) plus `state=open,closed` when Kanbi should observe closed/reopened issues. Supported query parameters are GitHub Issues list API parameters: `state`, `labels`, `assignee`, `mentioned`, `milestone`, and `since`.
-- Uses GitHub-native issue state for terminal work: closed issues appear visibly in the `Done` column by default, and moving a ticket to `Done` or `Closed` closes the GitHub issue. Only Kanbi's local archive action hides a ticket from the board. Open issues without a workflow label go to `Open`.
+- Uses GitHub-native issue state for terminal work: closed issues appear visibly in the `Done` column by default, and moving a ticket to `Done` or `Closed` closes the GitHub issue. Local ticket archive is hide-only and **does not** push GitHub issue `closed`. Remote hard-delete of issues/comments is intentionally unsupported. Note tombstones stay durable across export/import and continue to block reimport of deleted remote comments. Open issues without a workflow label go to `Open`.
 - Uses plain workflow labels for non-terminal columns by default: `in-progress` -> `In Progress`, `needs-review` -> `Review`, and `blocked` -> `Blocked`. Override these with `workflow_labels` in `backend_config`. Legacy `status:*` labels are still read during transition but are stripped on the next push.
 - Pulls issue comments into ticket notes and pushes local notes as issue comments.
 - Pushes local ticket title/body/closed state/status-label changes back to GitHub. Local tickets created on a GitHub board are temporary local placeholders until the next sync creates the remote issue; that same local row is then linked to the GitHub issue and its display ID changes from `T-*` to `GH-*`.

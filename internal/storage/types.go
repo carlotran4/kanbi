@@ -11,24 +11,29 @@ var ErrActiveSessionExists = errors.New("ticket already has an active session")
 var ErrTicketHasActiveSession = errors.New("cannot archive ticket with an active session; close it first")
 
 type Board struct {
-	ID            int64
-	Name          string
-	Workdir       string
-	TicketBackend string
-	BackendQuery  string
-	BackendConfig string
-	LastSyncAt    sql.NullTime
-	LastSyncError sql.NullString
+	ID               int64
+	Name             string
+	UUID             string
+	Workdir          string
+	TicketBackend    string
+	BackendQuery     string
+	BackendConfig    string
+	LastSyncAt       sql.NullTime
+	LastSyncError    sql.NullString
+	ArchivedAt       sql.NullTime
+	SyncEnabled      bool
+	SourceExportUUID sql.NullString
 }
 
 // ColumnView is a query model for a board column and its projected tickets.
 // It is not a direct representation of a columns table row.
 type ColumnView struct {
-	ID       int64
-	BoardID  int64
-	Name     string
-	Position int
-	Tickets  []Ticket
+	ID          int64
+	BoardID     int64
+	Name        string
+	WorkflowKey string
+	Position    int
+	Tickets     []Ticket
 }
 
 // Column is retained as a compatibility name for the column query model.
@@ -131,8 +136,8 @@ type BoardView struct {
 }
 
 // MasterFilter describes query controls for the cross-board Master view.
-// Empty slices mean "all" for that dimension. Filters are intentionally
-// runtime-only UI state; callers decide whether to persist them.
+// Empty slices mean "all" for that dimension. Runtime filters use board IDs
+// after durable UUID presets are resolved at load time.
 type MasterFilter struct {
 	BoardIDs        []int64
 	Runtimes        []string
@@ -140,6 +145,31 @@ type MasterFilter struct {
 	Search          string
 	IncludeArchived bool
 }
+
+// DurableMasterFilter is the persisted form of MasterFilter. Board refs use
+// stable board UUIDs so renames do not invalidate presets.
+type DurableMasterFilter struct {
+	BoardUUIDs      []string `json:"board_uuids,omitempty"`
+	Runtimes        []string `json:"runtimes,omitempty"`
+	Harnesses       []string `json:"harnesses,omitempty"`
+	Search          string   `json:"search,omitempty"`
+	IncludeArchived bool     `json:"include_archived,omitempty"`
+}
+
+// MasterFilterPreset is a named, durable Master filter preference.
+type MasterFilterPreset struct {
+	ID        int64
+	Name      string
+	Filter    DurableMasterFilter
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ErrBoardSyncSkipped reports that a board was intentionally not synced.
+var ErrBoardSyncSkipped = errors.New("board sync skipped")
+
+// ErrBoardHasActiveSessions reports that archive/export would race live work.
+var ErrBoardHasActiveSessions = errors.New("board has active sessions")
 
 // RemoteTicket is the ticket metadata projection written by external ticket
 // backends. It intentionally excludes local runtime/session fields.

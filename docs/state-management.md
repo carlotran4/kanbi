@@ -124,6 +124,14 @@ Open rules:
 - If a previous session exists but no valid window/ref exists, show repair/start-fresh.
 - `send prompt` is only valid for a never-started ticket.
 
+## Board Data Lifecycle
+
+- Active boards participate in the picker, Master aggregation, and provider sync. Archived boards retain their columns, tickets, notes, attachment ownership, provider identities, and every session row, but are excluded from normal views and sync.
+- Archiving is blocked while any ticket session is active and atomically disables provider sync. Unarchiving does not re-enable sync; the user must do that explicitly.
+- Permanent board deletion remains a separate, strongly confirmed operation. It removes the local aggregate and attachments but never deletes remote provider entities.
+- Board packages are versioned, checksummed, path-safe exports of one complete board aggregate. Import always creates a new archived, sync-disabled board identity, remaps relational IDs transactionally, preserves history, and forces imported runtime attempts inactive without deleting their rows.
+- Provider-linked note deletion retains an indefinite local tombstone. Sync cannot resurrect the note, and normal Kanbi deletion/archive operations never hard-delete remote issues or comments.
+
 ## Column State Rules
 
 ```mermaid

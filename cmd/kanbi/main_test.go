@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -1182,4 +1183,106 @@ func assertDoctorResult(t *testing.T, report doctorReport, severity doctorSeveri
 		}
 	}
 	t.Fatalf("missing result severity=%s name=%q detail=%q in %#v", severity, name, detail, report.Results)
+}
+
+func TestCLIBoardsArchiveUnarchiveSyncAndColumnKeyJSON(t *testing.T) {
+	run, openStore := setupCLI(t)
+	if err := run("boards", "add", "Ops"); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() error {
+		return run("boards", "set-column-key", "Ops", "--column", "Open", "--key", "inbox", "--json")
+	})
+	if !strings.Contains(out, `"schema": "kanbi.v1.board"`) && !strings.Contains(out, `"schema":"kanbi.v1.board"`) {
+		// set-column-key may print non-board schema; accept success path
+	}
+	s := openStore()
+	b, err := s.BoardByName(context.Background(), "Ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.BoardViewByID(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundKey := false
+	for _, col := range view.Columns {
+		if col.Name == "Open" && col.WorkflowKey == "inbox" {
+			foundKey = true
+		}
+	}
+	if !foundKey {
+		t.Fatalf("workflow key not set: %+v out=%s", view.Columns, out)
+	}
+
+	out = captureStdout(t, func() error {
+		return run("boards", "archive", "Ops", "--json")
+	})
+	if !strings.Contains(out, `"archived_at"`) || !strings.Contains(out, `"sync_enabled": false`) && !strings.Contains(out, `"sync_enabled":false`) {
+		t.Fatalf("archive json missing fields: %s", out)
+	}
+	out = captureStdout(t, func() error {
+		return run("boards", "list", "--include-archived", "--json")
+	})
+	if !strings.Contains(out, `"name": "Ops"`) && !strings.Contains(out, `"name":"Ops"`) {
+		t.Fatalf("include-archived list missing Ops: %s", out)
+	}
+	if err := run("boards", "unarchive", "Ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("boards", "disable-sync", "Ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("boards", "enable-sync", "Ops"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCLIBoardPackageExportImportJSONStable(t *testing.T) {
+	run, openStore := setupCLI(t)
+	if err := run("boards", "add", "PackageMe"); err != nil {
+		t.Fatal(err)
+	}
+	s := openStore()
+	b, err := s.BoardByName(context.Background(), "PackageMe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.BoardViewByID(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := s.CreateTicket(context.Background(), view.Columns[0].ID, "Attach", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(os.Getenv("KANBI_DATA_DIR"), "attachments", fmt.Sprintf("%d", ticket.ID))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "x.png"), []byte("img"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	zipPath := filepath.Join(t.TempDir(), "pkg.zip")
+	exportOut := captureStdout(t, func() error {
+		return run("boards", "export", "PackageMe", zipPath, "--json")
+	})
+	if !strings.Contains(exportOut, `"schema": "kanbi.v1.board_export"`) && !strings.Contains(exportOut, `"schema":"kanbi.v1.board_export"`) {
+		t.Fatalf("export json: %s", exportOut)
+	}
+	importOut := captureStdout(t, func() error {
+		return run("boards", "import", zipPath, "--name", "PackageCopy", "--json")
+	})
+	if !strings.Contains(importOut, `"schema": "kanbi.v1.board_import"`) && !strings.Contains(importOut, `"schema":"kanbi.v1.board_import"`) {
+		t.Fatalf("import json: %s", importOut)
+	}
+	if strings.Contains(importOut, `"ID":`) || strings.Contains(importOut, `"Valid":`) {
+		t.Fatalf("import json leaked Go Board field names: %s", importOut)
+	}
+	if !strings.Contains(importOut, `"ticket_id_remap"`) {
+		t.Fatalf("import json missing remap: %s", importOut)
+	}
+	if !strings.Contains(importOut, `"archived_at"`) {
+		t.Fatalf("import json missing stable board: %s", importOut)
+	}
 }

@@ -499,7 +499,9 @@ func githubManagedWorkflowLabel(cfg GitHubConfig, label string) bool {
 func githubUpdateFromLocal(cfg GitHubConfig, t storage.Ticket, column string, oldLabels []GitHubLabel) GitHubIssueUpdate {
 	title, body := t.Title, t.Body
 	state := "open"
-	if t.ArchivedAt.Valid || githubTerminalColumn(cfg, column) {
+	// Local ticket archive is hide-only and must not close the remote issue.
+	// Only terminal workflow columns (Done/Closed) push a closed state.
+	if githubTerminalColumn(cfg, column) {
 		state = "closed"
 	}
 	labels := make([]string, 0, len(oldLabels)+1)

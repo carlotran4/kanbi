@@ -14,21 +14,46 @@ import (
 	"time"
 )
 
-const boardSelectSQL = `select id, name, coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,''), last_sync_at, last_sync_error from boards`
+const boardSelectSQL = `select id, name, coalesce(uuid,''), coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,''), last_sync_at, last_sync_error, archived_at, coalesce(sync_enabled,1), source_export_uuid from boards`
 
-func boardScanDest(b *Board) []any {
-	return []any{&b.ID, &b.Name, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig, &b.LastSyncAt, &b.LastSyncError}
+type boardScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanBoard(row boardScanner, b *Board) error {
+	var syncEnabled int
+	if err := row.Scan(&b.ID, &b.Name, &b.UUID, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig, &b.LastSyncAt, &b.LastSyncError, &b.ArchivedAt, &syncEnabled, &b.SourceExportUUID); err != nil {
+		return err
+	}
+	b.SyncEnabled = syncEnabled != 0
+	return nil
 }
 
 func (s *Store) DefaultBoard(ctx context.Context) (Board, error) {
 	var b Board
-	err := s.db.QueryRowContext(ctx, boardSelectSQL+` order by id limit 1`).Scan(boardScanDest(&b)...)
+	err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where archived_at is null order by id limit 1`), &b)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Fall back to any board so imported/archived-only databases still resolve.
+		err = scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` order by id limit 1`), &b)
+	}
+	return b, err
+}
+
+func (s *Store) BoardByID(ctx context.Context, id int64) (Board, error) {
+	var b Board
+	err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where id=?`, id), &b)
+	return b, err
+}
+
+func (s *Store) BoardByUUID(ctx context.Context, uuid string) (Board, error) {
+	var b Board
+	err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where uuid=?`, strings.TrimSpace(uuid)), &b)
 	return b, err
 }
 
 func (s *Store) BoardByName(ctx context.Context, name string) (Board, error) {
 	var b Board
-	err := s.db.QueryRowContext(ctx, boardSelectSQL+` where lower(name)=lower(?) order by id limit 1`, strings.TrimSpace(name)).Scan(boardScanDest(&b)...)
+	err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where lower(name)=lower(?) order by id limit 1`, strings.TrimSpace(name)), &b)
 	return b, err
 }
 
@@ -67,6 +92,77 @@ func (s *Store) MarkBoardSync(ctx context.Context, boardID int64, syncErr error)
 	return err
 }
 
+func (s *Store) boardHasActiveSessions(ctx context.Context, querier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, boardID int64) (bool, error) {
+	var active int
+	if err := querier.QueryRowContext(ctx, `select count(*) from sessions s join tickets t on t.id=s.ticket_id where t.board_id=? and s.is_active=1`, boardID).Scan(&active); err != nil {
+		return false, err
+	}
+	return active > 0, nil
+}
+
+func (s *Store) ArchiveBoard(ctx context.Context, boardID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Serialize against concurrent claimSession / archive checks via row lock.
+	var exist int
+	if err := tx.QueryRowContext(ctx, `select count(*) from boards where id=?`, boardID).Scan(&exist); err != nil {
+		return err
+	}
+	if exist == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=?`, boardID); err != nil {
+		return err
+	}
+	active, err := s.boardHasActiveSessions(ctx, tx, boardID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return ErrBoardHasActiveSessions
+	}
+	now := time.Now().UTC()
+	var syncing int
+	if err := tx.QueryRowContext(ctx, `select count(*) from board_sync_leases where board_id=? and expires_at>?`, boardID, now).Scan(&syncing); err != nil {
+		return err
+	}
+	if syncing > 0 {
+		return ErrBoardSyncInProgress
+	}
+	res, err := tx.ExecContext(ctx, `update boards set archived_at=?, sync_enabled=0, updated_at=? where id=?`, now, now, boardID)
+	if err := requireAffected(res, err); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) UnarchiveBoard(ctx context.Context, boardID int64) error {
+	// Clears archive only; sync stays disabled until EnableBoardSync.
+	res, err := s.db.ExecContext(ctx, `update boards set archived_at=null, updated_at=? where id=?`, time.Now().UTC(), boardID)
+	return requireAffected(res, err)
+}
+
+func (s *Store) SetBoardSyncEnabled(ctx context.Context, boardID int64, enabled bool) error {
+	board, err := s.BoardByID(ctx, boardID)
+	if err != nil {
+		return err
+	}
+	if enabled && board.ArchivedAt.Valid {
+		return errors.New("cannot enable sync on an archived board; unarchive first")
+	}
+	flag := 0
+	if enabled {
+		flag = 1
+	}
+	res, err := s.db.ExecContext(ctx, `update boards set sync_enabled=?, updated_at=? where id=?`, flag, time.Now().UTC(), boardID)
+	return requireAffected(res, err)
+}
+
 func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -80,11 +176,11 @@ func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
 	if count <= 1 {
 		return errors.New("cannot delete the last board")
 	}
-	var active int
-	if err := tx.QueryRowContext(ctx, `select count(*) from sessions s join tickets t on t.id=s.ticket_id where t.board_id=? and s.is_active=1`, boardID).Scan(&active); err != nil {
+	active, err := s.boardHasActiveSessions(ctx, tx, boardID)
+	if err != nil {
 		return err
 	}
-	if active > 0 {
+	if active {
 		return errors.New("cannot delete board with active sessions")
 	}
 
@@ -98,8 +194,19 @@ func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
 	return tx.Commit()
 }
 
+// ListBoards returns active (non-archived) boards by default.
 func (s *Store) ListBoards(ctx context.Context) ([]Board, error) {
-	rows, err := s.db.QueryContext(ctx, boardSelectSQL+` order by lower(name), id`)
+	return s.ListBoardsFiltered(ctx, false)
+}
+
+// ListBoardsFiltered lists boards; when includeArchived is false, archived boards are omitted.
+func (s *Store) ListBoardsFiltered(ctx context.Context, includeArchived bool) ([]Board, error) {
+	query := boardSelectSQL
+	if !includeArchived {
+		query += ` where archived_at is null`
+	}
+	query += ` order by lower(name), id`
+	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +214,7 @@ func (s *Store) ListBoards(ctx context.Context) ([]Board, error) {
 	var boards []Board
 	for rows.Next() {
 		var b Board
-		if err := rows.Scan(boardScanDest(&b)...); err != nil {
+		if err := scanBoard(rows, &b); err != nil {
 			return nil, err
 		}
 		boards = append(boards, b)
@@ -179,26 +286,30 @@ func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOpti
 	if err != nil {
 		return Board{}, err
 	}
+	uuid, err := NewUUIDv4()
+	if err != nil {
+		return Board{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Board{}, err
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	res, err := tx.ExecContext(ctx, `insert into boards(name,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,created_at,updated_at) values(?,?,1,?,?,?,?,?)`, name, nullableString(workdir), backend, nullableString(query), nullableString(backendConfig), now, now)
+	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,sync_enabled,created_at,updated_at) values(?,?,?,1,?,?,?,1,?,?)`, name, uuid, nullableString(workdir), backend, nullableString(query), nullableString(backendConfig), now, now)
 	if err != nil {
 		return Board{}, err
 	}
 	boardID, _ := res.LastInsertId()
 	for _, col := range kanban.DefaultColumns() {
-		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, col.Name, col.Position, now, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,workflow_key,position,created_at,updated_at) values(?,?,?,?,?,?)`, boardID, col.Name, col.Name, col.Position, now, now); err != nil {
 			return Board{}, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Board{}, err
 	}
-	return Board{ID: boardID, Name: name, Workdir: workdir, TicketBackend: backend, BackendQuery: query, BackendConfig: backendConfig}, nil
+	return Board{ID: boardID, Name: name, UUID: uuid, Workdir: workdir, TicketBackend: backend, BackendQuery: query, BackendConfig: backendConfig, SyncEnabled: true}, nil
 }
 
 func (s *Store) ensureDefaultBoard(ctx context.Context) error {
@@ -216,13 +327,17 @@ func (s *Store) ensureDefaultBoard(ctx context.Context) error {
 	}
 	now := time.Now().UTC()
 	cwd, _ := os.Getwd()
-	res, err := tx.ExecContext(ctx, `insert into boards(name,workdir,next_ticket_number,ticket_backend,created_at,updated_at) values('Default',?,1,'local',?,?)`, nullableString(cwd), now, now)
+	uuid, err := NewUUIDv4()
+	if err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,sync_enabled,created_at,updated_at) values('Default',?,?,1,'local',1,?,?)`, uuid, nullableString(cwd), now, now)
 	if err != nil {
 		return err
 	}
 	boardID, _ := res.LastInsertId()
 	for _, col := range kanban.DefaultColumns() {
-		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, col.Name, col.Position, now, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `insert into columns(board_id,name,workflow_key,position,created_at,updated_at) values(?,?,?,?,?,?)`, boardID, col.Name, col.Name, col.Position, now, now); err != nil {
 			return err
 		}
 	}

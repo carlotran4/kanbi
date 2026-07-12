@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/carlotran4/kanbi/internal/boardpackage"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -50,6 +51,75 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 		m.boardDeleteID = b.ID
 		m.boardDeleteName = b.Name
 		m.boardDeleteInput = NewInputBuffer("")
+	case "a":
+		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+			m.status = "choose a real board to archive/unarchive"
+			return m
+		}
+		b := m.boards[m.boardIndex-1]
+		var err error
+		if b.ArchivedAt.Valid {
+			err = m.actions.UnarchiveBoard(m.ctx, b.ID)
+			if err == nil {
+				m.status = "unarchived " + b.Name + " (sync still disabled)"
+			}
+		} else {
+			err = m.actions.ArchiveBoard(m.ctx, b.ID)
+			if err == nil {
+				m.status = "archived " + b.Name
+			}
+		}
+		if err != nil {
+			m.status = err.Error()
+			return m
+		}
+		m.reloadBoards()
+		return m
+	case "s":
+		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+			m.status = "choose a real board to toggle sync"
+			return m
+		}
+		b := m.boards[m.boardIndex-1]
+		if b.ArchivedAt.Valid {
+			m.status = "unarchive before enabling sync"
+			return m
+		}
+		if err := m.actions.SetBoardSyncEnabled(m.ctx, b.ID, !b.SyncEnabled); err != nil {
+			m.status = err.Error()
+			return m
+		}
+		if b.SyncEnabled {
+			m.status = "disabled sync for " + b.Name
+		} else {
+			m.status = "enabled sync for " + b.Name
+		}
+		m.reloadBoards()
+		return m
+	case "e":
+		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+			m.status = "choose a real board to export"
+			return m
+		}
+		m.boardExporting = true
+		m.boardExportPath = ""
+		return m
+	case "i":
+		m.boardImporting = true
+		m.boardImportPath = ""
+		m.boardImportName = ""
+		m.boardImportField = 0
+		m.boardImportPreviewed = false
+		return m
+	case "A":
+		m.boardShowArchived = !m.boardShowArchived
+		m.reloadBoards()
+		if m.boardShowArchived {
+			m.status = "showing archived boards"
+		} else {
+			m.status = "hiding archived boards"
+		}
+		return m
 	case "j", "down":
 		if count > 0 {
 			m.boardIndex = (m.boardIndex + 1) % count
@@ -71,9 +141,13 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 				return m
 			}
 			b := m.boards[m.boardIndex-1]
-			columnID, err := m.actions.ColumnIDByBoardAndName(m.ctx, b.ID, m.masterCreateCol)
+			key := m.masterCreateKey
+			if key == "" {
+				key = m.masterCreateCol
+			}
+			columnID, err := m.actions.ColumnIDByBoardAndWorkflowKey(m.ctx, b.ID, key)
 			if err != nil {
-				m.status = "target board has no " + m.masterCreateCol + " column"
+				m.status = "target board has no workflow key " + key
 				m.boardPicker = false
 				return m
 			}
@@ -128,6 +202,11 @@ func (m Model) boardPickerView() string {
 	lines = append(lines, row(0, masterLabel))
 	for i, board := range m.boards {
 		label := board.Name
+		if board.ArchivedAt.Valid {
+			label += "  " + lipgloss.NewStyle().Faint(true).Render("[archived]")
+		} else if !board.SyncEnabled {
+			label += "  " + lipgloss.NewStyle().Faint(true).Render("[sync off]")
+		}
 		if board.LastSyncError.Valid && strings.TrimSpace(board.LastSyncError.String) != "" {
 			label += "  " + lipgloss.NewStyle().Foreground(palette.error_).Render("provider sync degraded (local data available)")
 		}
@@ -144,7 +223,7 @@ func (m Model) boardPickerView() string {
 	if m.boardPickerMode == "create" {
 		hint = "Enter create · j/k move · Esc cancel"
 	} else {
-		hint = "Enter select · c create · r rename · w cwd · d delete · j/k move · Esc cancel"
+		hint = "Enter select · c create · r rename · w cwd · a archive · s sync · e export · i import · A show archived · d delete · j/k · Esc"
 	}
 	lines = append(lines, lipgloss.NewStyle().Faint(true).Render(hint))
 	popupW := popupWidth(m.width)
@@ -342,12 +421,145 @@ func (m Model) updateBoardDelete(key tea.KeyMsg) Model {
 	return m
 }
 
+func (m Model) updateBoardExport(key tea.KeyMsg) Model {
+	switch key.String() {
+	case "esc":
+		m.boardExporting = false
+	case "enter":
+		path := strings.TrimSpace(m.boardExportPath)
+		if path == "" {
+			m.status = "export path is required"
+			return m
+		}
+		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+			m.status = "choose a real board to export"
+			m.boardExporting = false
+			return m
+		}
+		b := m.boards[m.boardIndex-1]
+		if err := m.actions.ExportBoard(m.ctx, b.ID, path); err != nil {
+			m.status = err.Error()
+			return m
+		}
+		m.status = "exported " + b.Name + " to " + path
+		m.boardExporting = false
+	case "backspace":
+		m.boardExportPath = popRune(m.boardExportPath)
+	default:
+		if len(key.Runes) > 0 {
+			m.boardExportPath += string(key.Runes)
+		}
+	}
+	return m
+}
+
+func (m Model) boardExportView() string {
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Export board package"),
+		"",
+		"path: " + renderWithCursor(m.boardExportPath, len([]rune(m.boardExportPath))),
+		"",
+		lipgloss.NewStyle().Faint(true).Render("Writes a kanbi-board-package zip. Active sessions block export. Enter export · Esc cancel"),
+	}
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) updateBoardImport(key tea.KeyMsg) Model {
+	switch key.String() {
+	case "esc":
+		m.boardImporting = false
+	case "tab":
+		m.boardImportField = (m.boardImportField + 1) % 2
+	case "enter":
+		path := strings.TrimSpace(m.boardImportPath)
+		if path == "" {
+			m.status = "import path is required"
+			return m
+		}
+		if !m.boardImportPreviewed {
+			report, err := m.actions.PreviewBoardPackage(m.ctx, path)
+			if err != nil {
+				m.status = err.Error()
+				return m
+			}
+			m.boardImportPreviewed = true
+			m.status = fmt.Sprintf("preview %s tickets=%d notes=%d attachments=%d collision=%v · Enter to import", report.BoardName, report.TicketCount, report.NoteCount, report.AttachmentCount, report.NameCollision)
+			if report.NameCollision && strings.TrimSpace(m.boardImportName) == "" {
+				m.status += " (set rename first)"
+			}
+			return m
+		}
+		result, err := m.actions.ImportBoardPackage(m.ctx, path, boardpackage.ImportOptions{NameOverride: strings.TrimSpace(m.boardImportName)})
+		if err != nil {
+			m.status = err.Error()
+			return m
+		}
+		m.status = "imported " + result.Board.Name + " (archived, sync disabled)"
+		m.boardImporting = false
+		m.reloadBoards()
+		m.boardPicker = true
+	case "backspace":
+		if m.boardImportField == 0 {
+			m.boardImportPath = popRune(m.boardImportPath)
+		} else {
+			m.boardImportName = popRune(m.boardImportName)
+		}
+		m.boardImportPreviewed = false
+	default:
+		if len(key.Runes) > 0 {
+			if m.boardImportField == 0 {
+				m.boardImportPath += string(key.Runes)
+			} else {
+				m.boardImportName += string(key.Runes)
+			}
+			m.boardImportPreviewed = false
+		}
+	}
+	return m
+}
+
+func (m Model) boardImportView() string {
+	pathLine := "path: " + m.boardImportPath
+	nameLine := "rename: " + m.boardImportName
+	if m.boardImportField == 0 {
+		pathLine = "> path: " + renderWithCursor(m.boardImportPath, len([]rune(m.boardImportPath)))
+		nameLine = "  rename: " + m.boardImportName
+	} else {
+		pathLine = "  path: " + m.boardImportPath
+		nameLine = "> rename: " + renderWithCursor(m.boardImportName, len([]rune(m.boardImportName)))
+	}
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Import board package"),
+		"",
+		pathLine,
+		nameLine,
+		"",
+		lipgloss.NewStyle().Faint(true).Render("Enter previews then imports create-new board (always archived+sync off). Tab field · Esc cancel"),
+	}
+	if strings.TrimSpace(m.status) != "" {
+		lines = append(lines, "", statusStyle.Render(m.status))
+	}
+	popupW := popupWidth(m.width)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(palette.accent).
+		Padding(1, 2).
+		Width(popupW - 4).
+		Render(strings.Join(lines, "\n"))
+}
+
 func (m Model) boardDeleteView() string {
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Foreground(palette.error_).Render("Delete board \"" + m.boardDeleteName + "\"?"),
 		"",
 		"Permanently deletes tickets, notes, complete session history, and attachments.",
-		lipgloss.NewStyle().Faint(true).Render("There is no undo or restore unless you created a backup. Active sessions block deletion."),
+		lipgloss.NewStyle().Faint(true).Render("Hard delete is local-only. Prefer archive (a) to hide without destroying history. Active sessions block deletion."),
 		"",
 		"Type the exact board name to confirm:",
 		m.boardDeleteInput.Render(),

@@ -37,7 +37,8 @@ func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []str
 			if err != nil {
 				return nil, err
 			}
-			res, err := tx.ExecContext(ctx, `insert into columns(board_id,name,position,created_at,updated_at) values(?,?,?,?,?)`, boardID, name, insertPos, now, now)
+			// Default workflow_key to the remote display name; never overwrite user keys later.
+			res, err := tx.ExecContext(ctx, `insert into columns(board_id,name,workflow_key,position,created_at,updated_at) values(?,?,?,?,?,?)`, boardID, name, name, insertPos, now, now)
 			if err != nil {
 				return nil, err
 			}

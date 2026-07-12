@@ -48,6 +48,20 @@ type Model struct {
 	boardDeleteName         string
 	boardDeleteInput        InputBuffer
 	masterCreateCol         string
+	masterCreateKey         string
+	activePresetName        string
+	filterPresets           []storage.MasterFilterPreset
+	filterPresetIndex       int
+	filterPresetMode        string // "", "list", "save"
+	filterPresetName        string
+	boardShowArchived       bool
+	boardExporting          bool
+	boardExportPath         string
+	boardImporting          bool
+	boardImportPath         string
+	boardImportName         string
+	boardImportField        int
+	boardImportPreviewed    bool
 	col                     int
 	card                    int
 	width                   int
@@ -256,7 +270,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOnboarding(key), nil
 	}
 	// Clear stale status on any keypress (unless a modal is consuming input).
-	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.boardRenaming && !m.boardEditing && !m.boardDeleting && !m.masterFilterOpen {
+	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.boardRenaming && !m.boardEditing && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen {
 		m.status = ""
 		m.errOperation = ""
 		m.errNext = ""
@@ -275,6 +289,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.boardDeleting {
 		return m.updateBoardDelete(key), nil
+	}
+	if m.boardExporting {
+		return m.updateBoardExport(key), nil
+	}
+	if m.boardImporting {
+		return m.updateBoardImport(key), nil
 	}
 	if m.boardPicker {
 		return m.updateBoardPicker(key), nil
@@ -368,7 +388,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) reloadBoards() {
-	boards, err := m.actions.ListBoards(m.ctx)
+	boards, err := m.actions.ListBoardsFiltered(m.ctx, m.boardShowArchived)
 	if err != nil {
 		m.err = err
 		return
@@ -443,6 +463,10 @@ func (m *Model) startMasterCreatePicker() {
 		return
 	}
 	m.masterCreateCol = m.view.Columns[m.col].Name
+	m.masterCreateKey = m.view.Columns[m.col].WorkflowKey
+	if m.masterCreateKey == "" {
+		m.masterCreateKey = m.masterCreateCol
+	}
 	m.boardPicker = true
 	m.boardPickerMode = "create"
 	m.boardIndex = 0 // Master is not a create target; user must choose a real board.
@@ -522,9 +546,13 @@ func (m *Model) moveTicketColumn(delta int) {
 	toColumnID := m.view.Columns[to].ID
 	if m.masterBoard || toColumnID < 0 {
 		var err error
-		toColumnID, err = m.actions.ColumnIDByBoardAndName(m.ctx, t.BoardID, m.view.Columns[to].Name)
+		key := m.view.Columns[to].WorkflowKey
+		if key == "" {
+			key = m.view.Columns[to].Name
+		}
+		toColumnID, err = m.actions.ColumnIDByBoardAndWorkflowKey(m.ctx, t.BoardID, key)
 		if err != nil {
-			m.status = "target column missing on ticket board"
+			m.status = "target workflow key missing on ticket board"
 			return
 		}
 	}

@@ -50,11 +50,21 @@ Exit status is 0 for success/help and 1 for command, configuration, or runtime e
 
 var commandHelp = map[string]string{
 	"boards": `Usage: kanbi boards [--json]
+       kanbi boards list [--include-archived]
        kanbi boards add NAME [--cwd PATH] [--backend local|github|atlassian] [--query QUERY] [--config JSON]
        kanbi boards rename OLD NEW
        kanbi boards set-cwd NAME PATH
+       kanbi boards archive NAME
+       kanbi boards unarchive NAME
+       kanbi boards enable-sync NAME
+       kanbi boards disable-sync NAME
+       kanbi boards export NAME PATH
+       kanbi boards import PATH [--name NEW] [--preview]
+       kanbi boards set-column-key NAME --column DISPLAY --key KEY
 
-List and manage boards. The TUI provides confirmed board deletion.`,
+List and manage boards. Archive hides a board and pauses sync without deleting
+history. Board packages are create-new-only exports (format kanbi-board-package);
+they are not full database backups. The TUI still provides confirmed hard delete.`,
 	"add": `Usage: kanbi add TITLE [--body TEXT | --body-file PATH] [--harness NAME] [--board NAME] [--json]
 
 Create a ticket in the board's first column.`,

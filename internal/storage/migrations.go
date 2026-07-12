@@ -22,6 +22,7 @@ var migrations = []migration{
 	{version: 2, name: "projection and lifecycle indexes", apply: migrateIndexes},
 	{version: 3, name: "sync leases and note tombstones", apply: migrateProductionSafety},
 	{version: 4, name: "runtime diagnostics and remote push state", apply: migrateRuntimeHardening},
+	{version: 5, name: "board archive, workflow keys, filter presets", apply: migrateBoardArchiveAndWorkflow},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.
@@ -243,6 +244,89 @@ func migrateRuntimeHardening(ctx context.Context, tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateBoardArchiveAndWorkflow(ctx context.Context, tx *sql.Tx) error {
+	boardColumns, err := tableColumns(ctx, tx, "boards")
+	if err != nil {
+		return err
+	}
+	for _, col := range []struct{ name, typ string }{
+		{"uuid", "text"},
+		{"archived_at", "datetime"},
+		{"sync_enabled", "integer not null default 1"},
+		{"source_export_uuid", "text"},
+	} {
+		if !boardColumns[col.name] {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`alter table boards add column %s %s`, col.name, col.typ)); err != nil {
+				return err
+			}
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `select id from boards where uuid is null or uuid=''`)
+	if err != nil {
+		return err
+	}
+	var missing []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		missing = append(missing, id)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range missing {
+		uuid, err := NewUUIDv4()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `update boards set uuid=? where id=?`, uuid, id); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `update boards set sync_enabled=1 where sync_enabled is null`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `create unique index if not exists boards_uuid_uq on boards(uuid)`); err != nil {
+		return err
+	}
+
+	columnColumns, err := tableColumns(ctx, tx, "columns")
+	if err != nil {
+		return err
+	}
+	if !columnColumns["workflow_key"] {
+		if _, err := tx.ExecContext(ctx, `alter table columns add column workflow_key text`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `update columns set workflow_key=name where workflow_key is null or workflow_key=''`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `create unique index if not exists columns_board_workflow_key_uq on columns(board_id, workflow_key)`); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `create table if not exists master_filter_presets (
+  id integer primary key autoincrement,
+  name text not null,
+  payload_json text not null,
+  created_at datetime not null,
+  updated_at datetime not null
+)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `create unique index if not exists master_filter_presets_name_nocase_uq on master_filter_presets(name collate nocase)`); err != nil {
+		return err
 	}
 	return nil
 }

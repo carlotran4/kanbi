@@ -34,6 +34,12 @@ func (m Model) View() string {
 	if m.boardDeleting {
 		return overlayModal(base, fitModal(m.boardDeleteView(), m.height, 0, true), m.width, m.height)
 	}
+	if m.boardExporting {
+		return overlayModal(base, fitModal(m.boardExportView(), m.height, 0, true), m.width, m.height)
+	}
+	if m.boardImporting {
+		return overlayModal(base, fitModal(m.boardImportView(), m.height, 0, true), m.width, m.height)
+	}
 	if m.boardPicker {
 		return overlayModal(base, fitModal(m.boardPickerView(), m.height, 0, true), m.width, m.height)
 	}

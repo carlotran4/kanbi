@@ -2,10 +2,13 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestFileStoreEnablesSQLiteSafetyPragmas(t *testing.T) {
@@ -172,5 +175,182 @@ func TestBusyTimeoutAllowsConcurrentWriterToComplete(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatalf("waiting writer failed: %v", err)
+	}
+}
+
+func TestMigrateV5BackfillsWorkflowKeysAndBoardUUID(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/pre-v5.db"
+	raw, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pre-v5 populated database: all columns from migrations 1-4, missing v5 fields.
+	stmts := []string{
+		`pragma foreign_keys=off`,
+		`create table boards (
+  id integer primary key autoincrement,
+  name text not null,
+  workdir text,
+  next_ticket_number integer not null default 1,
+  ticket_backend text not null default 'local',
+  backend_query text,
+  backend_config text,
+  last_sync_at datetime,
+  last_sync_error text,
+  created_at datetime not null,
+  updated_at datetime not null
+)`,
+		`create table columns (
+  id integer primary key autoincrement,
+  board_id integer not null references boards(id) on delete cascade,
+  name text not null,
+  position integer not null,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique(board_id, position)
+)`,
+		`create table tickets (
+  id integer primary key autoincrement,
+  board_id integer not null references boards(id) on delete cascade,
+  column_id integer not null references columns(id) on delete restrict,
+  external_id text,
+  external_url text,
+  external_updated_at datetime,
+  sync_version text,
+  display_id text not null,
+  display_number integer not null,
+  title text not null,
+  body text not null default '',
+  harness text not null default 'pi',
+  position integer not null,
+  archived_at datetime,
+  remote_push_state text,
+  remote_push_token text,
+  remote_push_attempted_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null,
+  unique(board_id, display_id),
+  unique(board_id, display_number)
+)`,
+		`create table sessions (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  harness text not null,
+  harness_session_ref text,
+  harness_session_name text,
+  tmux_session_name text not null,
+  tmux_window_id text,
+  tmux_window_name text not null,
+  multiplexer text not null default 'tmux',
+  mux_namespace text,
+  mux_container_id text,
+  mux_container_name text,
+  mux_metadata text,
+  status text not null,
+  is_active integer not null default 0,
+  started_at datetime,
+  closed_at datetime,
+  last_seen_tmux_at datetime,
+  last_output_at datetime,
+  last_state_change_at datetime,
+  last_detected_state text,
+  last_attention_reason text,
+  last_detection_source text,
+  last_observed_excerpt text,
+  created_at datetime not null,
+  updated_at datetime not null
+)`,
+		`create table ticket_notes (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  external_id text,
+  external_updated_at datetime,
+  sync_version text,
+  body text not null default '',
+  deleted_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null
+)`,
+		`create table board_sync_leases (
+  board_id integer primary key references boards(id) on delete cascade,
+  owner text not null,
+  expires_at datetime not null
+)`,
+		`create table runtime_diagnostics (
+  id integer primary key autoincrement,
+  created_at datetime not null,
+  kind text not null,
+  operation text not null,
+  board_id integer,
+  ticket_id integer,
+  session_id integer,
+  attempt integer not null default 0,
+  message text not null default '',
+  cause text not null default ''
+)`,
+		`create table schema_migrations (version integer primary key, name text not null, applied_at datetime not null)`,
+		`insert into schema_migrations(version,name,applied_at) values(0,'migration lock','2026-01-01')`,
+		`insert into schema_migrations(version,name,applied_at) values(1,'legacy schema compatibility','2026-01-01')`,
+		`insert into schema_migrations(version,name,applied_at) values(2,'projection and lifecycle indexes','2026-01-01')`,
+		`insert into schema_migrations(version,name,applied_at) values(3,'sync leases and note tombstones','2026-01-01')`,
+		`insert into schema_migrations(version,name,applied_at) values(4,'runtime diagnostics and remote push state','2026-01-01')`,
+		`insert into boards(name,next_ticket_number,workdir,ticket_backend,created_at,updated_at) values('Legacy',3,'/tmp','local','2026-01-01','2026-01-01')`,
+		`insert into columns(board_id,name,position,created_at,updated_at) values(1,'Open',0,'2026-01-01','2026-01-01')`,
+		`insert into columns(board_id,name,position,created_at,updated_at) values(1,'Review',1,'2026-01-01','2026-01-01')`,
+		`insert into tickets(board_id,column_id,display_id,display_number,title,body,harness,position,created_at,updated_at) values(1,1,'T-001',1,'Legacy ticket','body','pi',0,'2026-01-01','2026-01-01')`,
+		`pragma foreign_keys=on`,
+	}
+	for _, stmt := range stmts {
+		if _, err := raw.Exec(stmt); err != nil {
+			_ = raw.Close()
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+	_ = raw.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	board, err := s.BoardByName(ctx, "Legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(board.UUID) == "" {
+		t.Fatal("migration should assign board uuid")
+	}
+	if board.SyncEnabled != true {
+		t.Fatalf("sync_enabled default should be true: %+v", board)
+	}
+	view, err := s.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Columns) < 2 {
+		t.Fatalf("columns=%+v", view.Columns)
+	}
+	for _, col := range view.Columns {
+		if col.WorkflowKey == "" || col.WorkflowKey != col.Name {
+			t.Fatalf("workflow key backfill failed: %+v", col)
+		}
+	}
+	ticket, err := s.TicketByDisplayID(ctx, "T-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.Title != "Legacy ticket" {
+		t.Fatalf("populated ticket lost: %+v", ticket)
+	}
+	var version int
+	if err := s.db.QueryRowContext(ctx, `select max(version) from schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != CurrentSchemaVersion() {
+		t.Fatalf("version=%d want %d", version, CurrentSchemaVersion())
 	}
 }
