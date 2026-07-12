@@ -27,6 +27,7 @@ See [`docs/installation.md`](./docs/installation.md) for supported platforms, pr
 - [`docs/compatibility.md`](./docs/compatibility.md) — supported platforms, schema, multiplexers, and harness verification status
 - [`docs/support.md`](./docs/support.md) — diagnostics logging, support-bundle fields, and maintenance policy
 - [`docs/release-checklist.md`](./docs/release-checklist.md) — release provenance and publish checklist
+- [`docs/verification/stable-v1.0-qualification.md`](./docs/verification/stable-v1.0-qualification.md) — GH-292 stable-release gates and evidence record
 - [`SECURITY.md`](./SECURITY.md) — private vulnerability reporting and supported-release policy
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — development setup and contribution guidance
 - [`CHANGELOG.md`](./CHANGELOG.md) — release and upgrade history

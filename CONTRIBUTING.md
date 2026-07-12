@@ -74,11 +74,20 @@ Use the GitHub issue templates. Bug reports should include:
 
 Security issues: see [`SECURITY.md`](./SECURITY.md).
 
+For release triage, use these severities:
+
+- **P0:** security/credential leakage, durable-data or history loss/corruption, unsafe active-work termination, unrecoverable backup/restore, or duplicate remote mutation under supported concurrency.
+- **P1:** a supported install, migration, core lifecycle, provider sync, diagnostics, destructive workflow, or recovery path is unusable or materially misleading without a safe workaround.
+- **P2/P3:** lower-impact defects and improvements. Acceptance for a stable release requires a documented workaround when applicable and a follow-up issue.
+
+Any open P0 or P1 blocks a stable release.
+
 ## Release and support docs
 
 - Compatibility claims: [`docs/compatibility.md`](./docs/compatibility.md)
 - Support / diagnostics: [`docs/support.md`](./docs/support.md)
 - Release process: [`docs/release-checklist.md`](./docs/release-checklist.md)
+- Stable v1.0 evidence: [`docs/verification/stable-v1.0-qualification.md`](./docs/verification/stable-v1.0-qualification.md)
 
 ## License
 

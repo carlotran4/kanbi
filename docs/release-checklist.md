@@ -1,6 +1,10 @@
 # Release Checklist
 
-Use this list before tagging a semantic release (`vMAJOR.MINOR.PATCH`).
+Use this list before tagging a semantic release (`vMAJOR.MINOR.PATCH`). For the first stable release, this checklist is necessary but not sufficient: every gate in [`verification/stable-v1.0-qualification.md`](./verification/stable-v1.0-qualification.md) must be complete for the exact candidate commit. Until then, do not create or publish `v1.0.0`.
+
+## Release blockers
+
+P0 covers security/credential leakage, durable-data or history loss/corruption, unsafe active-work termination, unrecoverable backup/restore, or duplicate remote mutation under supported concurrency. P1 covers an unusable or materially misleading supported installation, migration, core lifecycle, sync, diagnostics, destructive, or recovery path without a safe workaround. Any open P0/P1 blocks release; lower-severity acceptance requires a documented workaround and follow-up issue.
 
 ## 1. Content freeze
 
@@ -49,11 +53,13 @@ Confirm provenance ldflags and packaged `BUILDINFO.json`:
 
 ## 4. Tag and publish
 
+- [ ] Record the full frozen commit SHA and qualification evidence before tagging.
+- [ ] Confirm there are no open P0/P1 defects.
 - [ ] Create annotated tag `vX.Y.Z` on the verified commit.
 - [ ] Push tag to GitHub to trigger `.github/workflows/release.yml`.
 - [ ] Confirm workflow: verify job (fmt/tests/race/vet/govulncheck/smoke) then native builds for linux/darwin amd64/arm64.
 - [ ] Confirm release assets: four archives + `SHA256SUMS`.
-- [ ] Confirm each artifact’s embedded `kanbi version` metadata (workflow already runs version during build).
+- [ ] Download all four artifacts and confirm each `BUILDINFO.json` and `kanbi version` commit equals the tag target SHA; record native checks in the release evidence matrix.
 
 ## 5. Post-publish smoke
 
