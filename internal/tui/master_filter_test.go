@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func TestMasterFilterModalAppliesSearchAndClear(t *testing.T) {

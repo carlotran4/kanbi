@@ -3,7 +3,7 @@ package storage
 import (
 	"database/sql"
 
-	"kanbi/internal/harness"
+	"github.com/carlotran4/kanbi/internal/harness"
 )
 
 func nullableString(v string) any {

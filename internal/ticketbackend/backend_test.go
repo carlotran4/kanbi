@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 type recordingBackend struct {

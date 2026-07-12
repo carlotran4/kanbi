@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func newTestStore(t *testing.T) (*storage.Store, context.Context) {

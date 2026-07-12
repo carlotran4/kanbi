@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"kanbi/internal/session"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/session"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func (m Model) updatePromptFallback(key tea.KeyMsg) (Model, tea.Cmd) {

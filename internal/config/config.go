@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"time"
 
-	"kanbi/internal/harness"
+	"github.com/carlotran4/kanbi/internal/harness"
 
 	"gopkg.in/yaml.v3"
 )

@@ -13,9 +13,9 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"kanbi/internal/kanban"
-	"kanbi/internal/session"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/session"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 type Model struct {

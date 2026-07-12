@@ -67,6 +67,8 @@ Stop and ask before:
 | `internal/app` | Presentation-independent board, ticket, note, and session use-case orchestration. |
 | `internal/boardruntime` | Starts the board process in the configured runtime, including Herdr availability, workspace, pane, environment, and attach orchestration. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
+| `internal/buildinfo` | Release-injected semantic version, commit/build metadata, Go platform, and schema compatibility reporting. |
+| `internal/backup` | Versioned SQLite-and-attachments export/restore archives with validation. |
 | `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. `TicketProjection` and `ColumnView` are explicit read models. |
 | `internal/session` | Provider-neutral lifecycle policy and errors, durable session repository contract, and compiled-in multiplexer registry. |
 | `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Providers receive a narrow sync repository instead of the complete SQLite store. Implements the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
@@ -77,7 +79,7 @@ Stop and ask before:
 | `internal/prompt` | Ticket body/prompt rendering. |
 | `internal/attachments` | XDG data-dir ticket attachment storage and pasted image detection. |
 | `internal/architecture` | Dependency-boundary tests that keep presentation and concrete runtime adapters out of inward-facing packages. |
-| `scripts/` | Development launcher, deterministic smoke tests, fake harnesses, opt-in real harness lifecycle script. |
+| `scripts/` | Development launcher, native release snapshot builder, deterministic smoke tests, fake harnesses, opt-in real harness lifecycle script. |
 | `docs/` | Source-of-truth docs for state, lifecycle, harness contracts, verification, multi-board behavior, and archived product context. |
 
 ## Runtime Topology
@@ -225,6 +227,10 @@ Indexes used by board projection, latest-session lookup, external identity looku
 - Keep real harness tests opt-in because they can consume quota and depend on auth/local history.
 - Tmux tests must isolate session names and clean up immediately.
 - After meaningful changes, follow the verification loop in [`AGENTS.md`](../AGENTS.md) and [`docs/autonomous-verification.md`](./autonomous-verification.md).
+
+## Release And Compatibility
+
+The canonical module path is `github.com/carlotran4/kanbi`. Tagged semantic versions trigger native CGO builds on Linux and macOS for amd64 and arm64; release metadata is injected into `internal/buildinfo`, archives include the binary/README/license, and a shared SHA256 manifest is published with GitHub Release assets. Database migrations are forward-only: older binaries refuse newer schema versions, so rollback requires restoring a pre-upgrade backup. See [`docs/installation.md`](./installation.md).
 
 ## Historical Design Context
 

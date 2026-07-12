@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Snapshot semantic version (for example 0.2.0)"
+        required: true
+        default: "0.0.0-dev"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Tests and static analysis
+        run: |
+          go test ./...
+          go test -race ./...
+          go vet ./...
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          govulncheck ./...
+      - name: End-to-end smoke
+        run: ./scripts/smoke.sh --skip-checks
+
+  build:
+    needs: verify
+    name: ${{ matrix.os }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            os: linux
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+          - runner: macos-15-intel
+            os: darwin
+            arch: amd64
+          - runner: macos-14
+            os: darwin
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build native CGO binary
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && ! "${RELEASE_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release tag must be vMAJOR.MINOR.PATCH" >&2
+            exit 2
+          fi
+          version="${RELEASE_VERSION#v}"
+          commit="$(git rev-parse HEAD)"
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          test "$(go env GOOS)" = "$TARGET_OS"
+          test "$(go env GOARCH)" = "$TARGET_ARCH"
+          mkdir -p package
+          CGO_ENABLED=1 go build -trimpath \
+            -ldflags "-s -w -X github.com/carlotran4/kanbi/internal/buildinfo.Version=$version -X github.com/carlotran4/kanbi/internal/buildinfo.Commit=$commit -X github.com/carlotran4/kanbi/internal/buildinfo.BuildDate=$build_date" \
+            -o package/kanbi ./cmd/kanbi
+          package/kanbi version
+          cp README.md LICENSE package/
+          archive="kanbi_${version}_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
+          tar -czf "$archive" -C package kanbi README.md LICENSE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kanbi-${{ matrix.os }}-${{ matrix.arch }}
+          path: kanbi_*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: kanbi-*
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        run: cd dist && sha256sum kanbi_*.tar.gz > SHA256SUMS
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --verify-tag --generate-notes --title "Kanbi ${GITHUB_REF_NAME}"

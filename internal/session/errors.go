@@ -3,7 +3,7 @@ package session
 import (
 	"errors"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 var ErrPromptAlreadySent = errors.New("prompt already sent; open session instead")

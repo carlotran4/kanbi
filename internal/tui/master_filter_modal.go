@@ -6,8 +6,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"kanbi/internal/kanban"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func (m *Model) startMasterFilter() {

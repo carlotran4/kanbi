@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func TestExportRestoreRoundTripDatabaseAndAttachments(t *testing.T) {

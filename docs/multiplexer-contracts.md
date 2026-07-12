@@ -60,6 +60,6 @@ When Herdr reports an agent state, Kanbi prefers that native state. If Herdr sta
 
 ## Doctor And Verification
 
-`kanbi doctor` reports the configured multiplexer. It always preserves existing tmux checks used by Kanbi's default board runtime. When Herdr is selected, doctor also checks the configured Herdr binary and runs `herdr status`; a missing or unreachable Herdr installation is reported as a warning with setup guidance.
+`kanbi doctor` reports build/schema compatibility and the configured multiplexer. It always preserves existing tmux checks used by Kanbi's default board runtime. When Herdr is selected, doctor also checks the configured Herdr binary and runs `herdr status`; a missing or unreachable configured Herdr installation is fatal with setup guidance. An unknown configured multiplexer is also fatal. Missing optional harness commands remain warnings.
 
 Normal tests and `scripts/smoke.sh` use fake harnesses and a fake Herdr doctor probe. Real Herdr verification is opt-in only: install Herdr, configure `multiplexer.default: herdr`, then run targeted manual lifecycle checks in a disposable board/workspace.

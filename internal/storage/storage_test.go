@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/kanban"
 )
 
 func TestBoardWorkdirExpandsTilde(t *testing.T) {

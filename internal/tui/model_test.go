@@ -14,8 +14,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"kanbi/internal/storage"
-	"kanbi/internal/tmux"
+	"github.com/carlotran4/kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/tmux"
 )
 
 type quitTestManager struct{ killed bool }

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"sync"
 
-	"kanbi/internal/multiplexer"
+	"github.com/carlotran4/kanbi/internal/multiplexer"
 )
 
 var (

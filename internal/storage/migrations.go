@@ -23,6 +23,9 @@ var migrations = []migration{
 	{version: 3, name: "sync leases and note tombstones", apply: migrateProductionSafety},
 }
 
+// CurrentSchemaVersion is the newest SQLite migration understood by this build.
+func CurrentSchemaVersion() int { return migrations[len(migrations)-1].version }
+
 func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `create table if not exists schema_migrations (
   version integer primary key,

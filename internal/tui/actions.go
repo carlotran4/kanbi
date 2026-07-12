@@ -3,8 +3,8 @@ package tui
 import (
 	"context"
 
-	"kanbi/internal/app"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/app"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 type BoardQueries interface {

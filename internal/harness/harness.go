@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/kanban"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"kanbi/internal/multiplexer"
+	"github.com/carlotran4/kanbi/internal/multiplexer"
 )
 
 func TestRegistryResolvesAdapterByKind(t *testing.T) {

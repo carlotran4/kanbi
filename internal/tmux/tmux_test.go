@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"kanbi/internal/config"
-	"kanbi/internal/harness"
-	"kanbi/internal/kanban"
-	"kanbi/internal/session"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/harness"
+	"github.com/carlotran4/kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/session"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 type call struct {

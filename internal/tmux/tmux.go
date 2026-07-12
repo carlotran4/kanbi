@@ -17,14 +17,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"kanbi/internal/config"
-	"kanbi/internal/harness"
-	"kanbi/internal/kanban"
-	"kanbi/internal/multiplexer"
-	herdrmux "kanbi/internal/multiplexer/herdr"
-	"kanbi/internal/prompt"
-	"kanbi/internal/session"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/harness"
+	"github.com/carlotran4/kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/multiplexer"
+	herdrmux "github.com/carlotran4/kanbi/internal/multiplexer/herdr"
+	"github.com/carlotran4/kanbi/internal/prompt"
+	"github.com/carlotran4/kanbi/internal/session"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 var ErrPromptAlreadySent = session.ErrPromptAlreadySent

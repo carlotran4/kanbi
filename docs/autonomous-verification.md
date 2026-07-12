@@ -338,14 +338,15 @@ KANBI_JIRA_API_TOKEN="TOKEN" \
 
 The Jira smoke test verifies issue pull, remote comment pull, local update push, local issue creation push, and local note/comment push against a real project. Cleanup is best-effort: Delete Issues permission removes smoke issues; otherwise the script tries to transition them to a terminal status and reports any leftovers.
 
-## Recommended CI Later
+## CI And Release Verification
 
-When the repo is ready for CI, add GitHub Actions that run:
+GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux tmux smoke job. Keep deterministic tmux manager tests in the normal CI suite; real harness/provider checks remain opt-in.
+
+Semantic tags (`vMAJOR.MINOR.PATCH`) trigger `.github/workflows/release.yml`. Release builds must use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every build must execute `kanbi version`, package the binary with README/LICENSE, and publish a shared `SHA256SUMS` file. Before tagging, test the native local artifact path with:
 
 ```bash
-go fmt ./...
-go test ./...
-go vet ./...
+./scripts/build-release.sh 0.0.0-dev
+tar -tzf ./dist/kanbi_0.0.0-dev_$(go env GOOS)_$(go env GOARCH).tar.gz
 ```
 
-Keep deterministic tmux manager tests in the normal CI suite. Run real-tmux integration and smoke checks only on a Linux job that installs tmux and isolates its test sessions.
+After extracting the snapshot, verify `kanbi version` reports the supplied version, commit, UTC build date, runtime platform, and current database schema. Release notes and upgrade-impacting changes belong in `CHANGELOG.md`.

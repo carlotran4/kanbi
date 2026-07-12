@@ -1,4 +1,4 @@
-module kanbi
+module github.com/carlotran4/kanbi
 
 go 1.26.3
 

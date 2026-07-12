@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 const legacyGitHubColumnLabelPrefix = "status:"

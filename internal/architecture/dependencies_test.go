@@ -15,10 +15,10 @@ import (
 func TestLayerDependencies(t *testing.T) {
 	root := repositoryRoot(t)
 	rules := map[string][]string{
-		"internal/app":     {"kanbi/internal/tui", "kanbi/internal/tmux", "kanbi/internal/multiplexer/herdr"},
-		"internal/session": {"kanbi/internal/app", "kanbi/internal/tui", "kanbi/internal/tmux", "kanbi/internal/multiplexer/herdr"},
-		"internal/storage": {"kanbi/internal/app", "kanbi/internal/session", "kanbi/internal/ticketbackend", "kanbi/internal/tmux", "kanbi/internal/tui"},
-		"internal/tui":     {"kanbi/internal/tmux", "kanbi/internal/multiplexer/herdr"},
+		"internal/app":     {"github.com/carlotran4/kanbi/internal/tui", "github.com/carlotran4/kanbi/internal/tmux", "github.com/carlotran4/kanbi/internal/multiplexer/herdr"},
+		"internal/session": {"github.com/carlotran4/kanbi/internal/app", "github.com/carlotran4/kanbi/internal/tui", "github.com/carlotran4/kanbi/internal/tmux", "github.com/carlotran4/kanbi/internal/multiplexer/herdr"},
+		"internal/storage": {"github.com/carlotran4/kanbi/internal/app", "github.com/carlotran4/kanbi/internal/session", "github.com/carlotran4/kanbi/internal/ticketbackend", "github.com/carlotran4/kanbi/internal/tmux", "github.com/carlotran4/kanbi/internal/tui"},
+		"internal/tui":     {"github.com/carlotran4/kanbi/internal/tmux", "github.com/carlotran4/kanbi/internal/multiplexer/herdr"},
 	}
 
 	for dir, forbidden := range rules {

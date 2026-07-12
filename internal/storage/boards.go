@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/kanban"
 	"os"
 	"path/filepath"
 

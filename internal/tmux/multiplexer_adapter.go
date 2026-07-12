@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"kanbi/internal/kanban"
-	"kanbi/internal/multiplexer"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/multiplexer"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 // MultiplexerAdapter exposes the existing tmux Manager through the provider-neutral

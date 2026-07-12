@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"kanbi/internal/attachments"
-	"kanbi/internal/storage"
-	"kanbi/internal/ticketbackend"
+	"github.com/carlotran4/kanbi/internal/attachments"
+	"github.com/carlotran4/kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/ticketbackend"
 )
 
 // SessionManager is the provider-neutral runtime seam used by the application.

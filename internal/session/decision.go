@@ -3,7 +3,7 @@ package session
 import (
 	"database/sql"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 type Action string

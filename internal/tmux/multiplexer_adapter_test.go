@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"kanbi/internal/config"
-	"kanbi/internal/multiplexer"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/multiplexer"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func TestMultiplexerAdapterLaunchMapsTmuxWindowToContainerRef(t *testing.T) {

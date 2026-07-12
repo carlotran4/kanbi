@@ -2,6 +2,18 @@
 
 Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sessions across one or more Kanban boards.
 
+## Install
+
+Download the native archive for Linux or macOS from [GitHub Releases](https://github.com/carlotran4/kanbi/releases/latest), verify it against `SHA256SUMS`, extract `kanbi`, and place it on your `PATH`. Kanbi requires tmux by default and at least one authenticated supported agent CLI.
+
+```bash
+kanbi version
+kanbi doctor
+kanbi --help
+```
+
+See [`docs/installation.md`](./docs/installation.md) for supported platforms, prerequisites, checksum verification, first-run setup, upgrades, rollback, and uninstall. Source-checkout development installation remains documented separately below.
+
 ## Project Documents
 
 - [`AGENTS.md`](./AGENTS.md) — onboarding instructions for autonomous coding agents
@@ -11,6 +23,8 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - [`docs/multiplexer-contracts.md`](./docs/multiplexer-contracts.md) — tmux/Herdr runtime substrate contract
 - [`docs/tmux-to-herdr-migration.md`](./docs/tmux-to-herdr-migration.md) — recommended semantics for moving existing tmux workflows to Herdr
 - [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — how autonomous agents should verify their work
+- [`docs/installation.md`](./docs/installation.md) — production installation, first run, upgrade, rollback, and uninstall
+- [`CHANGELOG.md`](./CHANGELOG.md) — release and upgrade history
 - [`docs/archive/design-spec.md`](./docs/archive/design-spec.md) — historical product/design context; current docs win on conflicts
 
 ## Multi-board behavior
@@ -101,7 +115,7 @@ Herdr basics:
 
 ## Development
 
-Install a development launcher on your `PATH`:
+This path is for contributors working from a source checkout, not production installation. Install a development launcher on your `PATH`:
 
 ```bash
 ./scripts/install-dev.sh
@@ -142,6 +156,10 @@ KANBI_JIRA_API_TOKEN="TOKEN" \
 Kanbi creates application directories for the current user (`0700`) and restricts sensitive files, including existing config and SQLite database/WAL/SHM files, to `0600`. Explicit pre-existing parent-directory overrides keep their existing permissions. Pressing `q` from the board or `Ctrl+C` anywhere exits the UI without terminating active ticket agent sessions; close a ticket session explicitly with `x`.
 
 Remote-provider sync is serialized per board with a durable SQLite lease, including across Kanbi processes. Stale leases recover automatically after their expiry. Deleting a provider-backed note creates a durable local tombstone: the remote comment is not deleted, but it cannot be re-imported into Kanbi on later sync.
+
+## License
+
+Kanbi is available under the [MIT License](./LICENSE). Copyright © 2026 Carlo Tran.
 
 ## Status
 

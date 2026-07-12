@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func TestDecideLifecycleTable(t *testing.T) {

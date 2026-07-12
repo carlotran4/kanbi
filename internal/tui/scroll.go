@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func (m *Model) syncScrollDimensions() {

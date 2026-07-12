@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"kanbi/internal/kanban"
-	"kanbi/internal/multiplexer"
+	"github.com/carlotran4/kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/multiplexer"
 )
 
 type fakeRunner struct {

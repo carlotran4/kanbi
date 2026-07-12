@@ -3,7 +3,7 @@ package session
 import (
 	"context"
 
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 // Repository is the durable session-state contract consumed by lifecycle and

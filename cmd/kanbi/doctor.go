@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,8 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"kanbi/internal/config"
-	"kanbi/internal/tmux"
+	"github.com/carlotran4/kanbi/internal/buildinfo"
+	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/tmux"
 )
 
 type doctorSeverity string
@@ -112,12 +115,17 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 	add := func(severity doctorSeverity, name, detail string, err error) {
 		results = append(results, doctorResult{Severity: severity, Name: name, Detail: detail, Err: err})
 	}
+	build := buildinfo.Current(storage.CurrentSchemaVersion())
+	add(doctorOK, "build", fmt.Sprintf("%s commit %s built %s %s/%s %s", build.Version, build.Commit, build.BuildDate, build.OS, build.Arch, build.GoVersion), nil)
+	add(doctorOK, "database schema", fmt.Sprintf("version %d", build.Schema), nil)
 
 	configuredMux := strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default))
 	if configuredMux == "" {
 		configuredMux = "tmux"
 	}
-	add(doctorOK, "multiplexer", configuredMux, nil)
+	if configuredMux == "tmux" || configuredMux == "herdr" {
+		add(doctorOK, "multiplexer", configuredMux, nil)
+	}
 
 	if configuredMux == "herdr" {
 		herdrBinary := cfg.Multiplexer.Herdr.Binary
@@ -126,18 +134,20 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 		}
 		herdrPath, err := prober.lookPath(herdrBinary)
 		if err != nil {
-			add(doctorWarn, "herdr", "not found: install Herdr or set multiplexer.herdr.binary", nil)
+			detail := "configured Herdr binary not found; install Herdr or set multiplexer.herdr.binary"
+			add(doctorFatal, "herdr", detail, errors.New(detail))
 		} else if out, err := prober.commandOutput(herdrPath, "status"); err != nil {
 			detail := strings.TrimSpace(string(out))
 			if detail == "" {
 				detail = "status unavailable; run `herdr` once or check `herdr status`"
 			}
-			add(doctorWarn, "herdr", detail, nil)
+			add(doctorFatal, "herdr", detail, fmt.Errorf("configured Herdr is unavailable: %w", err))
 		} else {
 			add(doctorOK, "herdr", "session "+cfg.Multiplexer.Herdr.Session, nil)
 		}
 	} else if configuredMux != "tmux" {
-		add(doctorWarn, "multiplexer", "unknown default: "+configuredMux, nil)
+		detail := "unknown configured multiplexer " + configuredMux + "; supported values are tmux and herdr"
+		add(doctorFatal, "multiplexer", detail, errors.New(detail))
 	}
 
 	tmuxPath, err := prober.lookPath("tmux")
@@ -219,9 +229,6 @@ func sortedHarnessNames(harnesses map[string]config.Harness) []string {
 func printDoctorReport(w io.Writer, report doctorReport) {
 	fmt.Fprintln(w, "kanbi doctor")
 	for _, result := range report.Results {
-		if result.Severity == doctorFatal {
-			continue
-		}
 		if result.Detail == "" {
 			fmt.Fprintln(w, result.Severity, result.Name)
 		} else {

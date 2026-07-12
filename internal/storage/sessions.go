@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/kanban"
 	"strings"
 	"time"
 )

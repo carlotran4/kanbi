@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/config"
 )
 
 func TestHerdrBoardLaunchUsesWorkspaceRootPane(t *testing.T) {

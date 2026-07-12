@@ -12,13 +12,13 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"kanbi/internal/backup"
-	"kanbi/internal/boardruntime"
-	"kanbi/internal/config"
-	"kanbi/internal/storage"
-	"kanbi/internal/ticketbackend"
-	"kanbi/internal/tmux"
-	"kanbi/internal/tui"
+	"github.com/carlotran4/kanbi/internal/backup"
+	"github.com/carlotran4/kanbi/internal/boardruntime"
+	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/ticketbackend"
+	"github.com/carlotran4/kanbi/internal/tmux"
+	"github.com/carlotran4/kanbi/internal/tui"
 )
 
 func main() {
@@ -29,6 +29,9 @@ func main() {
 }
 
 func run(args []string) error {
+	if handled, err := handleMetadataCommand(args, os.Stdout); handled {
+		return err
+	}
 	ctx := context.Background()
 	cfg, err := config.Load()
 	if err != nil {
@@ -1079,7 +1082,7 @@ func openStore(ctx context.Context, cfg config.Config) (*storage.Store, error) {
 }
 
 func usageError(cmd string) error {
-	return fmt.Errorf("unknown command %q\nusage: kanbi [doctor|boards|add|list|show|update|move|notes|state|sync|open|--board]", cmd)
+	return fmt.Errorf("unknown command %q; run `kanbi --help` for available commands", cmd)
 }
 
 func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {

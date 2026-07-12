@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/config"
 )
 
 func LaunchHerdrBoard(cfg config.Config, exe string) error {

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"kanbi/internal/config"
-	"kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/storage"
 )
 
 func TestAsyncSessionRefCaptureUpdatesExactInsertedAttempt(t *testing.T) {
