@@ -124,14 +124,6 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
   sleep 1  # allow tmux window to appear
   pass "open --send-prompt returned without error"
 
-  step "[$HARNESS] Verify tmux window exists"
-  WNAME="$(tmux list-windows -t "$SESSION" -F '#{window_name}' | grep "^${DISPLAY_ID}-" | head -1 || true)"
-  if [[ -z "$WNAME" ]]; then
-    fail "no tmux window matching $DISPLAY_ID-* found in session $SESSION"
-  fi
-  WINDOW_NAMES[$HARNESS]="$WNAME"
-  pass "window $WNAME exists"
-
   step "[$HARNESS] Verify session row is active in SQLite"
   ROW="$(sqlite3 "$KANBI_DB" "
     select s.id, s.is_active, s.harness, s.tmux_window_name
@@ -147,6 +139,17 @@ for HARNESS in "${HARNESS_LIST[@]}"; do
     fail "session for $DISPLAY_ID is not active: row=$ROW"
   fi
   pass "session row active: $ROW"
+
+  step "[$HARNESS] Verify the stored tmux window exists"
+  WNAME="$(echo "$ROW" | cut -d'|' -f4)"
+  if [[ -z "$WNAME" ]]; then
+    fail "session for $DISPLAY_ID has no stored tmux window name: row=$ROW"
+  fi
+  if ! tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -Fxq "$WNAME"; then
+    fail "stored tmux window $WNAME for $DISPLAY_ID not found in session $SESSION"
+  fi
+  WINDOW_NAMES[$HARNESS]="$WNAME"
+  pass "stored window $WNAME exists"
 
   step "[$HARNESS] Capture pane and verify prompt appears"
   sleep 2  # give harness time to echo prompt
