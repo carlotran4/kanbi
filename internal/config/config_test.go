@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -26,6 +27,40 @@ func TestResolvePathsUsesXDGAndEnvOverrides(t *testing.T) {
 	paths = ResolvePaths()
 	if paths.DBFile != filepath.Join(home, "override.db") || paths.ConfigFile != filepath.Join(home, "override.yaml") {
 		t.Fatalf("env overrides not applied: %+v", paths)
+	}
+}
+
+func TestEnsureDirsCreatesPrivateDirectoriesWithoutChangingSharedParent(t *testing.T) {
+	old := syscall.Umask(0)
+	defer syscall.Umask(old)
+	root := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(root, "config", "config.yaml"), DataDir: filepath.Join(root, "data"), StateDir: filepath.Join(root, "state"), DBFile: filepath.Join(root, "db", "kanbi.db")}
+	if err := os.MkdirAll(filepath.Dir(paths.ConfigFile), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.ConfigFile, []byte("{}"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Paths: paths, DBPath: paths.DBFile}
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{paths.DataDir, paths.StateDir, filepath.Dir(paths.DBFile)} {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("%s mode=%o", p, info.Mode().Perm())
+		}
+	}
+	configParent, _ := os.Stat(filepath.Dir(paths.ConfigFile))
+	if configParent.Mode().Perm() != 0o777 {
+		t.Fatalf("explicit existing config parent mode changed to %o", configParent.Mode().Perm())
+	}
+	info, _ := os.Stat(paths.ConfigFile)
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("config mode=%o", info.Mode().Perm())
 	}
 }
 

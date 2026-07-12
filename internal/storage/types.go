@@ -89,6 +89,7 @@ type Note struct {
 	ExternalUpdatedAt sql.NullTime
 	SyncVersion       sql.NullString
 	Body              string
+	DeletedAt         sql.NullTime
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }

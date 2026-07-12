@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -50,6 +51,7 @@ type SyncRepository interface {
 	SyncTicketsForBoard(context.Context, int64) ([]storage.Ticket, error)
 	UpsertRemoteTicket(context.Context, storage.RemoteTicket) (storage.Ticket, error)
 	ListNotes(context.Context, int64) ([]storage.Note, error)
+	ListNotesForSync(context.Context, int64) ([]storage.Note, error)
 	UpsertRemoteNote(context.Context, int64, string, string, time.Time) error
 	LinkLocalNoteToRemote(context.Context, int64, string, time.Time) error
 }
@@ -127,10 +129,12 @@ type Manager struct {
 
 	locksMu    sync.Mutex
 	boardLocks map[int64]*sync.Mutex
+	Owner      string
+	LeaseTTL   time.Duration
 }
 
 func NewManager(store *storage.Store) *Manager {
-	return &Manager{Store: store, Registry: DefaultRegistry(), Interval: time.Minute, boardLocks: map[int64]*sync.Mutex{}}
+	return &Manager{Store: store, Registry: DefaultRegistry(), Interval: time.Minute, boardLocks: map[int64]*sync.Mutex{}, Owner: fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid()), LeaseTTL: 5 * time.Minute}
 }
 
 func (m *Manager) boardLock(boardID int64) *sync.Mutex {
@@ -152,6 +156,51 @@ func (m *Manager) SyncBoard(ctx context.Context, board storage.Board) (Result, e
 	lock := m.boardLock(board.ID)
 	lock.Lock()
 	defer lock.Unlock()
+	owner := m.Owner
+	if owner == "" {
+		owner = fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid())
+	}
+	ttl := m.LeaseTTL
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	acquired, err := m.Store.AcquireBoardSyncLease(ctx, board.ID, owner, ttl)
+	if err != nil {
+		return Result{}, err
+	}
+	if !acquired {
+		return Result{}, storage.ErrBoardSyncInProgress
+	}
+	syncCtx, cancelSync := context.WithCancel(ctx)
+	renewCtx, stopRenew := context.WithCancel(context.Background())
+	renewDone := make(chan struct{})
+	go func() {
+		defer close(renewDone)
+		interval := ttl / 3
+		if interval <= 0 {
+			interval = time.Millisecond
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				ok, err := m.Store.RenewBoardSyncLease(renewCtx, board.ID, owner, ttl)
+				if err != nil || !ok {
+					cancelSync()
+					return
+				}
+			}
+		}
+	}()
+	defer func() {
+		cancelSync()
+		stopRenew()
+		<-renewDone
+		_ = m.Store.ReleaseBoardSyncLease(context.WithoutCancel(ctx), board.ID, owner)
+	}()
 
 	registry := m.Registry
 	if registry == nil {
@@ -166,7 +215,7 @@ func (m *Manager) SyncBoard(ctx context.Context, board storage.Board) (Result, e
 		_ = m.Store.MarkBoardSync(ctx, board.ID, err)
 		return Result{}, err
 	}
-	res, syncErr := backend.Sync(ctx, m.Store, board)
+	res, syncErr := backend.Sync(syncCtx, m.Store, board)
 	if markErr := m.Store.MarkBoardSync(ctx, board.ID, syncErr); markErr != nil {
 		return res, errors.Join(syncErr, markErr)
 	}

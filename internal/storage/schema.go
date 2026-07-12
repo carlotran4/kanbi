@@ -79,6 +79,12 @@ create table if not exists sessions (
   updated_at datetime not null
 );
 
+create table if not exists board_sync_leases (
+  board_id integer primary key references boards(id) on delete cascade,
+  owner text not null,
+  expires_at datetime not null
+);
+
 create table if not exists ticket_notes (
   id integer primary key autoincrement,
   ticket_id integer not null references tickets(id) on delete cascade,
@@ -86,6 +92,7 @@ create table if not exists ticket_notes (
   external_updated_at datetime,
   sync_version text,
   body text not null default '',
+  deleted_at datetime,
   created_at datetime not null,
   updated_at datetime not null
 );

@@ -221,7 +221,7 @@ func (b GitHubBackend) syncComments(ctx context.Context, store SyncRepository, c
 	if err != nil {
 		return 0, err
 	}
-	locals, err := store.ListNotes(ctx, ticketID)
+	locals, err := store.ListNotesForSync(ctx, ticketID)
 	if err != nil {
 		return 0, err
 	}
@@ -235,6 +235,9 @@ func (b GitHubBackend) syncComments(ctx context.Context, store SyncRepository, c
 	for _, c := range comments {
 		ext := strconv.FormatInt(c.ID, 10)
 		if n, ok := byExternal[ext]; ok {
+			if n.DeletedAt.Valid {
+				continue
+			}
 			localChanged := !n.ExternalUpdatedAt.Valid || n.UpdatedAt.After(n.ExternalUpdatedAt.Time)
 			remoteChanged := !n.ExternalUpdatedAt.Valid || c.UpdatedAt.After(n.ExternalUpdatedAt.Time)
 			if localChanged && remoteChanged {
@@ -260,7 +263,7 @@ func (b GitHubBackend) syncComments(ctx context.Context, store SyncRepository, c
 		}
 	}
 	for _, n := range locals {
-		if n.ExternalID.Valid || strings.TrimSpace(n.Body) == "" {
+		if n.DeletedAt.Valid || n.ExternalID.Valid || strings.TrimSpace(n.Body) == "" {
 			continue
 		}
 		created, err := client.CreateComment(ctx, cfg, issueNumber, n.Body)

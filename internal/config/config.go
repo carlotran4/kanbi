@@ -181,9 +181,24 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 }
 
 func (c Config) EnsureDirs() error {
-	for _, dir := range []string{filepath.Dir(c.Paths.ConfigFile), c.Paths.DataDir, c.Paths.StateDir, filepath.Dir(c.DBPath)} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+	dirs := []string{filepath.Dir(c.Paths.ConfigFile), c.Paths.DataDir, c.Paths.StateDir, filepath.Dir(c.DBPath)}
+	for _, dir := range dirs {
+		_, statErr := os.Stat(dir)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("create %s: %w", dir, err)
+		}
+		// Paths may be explicit overrides such as /tmp or /etc; never change an
+		// existing directory's permissions merely because Kanbi stores a file
+		// there. Newly-created application directories are private by default.
+		if errors.Is(statErr, os.ErrNotExist) {
+			if err := os.Chmod(dir, 0o700); err != nil {
+				return fmt.Errorf("secure %s: %w", dir, err)
+			}
+		}
+	}
+	if _, err := os.Stat(c.Paths.ConfigFile); err == nil {
+		if err := os.Chmod(c.Paths.ConfigFile, 0o600); err != nil {
+			return fmt.Errorf("secure config file: %w", err)
 		}
 	}
 	return nil

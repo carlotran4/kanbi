@@ -20,6 +20,7 @@ type migration struct {
 var migrations = []migration{
 	{version: 1, name: "legacy schema compatibility", apply: migrateLegacySchema},
 	{version: 2, name: "projection and lifecycle indexes", apply: migrateIndexes},
+	{version: 3, name: "sync leases and note tombstones", apply: migrateProductionSafety},
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -164,6 +165,24 @@ func migrateLegacySchema(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+func migrateProductionSafety(ctx context.Context, tx *sql.Tx) error {
+	cols, err := tableColumns(ctx, tx, "ticket_notes")
+	if err != nil {
+		return err
+	}
+	if !cols["deleted_at"] {
+		if _, err := tx.ExecContext(ctx, `alter table ticket_notes add column deleted_at datetime`); err != nil {
+			return err
+		}
+	}
+	_, err = tx.ExecContext(ctx, `create table if not exists board_sync_leases (
+  board_id integer primary key references boards(id) on delete cascade,
+  owner text not null,
+  expires_at datetime not null
+)`)
+	return err
 }
 
 func migrateIndexes(ctx context.Context, tx *sql.Tx) error {

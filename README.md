@@ -30,7 +30,24 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 - Rename/update boards with `kanbi boards rename OLD NEW` and `kanbi boards set-cwd NAME /path/to/project`.
 - In the TUI board picker: `c` creates a board, `r` renames, `w` sets cwd, and `d` deletes. Board deletion is permanent, is blocked while any ticket session is active, and removes locally stored attachments for that board's tickets after the database deletion succeeds.
 
-Kanbi does not currently provide a board export or restore command. Back up the SQLite database and `~/.local/share/kanbi/attachments/` (or the configured XDG data directory) together before destructive deletion. External ticket providers are not a backup of local runtime/session history or attachments.
+## Backup, restore, and deletion safety
+
+Create a consistent backup (SQLite including committed WAL data, plus attachments) with:
+
+```bash
+kanbi backup ~/kanbi-backup.kanbi
+```
+
+Restore only after stopping every Kanbi process that uses the target database:
+
+```bash
+kanbi restore ~/kanbi-backup.kanbi          # only when no database exists
+kanbi restore ~/kanbi-backup.kanbi --force  # atomically replace an existing database
+```
+
+Backups contain a versioned manifest, a SQLite snapshot, and attachment files. Restore validates archive paths, the manifest/schema version, and SQLite integrity before replacement. It refuses an existing database without `--force` and refuses restore while SQLite WAL/SHM sidecars exist. Database replacement uses an atomic rename; database and attachment replacement are rollback-protected but cannot be one filesystem transaction, so do not run restore concurrently with Kanbi. External ticket providers are not a backup of local runtime/session history or attachments.
+
+Board deletion is permanent and blocked while sessions are active. The TUI requires typing the exact board name and explicitly warns that tickets, notes, complete session history, and attachments will be deleted. Create and verify a backup first.
 
 ## CLI automation surface
 
@@ -119,6 +136,12 @@ KANBI_JIRA_EMAIL="you@example.com" \
 KANBI_JIRA_API_TOKEN="TOKEN" \
 ./scripts/jira-backend-smoke.sh
 ```
+
+## Data privacy and process behavior
+
+Kanbi creates application directories for the current user (`0700`) and restricts sensitive files, including existing config and SQLite database/WAL/SHM files, to `0600`. Explicit pre-existing parent-directory overrides keep their existing permissions. Pressing `q` from the board or `Ctrl+C` anywhere exits the UI without terminating active ticket agent sessions; close a ticket session explicitly with `x`.
+
+Remote-provider sync is serialized per board with a durable SQLite lease, including across Kanbi processes. Stale leases recover automatically after their expiry. Deleting a provider-backed note creates a durable local tombstone: the remote comment is not deleted, but it cannot be re-imported into Kanbi on later sync.
 
 ## Status
 

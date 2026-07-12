@@ -46,7 +46,7 @@ var ticketProjectionColumns = []string{
 	"s.last_observed_excerpt",
 	"t.created_at",
 	"t.updated_at",
-	"(select count(*) from ticket_notes where ticket_id=t.id)",
+	"(select count(*) from ticket_notes where ticket_id=t.id and deleted_at is null)",
 }
 
 const latestSessionProjectionJoin = `

@@ -184,7 +184,7 @@ func (b JiraBackend) syncComments(ctx context.Context, store SyncRepository, cli
 	if err != nil {
 		return err
 	}
-	locals, err := store.ListNotes(ctx, ticketID)
+	locals, err := store.ListNotesForSync(ctx, ticketID)
 	if err != nil {
 		return err
 	}
@@ -196,6 +196,9 @@ func (b JiraBackend) syncComments(ctx context.Context, store SyncRepository, cli
 	}
 	for _, c := range comments {
 		if n, ok := byExternal[c.ID]; ok {
+			if n.DeletedAt.Valid {
+				continue
+			}
 			if n.UpdatedAt.After(c.UpdatedAt) {
 				updated, err := client.UpdateComment(ctx, cfg, issueID, c.ID, n.Body)
 				if err != nil {
@@ -216,7 +219,7 @@ func (b JiraBackend) syncComments(ctx context.Context, store SyncRepository, cli
 		}
 	}
 	for _, n := range locals {
-		if n.ExternalID.Valid || strings.TrimSpace(n.Body) == "" {
+		if n.DeletedAt.Valid || n.ExternalID.Valid || strings.TrimSpace(n.Body) == "" {
 			continue
 		}
 		created, err := client.CreateComment(ctx, cfg, issueID, n.Body)

@@ -34,6 +34,10 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := secureSQLiteFiles(path); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
@@ -117,5 +121,26 @@ func ensureParent(path string) error {
 	if path == ":memory:" {
 		return nil
 	}
-	return os.MkdirAll(filepath.Dir(path), 0o755)
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); err == nil {
+		// The database path may intentionally live in a shared or system-owned
+		// directory. Secure the database files themselves without changing an
+		// existing parent directory's permissions.
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.MkdirAll(dir, 0o700)
+}
+
+func secureSQLiteFiles(path string) error {
+	if path == ":memory:" {
+		return nil
+	}
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(candidate, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("secure SQLite file %s: %w", candidate, err)
+		}
+	}
+	return nil
 }

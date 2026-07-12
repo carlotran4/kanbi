@@ -49,6 +49,7 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 		m.boardDeleting = true
 		m.boardDeleteID = b.ID
 		m.boardDeleteName = b.Name
+		m.boardDeleteInput = NewInputBuffer("")
 	case "j", "down":
 		if count > 0 {
 			m.boardIndex = (m.boardIndex + 1) % count
@@ -307,9 +308,13 @@ func (m Model) boardEditView() string {
 
 func (m Model) updateBoardDelete(key tea.KeyMsg) Model {
 	switch key.String() {
-	case "esc", "n":
+	case "esc":
 		m.boardDeleting = false
-	case "y":
+	case "enter":
+		if m.boardDeleteInput.Value() != m.boardDeleteName {
+			m.status = "type the exact board name to confirm deletion"
+			return m
+		}
 		if err := m.actions.DeleteBoard(m.ctx, m.boardDeleteID); err != nil {
 			m.status = err.Error()
 			return m
@@ -323,6 +328,8 @@ func (m Model) updateBoardDelete(key tea.KeyMsg) Model {
 			m.reload()
 		}
 		m.boardPicker = true
+	default:
+		m.boardDeleteInput.HandleKey(key.String(), key.Runes)
 	}
 	return m
 }
@@ -331,10 +338,13 @@ func (m Model) boardDeleteView() string {
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Foreground(palette.error_).Render("Delete board \"" + m.boardDeleteName + "\"?"),
 		"",
-		"This deletes its tickets and sessions.",
-		lipgloss.NewStyle().Faint(true).Render("Active sessions block deletion."),
+		"Permanently deletes tickets, notes, complete session history, and attachments.",
+		lipgloss.NewStyle().Faint(true).Render("There is no undo or restore unless you created a backup. Active sessions block deletion."),
 		"",
-		lipgloss.NewStyle().Faint(true).Render("y confirm · n/Esc cancel"),
+		"Type the exact board name to confirm:",
+		m.boardDeleteInput.Render(),
+		"",
+		lipgloss.NewStyle().Faint(true).Render("Enter delete · Esc cancel"),
 	}
 	popupW := popupWidth(m.width)
 	return lipgloss.NewStyle().

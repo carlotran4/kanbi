@@ -46,6 +46,7 @@ type Model struct {
 	boardDeleting           bool
 	boardDeleteID           int64
 	boardDeleteName         string
+	boardDeleteInput        InputBuffer
 	masterCreateCol         string
 	col                     int
 	card                    int
@@ -213,6 +214,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// Ctrl+C is a global, non-destructive application quit. Ticket runtime
+	// containers remain alive regardless of which modal currently has focus.
+	if key.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
 	if isKittyGraphicsResponse(string(key.Runes)) || isKittyGraphicsResponse(key.String()) {
 		if m.editing {
 			for i := range m.editInputs {
@@ -274,8 +280,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boardPickerMode = "switch"
 	case "f":
 		m.startMasterFilter()
-	case "q", "ctrl+c":
-		_ = m.actions.KillAllSessions(m.ctx)
+	case "q":
 		return m, tea.Quit
 	case "!":
 		m.moveAttention(1)

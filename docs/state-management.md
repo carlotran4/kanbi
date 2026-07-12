@@ -140,7 +140,7 @@ stateDiagram-v2
 
 The current implementation is intentionally split this way:
 
-- `internal/storage`: owns canonical ticket/session rows, ticket notes, and the ticket projection used by `BoardView`.
+- `internal/storage`: owns canonical ticket/session rows, ticket notes and deletion tombstones, per-board provider sync leases, and the ticket projection used by `BoardView`. Linked-note tombstones are hidden from normal reads but visible to sync, preventing a still-present remote comment from being re-imported.
 - `internal/tmux`: owns lifecycle orchestration, tmux validation, Herdr adapter dispatch, start/resume/switch/close, runtime refresh, and repair errors.
 - `internal/tui`: owns transient UI states such as edit mode, repair screen, prompt fallback, column edit, and manual mark menu.
 

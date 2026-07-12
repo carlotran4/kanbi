@@ -18,6 +18,41 @@ import (
 	"kanbi/internal/tmux"
 )
 
+type quitTestManager struct{ killed bool }
+
+func (m *quitTestManager) RenameTicketWindow(context.Context, storage.Ticket, string) error {
+	return nil
+}
+func (m *quitTestManager) OpenTicket(context.Context, storage.Ticket, bool) error       { return nil }
+func (m *quitTestManager) SwitchToTicket(context.Context, storage.Ticket) error         { return nil }
+func (m *quitTestManager) RefreshRuntime(context.Context) error                         { return nil }
+func (m *quitTestManager) PastePromptNow(context.Context, string, string) error         { return nil }
+func (m *quitTestManager) CloseSession(context.Context, storage.Ticket) error           { return nil }
+func (m *quitTestManager) KillSession(context.Context) error                            { m.killed = true; return nil }
+func (m *quitTestManager) StartFreshTicket(context.Context, storage.Ticket, bool) error { return nil }
+func (m *quitTestManager) MoveTicketToDefaultMultiplexer(context.Context, storage.Ticket) error {
+	return nil
+}
+
+func TestQuitDoesNotKillTicketSessions(t *testing.T) {
+	store, ctx := newTestStore(t)
+	manager := &quitTestManager{}
+	model := New(ctx, NewService(store, manager))
+	_, cmd := mustUpdate(t, model, "q")
+	if cmd == nil {
+		t.Fatal("q must return quit command")
+	}
+	if manager.killed {
+		t.Fatal("normal quit killed ticket sessions")
+	}
+	model = New(ctx, NewService(store, manager))
+	model.showHelp = true
+	_, cmd = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil || manager.killed {
+		t.Fatal("Ctrl+C must quit globally without killing sessions")
+	}
+}
+
 func TestModelKeybindingsCreateMoveReorderArchive(t *testing.T) {
 	store, ctx := newTestStore(t)
 	model := New(ctx, NewService(store, nil))
@@ -1394,7 +1429,14 @@ func TestBoardPickerCreateSetCWDAndDeleteBoard(t *testing.T) {
 	if !model.boardDeleting {
 		t.Fatalf("delete confirmation not shown")
 	}
-	model, _ = mustUpdate(t, model, "y")
+	model, _ = mustUpdate(t, model, "Wrong")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if _, err := store.BoardByName(ctx, "Client"); err != nil || !model.boardDeleting {
+		t.Fatal("mismatched confirmation must not delete board")
+	}
+	model.boardDeleteInput = NewInputBuffer("")
+	model, _ = mustUpdate(t, model, "Client")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	if _, err := store.BoardByName(ctx, "Client"); err == nil {
 		t.Fatal("board should be deleted")
 	}

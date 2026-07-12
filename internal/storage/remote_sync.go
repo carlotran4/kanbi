@@ -184,13 +184,17 @@ func (s *Store) UpsertRemoteNote(ctx context.Context, ticketID int64, externalID
 		return errors.New("remote note requires external id")
 	}
 	var id int64
-	err := s.db.QueryRowContext(ctx, `select id from ticket_notes where ticket_id=? and external_id=?`, ticketID, externalID).Scan(&id)
+	var deletedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, `select id, deleted_at from ticket_notes where ticket_id=? and external_id=?`, ticketID, externalID).Scan(&id, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		_, err = s.db.ExecContext(ctx, `insert into ticket_notes(ticket_id,external_id,external_updated_at,sync_version,body,created_at,updated_at) values(?,?,?,?,?,?,?)`, ticketID, externalID, externalUpdatedAt, externalUpdatedAt.Format(time.RFC3339Nano), body, time.Now().UTC(), externalUpdatedAt)
 		return err
 	}
 	if err != nil {
 		return err
+	}
+	if deletedAt.Valid {
+		return nil
 	}
 	_, err = s.db.ExecContext(ctx, `update ticket_notes set external_updated_at=?, sync_version=?, body=?, updated_at=? where id=?`, externalUpdatedAt, externalUpdatedAt.Format(time.RFC3339Nano), body, externalUpdatedAt, id)
 	return err

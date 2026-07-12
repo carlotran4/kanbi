@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"kanbi/internal/backup"
 	"kanbi/internal/boardruntime"
 	"kanbi/internal/config"
 	"kanbi/internal/storage"
@@ -66,6 +67,10 @@ func run(args []string) error {
 		return runBoard(ctx, cfg)
 	case "doctor":
 		return runDoctor(ctx, cfg, args[1:]...)
+	case "backup", "export":
+		return runBackup(ctx, cfg, args[1:])
+	case "restore":
+		return runRestore(ctx, cfg, args[1:])
 	case "boards":
 		return runBoards(ctx, cfg, args[1:])
 	case "add":
@@ -89,6 +94,47 @@ func run(args []string) error {
 	default:
 		return usageError(args[0])
 	}
+}
+
+func runBackup(ctx context.Context, cfg config.Config, args []string) error {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return errors.New("usage: kanbi backup PATH")
+	}
+	store, err := storage.Open(cfg.DBPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if err := store.Init(ctx); err != nil {
+		return err
+	}
+	if err := backup.Export(ctx, store, cfg.Paths.DataDir, args[0]); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stdout, "backup created:", args[0])
+	return nil
+}
+
+func runRestore(ctx context.Context, cfg config.Config, args []string) error {
+	force := false
+	var path string
+	for _, arg := range args {
+		if arg == "--force" {
+			force = true
+		} else if path == "" {
+			path = arg
+		} else {
+			return errors.New("usage: kanbi restore PATH [--force]")
+		}
+	}
+	if path == "" {
+		return errors.New("usage: kanbi restore PATH [--force]")
+	}
+	if err := backup.Restore(ctx, path, cfg.DBPath, cfg.Paths.DataDir, force); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stdout, "backup restored:", path)
+	return nil
 }
 
 func runBoard(ctx context.Context, cfg config.Config) error {

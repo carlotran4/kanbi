@@ -27,6 +27,15 @@ func TestDecodePastedImageOSC52(t *testing.T) {
 	}
 }
 
+func TestBaseDirHonorsKanbiDataDir(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("KANBI_DATA_DIR", dataDir)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "ignored"))
+	if got, want := BaseDir(), filepath.Join(dataDir, "attachments"); got != want {
+		t.Fatalf("BaseDir()=%q want=%q", got, want)
+	}
+}
+
 func TestSavePastedImageWritesPerTicketFileAndMarkdownRef(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)

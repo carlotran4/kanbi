@@ -21,6 +21,9 @@ var dataImageRE = regexp.MustCompile(`^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$
 
 // BaseDir returns the XDG data directory used for ticket attachments.
 func BaseDir() string {
+	if dataDir := strings.TrimSpace(os.Getenv("KANBI_DATA_DIR")); dataDir != "" {
+		return filepath.Join(dataDir, "attachments")
+	}
 	if dataHome := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dataHome != "" {
 		return filepath.Join(dataHome, appDir, "attachments")
 	}

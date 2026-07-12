@@ -23,7 +23,7 @@ flowchart LR
     Sync[Ticket backend sync] --> Store
 ```
 
-- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, and session history live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite. File databases use WAL mode and a busy timeout for concurrent Kanbi processes. Foreign-key enforcement is enabled on every store connection and integrity is verified during initialization.
+- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, session history, provider-note tombstones, and cross-process sync leases live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite. File databases use WAL mode and a busy timeout for concurrent Kanbi processes. Foreign-key enforcement is enabled on every store connection and integrity is verified during initialization.
 - **The configured multiplexer is observed runtime state.** tmux windows are validated against live tmux. Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions.
@@ -216,7 +216,7 @@ Always update [`docs/harness-contracts.md`](./harness-contracts.md) when harness
 
 SQLite schema changes are applied through the ordered `schema_migrations` ledger. Migration runners serialize through a database write lock, apply pending migrations atomically, and record a version only in the transaction that successfully applied it. Existing pre-ledger databases enter through the idempotent legacy compatibility migration; no ticket or session history is flattened or deleted. Kanbi refuses to open a database created by a newer unsupported schema version or one that fails SQLite's foreign-key integrity check.
 
-Indexes used by board projection, latest-session lookup, external identity lookup, and note listing are installed by migration. Domain uniqueness constraints must only be added with an explicit compatibility strategy for existing durable history.
+Indexes used by board projection, latest-session lookup, external identity lookup, and note listing are installed by migration. Provider sync uses expiring, per-board SQLite leases so multiple Kanbi processes cannot concurrently create the same remote ticket; leases are released after sync and abandoned leases recover after expiry. Provider-backed note deletion preserves a tombstone so comments that remain remote are not re-imported. Domain uniqueness constraints must only be added with an explicit compatibility strategy for existing durable history.
 
 ## Testing Strategy
 
