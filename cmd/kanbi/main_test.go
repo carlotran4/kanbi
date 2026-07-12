@@ -492,6 +492,7 @@ func TestRunBoardTUIIntegrationSwitchesBoards(t *testing.T) {
 	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // create on Client B
 	output = waitForTmuxOutput(t, sessionName, "No description yet")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "Escape")
+	waitForTmuxOutputWithout(t, sessionName, "Unsaved changes")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "b")
 	output = waitForTmuxOutput(t, sessionName, "Select board")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // select Client B
@@ -742,6 +743,21 @@ func waitForTmuxOutput(t *testing.T, sessionName, want string) string {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %q\n--- output ---\n%s", want, output)
+	return output
+}
+
+func waitForTmuxOutputWithout(t *testing.T, sessionName, unwanted string) string {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var output string
+	for time.Now().Before(deadline) {
+		output = stripANSI(tmuxCmd(t, "capture-pane", "-p", "-t", sessionName))
+		if !strings.Contains(output, unwanted) {
+			return output
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %q to disappear\n--- output ---\n%s", unwanted, output)
 	return output
 }
 
