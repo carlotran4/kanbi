@@ -41,7 +41,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
+cd "$ROOT"
 export GOCACHE="${GOCACHE:-/tmp/kanbi-go-build}"
+if [[ "$RUN_CHECKS" == "1" ]]; then
+  # Run the repository checks before exporting smoke-only Kanbi paths. Those
+  # variables intentionally affect application behavior and would otherwise
+  # leak into unit tests that exercise XDG and tmux configuration defaults.
+  go fmt ./...
+  go test ./...
+  go vet ./...
+fi
+
 export KANBI_CONFIG="$TMP/config.yaml"
 export KANBI_DB="$TMP/kanbi.db"
 export KANBI_STATE_DIR="$TMP/state"
@@ -87,12 +97,6 @@ harnesses:
     prompt_mode: "arg"
 YAML
 
-cd "$ROOT"
-if [[ "$RUN_CHECKS" == "1" ]]; then
-  go fmt ./...
-  go test ./...
-  go vet ./...
-fi
 go build -buildvcs=false -o "$BIN" ./cmd/kanbi
 
 "$BIN" doctor
