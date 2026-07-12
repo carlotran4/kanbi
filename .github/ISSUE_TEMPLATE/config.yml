@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/carlotran4/kanbi/security/advisories/new
+    about: Report security issues privately (see SECURITY.md). Do not file public issues for vulnerabilities.
+  - name: Support and diagnostics guide
+    url: https://github.com/carlotran4/kanbi/blob/main/docs/support.md
+    about: How to collect a redacted support bundle and what is included.

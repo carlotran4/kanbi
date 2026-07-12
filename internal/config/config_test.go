@@ -64,6 +64,17 @@ func TestEnsureDirsCreatesPrivateDirectoriesWithoutChangingSharedParent(t *testi
 	}
 }
 
+func TestNormalizeDiagnosticsEnvOverridesConfig(t *testing.T) {
+	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
+	cfg, err := Normalize(Config{Diagnostics: Diagnostics{Level: "warn"}}, paths, NormalizeOptions{Env: Env{LogLevel: "debug"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Diagnostics.Level != "debug" || cfg.Diagnostics.MaxBytes != 1<<20 || cfg.Diagnostics.MaxFiles != 3 {
+		t.Fatalf("diagnostics=%+v", cfg.Diagnostics)
+	}
+}
+
 func TestNormalizeDefaultsFromInMemoryRawConfig(t *testing.T) {
 	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
 	cfg, err := Normalize(Config{}, paths, NormalizeOptions{})
@@ -72,6 +83,9 @@ func TestNormalizeDefaultsFromInMemoryRawConfig(t *testing.T) {
 	}
 	if cfg.Paths != paths || cfg.DBPath != paths.DBFile || cfg.DefaultHarness != "pi" {
 		t.Fatalf("defaults not applied: %+v", cfg)
+	}
+	if cfg.Diagnostics.Level != "off" {
+		t.Fatalf("diagnostics default=%+v", cfg.Diagnostics)
 	}
 	if cfg.TmuxSession != DefaultSession || cfg.Tmux.SessionName != DefaultSession || cfg.Tmux.BoardWindowName != "board" {
 		t.Fatalf("tmux defaults not applied: %+v", cfg)

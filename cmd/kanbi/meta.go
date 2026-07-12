@@ -28,6 +28,7 @@ Commands:
   open       Open or resume a ticket agent session
   sync       Synchronize external ticket providers
   doctor     Check runtime prerequisites and configuration
+  support-bundle  Write a redacted diagnostic archive for support
   backup     Create a database-and-attachments backup
   restore    Restore a backup while Kanbi is stopped
   version    Show build and schema compatibility information
@@ -98,6 +99,14 @@ Synchronize GitHub or Jira ticket metadata for one or all boards.`,
 	"doctor": `Usage: kanbi doctor [--json]
 
 Check build/schema information, paths, configured multiplexer, tmux compatibility, terminal, and harness commands. Fatal results return an error.`,
+	"support-bundle": `Usage: kanbi support-bundle PATH [--json]
+
+Write a versioned, path-safe support archive with build/schema metadata, redacted
+config, doctor results, recent redacted diagnostics, platform/multiplexer details,
+migration state, and harness presence. Never includes ticket bodies, notes,
+prompts, session refs, attachment contents, or terminal excerpts by default.
+Works in degraded environments without a working multiplexer or provider.
+Does not mutate application state. Inspect the archive before sharing.`,
 	"backup": `Usage: kanbi backup PATH
 
 Create a consistent, versioned archive containing SQLite state and attachments.`,

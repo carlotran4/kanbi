@@ -89,9 +89,26 @@ jobs:
             -ldflags "-s -w -X github.com/carlotran4/kanbi/internal/buildinfo.Version=$version -X github.com/carlotran4/kanbi/internal/buildinfo.Commit=$commit -X github.com/carlotran4/kanbi/internal/buildinfo.BuildDate=$build_date" \
             -o package/kanbi ./cmd/kanbi
           package/kanbi version
+          schema_version="$(package/kanbi version | sed -n 's/^database schema: //p' | head -n1)"
+          go_version="$(go env GOVERSION 2>/dev/null || go version | awk '{print $3}')"
+          printf '%s\n' "{" \
+            "  \"format\": \"kanbi-buildinfo\"," \
+            "  \"format_version\": 1," \
+            "  \"version\": \"${version}\"," \
+            "  \"commit\": \"${commit}\"," \
+            "  \"build_date\": \"${build_date}\"," \
+            "  \"go_version\": \"${go_version}\"," \
+            "  \"os\": \"${TARGET_OS}\"," \
+            "  \"arch\": \"${TARGET_ARCH}\"," \
+            "  \"cgo_enabled\": true," \
+            "  \"schema_version\": ${schema_version:-0}," \
+            "  \"module\": \"github.com/carlotran4/kanbi\"," \
+            "  \"github_run_id\": \"${GITHUB_RUN_ID:-}\"," \
+            "  \"github_sha\": \"${GITHUB_SHA:-}\"" \
+            "}" > package/BUILDINFO.json
           cp README.md LICENSE package/
           archive="kanbi_${version}_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
-          tar -czf "$archive" -C package kanbi README.md LICENSE
+          tar -czf "$archive" -C package kanbi README.md LICENSE BUILDINFO.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kanbi-${{ matrix.os }}-${{ matrix.arch }}

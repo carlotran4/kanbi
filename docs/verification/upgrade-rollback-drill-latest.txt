@@ -1,0 +1,216 @@
+upgrade-rollback-drill: PASS
+date_utc: 2026-07-12T20:10:24Z
+host: Linux x86_64
+old_archive: /tmp/kanbi-upgrade-drill.4rZrzO/dist-old/kanbi_drill-old_linux_amd64.tar.gz
+new_archive: /tmp/kanbi-upgrade-drill.4rZrzO/dist-new/kanbi_drill-new_linux_amd64.tar.gz
+old_version: kanbi drill-old commit: 160f9df5d3c243372bfb26e9e3e22304c0c9eb56 built: 2026-07-12T20:10:21Z go: go1.26.5 platform: linux/amd64 database schema: 5 
+new_version: kanbi drill-new commit: 160f9df5d3c243372bfb26e9e3e22304c0c9eb56 built: 2026-07-12T20:10:22Z go: go1.26.5 platform: linux/amd64 database schema: 5 
+result: tickets, notes, and attachments (when seeded) intact at pre-upgrade restore point
+log: see commit path docs/verification/upgrade-rollback-drill-latest.txt
+
+Building OLD snapshot from current tree (drill-old)…
+Building NEW snapshot from current tree (drill-new)…
+OLD_ARCHIVE=/tmp/kanbi-upgrade-drill.4rZrzO/dist-old/kanbi_drill-old_linux_amd64.tar.gz
+NEW_ARCHIVE=/tmp/kanbi-upgrade-drill.4rZrzO/dist-new/kanbi_drill-new_linux_amd64.tar.gz
+=== OLD version ===
+kanbi drill-old
+commit: 160f9df5d3c243372bfb26e9e3e22304c0c9eb56
+built: 2026-07-12T20:10:21Z
+go: go1.26.5
+platform: linux/amd64
+database schema: 5
+=== Seed data with OLD binary ===
+2	Drill Board	/tmp/kanbi-upgrade-drill.4rZrzO	local
+T-001 Keep this ticket [pi]
+1	note-for-rollback
+Seeded attachment for ticket id 1
+backup created: /tmp/kanbi-upgrade-drill.4rZrzO/pre-upgrade.kanbi
+=== Upgrade: open DB with NEW binary ===
+kanbi drill-new
+commit: 160f9df5d3c243372bfb26e9e3e22304c0c9eb56
+built: 2026-07-12T20:10:22Z
+go: go1.26.5
+platform: linux/amd64
+database schema: 5
+{
+  "schema": "kanbi.v1.tickets",
+  "tickets": [
+    {
+      "archived_at": null,
+      "board": {
+        "id": 2,
+        "name": "Drill Board",
+        "workdir": "/tmp/kanbi-upgrade-drill.4rZrzO"
+      },
+      "body": "body-for-rollback",
+      "column": {
+        "id": 5,
+        "name": "Open"
+      },
+      "created_at": "2026-07-12T20:10:24.594462666Z",
+      "display_id": "T-001",
+      "display_num": 1,
+      "external_id": null,
+      "external_updated_at": null,
+      "external_url": null,
+      "harness": "pi",
+      "id": 1,
+      "last_attention_reason": null,
+      "last_detected_state": null,
+      "last_detection_source": null,
+      "last_observed_excerpt": null,
+      "last_output_at": null,
+      "last_state_change_at": null,
+      "note_count": 1,
+      "position": 0,
+      "runtime": "not_started",
+      "session": null,
+      "sync_version": null,
+      "title": "Keep this ticket",
+      "updated_at": "2026-07-12T20:10:24.594462666Z"
+    }
+  ]
+}
+{
+  "schema": "kanbi.v1.ticket",
+  "ticket": {
+    "archived_at": null,
+    "board": {
+      "id": 2,
+      "name": "Drill Board",
+      "workdir": "/tmp/kanbi-upgrade-drill.4rZrzO"
+    },
+    "body": "body-for-rollback",
+    "column": {
+      "id": 5,
+      "name": "Open"
+    },
+    "created_at": "2026-07-12T20:10:24.594462666Z",
+    "display_id": "T-001",
+    "display_num": 1,
+    "external_id": null,
+    "external_updated_at": null,
+    "external_url": null,
+    "harness": "pi",
+    "id": 1,
+    "last_attention_reason": null,
+    "last_detected_state": null,
+    "last_detection_source": null,
+    "last_observed_excerpt": null,
+    "last_output_at": null,
+    "last_state_change_at": null,
+    "note_count": 1,
+    "notes": [
+      {
+        "body": "note-for-rollback",
+        "created_at": "2026-07-12T20:10:24.612041866Z",
+        "external_id": null,
+        "external_updated_at": null,
+        "id": 1,
+        "sync_version": null,
+        "ticket_id": 1,
+        "updated_at": "2026-07-12T20:10:24.612041866Z"
+      }
+    ],
+    "position": 0,
+    "runtime": "not_started",
+    "session": null,
+    "sync_version": null,
+    "title": "Keep this ticket",
+    "updated_at": "2026-07-12T20:10:24.594462666Z"
+  }
+}
+=== Simulate post-upgrade change then rollback via restore ===
+T-002 Should disappear on rollback [pi]
+=== Rollback: restore pre-upgrade backup with OLD binary ===
+backup restored: /tmp/kanbi-upgrade-drill.4rZrzO/pre-upgrade.kanbi
+{
+  "schema": "kanbi.v1.tickets",
+  "tickets": [
+    {
+      "archived_at": null,
+      "board": {
+        "id": 2,
+        "name": "Drill Board",
+        "workdir": "/tmp/kanbi-upgrade-drill.4rZrzO"
+      },
+      "body": "body-for-rollback",
+      "column": {
+        "id": 5,
+        "name": "Open"
+      },
+      "created_at": "2026-07-12T20:10:24.594462666Z",
+      "display_id": "T-001",
+      "display_num": 1,
+      "external_id": null,
+      "external_updated_at": null,
+      "external_url": null,
+      "harness": "pi",
+      "id": 1,
+      "last_attention_reason": null,
+      "last_detected_state": null,
+      "last_detection_source": null,
+      "last_observed_excerpt": null,
+      "last_output_at": null,
+      "last_state_change_at": null,
+      "note_count": 1,
+      "position": 0,
+      "runtime": "not_started",
+      "session": null,
+      "sync_version": null,
+      "title": "Keep this ticket",
+      "updated_at": "2026-07-12T20:10:24.594462666Z"
+    }
+  ]
+}
+{
+  "schema": "kanbi.v1.ticket",
+  "ticket": {
+    "archived_at": null,
+    "board": {
+      "id": 2,
+      "name": "Drill Board",
+      "workdir": "/tmp/kanbi-upgrade-drill.4rZrzO"
+    },
+    "body": "body-for-rollback",
+    "column": {
+      "id": 5,
+      "name": "Open"
+    },
+    "created_at": "2026-07-12T20:10:24.594462666Z",
+    "display_id": "T-001",
+    "display_num": 1,
+    "external_id": null,
+    "external_updated_at": null,
+    "external_url": null,
+    "harness": "pi",
+    "id": 1,
+    "last_attention_reason": null,
+    "last_detected_state": null,
+    "last_detection_source": null,
+    "last_observed_excerpt": null,
+    "last_output_at": null,
+    "last_state_change_at": null,
+    "note_count": 1,
+    "notes": [
+      {
+        "body": "note-for-rollback",
+        "created_at": "2026-07-12T20:10:24.612041866Z",
+        "external_id": null,
+        "external_updated_at": null,
+        "id": 1,
+        "sync_version": null,
+        "ticket_id": 1,
+        "updated_at": "2026-07-12T20:10:24.612041866Z"
+      }
+    ],
+    "position": 0,
+    "runtime": "not_started",
+    "session": null,
+    "sync_version": null,
+    "title": "Keep this ticket",
+    "updated_at": "2026-07-12T20:10:24.594462666Z"
+  }
+}
+attachment intact after rollback
+=== PASS ===

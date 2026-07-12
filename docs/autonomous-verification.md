@@ -360,15 +360,54 @@ KANBI_SOAK_SECONDS=60 ./scripts/soak-runtime.sh
 
 `KANBI_SOAK=1` enables the soak test path. No real providers or network are used.
 
+## Support Bundle And Diagnostics Verification
+
+When changing diagnostics or support bundles:
+
+```bash
+go test ./internal/diagnostics ./internal/storage
+```
+
+Confirm:
+
+- logging stays off by default and creates `0600` files when enabled;
+- redaction tests cover tokens, auth headers, session refs, and config secrets;
+- support bundles work when the database/multiplexer is unavailable;
+- archives reject path traversal entries and exclude ticket bodies/notes by construction.
+
+Manual inspect after generating a bundle:
+
+```bash
+kanbi support-bundle /tmp/kanbi-support.zip
+unzip -l /tmp/kanbi-support.zip
+unzip -p /tmp/kanbi-support.zip support-bundle.json | head
+```
+
+## Upgrade / Rollback Drill
+
+Schema or packaging changes should run:
+
+```bash
+./scripts/upgrade-rollback-drill.sh
+```
+
+Optional real artifact comparison:
+
+```bash
+OLD_ARCHIVE=/path/to/old.tar.gz NEW_ARCHIVE=/path/to/new.tar.gz ./scripts/upgrade-rollback-drill.sh
+```
+
+The script records the latest result under `docs/verification/upgrade-rollback-drill-latest.txt`.
+
 ## CI And Release Verification
 
 GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux tmux smoke job. Keep deterministic tmux manager tests in the normal CI suite; real harness/provider checks remain opt-in. The scheduled daily and manually dispatched CI workflow runs `scripts/soak-runtime.sh` for 60 seconds with the race detector; its fake provider and temporary databases require no credentials and leave no external resources.
 
-Semantic tags (`vMAJOR.MINOR.PATCH`) trigger `.github/workflows/release.yml`. Release builds must use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every build must execute `kanbi version`, package the binary with README/LICENSE, and publish a shared `SHA256SUMS` file. Before tagging, test the native local artifact path with:
+Semantic tags (`vMAJOR.MINOR.PATCH`) trigger `.github/workflows/release.yml`. Release builds must use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every build must execute `kanbi version`, package the binary with README/LICENSE/`BUILDINFO.json`, and publish a shared `SHA256SUMS` file. Before tagging, test the native local artifact path with:
 
 ```bash
 ./scripts/build-release.sh 0.0.0-dev
 tar -tzf ./dist/kanbi_0.0.0-dev_$(go env GOOS)_$(go env GOARCH).tar.gz
 ```
 
-After extracting the snapshot, verify `kanbi version` reports the supplied version, commit, UTC build date, runtime platform, and current database schema. Release notes and upgrade-impacting changes belong in `CHANGELOG.md`.
+After extracting the snapshot, verify `kanbi version` reports the supplied version, commit, UTC build date, runtime platform, and current database schema, and that `BUILDINFO.json` matches. Release notes and upgrade-impacting changes belong in `CHANGELOG.md`. Full checklist: [`docs/release-checklist.md`](./release-checklist.md).

@@ -1286,3 +1286,33 @@ func TestCLIBoardPackageExportImportJSONStable(t *testing.T) {
 		t.Fatalf("import json missing stable board: %s", importOut)
 	}
 }
+
+func TestCLISupportBundleCreatesArchive(t *testing.T) {
+	run, openStore := setupCLI(t)
+	if err := run("add", "Support ticket"); err != nil {
+		t.Fatal(err)
+	}
+	s := openStore()
+	if err := s.InsertRuntimeDiagnostic(context.Background(), storage.RuntimeDiagnosticInput{
+		Kind: storage.DiagnosticKindRuntime, Operation: "test", Message: "m", Cause: "token=sekrit",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.zip")
+	out := captureStdout(t, func() error { return run("support-bundle", path) })
+	if !strings.Contains(out, "support bundle written") && !strings.Contains(out, "Kanbi support bundle") {
+		t.Fatalf("unexpected output: %s", out)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "sekrit") {
+		t.Fatal("bundle archive raw bytes contain secret")
+	}
+}

@@ -24,6 +24,11 @@ See [`docs/installation.md`](./docs/installation.md) for supported platforms, pr
 - [`docs/tmux-to-herdr-migration.md`](./docs/tmux-to-herdr-migration.md) — recommended semantics for moving existing tmux workflows to Herdr
 - [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — how autonomous agents should verify their work
 - [`docs/installation.md`](./docs/installation.md) — production installation, first run, upgrade, rollback, and uninstall
+- [`docs/compatibility.md`](./docs/compatibility.md) — supported platforms, schema, multiplexers, and harness verification status
+- [`docs/support.md`](./docs/support.md) — diagnostics logging, support-bundle fields, and maintenance policy
+- [`docs/release-checklist.md`](./docs/release-checklist.md) — release provenance and publish checklist
+- [`SECURITY.md`](./SECURITY.md) — private vulnerability reporting and supported-release policy
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — development setup and contribution guidance
 - [`CHANGELOG.md`](./CHANGELOG.md) — release and upgrade history
 - [`docs/archive/design-spec.md`](./docs/archive/design-spec.md) — historical product/design context; current docs win on conflicts
 
@@ -159,6 +164,16 @@ KANBI_JIRA_API_TOKEN="TOKEN" \
 Kanbi creates application directories for the current user (`0700`) and restricts sensitive files, including existing config and SQLite database/WAL/SHM files, to `0600`. Explicit pre-existing parent-directory overrides keep their existing permissions. Pressing `q` from the board or `Ctrl+C` anywhere exits the UI without terminating active ticket agent sessions; close a ticket session explicitly with `x`.
 
 Remote-provider sync is owned by the in-process sync manager (startup, periodic, and mutation-triggered) with durable per-board SQLite leases across Kanbi processes, lease renewal during long ops, and cancel-on-lease-loss. Provider HTTP calls have explicit timeouts; only idempotent GET/list requests retry with backoff. Issue create is fail-closed after a durable pending push token so crashes cannot silently duplicate remote tickets; recovery is find-or-link via a body marker. Stale leases recover automatically after expiry. Sync/runtime failures write redacted diagnostics (operation, board/ticket context, timestamp, attempt, cause)—never tokens, prompts, session refs, or terminal excerpts. Deleting a provider-backed note creates a durable local tombstone: the remote comment is not deleted, but it cannot be re-imported into Kanbi on later sync.
+
+### Diagnostics and support bundles
+
+Optional file logging is off by default. Set `diagnostics.level` in config or `KANBI_LOG_LEVEL=debug` to write bounded, `0600` JSON logs under the state directory (rotated; not a daemon). When filing a bug, generate a redacted archive:
+
+```bash
+kanbi support-bundle ~/kanbi-support.zip
+```
+
+Default bundles include build/schema identity, redacted config, doctor results, recent redacted diagnostics, platform/multiplexer details, migration state, and harness binary presence. They do **not** include ticket bodies, notes, prompts, tokens, session refs, attachment contents, or terminal excerpts. Inspect the zip before sharing; see [`docs/support.md`](./docs/support.md). Report security issues privately via [`SECURITY.md`](./SECURITY.md).
 
 ## License
 

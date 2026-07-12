@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -18,6 +19,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/boardpackage"
 	"github.com/carlotran4/kanbi/internal/boardruntime"
 	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/diagnostics"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/ticketbackend"
 	"github.com/carlotran4/kanbi/internal/tmux"
@@ -43,6 +45,17 @@ func run(args []string) error {
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		return err
+	}
+	logger := newDiagnosticsLogger(cfg)
+	if logger.Enabled() {
+		// Log command identity only — full args can include ticket titles/bodies/tokens.
+		cmdName := ""
+		if len(args) > 0 {
+			cmdName = args[0]
+		}
+		logger.Info("cli", "start", "", "kanbi process started", map[string]string{
+			"command": diagnostics.RedactText(cmdName),
+		})
 	}
 
 	if len(args) == 0 {
@@ -74,6 +87,8 @@ func run(args []string) error {
 		return runBoard(ctx, cfg)
 	case "doctor":
 		return runDoctor(ctx, cfg, args[1:]...)
+	case "support-bundle":
+		return runSupportBundle(ctx, cfg, args[1:])
 	case "backup", "export":
 		return runBackup(ctx, cfg, args[1:])
 	case "restore":
@@ -197,6 +212,100 @@ func runDoctor(ctx context.Context, cfg config.Config, args ...string) error {
 		printDoctorReport(os.Stdout, report)
 	}
 	return report.FatalErr()
+}
+
+func newDiagnosticsLogger(cfg config.Config) *diagnostics.Logger {
+	level, err := diagnostics.ParseLevel(cfg.Diagnostics.Level)
+	if err != nil || level == diagnostics.LevelOff {
+		return diagnostics.New(diagnostics.Options{})
+	}
+	return diagnostics.New(diagnostics.Options{
+		Dir:      cfg.Paths.StateDir,
+		Level:    level,
+		MaxBytes: cfg.Diagnostics.MaxBytes,
+		MaxFiles: cfg.Diagnostics.MaxFiles,
+	})
+}
+
+// supportBundleDoctorProber reuses doctor probes but never creates sessions or runs Init/migrations.
+func supportBundleDoctorProber() doctorProber {
+	return doctorProber{
+		openStore: func(ctx context.Context, cfg config.Config) (io.Closer, error) {
+			// Read-only open: if the schema is still uninitialized, Collect reports degraded DB state.
+			return storage.Open(cfg.DBPath)
+		},
+		ensureTmuxSession: func(ctx context.Context, cfg config.Config) error {
+			session := strings.TrimSpace(cfg.TmuxSession)
+			if session == "" {
+				session = config.DefaultSession
+			}
+			if err := exec.CommandContext(ctx, "tmux", "has-session", "-t", session).Run(); err != nil {
+				return fmt.Errorf("tmux session %q not present (support-bundle does not create sessions)", session)
+			}
+			return nil
+		},
+	}
+}
+
+func runSupportBundle(ctx context.Context, cfg config.Config, args []string) error {
+	format, cleaned, err := parseFormat(args)
+	if err != nil {
+		return err
+	}
+	var destination string
+	for _, arg := range cleaned {
+		if strings.HasPrefix(arg, "-") {
+			return fmt.Errorf("usage: kanbi support-bundle PATH [--json]")
+		}
+		if destination != "" {
+			return fmt.Errorf("usage: kanbi support-bundle PATH [--json]")
+		}
+		destination = arg
+	}
+	if strings.TrimSpace(destination) == "" {
+		return fmt.Errorf("usage: kanbi support-bundle PATH [--json]")
+	}
+
+	// Probe doctor without requiring success and without mutating runtime/app state.
+	// Unlike `kanbi doctor`, support-bundle must not create tmux sessions or run Init/migrations.
+	report := probeDoctor(ctx, cfg, supportBundleDoctorProber())
+	doctorRows := make([]diagnostics.DoctorResult, 0, len(report.Results))
+	for _, r := range report.Results {
+		errText := ""
+		if r.Err != nil {
+			errText = r.Err.Error()
+		}
+		doctorRows = append(doctorRows, diagnostics.DoctorResult{
+			Severity: string(r.Severity),
+			Name:     r.Name,
+			Detail:   r.Detail,
+			Error:    errText,
+		})
+	}
+
+	bundle := diagnostics.Collect(ctx, diagnostics.CollectOptions{
+		Config: cfg,
+		Doctor: doctorRows,
+		OpenStore: func(ctx context.Context, dbPath string) (*storage.Store, error) {
+			// Open without Init so support-bundle never mutates schema/state.
+			return storage.Open(dbPath)
+		},
+		InsideTmux: tmux.InsideTmux,
+	})
+	if err := diagnostics.WriteArchive(destination, bundle); err != nil {
+		return err
+	}
+	if format.JSON {
+		if err := diagnostics.WriteJSON(os.Stdout, bundle); err != nil {
+			return err
+		}
+	} else {
+		if err := diagnostics.WriteHuman(os.Stdout, bundle); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stdout, "support bundle written:", destination)
+	}
+	return nil
 }
 
 func runBoards(ctx context.Context, cfg config.Config, args []string) error {

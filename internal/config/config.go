@@ -53,6 +53,17 @@ type Timeouts struct {
 	PromptReadyTimeoutSeconds    int `yaml:"prompt_ready_timeout_seconds"`
 }
 
+// Diagnostics configures opt-in bounded private file logging under StateDir.
+// Logging is disabled (level off) unless set via config or KANBI_LOG_LEVEL.
+type Diagnostics struct {
+	// Level is off|error|warn|info|debug. Default off.
+	Level string `yaml:"level"`
+	// MaxBytes is the soft size of the active log before rotation (default 1048576).
+	MaxBytes int64 `yaml:"max_bytes"`
+	// MaxFiles is how many rotated files to retain (default 3).
+	MaxFiles int `yaml:"max_files"`
+}
+
 type Config struct {
 	Paths                 Paths
 	DBPath                string             `yaml:"db_path"`
@@ -60,6 +71,7 @@ type Config struct {
 	TmuxSession           string             `yaml:"tmux_session"`
 	Tmux                  Tmux               `yaml:"tmux"`
 	Multiplexer           Multiplexer        `yaml:"multiplexer"`
+	Diagnostics           Diagnostics        `yaml:"diagnostics"`
 	PromptReadyTimeout    time.Duration      `yaml:"-"`
 	PromptReadyRaw        string             `yaml:"prompt_ready_timeout"`
 	IdleUnknownAfter      time.Duration      `yaml:"-"`
@@ -117,6 +129,7 @@ type Env struct {
 	DBPath             string
 	TmuxSession        string
 	DefaultMultiplexer string
+	LogLevel           string
 }
 
 type NormalizeOptions struct {
@@ -167,6 +180,7 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 		cfg.Multiplexer.Default = opts.Env.DefaultMultiplexer
 	}
 	syncMultiplexerConfig(&cfg)
+	applyDiagnosticsDefaults(&cfg, opts.Env)
 	if cfg.PromptReadyRaw == "" {
 		cfg.PromptReadyRaw = "5s"
 	}
@@ -216,6 +230,7 @@ func defaultConfig(paths Paths, env Env) Config {
 		TmuxSession:           tmuxSession,
 		Tmux:                  Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
 		Multiplexer:           Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
+		Diagnostics:           Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
 		PromptReadyTimeout:    5 * time.Second,
 		PromptReadyRaw:        "5s",
 		IdleUnknownAfter:      120 * time.Second,
@@ -293,6 +308,15 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.Harnesses != nil {
 		cfg.Harnesses = raw.Harnesses
+	}
+	if raw.Diagnostics.Level != "" {
+		cfg.Diagnostics.Level = raw.Diagnostics.Level
+	}
+	if raw.Diagnostics.MaxBytes > 0 {
+		cfg.Diagnostics.MaxBytes = raw.Diagnostics.MaxBytes
+	}
+	if raw.Diagnostics.MaxFiles > 0 {
+		cfg.Diagnostics.MaxFiles = raw.Diagnostics.MaxFiles
 	}
 }
 
@@ -400,10 +424,27 @@ func byteContains(b, sub []byte) bool {
 	return false
 }
 
+func applyDiagnosticsDefaults(cfg *Config, env Env) {
+	if cfg.Diagnostics.Level == "" {
+		cfg.Diagnostics.Level = "off"
+	}
+	if cfg.Diagnostics.MaxBytes <= 0 {
+		cfg.Diagnostics.MaxBytes = 1 << 20
+	}
+	if cfg.Diagnostics.MaxFiles <= 0 {
+		cfg.Diagnostics.MaxFiles = 3
+	}
+	// Environment overrides config for temporary debug sessions.
+	if env.LogLevel != "" {
+		cfg.Diagnostics.Level = env.LogLevel
+	}
+}
+
 func readEnv() Env {
 	return Env{
 		DBPath:             os.Getenv("KANBI_DB"),
 		TmuxSession:        os.Getenv("KANBI_TMUX_SESSION"),
 		DefaultMultiplexer: os.Getenv("KANBI_MULTIPLEXER"),
+		LogLevel:           os.Getenv("KANBI_LOG_LEVEL"),
 	}
 }

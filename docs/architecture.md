@@ -68,6 +68,7 @@ Stop and ask before:
 | `internal/boardruntime` | Starts the board process in the configured runtime, including Herdr availability, workspace, pane, environment, and attach orchestration. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
 | `internal/buildinfo` | Release-injected semantic version, commit/build metadata, Go platform, and schema compatibility reporting. |
+| `internal/diagnostics` | Opt-in bounded private log writer and redacted support-bundle collection (`kanbi-support-bundle`). |
 | `internal/backup` | Versioned full SQLite-and-attachments export/restore archives (`kanbi-backup`) with validation. |
 | `internal/boardpackage` | Versioned single-board packages (`kanbi-board-package`) with path-safe attachments, preview, create-new import, and compensating rollback. |
 | `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. Includes board archive/sync flags, workflow keys, filter presets, and board aggregate load/import. `TicketProjection` and `ColumnView` are explicit read models. |
@@ -231,7 +232,9 @@ Indexes used by board projection, latest-session lookup, external identity looku
 
 ## Release And Compatibility
 
-The canonical module path is `github.com/carlotran4/kanbi`. Tagged semantic versions trigger native CGO builds on Linux and macOS for amd64 and arm64; release metadata is injected into `internal/buildinfo`, archives include the binary/README/license, and a shared SHA256 manifest is published with GitHub Release assets. Database migrations are forward-only: older binaries refuse newer schema versions, so rollback requires restoring a pre-upgrade backup. See [`docs/installation.md`](./installation.md).
+The canonical module path is `github.com/carlotran4/kanbi`. Tagged semantic versions trigger native CGO builds on Linux and macOS for amd64 and arm64; release metadata is injected into `internal/buildinfo`, archives include the binary/README/license/`BUILDINFO.json`, and a shared SHA256 manifest is published with GitHub Release assets. Database migrations are forward-only: older binaries refuse newer schema versions, so rollback requires restoring a pre-upgrade backup. See [`docs/installation.md`](./installation.md), [`docs/compatibility.md`](./compatibility.md), and [`docs/release-checklist.md`](./release-checklist.md).
+
+Operations support tools (`kanbi doctor`, opt-in diagnostics logging, `kanbi support-bundle`) are documented in [`docs/support.md`](./support.md).
 
 ## Historical Design Context
 

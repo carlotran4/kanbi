@@ -7,10 +7,12 @@ import (
 )
 
 func TestRedactSecretTextStripsTokens(t *testing.T) {
-	in := "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz012345 and token=sekrit api_token=abc123"
+	in := "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz012345 and token=sekrit api_token=abc123 X-Api-Key: zz session_ref=ss sk-abcdefghijklmnopqrstuvwxyz0123"
 	out := RedactSecretText(in)
-	if strings.Contains(out, "ghp_") || strings.Contains(out, "sekrit") || strings.Contains(out, "abc123") {
-		t.Fatalf("not redacted: %q", out)
+	for _, bad := range []string{"ghp_", "sekrit", "abc123", "X-Api-Key: zz", "session_ref=ss", "sk-abcdefgh"} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("still contains %q in %q", bad, out)
+		}
 	}
 }
 

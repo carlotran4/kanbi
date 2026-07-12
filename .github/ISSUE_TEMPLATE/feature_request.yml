@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a user-facing improvement within project scope
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What user outcome is hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the desired behavior, not a full design essay.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals / alternatives considered
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope awareness
+      options:
+        - label: I understand Kanbi keeps SQLite as durable truth, tmux as the default multiplexer, and does not aim for a web UI or background daemon in the current scope.
+          required: true

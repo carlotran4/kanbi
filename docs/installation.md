@@ -11,6 +11,8 @@ Kanbi publishes native, CGO-enabled archives for:
 
 A UTF-8 terminal with 256-color support is recommended. Kitty-compatible image rendering is optional. Kanbi defaults to tmux and requires `tmux` on `PATH`; Herdr is an opt-in alternative, but tmux remains recommended and is needed to control existing tmux sessions. Install at least one supported agent CLI: Pi, Codex, Copilot, or Claude, and authenticate it using that tool's own instructions.
 
+The full matrix—including schema, harness verification status, and what is only manually verified—is in [`docs/compatibility.md`](./compatibility.md).
+
 ## Install a release
 
 1. Open <https://github.com/carlotran4/kanbi/releases/latest>.
@@ -83,6 +85,14 @@ Remove the binary from the location where it was installed. Kanbi data is intent
 
 `KANBI_CONFIG`, `KANBI_DB`, `KANBI_DATA_DIR`, and `KANBI_STATE_DIR` may override these locations. Back up before deleting them. Kanbi does not delete tmux/Herdr containers as part of uninstall; close or remove those separately.
 
+## Diagnostics when something fails
+
+1. `kanbi version` and `kanbi doctor`
+2. Optional: set `KANBI_LOG_LEVEL=debug` or `diagnostics.level: debug` for bounded private logs under the state directory
+3. `kanbi support-bundle ~/kanbi-support.zip` — redacted, inspect before sharing ([`docs/support.md`](./support.md))
+
+Full backups (`kanbi backup`) include private board content; do not use them as support attachments.
+
 ## Development installation
 
-For contributors working from a checkout, `./scripts/install-dev.sh` installs a launcher that rebuilds on source changes. This is not the production release installation path.
+For contributors working from a checkout, `./scripts/install-dev.sh` installs a launcher that rebuilds on source changes. This is not the production release installation path. See [`CONTRIBUTING.md`](../CONTRIBUTING.md).

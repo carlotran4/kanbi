@@ -1,0 +1,105 @@
+name: Bug report
+description: Report a functional defect with enough context to reproduce
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please inspect any support bundle before uploading.
+        Security issues must follow SECURITY.md (private reporting), not this form.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the problem.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Kanbi version
+      description: Output of `kanbi version` (version, commit, schema).
+      placeholder: "kanbi 0.x.y / commit ... / database schema N"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS / architecture
+      placeholder: "Linux x86_64, macOS arm64, ..."
+    validations:
+      required: true
+  - type: input
+    id: install
+    attributes:
+      label: Install method
+      description: GitHub release archive, source build, install-dev launcher, etc.
+    validations:
+      required: true
+  - type: dropdown
+    id: multiplexer
+    attributes:
+      label: Configured multiplexer
+      options:
+        - tmux (default)
+        - herdr
+        - unknown / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: harnesses
+    attributes:
+      label: Harnesses involved
+      description: e.g. pi, codex, copilot, claude, none (CLI only)
+    validations:
+      required: false
+  - type: textarea
+    id: doctor
+    attributes:
+      label: kanbi doctor
+      description: Paste doctor text or JSON. Redact secrets.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal sequence from a clean or known state.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error text / screenshots of TUI if useful (no secrets).
+    validations:
+      required: true
+  - type: textarea
+    id: support_bundle
+    attributes:
+      label: Support bundle
+      description: |
+        Optional. Generate with `kanbi support-bundle /path/to/file.zip`, inspect contents,
+        and attach only if you are comfortable with the redacted data it contains.
+        Do not attach full backups — those include ticket bodies and attachments.
+    validations:
+      required: false
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Confirmations
+      options:
+        - label: I removed or avoided real tokens, private ticket bodies, and terminal captures not needed for reproduction.
+          required: true
