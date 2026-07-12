@@ -121,13 +121,13 @@ func (m Model) boardPickerView() string {
 	for i, board := range m.boards {
 		label := board.Name
 		if board.LastSyncError.Valid && strings.TrimSpace(board.LastSyncError.String) != "" {
-			label += "  " + lipgloss.NewStyle().Foreground(palette.error_).Render("sync error")
+			label += "  " + lipgloss.NewStyle().Foreground(palette.error_).Render("provider sync degraded (local data available)")
 		}
 		if board.Workdir != "" {
 			label += "  " + lipgloss.NewStyle().Faint(true).Render(board.Workdir)
 		}
 		if board.LastSyncError.Valid && strings.TrimSpace(board.LastSyncError.String) != "" {
-			label += "  " + lipgloss.NewStyle().Faint(true).Render(trimToWidth(board.LastSyncError.String, 48))
+			label += "  " + lipgloss.NewStyle().Faint(true).Render("Cause: "+trimToWidth(board.LastSyncError.String, 32)+" Next: kanbi sync --board "+board.Name)
 		}
 		lines = append(lines, row(i+1, label))
 	}

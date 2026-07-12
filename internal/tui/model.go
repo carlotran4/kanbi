@@ -75,6 +75,11 @@ type Model struct {
 	repairTicket            storage.Ticket
 	repairReason            string
 	showHelp                bool
+	firstRun                bool
+	onboardingPage          int
+	modalScroll             int
+	errOperation            string
+	errNext                 string
 	editorTicketID          int64
 
 	// Notes state (used within the edit modal, editField==3)
@@ -102,6 +107,12 @@ func NewWithPicker(ctx context.Context, store Actions) Model {
 	m.boardPicker = true
 	m.boardPickerMode = "switch"
 	m.status = "select a board"
+	// The startup path is the only place onboarding is enabled, keeping model
+	// tests and embedded uses unobstructed. An empty installation can dismiss it
+	// immediately; it is intentionally transient and does not alter durable data.
+	if tickets, err := store.ListTickets(ctx, true); err == nil && len(tickets) == 0 {
+		m.firstRun = true
+	}
 	return m
 }
 
@@ -154,7 +165,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case runtimeTickMsg:
 		if err := m.actions.RefreshRuntime(m.ctx); err != nil {
-			m.status = err.Error()
+			m.setActionError("refresh runtime state", err, "Run `kanbi doctor`, then retry. Existing sessions are left running.")
 		} else {
 			m.reload()
 		}
@@ -164,7 +175,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 	case openExternalTicketMsg:
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.setActionError("open GitHub issue", msg.err, "Check the ticket URL and your browser configuration, then press g to retry.")
 		} else {
 			m.status = "opened " + msg.displayID + " in GitHub"
 		}
@@ -190,12 +201,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case isRepairError(msg.err):
 			m.startRepair(msg.ticket, msg.err)
 		default:
-			m.status = msg.err.Error()
+			m.setActionError("open ticket session", msg.err, "Run `kanbi doctor`; fix the reported prerequisite, then press Enter to retry.")
 		}
 		return m, nil
 	case closeSessionMsg:
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.setActionError("close ticket session", msg.err, "Open the session to inspect it, then press x to retry. Kanbi did not discard session history.")
 		} else {
 			m.status = "closed " + msg.displayID
 			m.reload()
@@ -203,7 +214,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case moveMultiplexerMsg:
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.setActionError("move ticket session", msg.err, "Run `kanbi doctor` and confirm a resumable session ref exists, then press M to retry.")
 		} else {
 			m.status = "moved " + msg.displayID + " to default multiplexer"
 			m.reload()
@@ -230,9 +241,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.firstRun {
+		return m.updateOnboarding(key), nil
+	}
 	// Clear stale status on any keypress (unless a modal is consuming input).
 	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.boardRenaming && !m.boardEditing && !m.boardDeleting && !m.masterFilterOpen {
 		m.status = ""
+		m.errOperation = ""
+		m.errNext = ""
 	}
 	if m.masterFilterOpen {
 		return m.updateMasterFilter(key), nil
@@ -268,12 +284,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "?", "esc", "q":
 			m.showHelp = false
+			m.modalScroll = 0
+		case "j", "down", "pgdown":
+			m.modalScroll++
+		case "k", "up", "pgup":
+			if m.modalScroll > 0 {
+				m.modalScroll--
+			}
 		}
 		return m, nil
 	}
 	switch key.String() {
 	case "?":
 		m.showHelp = true
+		m.modalScroll = 0
 	case "b":
 		m.reloadBoards()
 		m.boardPicker = true

@@ -27,9 +27,10 @@ See [`docs/installation.md`](./docs/installation.md) for supported platforms, pr
 - [`CHANGELOG.md`](./CHANGELOG.md) — release and upgrade history
 - [`docs/archive/design-spec.md`](./docs/archive/design-spec.md) — historical product/design context; current docs win on conflicts
 
-## Multi-board behavior
+## First run and multi-board behavior
 
-- `kanbi` opens with a board picker. Choose `Master (all boards)` or a named board.
+- On an empty installation, `kanbi` opens with a three-page, dismissible first-run guide covering tmux/harness prerequisites, `kanbi doctor`, board working directories, session start/close semantics, repair, and backups. Press `Esc` to skip it immediately.
+- `kanbi` then opens with a board picker. Choose `Master (all boards)` or a named board; press `c` there to create a board and set the directory where its agent commands will run.
 - Press `b` inside the TUI to switch boards without restarting.
 - Press `g` on a GitHub-backed ticket to open its GitHub issue URL in your browser.
 - `Master` aggregates unarchived tickets from every board by matching column name (for example, all `Open` tickets together).
@@ -163,7 +164,15 @@ Kanbi is available under the [MIT License](./LICENSE). Copyright © 2026 Carlo T
 
 ## Status
 
-Kanbi is an alpha with multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot/Claude command wiring and ref capture, deterministic fake-harness coverage, and opt-in real-harness verification. Lifecycle and data-safety hardening remain active work; current follow-up work is tracked as tickets on the board.
+Kanbi is a UX-ready beta with multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot/Claude command wiring and ref capture, deterministic fake-harness coverage, and opt-in real-harness verification. Lifecycle and data-safety hardening remain active work; current follow-up work is tracked as tickets on the board.
+
+## Runtime states and accessible indicators
+
+Every card prints a runtime state in words: `not started`, `starting`, `running`, `waiting for user`, `permission required`, `idle / unknown`, `closing`, `closed / resumable`, `repair required`, or `error`. Waiting and permission requests are therefore distinguishable without theme colors. Cards also pair symbols with text: `● active container`, `○ resumable`, `! error / repair`, and `- no active container`. Press `?` for the complete in-product legend and controls; scroll long help with `j`/`k` or arrow keys.
+
+Major list dialogs follow their focused control in short terminals and help is scrollable. At 80x24 controls remain reachable; below that size Kanbi clips safely and marks hidden content with `more`. Session action failures name the failed operation, retain the underlying cause, and show a concrete next step on a separate line. Provider sync failures are degraded/offline states: Kanbi continues from its local SQLite projection and shows a `kanbi sync --board` retry command.
+
+See [`docs/ux-readiness.md`](./docs/ux-readiness.md) for the manual terminal/theme/tmux matrix and known accessibility limitations.
 
 ## Ticket Inspector And Notes
 

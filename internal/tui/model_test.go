@@ -478,14 +478,18 @@ func TestCardRuntimeLabelsAndWindowIndicators(t *testing.T) {
 		ticket   storage.Ticket
 		wantMeta string
 	}{
-		{storage.Ticket{Harness: "pi", Runtime: "not_started"}, ""},
-		{storage.Ticket{Harness: "pi", Runtime: "running", SessionActive: true, WindowName: sqlNullStr("T-001-demo")}, ""},
-		{storage.Ticket{Harness: "pi", Runtime: "waiting_for_user"}, ""},
-		{storage.Ticket{Harness: "pi", Runtime: "needs_permission"}, "permission!"},
-		{storage.Ticket{Harness: "pi", Runtime: "idle_unknown"}, ""},
-		{storage.Ticket{Harness: "pi", Runtime: "closed", SessionRef: sqlNullStr("abc")}, ""},
-		{storage.Ticket{Harness: "pi", Runtime: "closed"}, ""},
-		{storage.Ticket{Harness: "pi", Runtime: "error", SessionRef: sqlNullStr("abc")}, ""},
+		{storage.Ticket{Harness: "pi", Runtime: "not_started"}, "not started"},
+		{storage.Ticket{Harness: "pi", Runtime: "starting"}, "starting"},
+		{storage.Ticket{Harness: "pi", Runtime: "running", SessionActive: true, WindowName: sqlNullStr("T-001-demo")}, "running"},
+		{storage.Ticket{Harness: "pi", Runtime: "waiting_for_user"}, "waiting for user"},
+		{storage.Ticket{Harness: "pi", Runtime: "needs_permission"}, "permission required"},
+		{storage.Ticket{Harness: "pi", Runtime: "idle_unknown"}, "idle / unknown"},
+		{storage.Ticket{Harness: "pi", Runtime: "closing"}, "closing"},
+		{storage.Ticket{Harness: "pi", Runtime: "closed", SessionRef: sqlNullStr("abc")}, "closed / resumable"},
+		{storage.Ticket{Harness: "pi", Runtime: "closed"}, "closed"},
+		{storage.Ticket{Harness: "pi", Runtime: "exited"}, "exited"},
+		{storage.Ticket{Harness: "pi", Runtime: "repair_needed"}, "repair required"},
+		{storage.Ticket{Harness: "pi", Runtime: "error", SessionRef: sqlNullStr("abc")}, "error / resumable"},
 		{storage.Ticket{Harness: "pi", Runtime: "error"}, "error"},
 	}
 	for _, tc := range cases {
@@ -497,18 +501,18 @@ func TestCardRuntimeLabelsAndWindowIndicators(t *testing.T) {
 
 	// windowIndicator: - for prior session without ref (cleanly closed, not repair-needed)
 	closedNoRef := storage.Ticket{SessionID: sqlNullInt64(5), Runtime: "closed"}
-	if ind := windowIndicator(closedNoRef); ind != "-" {
-		t.Errorf("windowIndicator for closed-no-ref = %q, want -", ind)
+	if ind := windowIndicator(closedNoRef); ind != "- no active container" {
+		t.Errorf("windowIndicator for closed-no-ref = %q", ind)
 	}
 
 	// windowIndicator: ○ for resumable, even when the previous tmux window went missing.
 	resumableTicket := storage.Ticket{SessionRef: sqlNullStr("abc"), Runtime: "closed"}
-	if ind := windowIndicator(resumableTicket); ind != "○" {
-		t.Errorf("windowIndicator for resumable = %q, want ○", ind)
+	if ind := windowIndicator(resumableTicket); ind != "○ resumable" {
+		t.Errorf("windowIndicator for resumable = %q", ind)
 	}
 	resumableAfterMissingWindow := storage.Ticket{SessionRef: sqlNullStr("abc"), Runtime: "error"}
-	if ind := windowIndicator(resumableAfterMissingWindow); ind != "○" {
-		t.Errorf("windowIndicator for error-with-ref = %q, want ○", ind)
+	if ind := windowIndicator(resumableAfterMissingWindow); ind != "○ resumable" {
+		t.Errorf("windowIndicator for error-with-ref = %q", ind)
 	}
 }
 

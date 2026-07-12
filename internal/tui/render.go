@@ -13,44 +13,47 @@ import (
 
 func (m Model) View() string {
 	if m.err != nil {
-		return "kanbi\n\n" + m.err.Error() + "\n\nq quit\n"
+		return fmt.Sprintf("Kanbi could not load the board.\n\nCause: %v\n\nNext: check the database path and permissions, then run `kanbi doctor`.\nPress Ctrl+C to exit safely; active agent sessions are not terminated.\n", m.err)
 	}
 
 	// Always render the base board first so modals can overlay it.
 	base := m.baseView()
 
+	if m.firstRun {
+		return overlayModal(base, fitModal(m.onboardingView(), m.height, 0, false), m.width, m.height)
+	}
 	if m.showHelp {
-		return overlayModal(base, m.helpView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.helpView(), m.height, m.modalScroll, false), m.width, m.height)
 	}
 	if m.boardRenaming {
-		return overlayModal(base, m.boardRenameView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.boardRenameView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.boardEditing {
-		return overlayModal(base, m.boardEditView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.boardEditView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.boardDeleting {
-		return overlayModal(base, m.boardDeleteView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.boardDeleteView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.boardPicker {
-		return overlayModal(base, m.boardPickerView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.boardPickerView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.masterFilterOpen {
-		return overlayModal(base, m.masterFilterView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.masterFilterView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.editing {
-		return overlayModal(base, m.editView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.editView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.stateMenu {
-		return overlayModal(base, m.stateMenuView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.stateMenuView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.columnEditing {
-		return overlayModal(base, m.columnEditView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.columnEditView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.promptFallback {
-		return overlayModal(base, m.promptFallbackView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.promptFallbackView(), m.height, 0, true), m.width, m.height)
 	}
 	if m.repairing {
-		return overlayModal(base, m.repairView(), m.width, m.height)
+		return overlayModal(base, fitModal(m.repairView(), m.height, 0, true), m.width, m.height)
 	}
 
 	return base
@@ -78,10 +81,13 @@ func (m Model) baseView() string {
 	if h := m.hScrollHint(); h != "" {
 		hint = "\n" + h
 	}
-	// Footer lines: rule + hints + optional status.
+	// Footer lines: rule + hints + optional status/remediation.
 	footerLines := 2
 	if m.status != "" {
 		footerLines++
+		if m.errOperation != "" {
+			footerLines += 2
+		}
 	}
 	// Count lines used so far: header (2) + board + hint (0 or 1 extra).
 	contentLines := 2 + strings.Count(board, "\n")
@@ -98,18 +104,27 @@ func (m Model) baseView() string {
 	fmt.Fprintf(&b, "%s\n", rule)
 	b.WriteString(m.contextBar() + "\n")
 	if m.status != "" {
-		b.WriteString(statusStyle.Render(m.status) + "\n")
+		if m.errOperation != "" {
+			b.WriteString(statusStyle.Render(trimToWidth("Failed operation: "+m.errOperation, maxInt(1, m.width))) + "\n")
+			b.WriteString(statusStyle.Render(trimToWidth("Cause: "+m.status, maxInt(1, m.width))) + "\n")
+			b.WriteString(statusStyle.Render(trimToWidth("Next: "+m.errNext, maxInt(1, m.width))) + "\n")
+		} else {
+			b.WriteString(statusStyle.Render(trimToWidth(m.status, maxInt(1, m.width))) + "\n")
+		}
 	}
 	return b.String()
 }
 
 func (m Model) contextBar() string {
-	items := []string{"Enter:send/open", "g:GitHub", "n:new", "e:ticket", "a:archive", "b:boards"}
+	items := []string{"Enter:send/open", "n:new", "e:ticket", "b:boards"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
-	items = append(items, "!:attn", "q:quit", "?:help")
-	return strings.Join(items, "  ")
+	items = append(items, "!:attention", "q:quit", "?:help+legend")
+	if m.width < 60 {
+		items = []string{"Enter:open", "n:new", "q:quit", "?:help"}
+	}
+	return trimToWidth(strings.Join(items, "  "), maxInt(1, m.width))
 }
 
 const (
@@ -119,7 +134,7 @@ const (
 
 func (m Model) boardView() string {
 	if len(m.view.Columns) == 0 {
-		return boxLines([]string{"No columns"}, boardColumnWidth)
+		return boxLines([]string{"No columns yet.", "Press c to create the first column.", "Press ? for help."}, minInt(boardColumnWidth, maxInt(12, m.width)))
 	}
 
 	colW := boardColumnWidth + boardColumnGap
@@ -205,7 +220,13 @@ func (m Model) columnView(ci int, col storage.Column) string {
 	}
 
 	if len(col.Tickets) == 0 {
-		lines = append(lines, "", padLine("(empty)", boardColumnWidth))
+		empty := "No tickets. Press n to create one."
+		if m.masterBoard {
+			empty = "No tickets match. Press f to change filters."
+		}
+		for _, line := range wrapText(empty, boardColumnWidth, 3) {
+			lines = append(lines, padLine(line, boardColumnWidth))
+		}
 		return lipgloss.NewStyle().MarginRight(boardColumnGap).Render(strings.Join(lines, "\n"))
 	}
 
@@ -283,31 +304,22 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 
 	elapsed := elapsedLabel(ticket)
 	label := runtimeLabel(ticket)
-	// Color the label according to runtime state.
-	if label != "" {
-		var labelStyle lipgloss.Style
-		switch ticket.Runtime {
-		case kanban.StateNeedsPermission:
-			labelStyle = lipgloss.NewStyle().Foreground(palette.error_).Bold(true)
-		case kanban.StateError:
-			labelStyle = lipgloss.NewStyle().Foreground(palette.error_)
-		default:
-			labelStyle = lipgloss.NewStyle().Foreground(palette.muted)
-		}
-		label = labelStyle.Render(label)
+	stateText := fmt.Sprintf("[%s] %s", ticket.Harness, label)
+	if elapsed != "" {
+		stateText += " · " + elapsed
 	}
-	var meta string
-	switch {
-	case label != "" && elapsed != "":
-		meta = fmt.Sprintf("[%s] %s %s · %s", ticket.Harness, windowIndicator(ticket), label, elapsed)
-	case label != "":
-		meta = fmt.Sprintf("[%s] %s %s", ticket.Harness, windowIndicator(ticket), label)
-	case elapsed != "":
-		meta = fmt.Sprintf("[%s] %s · %s", ticket.Harness, windowIndicator(ticket), elapsed)
-	default:
-		meta = fmt.Sprintf("[%s] %s", ticket.Harness, windowIndicator(ticket))
+	stateStyle := lipgloss.NewStyle().Foreground(palette.muted)
+	if ticket.Runtime == kanban.StateNeedsPermission || ticket.Runtime == kanban.StateError || ticket.Runtime == kanban.StateRepairNeeded {
+		stateStyle = lipgloss.NewStyle().Foreground(palette.error_).Bold(true)
+	} else if ticket.Runtime == kanban.StateWaitingForUser {
+		stateStyle = lipgloss.NewStyle().Foreground(palette.warning).Bold(true)
 	}
-	content = append(content, padLine("  "+meta, cardInnerWidth))
+	for _, line := range wrapText(stateText, cardInnerWidth-2, 2) {
+		content = append(content, padLine("  "+stateStyle.Render(line), cardInnerWidth))
+	}
+	for _, line := range wrapText("session: "+windowIndicator(ticket), cardInnerWidth-2, 2) {
+		content = append(content, padLine("  "+line, cardInnerWidth))
+	}
 
 	// Body preview — only shown on the focused card.
 	if focused {
@@ -352,29 +364,56 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 }
 
 func runtimeLabel(ticket storage.Ticket) string {
+	resumable := ticket.SessionRef.Valid && strings.TrimSpace(ticket.SessionRef.String) != "" && !ticket.SessionActive
 	switch ticket.Runtime {
-	case kanban.StateError:
-		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
-			return "" // resumable shown by ○
-		}
-		return kanban.StateError
+	case kanban.StateNotStarted, "":
+		return "not started"
+	case kanban.StateStarting:
+		return "starting"
+	case kanban.StateRunning:
+		return "running"
+	case kanban.StateWaitingForUser:
+		return "waiting for user"
 	case kanban.StateNeedsPermission:
-		return "permission!"
+		return "permission required"
+	case kanban.StateIdleUnknown:
+		return "idle / unknown"
+	case kanban.StateClosing:
+		return "closing"
+	case kanban.StateClosed:
+		if resumable {
+			return "closed / resumable"
+		}
+		return "closed"
+	case kanban.StateExited:
+		if resumable {
+			return "exited / resumable"
+		}
+		return "exited"
+	case kanban.StateRepairNeeded:
+		return "repair required"
+	case kanban.StateError:
+		if resumable {
+			return "error / resumable"
+		}
+		return "error"
 	default:
-		return ""
+		return "idle / unknown (" + strings.ReplaceAll(ticket.Runtime, "_", " ") + ")"
 	}
 }
 
 func windowIndicator(ticket storage.Ticket) string {
 	switch {
-	case ticket.SessionActive && ticket.WindowName.Valid:
-		return "●"
-	case ticket.SessionRef.Valid && ticket.SessionRef.String != "" && !ticket.SessionActive:
-		return "○"
+	case ticket.SessionActive && (ticket.WindowID.Valid || ticket.MuxContainerID.Valid):
+		return "● active container"
+	case ticket.SessionRef.Valid && strings.TrimSpace(ticket.SessionRef.String) != "" && !ticket.SessionActive:
+		return "○ resumable"
+	case ticket.Runtime == kanban.StateRepairNeeded:
+		return "! repair"
 	case ticket.Runtime == kanban.StateError:
-		return "!"
+		return "! error"
 	default:
-		return "-"
+		return "- no active container"
 	}
 }
 
@@ -551,7 +590,11 @@ func overlayModal(boardContent string, popup string, termWidth, termHeight int) 
 	for i, l := range bgLines {
 		bgLines[i] = dimStyle.Render(ansiStrip(l))
 	}
-	// Pad to termHeight.
+	// Fit the background to the actual terminal. This prevents a tall board from
+	// pushing modal controls below the visible area in constrained layouts.
+	if termHeight > 0 && len(bgLines) > termHeight {
+		bgLines = bgLines[:termHeight]
+	}
 	for len(bgLines) < termHeight {
 		bgLines = append(bgLines, "")
 	}
@@ -737,72 +780,69 @@ func runeLen(s string) int {
 }
 
 func (m Model) helpView() string {
-	dim := lipgloss.NewStyle().Faint(true)
-	var b strings.Builder
+	var lines []string
+	section := func(title string) { lines = append(lines, "", strings.ToUpper(title)) }
+	row := func(key, desc string) { lines = append(lines, fmt.Sprintf("%-19s %s", key, desc)) }
 
-	section := func(title string) {
-		fmt.Fprintf(&b, "\n%s\n", lipgloss.NewStyle().Foreground(palette.accent).Bold(true).Render(title))
-	}
-	row := func(key, desc string) {
-		keyStyle := lipgloss.NewStyle().Foreground(palette.headerText).Bold(true)
-		descStyle := lipgloss.NewStyle().Foreground(palette.muted)
-		fmt.Fprintf(&b, "  %s%s\n", keyStyle.Render(padLine(key, 28)), descStyle.Render(desc))
-	}
-
+	lines = append(lines, "KEYBINDINGS AND LEGEND")
 	section("Navigation")
-	row("h/l  ←/→", "move focus between columns")
-	row("j/k  ↑/⊓", "move focus between tickets")
+	row("h/l or ←/→", "move between columns")
+	row("j/k or ↓/↑", "move between tickets; in help, scroll")
 	row("!", "jump to next attention ticket")
 
 	section("Tickets")
-	row("Enter", "send prompt for never-started tickets; otherwise open / switch")
-	row("x", "close ticket session")
-	row("M", "move session to configured multiplexer (close then resume)")
-	row("n", "new ticket in current column")
-	row("e", "open polished ticket inspector/editor")
-	row("E", "open body in $EDITOR")
-	row("g", "open external GitHub issue in browser")
-	row("a", "archive ticket")
-	row("m", "manually mark runtime state")
-	row("H/L  Shift+←/→", "move ticket to adjacent column")
-	row("J/K  Shift+↑/⊓", "reorder ticket within column")
+	row("Enter", "send a new prompt, or open/resume the session")
+	row("x", "safely close session")
+	row("n / e / E", "new / inspect / edit body in $EDITOR")
+	row("g / a / m", "open GitHub / archive / mark state")
+	row("H/L", "move ticket left/right")
+	row("J/K", "reorder ticket up/down")
+	row("M", "move resumable session to configured multiplexer")
 
-	section("Columns")
-	row("c", "add column")
-	row("r", "rename column")
-	row("D", "delete column (must be empty)")
+	section("Boards and columns")
+	row("b / f", "board picker / Master filters")
+	row("c / r / D", "add / rename / delete column")
 	row("Ctrl+Shift+←/→", "reorder column")
+	row("picker c/r/w/d", "create / rename / set cwd / delete board")
+	row("filter C", "clear all Master filters")
 
-	section("Boards")
-	row("b", "switch board / open board picker")
-	row("f", "open Master filters (Master only)")
-	row("c in board picker", "create board")
-	row("r in board picker", "rename selected board")
-	row("w in board picker", "set selected board cwd")
-	row("d in board picker", "delete selected board")
+	section("Textual state legend")
+	row("not started", "no session attempt yet")
+	row("starting / running", "launching / agent is active")
+	row("waiting for user", "agent needs user input")
+	row("permission required", "agent requests approval; not the same as waiting")
+	row("idle / unknown", "no confident activity signal")
+	row("closed / resumable", "container closed; verified ref can resume")
+	row("repair required", "retry, edit ref, or start fresh")
+	row("error", "operation or session failed; read Cause and Next")
 
-	section("App")
-	row("q  Ctrl+C", "quit")
-	row("?", "toggle this help")
+	section("Indicator legend (works without color)")
+	row("● active container", "validated live terminal container")
+	row("○ resumable", "no live container; verified session ref exists")
+	row("! error / repair", "action is required")
+	row("- no active", "no validated live container")
+	row("> focused", "current keyboard target")
 
-	fmt.Fprintf(&b, "\n%s", dim.Render("Esc / ? to close"))
+	section("Safety")
+	row("q / Ctrl+C", "quit Kanbi; running agent sessions stay alive")
+	row("? / Esc", "open / close help")
+	lines = append(lines, "", "Scroll: j/k or ↑/↓ · Close: Esc, q, or ?")
 
-	// Wrap in a border box.
-	body := b.String()
-	bodyLines := strings.Split(body, "\n")
-	// Find the widest visible line.
-	maxW := 0
-	for _, l := range bodyLines {
-		if w := runeLen(lipgloss.NewStyle().Render(l)); w > maxW { // strip styles for measurement
-			maxW = runeLen(l)
+	width := popupWidth(m.width)
+	bodyWidth := maxInt(20, width-8)
+	var wrapped []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			wrapped = append(wrapped, "")
+			continue
 		}
-	}
-	if maxW < 40 {
-		maxW = 40
+		parts := wrapText(line, bodyWidth, 10)
+		wrapped = append(wrapped, parts...)
 	}
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(palette.accent).
 		Padding(0, 2).
-		Render("\n" + lipgloss.NewStyle().Bold(true).Render("Keybindings") + body)
+		Width(maxInt(1, width-4)).
+		Render(strings.Join(wrapped, "\n"))
 }

@@ -21,7 +21,19 @@ func (m *Model) startMasterFilter() {
 	m.masterFilterField = 0
 }
 
-var masterRuntimeOptions = []string{kanban.StateNotStarted, kanban.StateRunning, kanban.StateWaitingForUser, kanban.StateNeedsPermission, kanban.StateError, kanban.StateClosed}
+var masterRuntimeOptions = []string{
+	kanban.StateNotStarted,
+	kanban.StateStarting,
+	kanban.StateRunning,
+	kanban.StateWaitingForUser,
+	kanban.StateNeedsPermission,
+	kanban.StateIdleUnknown,
+	kanban.StateClosing,
+	kanban.StateClosed,
+	kanban.StateExited,
+	kanban.StateRepairNeeded,
+	kanban.StateError,
+}
 
 func (m *Model) reloadMasterFilterOptions() {
 	m.masterFilterRuntimes = append([]string(nil), masterRuntimeOptions...)

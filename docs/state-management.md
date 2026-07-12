@@ -72,9 +72,10 @@ Projection rules:
 - Tickets with no session project as `not_started`.
 - Tickets with a latest active session project that session's runtime status and active container indicator.
 - Tickets with a latest inactive session project that terminal status (`closed`, `error`, `exited`) and resumable/error indicator.
-- Cards show active indicator only for active sessions with a validated terminal container.
-- Cards show resumable indicator when no active window exists but a `session_ref` exists.
-- Cards show error indicator for `error`.
+- Every card shows the projected runtime as text, including not started, starting, running, waiting for user, permission required, idle/unknown, closing, closed/resumable, repair required, and error. Color is supplemental only.
+- Cards show `● active container` only for active sessions with a validated terminal container.
+- Cards show `○ resumable` when no active window exists but a `session_ref` exists.
+- Cards show `! error / repair` for states requiring action and `- no active container` otherwise. The in-product `?` help includes the same legend.
 
 ## Runtime Watcher Data Flow
 

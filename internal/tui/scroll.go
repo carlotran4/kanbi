@@ -60,8 +60,16 @@ func cardHeightEx(ticket storage.Ticket, innerWidth int, focused bool) int {
 			previewLines = 4
 		}
 	}
-	// top border + title lines + meta line + preview lines + bottom border
-	return 2 + len(titleLines) + 1 + previewLines + 1
+	stateLines := len(wrapText("["+ticket.Harness+"] "+runtimeLabel(ticket), cardInnerWidth-2, 2))
+	if stateLines == 0 {
+		stateLines = 1
+	}
+	sessionLines := len(wrapText("session: "+windowIndicator(ticket), cardInnerWidth-2, 2))
+	if sessionLines == 0 {
+		sessionLines = 1
+	}
+	// top/bottom borders + title + textual state/session lines + preview.
+	return 2 + len(titleLines) + stateLines + sessionLines + previewLines
 }
 
 // vScrollFollow adjusts the scroll offset for the focused column so the

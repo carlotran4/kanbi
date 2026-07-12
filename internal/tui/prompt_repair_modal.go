@@ -136,7 +136,8 @@ func (m Model) repairView() string {
 	}
 	var lines []string
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Session repair needed: "+m.repairTicket.DisplayID))
-	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render(m.repairReason), "")
+	lines = append(lines, "", "Cause: "+m.repairReason, "")
+	lines = append(lines, "Next: retry after checking the runtime, edit a verified session ref, or start fresh.", "")
 	lines = append(lines, "r  retry")
 	lines = append(lines, "e  edit session ref")
 	lines = append(lines, "f  start fresh")

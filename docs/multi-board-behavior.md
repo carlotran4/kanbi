@@ -102,7 +102,7 @@ Press `f` in Master to open the filter panel. Filters apply only to Master; norm
 Available filters:
 
 - Board: select one or more boards, or select none for the `All Boards` default.
-- Runtime/state: `not_started`, `running`, `waiting_for_user`, `needs_permission`, `error`, and `closed` (resumable closed tickets show when their latest session projects `closed`).
+- Runtime/state: every projected state is filterable: `not_started`, `starting`, `running`, `waiting_for_user`, `needs_permission`, `idle_unknown`, `closing`, `closed`, `exited`, `repair_needed`, and `error` (resumable closed tickets show when their latest session projects `closed`).
 - Harness: harness names present in tickets, including `pi`, `codex`, `copilot`, and any other stored harness name.
 - Search: case-insensitive text search over ticket display id, title, body, board name, and harness.
 - Archived: off by default; toggle `show archived` to include archived tickets in Master queries.
