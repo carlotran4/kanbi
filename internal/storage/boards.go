@@ -61,7 +61,7 @@ func (s *Store) MarkBoardSync(ctx context.Context, boardID int64, syncErr error)
 	now := time.Now().UTC()
 	var errText any
 	if syncErr != nil {
-		errText = syncErr.Error()
+		errText = RedactSecretText(syncErr.Error())
 	}
 	_, err := s.db.ExecContext(ctx, `update boards set last_sync_at=?, last_sync_error=?, updated_at=? where id=?`, now, errText, now, boardID)
 	return err

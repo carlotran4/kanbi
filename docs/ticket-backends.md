@@ -10,8 +10,16 @@ Kanbi supports one ticket metadata backend per board. Implemented backends are `
 - The implemented GitHub and Atlassian/Jira backends own ticket metadata for their boards.
 - tmux session history remains local and is never synced to ticketing providers.
 - Sync starts in the background on executable startup, then runs periodically while the executable is running, and on demand through `kanbi sync`. Startup does not block the TUI on remote/cloud ticket providers. There is no background daemon after Kanbi exits.
-- Boards are scheduled independently: a slow provider call for one board does not block unrelated boards. Repeated sync requests for the same board are serialized within the running executable.
-- Every sync attempt durably updates the board's `last_sync_at` and `last_sync_error`. Background startup/periodic failures therefore remain visible in the board picker, `kanbi boards`, and JSON board output instead of being transient goroutine errors.
+- `ticketbackend.Manager` owns all provider sync work: startup, periodic ticks, mutation-triggered `ScheduleBoardSync`, and on-demand CLI sync. Shutdown cancels the manager context and drains in-flight board syncs; application code never owns free-floating sync goroutines.
+- Boards are scheduled independently: a slow provider call for one board does not block unrelated boards. Repeated sync requests for the same board are serialized within the running executable and across processes with durable SQLite leases (renewed while work continues; lease loss cancels the in-flight attempt).
+- Provider HTTP calls use an explicit client timeout (30s) plus request context cancellation. Retry classification:
+  - **retryable**: network timeout/reset, `408`, `429`, `500`–`504` — automatic retries with exponential backoff and full jitter, max 3 attempts, **GET/list only**
+  - **auth**: `401`/`403` — no retry
+  - **validation**: `400`/`422` and most other 4xx — no retry
+  - **conflict**: `409` — no retry
+  - **canceled**: parent context done — no retry
+- Non-idempotent `POST` create-issue and create-comment are single-attempt. Local ticket create/push uses durable pending push state and a body-embedded find-or-link token (`<!-- kanbi:local-ticket=… -->` on GitHub; trailing plain marker on Jira). After discard/crash between remote create and local link, the next successful pull recovers by token instead of creating a second remote issue. If still pending with no match after pull, Kanbi fails closed and refuses automatic re-create.
+- Every sync attempt durably updates the board's `last_sync_at` and `last_sync_error` (redacted) and may write a `runtime_diagnostics` row (operation, board/ticket context, attempt, timestamp, redacted cause). Background failures therefore remain visible in the board picker, `kanbi boards`, JSON board output, and diagnostics instead of being transient goroutine errors.
 - Conflict resolution is newest `updated_at` wins.
 - When a provider exposes a query language, board config stores the query used to scope the synced subset. Atlassian/Jira must use JQL.
 
@@ -57,7 +65,7 @@ A backend implementation should:
 5. push local changes and pull remote changes;
 6. persist external IDs, URLs, update timestamps, and sync versions.
 
-Run on-demand sync for all boards with `kanbi sync`, or one board with `kanbi sync --board "Board Name"`. Inside the TUI, successful ticket metadata saves trigger a background sync for that ticket's board: saving a newly-created ticket or edited ticket, moving/archive changes, and note/comment saves are pushed without waiting for the next periodic tick.
+Run on-demand sync for all boards with `kanbi sync`, or one board with `kanbi sync --board "Board Name"`. Inside the TUI, successful ticket metadata saves schedule a manager-owned background sync for that ticket's board: creating a ticket, saving an edited ticket, moving/archive changes, and note/comment saves are pushed without waiting for the next periodic tick.
 
 ## GitHub Issues Backend
 

@@ -316,3 +316,149 @@ func TestDefaultRegistryImplementsImplementedBackends(t *testing.T) {
 		t.Fatal("atlassian backend missing")
 	}
 }
+
+func TestManagerStopDrainsInFlightScheduledSync(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	remote, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Remote", Workdir: t.TempDir(), TicketBackend: KindGitHub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &gatedBackend{kind: KindGitHub, started: make(chan int64, 4), release: make(chan struct{})}
+	manager := NewManager(store)
+	manager.Registry = NewRegistry(LocalBackend{}, backend)
+	manager.Interval = time.Hour
+	stop := manager.Start(ctx)
+	// wait for initial sync to enter provider
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("initial sync did not start")
+	}
+	done := make(chan struct{})
+	go func() {
+		stop()
+		close(done)
+	}()
+	// Shutdown cancels in-flight provider ops; Stop must wait for worker exit.
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		close(backend.release)
+		t.Fatal("Stop did not drain canceled in-flight sync")
+	}
+	manager.ScheduleBoardSync(remote.ID)
+	select {
+	case <-backend.started:
+		t.Fatal("ScheduleBoardSync after Stop started provider work")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestManagerLeaseRenewsAcrossLongProviderOp(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kanbi.db")
+	firstStore, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstStore.Close()
+	if err := firstStore.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	board, err := firstStore.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Remote", Workdir: t.TempDir(), TicketBackend: KindGitHub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondStore, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondStore.Close()
+
+	backend := &gatedBackend{kind: KindGitHub, started: make(chan int64, 1), release: make(chan struct{})}
+	first := NewManager(firstStore)
+	first.Registry = NewRegistry(LocalBackend{}, backend)
+	first.LeaseTTL = 80 * time.Millisecond
+	secondBackend := &recordingBackend{kind: KindGitHub}
+	second := NewManager(secondStore)
+	second.Registry = NewRegistry(LocalBackend{}, secondBackend)
+
+	done := make(chan error, 1)
+	go func() { _, err := first.SyncBoard(ctx, board); done <- err }()
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("first sync did not start")
+	}
+	// Hold the lease longer than base TTL; renewal should keep second process blocked.
+	time.Sleep(250 * time.Millisecond)
+	if _, err := second.SyncBoard(ctx, board); !errors.Is(err, storage.ErrBoardSyncInProgress) {
+		t.Fatalf("second sync during long op error=%v", err)
+	}
+	if len(secondBackend.boards) != 0 {
+		t.Fatal("second provider ran despite renewed lease")
+	}
+	close(backend.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.SyncBoard(ctx, board); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagerLeaseLossCancelsInFlightSync(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kanbi.db")
+	store, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Remote", Workdir: t.TempDir(), TicketBackend: KindGitHub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &gatedBackend{kind: KindGitHub, started: make(chan int64, 1), release: make(chan struct{})}
+	manager := NewManager(store)
+	manager.Registry = NewRegistry(LocalBackend{}, backend)
+	manager.LeaseTTL = 40 * time.Millisecond
+	manager.Owner = "owner-a"
+
+	done := make(chan error, 1)
+	go func() { _, err := manager.SyncBoard(ctx, board); done <- err }()
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("sync did not start")
+	}
+	// Steal lease under another owner while first is still working.
+	time.Sleep(20 * time.Millisecond)
+	if err := store.ReleaseBoardSyncLease(ctx, board.ID, "owner-a"); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := store.AcquireBoardSyncLease(ctx, board.ID, "owner-b", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("steal lease ok=%v err=%v", ok, err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected lease-loss cancel error")
+		}
+	case <-time.After(time.Second):
+		close(backend.release)
+		t.Fatal("sync was not canceled after lease loss")
+	}
+}

@@ -26,6 +26,9 @@ var ticketProjectionColumns = []string{
 	"t.harness",
 	"t.position",
 	"t.archived_at",
+	"t.remote_push_state",
+	"t.remote_push_token",
+	"t.remote_push_attempted_at",
 	ticketProjectionRuntimeSQL + " runtime",
 	"coalesce(s.is_active,0)",
 	"s.tmux_session_name",
@@ -86,7 +89,7 @@ func (s *Store) queryProjectedTickets(ctx context.Context, suffix string, args .
 func scanProjectedTicket(rows *sql.Rows) (Ticket, error) {
 	var t Ticket
 	var active int
-	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardWorkdir, &t.ColumnID, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.Multiplexer, &t.MuxNamespace, &t.MuxContainerID, &t.MuxContainerName, &t.MuxMetadata, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt, &t.NoteCount); err != nil {
+	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardWorkdir, &t.ColumnID, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.RemotePushState, &t.RemotePushToken, &t.RemotePushAttemptedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.Multiplexer, &t.MuxNamespace, &t.MuxContainerID, &t.MuxContainerName, &t.MuxMetadata, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt, &t.NoteCount); err != nil {
 		return Ticket{}, err
 	}
 	t.SessionActive = active == 1

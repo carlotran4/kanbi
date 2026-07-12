@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -32,7 +34,8 @@ func run(args []string) error {
 	if handled, err := handleMetadataCommand(args, os.Stdout); handled {
 		return err
 	}
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -143,11 +146,25 @@ func runRestore(ctx context.Context, cfg config.Config, args []string) error {
 func runBoard(ctx context.Context, cfg config.Config) error {
 	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
 		manager := cli.Manager()
-		_ = manager.Reconcile(ctx)
+		reconcileErr := manager.Reconcile(ctx)
+		reconcileWarning := ""
+		if reconcileErr != nil {
+			// Never discard reconcile failures: continue with local SQLite projection
+			// in explicit degraded mode so users keep offline board access.
+			reconcileWarning = storage.RedactSecretText(reconcileErr.Error())
+			_ = cli.store.InsertRuntimeDiagnostic(context.Background(), storage.RuntimeDiagnosticInput{
+				Kind:      storage.DiagnosticKindReconcile,
+				Operation: "startup_reconcile",
+				Attempt:   1,
+				Message:   "runtime reconciliation degraded (local data available)",
+				Cause:     reconcileWarning,
+			})
+		}
 		syncer := ticketbackend.NewManager(cli.store)
 		stopSync := syncer.Start(ctx)
 		defer stopSync()
-		_, err := tea.NewProgram(tui.NewWithPicker(ctx, tui.NewServiceWithSyncer(cli.store, manager, syncer))).Run()
+		defer manager.Close()
+		_, err := tea.NewProgram(tui.NewWithPickerOptions(ctx, tui.NewServiceWithSyncer(cli.store, manager, syncer), reconcileWarning)).Run()
 		return err
 	})
 }

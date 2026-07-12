@@ -300,7 +300,7 @@ Template:
 An autonomous agent should stop and ask before:
 
 - changing the product scope documented in current source-of-truth docs
-- adding a background daemon
+- adding a background daemon (in-process Start/Stop sync loops are not a daemon)
 - adding a web UI
 - removing tmux as the default v1 backend
 - making real harness behavior assumptions that cannot be simulated or verified
@@ -338,9 +338,31 @@ KANBI_JIRA_API_TOKEN="TOKEN" \
 
 The Jira smoke test verifies issue pull, remote comment pull, local update push, local issue creation push, and local note/comment push against a real project. Cleanup is best-effort: Delete Issues permission removes smoke issues; otherwise the script tries to transition them to a terminal status and reports any leftovers.
 
+## Runtime Hardening / Soak
+
+After lifecycle, storage, or provider sync changes, prefer the Milestone-4 matrix:
+
+```bash
+go fmt ./...
+go test ./...
+go test -race ./...
+go vet ./...
+govulncheck ./...   # if installed
+./scripts/smoke.sh --skip-checks
+go test ./internal/harness ./internal/tmux ./internal/storage ./internal/ticketbackend
+```
+
+Deterministic failure-injection coverage for sync ownership lives in `internal/ticketbackend` (stop drain, lease renew/loss, pending create recover, GET retries, create-once). Optional longer soak (default 60s, race on, temp dirs only):
+
+```bash
+KANBI_SOAK_SECONDS=60 ./scripts/soak-runtime.sh
+```
+
+`KANBI_SOAK=1` enables the soak test path. No real providers or network are used.
+
 ## CI And Release Verification
 
-GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux tmux smoke job. Keep deterministic tmux manager tests in the normal CI suite; real harness/provider checks remain opt-in.
+GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux tmux smoke job. Keep deterministic tmux manager tests in the normal CI suite; real harness/provider checks remain opt-in. The scheduled daily and manually dispatched CI workflow runs `scripts/soak-runtime.sh` for 60 seconds with the race detector; its fake provider and temporary databases require no credentials and leave no external resources.
 
 Semantic tags (`vMAJOR.MINOR.PATCH`) trigger `.github/workflows/release.yml`. Release builds must use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every build must execute `kanbi version`, package the binary with README/LICENSE, and publish a shared `SHA256SUMS` file. Before tagging, test the native local artifact path with:
 

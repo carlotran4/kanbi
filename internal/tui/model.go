@@ -81,6 +81,7 @@ type Model struct {
 	errOperation            string
 	errNext                 string
 	editorTicketID          int64
+	reconcileWarning        string
 
 	// Notes state (used within the edit modal, editField==3)
 	notes       []storage.Note
@@ -103,10 +104,20 @@ func New(ctx context.Context, store Actions) Model {
 }
 
 func NewWithPicker(ctx context.Context, store Actions) Model {
+	return NewWithPickerOptions(ctx, store, "")
+}
+
+// NewWithPickerOptions constructs the startup board picker model. reconcileWarning
+// is an optional bootstrap message for startup reconciliation degraded state.
+func NewWithPickerOptions(ctx context.Context, store Actions, reconcileWarning string) Model {
 	m := New(ctx, store)
 	m.boardPicker = true
 	m.boardPickerMode = "switch"
 	m.status = "select a board"
+	m.reconcileWarning = strings.TrimSpace(reconcileWarning)
+	if m.reconcileWarning != "" {
+		m.status = m.reconcileWarning
+	}
 	// The startup path is the only place onboarding is enabled, keeping model
 	// tests and embedded uses unobstructed. An empty installation can dismiss it
 	// immediately; it is intentionally transient and does not alter durable data.

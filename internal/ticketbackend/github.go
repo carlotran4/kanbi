@@ -115,6 +115,10 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 	}
 	var res Result
 	syncedLocal := map[int64]bool{}
+	byID := map[int64]storage.Ticket{}
+	for _, t := range locals {
+		byID[t.ID] = t
+	}
 	for _, issue := range issues {
 		col := githubIssueColumn(cfg, issue)
 		columnID := columnIDs[col]
@@ -144,11 +148,13 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, local.ColumnID, issue, archivedTime(local))); err != nil {
 					return res, err
 				}
+				_ = store.ClearTicketRemotePush(ctx, local.ID)
 				res.Pushed++
 			} else if remoteWins {
 				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, columnID, issue, nil)); err != nil {
 					return res, err
 				}
+				_ = store.ClearTicketRemotePush(ctx, local.ID)
 				res.Pulled++
 			} else if local.ArchivedAt.Valid && issue.ClosedAt != nil && githubTerminalColumn(cfg, localColumn) {
 				// Older GitHub syncs incorrectly stored GitHub closed_at as Kanbi
@@ -157,6 +163,7 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, local.ColumnID, issue, nil)); err != nil {
 					return res, err
 				}
+				_ = store.ClearTicketRemotePush(ctx, local.ID)
 				res.Pulled++
 			}
 			commentConflicts, err := b.syncComments(ctx, store, client, cfg, local.ID, issue.Number)
@@ -165,6 +172,28 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 			}
 			res.Conflicts += commentConflicts
 			continue
+		}
+		// Recover create-after-crash: remote body marker links back to a local ticket.
+		if marker, ok := parseGitHubPushMarker(issue.Body); ok {
+			if local, ok := byID[marker.TicketID]; ok && !local.ExternalID.Valid && !syncedLocal[local.ID] {
+				have := ticketRemotePushToken(local)
+				if have != "" && have == marker.Token {
+					rt := githubRemoteTicket(board.ID, local.ColumnID, issue, archivedTime(local))
+					rt.SourceTicketID = local.ID
+					if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
+						return res, err
+					}
+					_ = store.ClearTicketRemotePush(ctx, local.ID)
+					syncedLocal[local.ID] = true
+					res.Pulled++
+					commentConflicts, err := b.syncComments(ctx, store, client, cfg, local.ID, issue.Number)
+					if err != nil {
+						return res, err
+					}
+					res.Conflicts += commentConflicts
+					continue
+				}
+			}
 		}
 		t, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, columnID, issue, nil))
 		if err != nil {
@@ -177,23 +206,54 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 		}
 		res.Conflicts += commentConflicts
 	}
+	// Refresh local projection after recover-by-token links.
+	locals, err = store.SyncTicketsForBoard(ctx, board.ID)
+	if err != nil {
+		return res, err
+	}
+	var pendingErrs []error
 	for _, local := range locals {
 		if local.ExternalID.Valid || syncedLocal[local.ID] {
+			continue
+		}
+		// Fail closed for this durable pending create. Continue syncing sibling
+		// tickets so one ambiguous remote create does not wedge the whole board.
+		if ticketRemotePushActive(local) {
+			msg := fmt.Errorf("pending remote create for ticket %s may already exist on GitHub; re-run sync after the issue with the Kanbi local-ticket marker is in-query, or clear the pending push intentionally after verifying no remote duplicate", local.DisplayID)
+			_ = store.MarkTicketRemotePushFailed(ctx, local.ID, msg.Error())
+			pendingErrs = append(pendingErrs, msg)
 			continue
 		}
 		localColumn := columnNamesByID[local.ColumnID]
 		if localColumn == "" {
 			localColumn = cfg.DefaultOpenColumn
 		}
-		created, err := client.CreateIssue(ctx, cfg, githubUpdateFromLocal(cfg, local, localColumn, nil))
+		token, err := mintPushToken()
 		if err != nil {
+			return res, err
+		}
+		if err := store.MarkTicketRemotePushPending(ctx, local.ID, token); err != nil {
+			return res, err
+		}
+		update := githubUpdateFromLocal(cfg, local, localColumn, nil)
+		body := ""
+		if update.Body != nil {
+			body = *update.Body
+		}
+		marked := embedGitHubPushMarker(body, local.ID, token)
+		update.Body = &marked
+		created, err := client.CreateIssue(ctx, cfg, update)
+		if err != nil {
+			// Leave pending so a later pull can find-or-link; never automatic re-POST.
 			return res, err
 		}
 		rt := githubRemoteTicket(board.ID, local.ColumnID, created, archivedTime(local))
 		rt.SourceTicketID = local.ID
 		if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
+			// Remote issue likely exists; keep pending for recover-by-token.
 			return res, err
 		}
+		_ = store.ClearTicketRemotePush(ctx, local.ID)
 		res.Pushed++
 		commentConflicts, err := b.syncComments(ctx, store, client, cfg, local.ID, created.Number)
 		if err != nil {
@@ -201,11 +261,11 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 		}
 		res.Conflicts += commentConflicts
 	}
-	return res, nil
+	return res, errors.Join(pendingErrs...)
 }
 
 func githubRemoteTicket(boardID, columnID int64, issue GitHubIssue, archivedAt *time.Time) storage.RemoteTicket {
-	return storage.RemoteTicket{BoardID: boardID, ColumnID: columnID, ExternalID: strconv.Itoa(issue.Number), ExternalURL: issue.HTMLURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", issue.Number), DisplayNumber: issue.Number, Title: issue.Title, Body: issue.Body, ArchivedAt: archivedAt}
+	return storage.RemoteTicket{BoardID: boardID, ColumnID: columnID, ExternalID: strconv.Itoa(issue.Number), ExternalURL: issue.HTMLURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: fmt.Sprintf("GH-%d", issue.Number), DisplayNumber: issue.Number, Title: issue.Title, Body: stripGitHubPushMarker(issue.Body), ArchivedAt: archivedAt}
 }
 
 func archivedTime(t storage.Ticket) *time.Time {
@@ -460,7 +520,7 @@ type GitHubHTTPClient struct{ HTTP *http.Client }
 
 func NewGitHubHTTPClient(httpClient *http.Client) GitHubHTTPClient {
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = NewProviderHTTPClient()
 	}
 	return GitHubHTTPClient{HTTP: httpClient}
 }
@@ -545,6 +605,37 @@ func (c GitHubHTTPClient) do(ctx context.Context, cfg GitHubConfig, method, path
 }
 
 func (c GitHubHTTPClient) doPage(ctx context.Context, cfg GitHubConfig, method, path string, in, out any) (string, error) {
+	var payload []byte
+	if in != nil {
+		b, err := json.Marshal(in)
+		if err != nil {
+			return "", err
+		}
+		payload = b
+	}
+	maxAttempts := 1
+	if methodIsIdempotentGET(method) {
+		maxAttempts = defaultRetryMaxAttempts
+	}
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		next, err := c.doPageOnce(ctx, cfg, method, path, payload, out)
+		if err == nil {
+			return next, nil
+		}
+		lastErr = err
+		var ce *ClassifiedError
+		if !errors.As(err, &ce) || !shouldRetryClass(method, ce.Class) || attempt == maxAttempts {
+			return "", err
+		}
+		if waitErr := waitRetry(ctx, retryDelay(attempt)); waitErr != nil {
+			return "", classifyAndWrap("github "+method, method, 0, attempt, waitErr)
+		}
+	}
+	return "", lastErr
+}
+
+func (c GitHubHTTPClient) doPageOnce(ctx context.Context, cfg GitHubConfig, method, path string, payload []byte, out any) (string, error) {
 	base := strings.TrimRight(cfg.APIBaseURL, "/")
 	if base == "" {
 		base = "https://api.github.com"
@@ -554,12 +645,8 @@ func (c GitHubHTTPClient) doPage(ctx context.Context, cfg GitHubConfig, method, 
 		requestURL = path
 	}
 	var body io.Reader
-	if in != nil {
-		b, err := json.Marshal(in)
-		if err != nil {
-			return "", err
-		}
-		body = bytes.NewReader(b)
+	if payload != nil {
+		body = bytes.NewReader(payload)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, body)
 	if err != nil {
@@ -567,7 +654,7 @@ func (c GitHubHTTPClient) doPage(ctx context.Context, cfg GitHubConfig, method, 
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if in != nil {
+	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if cfg.Token != "" {
@@ -575,11 +662,11 @@ func (c GitHubHTTPClient) doPage(ctx context.Context, cfg GitHubConfig, method, 
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return "", err
+		return "", classifyAndWrap("github "+method+" "+path, method, 0, 1, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		bodyText := readLimitedBody(resp.Body)
 		extra := ""
 		if reset := resp.Header.Get("X-RateLimit-Reset"); reset != "" {
 			extra = " rate_limit_reset=" + reset
@@ -587,11 +674,12 @@ func (c GitHubHTTPClient) doPage(ctx context.Context, cfg GitHubConfig, method, 
 		if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
 			extra += " rate_limit_remaining=" + remaining
 		}
-		return "", fmt.Errorf("github %s %s: %s%s: %s", method, path, resp.Status, extra, strings.TrimSpace(string(b)))
+		cause := fmt.Errorf("github %s %s: %s%s: %s", method, path, resp.Status, extra, bodyText)
+		return "", classifyAndWrap("github "+method+" "+path, method, resp.StatusCode, 1, cause)
 	}
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return "", err
+			return "", classifyAndWrap("github decode "+path, method, resp.StatusCode, 1, err)
 		}
 	}
 	return githubNextLink(resp.Header.Get("Link")), nil

@@ -17,7 +17,7 @@ A multiplexer adapter must provide these operations for one terminal container:
 | Operation | Contract |
 | --- | --- |
 | Launch | Start a harness command in the ticket board working directory and return a durable container reference. |
-| Validate | Confirm that a durable container reference still identifies the expected live container in its stored namespace. |
+| Validate | Confirm that a durable container reference still identifies the expected live container in its stored namespace. Validation failures during startup reconcile are persisted as redacted runtime diagnostics and surface as **runtime reconciliation degraded (local data available)** rather than being discarded. |
 | Focus | Bring an existing live container to the user without creating a new session row. |
 | Read | Return recent terminal output for pattern detection and session-ref capture. |
 | Send text | Deliver literal text without interpreting it as shell input or key names. |

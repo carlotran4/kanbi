@@ -23,7 +23,7 @@ flowchart LR
     Sync[Ticket backend sync] --> Store
 ```
 
-- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, session history, provider-note tombstones, and cross-process sync leases live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite. File databases use WAL mode and a busy timeout for concurrent Kanbi processes. Foreign-key enforcement is enabled on every store connection and integrity is verified during initialization.
+- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, session history, provider-note tombstones, cross-process sync leases, remote push pending tokens, and redacted runtime/sync diagnostics live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite. File databases use WAL mode and a busy timeout for concurrent Kanbi processes. Foreign-key enforcement is enabled on every store connection and integrity is verified during initialization.
 - **The configured multiplexer is observed runtime state.** tmux windows are validated against live tmux. Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions.
@@ -71,7 +71,7 @@ Stop and ask before:
 | `internal/backup` | Versioned SQLite-and-attachments export/restore archives with validation. |
 | `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. `TicketProjection` and `ColumnView` are explicit read models. |
 | `internal/session` | Provider-neutral lifecycle policy and errors, durable session repository contract, and compiled-in multiplexer registry. |
-| `internal/ticketbackend` | Board-scoped ticket metadata backend registry and startup/periodic sync orchestration. Providers receive a narrow sync repository instead of the complete SQLite store. Implements the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
+| `internal/ticketbackend` | Board-scoped ticket metadata backend registry and owned startup/periodic/mutation sync orchestration (cancel + WaitGroup drain). Providers receive a narrow sync repository. Implements timeouts, GET retry classification, durable find-or-link create recovery, the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
 | `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. Includes the Herdr adapter under `internal/multiplexer/herdr`. |
 | `internal/tmux` | tmux adapter and compatibility runtime manager. Launch execution, runtime polling, and reconciliation remain here while lifecycle policy lives in `internal/session`. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
@@ -218,7 +218,7 @@ Always update [`docs/harness-contracts.md`](./harness-contracts.md) when harness
 
 SQLite schema changes are applied through the ordered `schema_migrations` ledger. Migration runners serialize through a database write lock, apply pending migrations atomically, and record a version only in the transaction that successfully applied it. Existing pre-ledger databases enter through the idempotent legacy compatibility migration; no ticket or session history is flattened or deleted. Kanbi refuses to open a database created by a newer unsupported schema version or one that fails SQLite's foreign-key integrity check.
 
-Indexes used by board projection, latest-session lookup, external identity lookup, and note listing are installed by migration. Provider sync uses expiring, per-board SQLite leases so multiple Kanbi processes cannot concurrently create the same remote ticket; leases are released after sync and abandoned leases recover after expiry. Provider-backed note deletion preserves a tombstone so comments that remain remote are not re-imported. Domain uniqueness constraints must only be added with an explicit compatibility strategy for existing durable history.
+Indexes used by board projection, latest-session lookup, external identity lookup, and note listing are installed by migration. Provider sync uses expiring, per-board SQLite leases so multiple Kanbi processes cannot concurrently create the same remote ticket; leases renew while work continues, cancel the attempt if lost, are released after sync, and abandoned leases recover after expiry. Remote issue create is further protected by durable pending push tokens and find-or-link recovery rather than blind re-POST. Provider-backed note deletion preserves a tombstone so comments that remain remote are not re-imported. Domain uniqueness constraints must only be added with an explicit compatibility strategy for existing durable history.
 
 ## Testing Strategy
 

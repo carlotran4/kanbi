@@ -28,7 +28,7 @@ Press `?` for this legend and the implemented controls. Help scrolls with `j`/`k
 
 ## Degraded and error states
 
-The board renders from the local SQLite projection rather than blocking on a provider. An empty column says how to create a ticket; an empty filtered Master view says how to change filters. Provider failures appear in the board picker as **provider sync degraded (local data available)** with the preserved cause and a `kanbi sync --board NAME` retry action.
+The board renders from the local SQLite projection rather than blocking on a provider. An empty column says how to create a ticket; an empty filtered Master view says how to change filters. Provider failures appear in the board picker as **provider sync degraded (local data available)** with the preserved cause and a `kanbi sync --board NAME` retry action. Startup runtime reconciliation failures use the same degraded class: **runtime reconciliation degraded (local data available)** with cause and a `kanbi doctor` next step, while the local SQLite projection remains usable.
 
 Runtime refresh/open/close/multiplexer-move errors render the failed operation, underlying cause, and a concrete next action on separate lines. They never imply that session history was discarded. Other validation errors remain inline beside their focused control. Kanbi has no remote-loading screen because provider sync is deliberately non-blocking and the local projection is available immediately; this is the useful loading behavior rather than an indeterminate blocker.
 

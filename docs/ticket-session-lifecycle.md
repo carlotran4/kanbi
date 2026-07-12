@@ -95,6 +95,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - Creates exactly one active session row. The row is claimed as `starting` before runtime launch and becomes `running` only after its container reference is persisted.
 - Attempts harness-specific session ref capture. Delayed Pi/Claude capture is owned by the runtime manager and updates the exact session attempt that initiated it, even if a newer attempt becomes active before capture completes.
 - If launch or prompt delivery fails, closes any newly-created container best-effort and leaves the attempt as an inactive `error` row.
+- Delayed session-ref capture is bounded, attempt-bound, and canceled on manager shutdown.
 
 ### `Enter`: Default Ticket Action
 
@@ -117,6 +118,13 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - `x` sends harness exit keys first, waits for process/container exit, then closes the terminal container after timeout if needed.
 - A successfully closed session is inactive and keeps its session ref if one was captured.
 - Archiving a running ticket uses the same safe close path before hiding the ticket.
+
+### Shutdown / interruption
+
+- Process interrupt (`Ctrl+C` / SIGTERM) cancels Kanbi's root context. That drains manager-owned session-ref capture and provider sync; it does **not** kill active ticket agent sessions or flatten history.
+- Pressing `q` exits the board UI the same way regarding agents: active ticket containers keep running until closed with `x`.
+- Launch/resume/prompt failures leave at most one inactive `error` attempt and never delete prior session rows.
+- Startup reconciliation errors are never discarded: Kanbi continues from SQLite in explicit **runtime reconciliation degraded (local data available)** mode with a durable diagnostic.
 
 ## Audit Findings Applied
 

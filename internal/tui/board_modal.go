@@ -107,6 +107,14 @@ func (m Model) boardPickerView() string {
 	}
 	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render(title)
 	lines = append(lines, header, "")
+	if strings.TrimSpace(m.reconcileWarning) != "" {
+		lines = append(lines,
+			lipgloss.NewStyle().Foreground(palette.error_).Render("runtime reconciliation degraded (local data available)"),
+			lipgloss.NewStyle().Faint(true).Render("Cause: "+trimToWidth(m.reconcileWarning, max(24, popupWidth(m.width)-16))),
+			lipgloss.NewStyle().Faint(true).Render("Next: run `kanbi doctor`, then reopen or press Enter to continue offline"),
+			"",
+		)
+	}
 	row := func(i int, name string) string {
 		if i == m.boardIndex {
 			return lipgloss.NewStyle().Foreground(palette.accent).Render(">") + " " + name

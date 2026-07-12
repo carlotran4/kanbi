@@ -102,6 +102,10 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 	}
 	var res Result
 	syncedLocal := map[int64]bool{}
+	byID := map[int64]storage.Ticket{}
+	for _, t := range locals {
+		byID[t.ID] = t
+	}
 	for _, issue := range issues {
 		col := strings.TrimSpace(issue.Status)
 		if col == "" {
@@ -135,17 +139,38 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 				if _, err := store.UpsertRemoteTicket(ctx, jiraRemoteTicket(cfg, board.ID, local.ColumnID, issue)); err != nil {
 					return res, err
 				}
+				_ = store.ClearTicketRemotePush(ctx, local.ID)
 				res.Pushed++
 			} else if remoteNewer {
 				if _, err := store.UpsertRemoteTicket(ctx, jiraRemoteTicket(cfg, board.ID, columnID, issue)); err != nil {
 					return res, err
 				}
+				_ = store.ClearTicketRemotePush(ctx, local.ID)
 				res.Pulled++
 			}
 			if err := b.syncComments(ctx, store, client, cfg, local.ID, issue.ID); err != nil {
 				return res, err
 			}
 			continue
+		}
+		if marker, ok := parseJiraPushMarker(issue.Description); ok {
+			if local, ok := byID[marker.TicketID]; ok && !local.ExternalID.Valid && !syncedLocal[local.ID] {
+				have := ticketRemotePushToken(local)
+				if have != "" && have == marker.Token {
+					rt := jiraRemoteTicket(cfg, board.ID, local.ColumnID, issue)
+					rt.SourceTicketID = local.ID
+					if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
+						return res, err
+					}
+					_ = store.ClearTicketRemotePush(ctx, local.ID)
+					syncedLocal[local.ID] = true
+					res.Pulled++
+					if err := b.syncComments(ctx, store, client, cfg, local.ID, issue.ID); err != nil {
+						return res, err
+					}
+					continue
+				}
+			}
 		}
 		t, err := store.UpsertRemoteTicket(ctx, jiraRemoteTicket(cfg, board.ID, columnID, issue))
 		if err != nil {
@@ -156,27 +181,50 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 			return res, err
 		}
 	}
+	locals, err = store.SyncTicketsForBoard(ctx, board.ID)
+	if err != nil {
+		return res, err
+	}
+	var pendingErrs []error
 	for _, local := range locals {
 		if local.ExternalID.Valid || syncedLocal[local.ID] {
+			continue
+		}
+		if ticketRemotePushActive(local) {
+			msg := fmt.Errorf("pending remote create for ticket %s may already exist in Jira; re-run sync after the issue with the Kanbi local-ticket marker is visible to the board JQL, or clear the pending push intentionally after verifying no remote duplicate", local.DisplayID)
+			_ = store.MarkTicketRemotePushFailed(ctx, local.ID, msg.Error())
+			pendingErrs = append(pendingErrs, msg)
 			continue
 		}
 		localColumn := columnNamesByID[local.ColumnID]
 		if localColumn == "" {
 			localColumn = "Open"
 		}
-		created, err := client.CreateIssue(ctx, cfg, jiraUpdateFromLocal(cfg, local, localColumn))
+		token, err := mintPushToken()
 		if err != nil {
 			return res, err
 		}
-		if _, err := store.UpsertRemoteTicket(ctx, jiraRemoteTicket(cfg, board.ID, local.ColumnID, created)); err != nil {
+		if err := store.MarkTicketRemotePushPending(ctx, local.ID, token); err != nil {
 			return res, err
 		}
+		update := jiraUpdateFromLocal(cfg, local, localColumn)
+		update.Description = embedJiraPushMarker(update.Description, local.ID, token)
+		created, err := client.CreateIssue(ctx, cfg, update)
+		if err != nil {
+			return res, err
+		}
+		rt := jiraRemoteTicket(cfg, board.ID, local.ColumnID, created)
+		rt.SourceTicketID = local.ID
+		if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
+			return res, err
+		}
+		_ = store.ClearTicketRemotePush(ctx, local.ID)
 		res.Pushed++
 		if err := b.syncComments(ctx, store, client, cfg, local.ID, created.ID); err != nil {
 			return res, err
 		}
 	}
-	return res, nil
+	return res, errors.Join(pendingErrs...)
 }
 
 func (b JiraBackend) syncComments(ctx context.Context, store SyncRepository, client JiraClient, cfg JiraConfig, ticketID int64, issueID string) error {
@@ -326,14 +374,14 @@ func jiraRemoteTicket(cfg JiraConfig, boardID, columnID int64, issue JiraIssue) 
 	if strings.EqualFold(issue.Status, cfg.DoneColumn) && !issue.UpdatedAt.IsZero() {
 		archivedAt = &issue.UpdatedAt
 	}
-	return storage.RemoteTicket{BoardID: boardID, ColumnID: columnID, ExternalID: externalID, ExternalURL: issue.BrowseURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: display, DisplayNumber: number, Title: issue.Summary, Body: issue.Description, ArchivedAt: archivedAt}
+	return storage.RemoteTicket{BoardID: boardID, ColumnID: columnID, ExternalID: externalID, ExternalURL: issue.BrowseURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: display, DisplayNumber: number, Title: issue.Summary, Body: stripJiraPushMarker(issue.Description), ArchivedAt: archivedAt}
 }
 
 type JiraHTTPClient struct{ HTTP *http.Client }
 
 func NewJiraHTTPClient(httpClient *http.Client) JiraHTTPClient {
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = NewProviderHTTPClient()
 	}
 	return JiraHTTPClient{HTTP: httpClient}
 }
@@ -444,21 +492,48 @@ func (c JiraHTTPClient) transitionIssue(ctx context.Context, cfg JiraConfig, iss
 }
 
 func (c JiraHTTPClient) do(ctx context.Context, cfg JiraConfig, method, path string, in, out any) error {
-	base := strings.TrimRight(cfg.SiteURL, "/")
-	var body io.Reader
+	var payload []byte
 	if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
 			return err
 		}
-		body = bytes.NewReader(b)
+		payload = b
+	}
+	maxAttempts := 1
+	if methodIsIdempotentGET(method) {
+		maxAttempts = defaultRetryMaxAttempts
+	}
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := c.doOnce(ctx, cfg, method, path, payload, out)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		var ce *ClassifiedError
+		if !errors.As(err, &ce) || !shouldRetryClass(method, ce.Class) || attempt == maxAttempts {
+			return err
+		}
+		if waitErr := waitRetry(ctx, retryDelay(attempt)); waitErr != nil {
+			return classifyAndWrap("atlassian "+method, method, 0, attempt, waitErr)
+		}
+	}
+	return lastErr
+}
+
+func (c JiraHTTPClient) doOnce(ctx context.Context, cfg JiraConfig, method, path string, payload []byte, out any) error {
+	base := strings.TrimRight(cfg.SiteURL, "/")
+	var body io.Reader
+	if payload != nil {
+		body = bytes.NewReader(payload)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, base+path, body)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
-	if in != nil {
+	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if cfg.BearerToken != "" {
@@ -468,17 +543,21 @@ func (c JiraHTTPClient) do(ctx context.Context, cfg JiraConfig, method, path str
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return err
+		return classifyAndWrap("atlassian "+method+" "+path, method, 0, 1, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("atlassian %s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(b)))
+		bodyText := readLimitedBody(resp.Body)
+		cause := fmt.Errorf("atlassian %s %s: %s: %s", method, path, resp.Status, bodyText)
+		return classifyAndWrap("atlassian "+method+" "+path, method, resp.StatusCode, 1, cause)
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return classifyAndWrap("atlassian decode "+path, method, resp.StatusCode, 1, err)
+	}
+	return nil
 }
 
 type jiraSearchResponse struct {

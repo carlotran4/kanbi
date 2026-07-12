@@ -54,6 +54,9 @@ type SyncRepository interface {
 	ListNotesForSync(context.Context, int64) ([]storage.Note, error)
 	UpsertRemoteNote(context.Context, int64, string, string, time.Time) error
 	LinkLocalNoteToRemote(context.Context, int64, string, time.Time) error
+	MarkTicketRemotePushPending(context.Context, int64, string) error
+	ClearTicketRemotePush(context.Context, int64) error
+	MarkTicketRemotePushFailed(context.Context, int64, string) error
 }
 
 var _ SyncRepository = (*storage.Store)(nil)
@@ -122,6 +125,10 @@ func (LocalBackend) Sync(context.Context, SyncRepository, storage.Board) (Result
 
 // Manager runs startup and in-process periodic sync. It intentionally does not
 // create a daemon; syncing stops when the executable exits.
+//
+// Manager owns mutation-triggered, startup, and periodic board sync work. Call
+// ScheduleBoardSync from use-case code; call the stop func returned by Start to
+// cancel and drain in-flight syncs on shutdown.
 type Manager struct {
 	Store    *storage.Store
 	Registry *Registry
@@ -131,6 +138,12 @@ type Manager struct {
 	boardLocks map[int64]*sync.Mutex
 	Owner      string
 	LeaseTTL   time.Duration
+
+	lifeMu sync.Mutex
+	runCtx context.Context
+	stop   context.CancelFunc
+	closed bool
+	wg     sync.WaitGroup // all owned background work including loop + scheduled ops
 }
 
 func NewManager(store *storage.Store) *Manager {
@@ -219,6 +232,9 @@ func (m *Manager) SyncBoard(ctx context.Context, board storage.Board) (Result, e
 	if markErr := m.Store.MarkBoardSync(ctx, board.ID, syncErr); markErr != nil {
 		return res, errors.Join(syncErr, markErr)
 	}
+	if syncErr != nil && !errors.Is(syncErr, storage.ErrBoardSyncInProgress) {
+		m.recordSyncDiagnostic(board.ID, 0, "sync_board", 1, syncErr)
+	}
 	return res, syncErr
 }
 
@@ -249,30 +265,124 @@ func (m *Manager) SyncAll(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// Start launches startup + periodic sync owned by Manager. The returned stop
+// function cancels the run context and waits for the loop and all scheduled
+// SyncBoard operations to finish. Start is safe for one active run per Manager.
 func (m *Manager) Start(ctx context.Context) func() {
+	if m == nil {
+		return func() {}
+	}
 	interval := m.Interval
 	if interval <= 0 {
 		interval = time.Minute
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	m.lifeMu.Lock()
+	if m.closed {
+		m.lifeMu.Unlock()
+		cancel()
+		return func() {}
+	}
+	m.runCtx = runCtx
+	m.stop = cancel
+	m.closed = false
+	m.wg.Add(1)
+	m.lifeMu.Unlock()
+
 	go func() {
-		defer close(done)
-		_ = m.SyncAll(ctx)
+		defer m.wg.Done()
+		_ = m.SyncAll(runCtx)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				return
 			case <-ticker.C:
-				_ = m.SyncAll(ctx)
+				_ = m.SyncAll(runCtx)
 			}
 		}
 	}()
 	return func() {
-		cancel()
-		<-done
+		m.Stop()
 	}
+}
+
+// Stop cancels owned sync work and waits for drain. Safe to call more than once.
+func (m *Manager) Stop() {
+	if m == nil {
+		return
+	}
+	m.lifeMu.Lock()
+	if m.stop != nil {
+		m.stop()
+	}
+	m.closed = true
+	m.lifeMu.Unlock()
+	m.wg.Wait()
+}
+
+// ScheduleBoardSync queues a board sync owned by this Manager. The work uses
+// the Manager run context when Start is active, otherwise a detached background
+// context tied only to process lifetime for short CLI paths. After Stop, calls
+// are no-ops.
+func (m *Manager) ScheduleBoardSync(boardID int64) {
+	if m == nil || m.Store == nil || boardID == 0 {
+		return
+	}
+	m.lifeMu.Lock()
+	if m.closed {
+		m.lifeMu.Unlock()
+		return
+	}
+	parent := m.runCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	m.wg.Add(1)
+	m.lifeMu.Unlock()
+
+	go func() {
+		defer m.wg.Done()
+		ctx := parent
+		boards, err := m.Store.ListBoards(ctx)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				m.recordSyncDiagnostic(boardID, 0, "schedule_list_boards", 1, err)
+			}
+			return
+		}
+		for _, board := range boards {
+			if board.ID != boardID {
+				continue
+			}
+			if _, err := m.SyncBoard(ctx, board); err != nil && !errors.Is(err, storage.ErrBoardSyncInProgress) {
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+					m.recordSyncDiagnostic(board.ID, 0, "schedule_sync_board", 1, err)
+				}
+			}
+			return
+		}
+	}()
+}
+
+func (m *Manager) recordSyncDiagnostic(boardID, ticketID int64, operation string, attempt int, err error) {
+	if m == nil || m.Store == nil || err == nil {
+		return
+	}
+	// Diagnostics must outlive a canceled request context.
+	ctx := context.Background()
+	_ = m.Store.InsertRuntimeDiagnostic(ctx, storage.RuntimeDiagnosticInput{
+		Kind:      storage.DiagnosticKindSync,
+		Operation: operation,
+		BoardID:   boardID,
+		TicketID:  ticketID,
+		Attempt:   attempt,
+		Message:   "provider sync degraded (local data available)",
+		Cause:     err.Error(),
+	})
 }

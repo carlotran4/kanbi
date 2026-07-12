@@ -156,7 +156,7 @@ KANBI_JIRA_API_TOKEN="TOKEN" \
 
 Kanbi creates application directories for the current user (`0700`) and restricts sensitive files, including existing config and SQLite database/WAL/SHM files, to `0600`. Explicit pre-existing parent-directory overrides keep their existing permissions. Pressing `q` from the board or `Ctrl+C` anywhere exits the UI without terminating active ticket agent sessions; close a ticket session explicitly with `x`.
 
-Remote-provider sync is serialized per board with a durable SQLite lease, including across Kanbi processes. Stale leases recover automatically after their expiry. Deleting a provider-backed note creates a durable local tombstone: the remote comment is not deleted, but it cannot be re-imported into Kanbi on later sync.
+Remote-provider sync is owned by the in-process sync manager (startup, periodic, and mutation-triggered) with durable per-board SQLite leases across Kanbi processes, lease renewal during long ops, and cancel-on-lease-loss. Provider HTTP calls have explicit timeouts; only idempotent GET/list requests retry with backoff. Issue create is fail-closed after a durable pending push token so crashes cannot silently duplicate remote tickets; recovery is find-or-link via a body marker. Stale leases recover automatically after expiry. Sync/runtime failures write redacted diagnostics (operation, board/ticket context, timestamp, attempt, cause)—never tokens, prompts, session refs, or terminal excerpts. Deleting a provider-backed note creates a durable local tombstone: the remote comment is not deleted, but it cannot be re-imported into Kanbi on later sync.
 
 ## License
 
@@ -164,13 +164,13 @@ Kanbi is available under the [MIT License](./LICENSE). Copyright © 2026 Carlo T
 
 ## Status
 
-Kanbi is a UX-ready beta with multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot/Claude command wiring and ref capture, deterministic fake-harness coverage, and opt-in real-harness verification. Lifecycle and data-safety hardening remain active work; current follow-up work is tracked as tickets on the board.
+Kanbi is a UX-ready beta with multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot/Claude command wiring and ref capture, deterministic fake-harness coverage, runtime/sync hardening (owned background work, provider timeouts/retries, lease renew/loss, durable diagnostics, soak coverage), and opt-in real-harness verification. Further polish remains trackable on the board.
 
 ## Runtime states and accessible indicators
 
 Every card prints a runtime state in words: `not started`, `starting`, `running`, `waiting for user`, `permission required`, `idle / unknown`, `closing`, `closed / resumable`, `repair required`, or `error`. Waiting and permission requests are therefore distinguishable without theme colors. Cards also pair symbols with text: `● active container`, `○ resumable`, `! error / repair`, and `- no active container`. Press `?` for the complete in-product legend and controls; scroll long help with `j`/`k` or arrow keys.
 
-Major list dialogs follow their focused control in short terminals and help is scrollable. At 80x24 controls remain reachable; below that size Kanbi clips safely and marks hidden content with `more`. Session action failures name the failed operation, retain the underlying cause, and show a concrete next step on a separate line. Provider sync failures are degraded/offline states: Kanbi continues from its local SQLite projection and shows a `kanbi sync --board` retry command.
+Major list dialogs follow their focused control in short terminals and help is scrollable. At 80x24 controls remain reachable; below that size Kanbi clips safely and marks hidden content with `more`. Session action failures name the failed operation, retain the underlying cause, and show a concrete next step on a separate line. Provider sync failures are degraded/offline states: Kanbi continues from its local SQLite projection and shows a `kanbi sync --board` retry command. Startup reconciliation failures use the parallel **runtime reconciliation degraded (local data available)** banner with a `kanbi doctor` next step; they are never silently discarded.
 
 See [`docs/ux-readiness.md`](./docs/ux-readiness.md) for the manual terminal/theme/tmux matrix and known accessibility limitations.
 

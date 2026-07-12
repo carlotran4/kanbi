@@ -25,8 +25,11 @@ type SessionManager interface {
 }
 
 // TicketSyncer is the board-scoped synchronization seam used after mutations.
+// ScheduleBoardSync is preferred for mutation paths so ownership stays inside
+// the sync manager (cancel + drain) instead of fire-and-forget app goroutines.
 type TicketSyncer interface {
 	SyncBoard(context.Context, storage.Board) (ticketbackend.Result, error)
+	ScheduleBoardSync(boardID int64)
 }
 
 type Service struct {
@@ -101,7 +104,12 @@ func (s *Service) ColumnIDByBoardAndName(ctx context.Context, boardID int64, nam
 	return s.Store.ColumnIDByBoardAndName(ctx, boardID, name)
 }
 func (s *Service) CreateTicket(ctx context.Context, columnID int64, title, body, harness string) (storage.Ticket, error) {
-	return s.Store.CreateTicket(ctx, columnID, title, body, harness)
+	ticket, err := s.Store.CreateTicket(ctx, columnID, title, body, harness)
+	if err != nil {
+		return storage.Ticket{}, err
+	}
+	s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
+	return ticket, nil
 }
 
 func (s *Service) UpdateTicket(ctx context.Context, id int64, title, body, harness string) error {
@@ -257,20 +265,10 @@ func (s *Service) syncTicketBoardAfterChange(ctx context.Context, ticketID int64
 }
 
 func (s *Service) syncBoardAfterTicketChange(ctx context.Context, boardID int64) {
-	if s == nil || s.Store == nil || s.Syncer == nil || boardID == 0 {
+	if s == nil || s.Syncer == nil || boardID == 0 {
 		return
 	}
-	go func() {
-		ctx := context.WithoutCancel(ctx)
-		boards, err := s.Store.ListBoards(ctx)
-		if err != nil {
-			return
-		}
-		for _, board := range boards {
-			if board.ID == boardID {
-				_, _ = s.Syncer.SyncBoard(ctx, board)
-				return
-			}
-		}
-	}()
+	// Manager owns lifecycle-bound scheduling/drain; app never spawns free goroutines.
+	_ = ctx
+	s.Syncer.ScheduleBoardSync(boardID)
 }

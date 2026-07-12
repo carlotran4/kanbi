@@ -14,11 +14,30 @@ import (
 
 type recordingTicketSyncer struct {
 	boards chan storage.Board
+	store  *storage.Store
 }
 
 func (s *recordingTicketSyncer) SyncBoard(ctx context.Context, board storage.Board) (ticketbackend.Result, error) {
 	s.boards <- board
 	return ticketbackend.Result{}, nil
+}
+
+func (s *recordingTicketSyncer) ScheduleBoardSync(boardID int64) {
+	if s == nil || s.store == nil || boardID == 0 {
+		return
+	}
+	go func() {
+		boards, err := s.store.ListBoards(context.Background())
+		if err != nil {
+			return
+		}
+		for _, board := range boards {
+			if board.ID == boardID {
+				_, _ = s.SyncBoard(context.Background(), board)
+				return
+			}
+		}
+	}()
 }
 
 func TestServiceSyncsBoardAfterSavedTicketChanges(t *testing.T) {
@@ -39,14 +58,16 @@ func TestServiceSyncsBoardAfterSavedTicketChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	syncer := &recordingTicketSyncer{boards: make(chan storage.Board, 10)}
+	syncer := &recordingTicketSyncer{boards: make(chan storage.Board, 10), store: store}
 	service := NewServiceWithSyncer(store, nil, syncer)
 
 	ticket, err := service.CreateTicket(ctx, view.Columns[0].ID, "New ticket", "", "pi")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertNoImmediateSync(t, syncer)
+	// Local placeholders for remote boards schedule sync immediately so providers
+	// receive create/push without waiting for the next periodic tick.
+	assertSyncedBoard(t, syncer, board.ID)
 
 	if err := service.UpdateTicket(ctx, ticket.ID, "Created", "body", "codex"); err != nil {
 		t.Fatal(err)
@@ -115,15 +136,6 @@ func TestServiceDeleteBoardRemovesOwnedAttachments(t *testing.T) {
 	}
 	if _, err := os.Stat(attachments.TicketDir(ticket.ID)); !os.IsNotExist(err) {
 		t.Fatalf("attachment directory remains after board deletion: %v", err)
-	}
-}
-
-func assertNoImmediateSync(t *testing.T, syncer *recordingTicketSyncer) {
-	t.Helper()
-	select {
-	case board := <-syncer.boards:
-		t.Fatalf("unexpected sync for board %d", board.ID)
-	case <-time.After(50 * time.Millisecond):
 	}
 }
 

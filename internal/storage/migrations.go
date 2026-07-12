@@ -21,6 +21,7 @@ var migrations = []migration{
 	{version: 1, name: "legacy schema compatibility", apply: migrateLegacySchema},
 	{version: 2, name: "projection and lifecycle indexes", apply: migrateIndexes},
 	{version: 3, name: "sync leases and note tombstones", apply: migrateProductionSafety},
+	{version: 4, name: "runtime diagnostics and remote push state", apply: migrateRuntimeHardening},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.
@@ -196,6 +197,48 @@ func migrateIndexes(ctx context.Context, tx *sql.Tx) error {
 		`create index if not exists idx_sessions_ticket_latest on sessions(ticket_id,id desc)`,
 		`create index if not exists idx_sessions_ticket_active on sessions(ticket_id,is_active)`,
 		`create index if not exists idx_ticket_notes_ticket on ticket_notes(ticket_id,id)`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateRuntimeHardening(ctx context.Context, tx *sql.Tx) error {
+	ticketColumns, err := tableColumns(ctx, tx, "tickets")
+	if err != nil {
+		return err
+	}
+	for _, col := range []struct{ name, typ string }{
+		{"remote_push_state", "text"},
+		{"remote_push_token", "text"},
+		{"remote_push_attempted_at", "datetime"},
+	} {
+		if !ticketColumns[col.name] {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`alter table tickets add column %s %s`, col.name, col.typ)); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `create table if not exists runtime_diagnostics (
+  id integer primary key autoincrement,
+  created_at datetime not null,
+  kind text not null,
+  operation text not null,
+  board_id integer references boards(id) on delete set null,
+  ticket_id integer references tickets(id) on delete set null,
+  session_id integer references sessions(id) on delete set null,
+  attempt integer not null default 0,
+  message text not null default '',
+  cause text not null default ''
+)`); err != nil {
+		return err
+	}
+	for _, statement := range []string{
+		`create index if not exists idx_runtime_diagnostics_board_created on runtime_diagnostics(board_id, created_at desc)`,
+		`create index if not exists idx_runtime_diagnostics_kind_created on runtime_diagnostics(kind, created_at desc)`,
+		`create index if not exists idx_tickets_remote_push_state on tickets(board_id, remote_push_state) where remote_push_state is not null`,
 	} {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return err

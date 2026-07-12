@@ -40,43 +40,46 @@ type Column = ColumnView
 //
 // It is intentionally not a direct representation of a tickets table row.
 type TicketProjection struct {
-	ID                  int64
-	BoardID             int64
-	BoardName           string
-	BoardWorkdir        string
-	ColumnID            int64
-	ExternalID          sql.NullString
-	ExternalURL         sql.NullString
-	ExternalUpdatedAt   sql.NullTime
-	SyncVersion         sql.NullString
-	DisplayID           string
-	DisplayNum          int
-	Title               string
-	Body                string
-	Harness             string
-	Position            int
-	ArchivedAt          sql.NullTime
-	Runtime             string
-	SessionActive       bool
-	TmuxSessionName     sql.NullString
-	WindowID            sql.NullString
-	WindowName          sql.NullString
-	Multiplexer         sql.NullString
-	MuxNamespace        sql.NullString
-	MuxContainerID      sql.NullString
-	MuxContainerName    sql.NullString
-	MuxMetadata         sql.NullString
-	SessionID           sql.NullInt64
-	SessionRef          sql.NullString
-	LastOutputAt        sql.NullTime
-	LastStateChangeAt   sql.NullTime
-	LastDetectedState   sql.NullString
-	LastAttentionReason sql.NullString
-	LastDetectionSource sql.NullString
-	LastObservedExcerpt sql.NullString
-	NoteCount           int
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                    int64
+	BoardID               int64
+	BoardName             string
+	BoardWorkdir          string
+	ColumnID              int64
+	ExternalID            sql.NullString
+	ExternalURL           sql.NullString
+	ExternalUpdatedAt     sql.NullTime
+	SyncVersion           sql.NullString
+	DisplayID             string
+	DisplayNum            int
+	Title                 string
+	Body                  string
+	Harness               string
+	Position              int
+	ArchivedAt            sql.NullTime
+	RemotePushState       sql.NullString
+	RemotePushToken       sql.NullString
+	RemotePushAttemptedAt sql.NullTime
+	Runtime               string
+	SessionActive         bool
+	TmuxSessionName       sql.NullString
+	WindowID              sql.NullString
+	WindowName            sql.NullString
+	Multiplexer           sql.NullString
+	MuxNamespace          sql.NullString
+	MuxContainerID        sql.NullString
+	MuxContainerName      sql.NullString
+	MuxMetadata           sql.NullString
+	SessionID             sql.NullInt64
+	SessionRef            sql.NullString
+	LastOutputAt          sql.NullTime
+	LastStateChangeAt     sql.NullTime
+	LastDetectedState     sql.NullString
+	LastAttentionReason   sql.NullString
+	LastDetectionSource   sql.NullString
+	LastObservedExcerpt   sql.NullString
+	NoteCount             int
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // Ticket is retained as a compatibility name for the ticket query model.
@@ -163,4 +166,40 @@ type CreateBoardOptions struct {
 	TicketBackend string
 	BackendQuery  string
 	BackendConfig string
+}
+
+const (
+	RemotePushStatePending = "pending"
+	RemotePushStateFailed  = "failed"
+
+	DiagnosticKindSync      = "sync"
+	DiagnosticKindReconcile = "reconcile"
+	DiagnosticKindRuntime   = "runtime"
+	DiagnosticKindShutdown  = "shutdown"
+)
+
+// RuntimeDiagnostic is a durable, redacted failure record for sync/runtime ops.
+type RuntimeDiagnostic struct {
+	ID        int64
+	CreatedAt time.Time
+	Kind      string
+	Operation string
+	BoardID   sql.NullInt64
+	TicketID  sql.NullInt64
+	SessionID sql.NullInt64
+	Attempt   int
+	Message   string
+	Cause     string
+}
+
+// RuntimeDiagnosticInput is the write model for InsertRuntimeDiagnostic.
+type RuntimeDiagnosticInput struct {
+	Kind      string
+	Operation string
+	BoardID   int64
+	TicketID  int64
+	SessionID int64
+	Attempt   int
+	Message   string
+	Cause     string
 }

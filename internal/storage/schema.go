@@ -44,6 +44,9 @@ create table if not exists tickets (
   harness text not null default 'pi',
   position integer not null,
   archived_at datetime,
+  remote_push_state text,
+  remote_push_token text,
+  remote_push_attempted_at datetime,
   created_at datetime not null,
   updated_at datetime not null,
   unique(board_id, display_id),
@@ -95,5 +98,18 @@ create table if not exists ticket_notes (
   deleted_at datetime,
   created_at datetime not null,
   updated_at datetime not null
+);
+
+create table if not exists runtime_diagnostics (
+  id integer primary key autoincrement,
+  created_at datetime not null,
+  kind text not null,
+  operation text not null,
+  board_id integer references boards(id) on delete set null,
+  ticket_id integer references tickets(id) on delete set null,
+  session_id integer references sessions(id) on delete set null,
+  attempt integer not null default 0,
+  message text not null default '',
+  cause text not null default ''
 );
 `
