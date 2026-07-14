@@ -140,11 +140,12 @@ type Manager struct {
 	Owner      string
 	LeaseTTL   time.Duration
 
-	lifeMu sync.Mutex
-	runCtx context.Context
-	stop   context.CancelFunc
-	closed bool
-	wg     sync.WaitGroup // all owned background work including loop + scheduled ops
+	lifeMu    sync.Mutex
+	runCtx    context.Context
+	stop      context.CancelFunc
+	closed    bool
+	scheduled map[int64]bool // board id -> one follow-up sync requested while worker is active
+	wg        sync.WaitGroup // all owned background work including loop + scheduled ops
 }
 
 func NewManager(store *storage.Store) *Manager {
@@ -367,6 +368,15 @@ func (m *Manager) ScheduleBoardSync(boardID int64) {
 		m.lifeMu.Unlock()
 		return
 	}
+	if m.scheduled == nil {
+		m.scheduled = map[int64]bool{}
+	}
+	if _, running := m.scheduled[boardID]; running {
+		m.scheduled[boardID] = true
+		m.lifeMu.Unlock()
+		return
+	}
+	m.scheduled[boardID] = false
 	parent := m.runCtx
 	if parent == nil {
 		parent = context.Background()
@@ -376,17 +386,29 @@ func (m *Manager) ScheduleBoardSync(boardID int64) {
 
 	go func() {
 		defer m.wg.Done()
-		ctx := parent
-		board, err := m.Store.BoardByID(ctx, boardID)
-		if err != nil {
-			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, sql.ErrNoRows) {
-				m.recordSyncDiagnostic(boardID, 0, "schedule_board_by_id", 1, err)
+		for {
+			ctx := parent
+			board, err := m.Store.BoardByID(ctx, boardID)
+			if err != nil {
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, sql.ErrNoRows) {
+					m.recordSyncDiagnostic(boardID, 0, "schedule_board_by_id", 1, err)
+				}
+			} else if _, err := m.SyncBoard(ctx, board); err != nil && !errors.Is(err, storage.ErrBoardSyncInProgress) && !errors.Is(err, storage.ErrBoardSyncSkipped) {
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+					m.recordSyncDiagnostic(board.ID, 0, "schedule_sync_board", 1, err)
+				}
 			}
-			return
-		}
-		if _, err := m.SyncBoard(ctx, board); err != nil && !errors.Is(err, storage.ErrBoardSyncInProgress) && !errors.Is(err, storage.ErrBoardSyncSkipped) {
-			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-				m.recordSyncDiagnostic(board.ID, 0, "schedule_sync_board", 1, err)
+
+			m.lifeMu.Lock()
+			rerun := m.scheduled[boardID] && !m.closed && parent.Err() == nil
+			if rerun {
+				m.scheduled[boardID] = false
+			} else {
+				delete(m.scheduled, boardID)
+			}
+			m.lifeMu.Unlock()
+			if !rerun {
+				return
 			}
 		}
 	}()

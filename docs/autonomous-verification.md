@@ -352,7 +352,7 @@ govulncheck ./...   # if installed
 go test ./internal/harness ./internal/tmux ./internal/storage ./internal/ticketbackend
 ```
 
-Deterministic failure-injection coverage for sync ownership lives in `internal/ticketbackend` (stop drain, lease renew/loss, pending create recover, GET retries, create-once). Optional longer soak (default 60s, race on, temp dirs only):
+Deterministic failure-injection coverage for sync ownership lives in `internal/ticketbackend` (stop drain, scheduling-storm coalescing, lease renew/loss, pending create recover, GET retries, create-once). Optional longer soak (default 60s, race on, temp dirs only):
 
 ```bash
 KANBI_SOAK_SECONDS=60 ./scripts/soak-runtime.sh

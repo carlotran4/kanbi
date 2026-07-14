@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -317,6 +318,64 @@ func TestDefaultRegistryImplementsImplementedBackends(t *testing.T) {
 	}
 }
 
+func TestScheduleBoardSyncCoalescesSchedulingStorm(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Remote", Workdir: t.TempDir(), TicketBackend: KindGitHub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &gatedBackend{kind: KindGitHub, started: make(chan int64, 1), release: make(chan struct{})}
+	manager := NewManager(store)
+	manager.Registry = NewRegistry(LocalBackend{}, backend)
+
+	baseline := runtime.NumGoroutine()
+	manager.ScheduleBoardSync(board.ID)
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("initial scheduled sync did not start")
+	}
+	for range 200 {
+		manager.ScheduleBoardSync(board.ID)
+	}
+	time.Sleep(50 * time.Millisecond)
+	growth := runtime.NumGoroutine() - baseline
+
+	close(backend.release)
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("coalesced scheduling storm did not run one follow-up sync")
+	}
+	time.Sleep(20 * time.Millisecond)
+	extraSync := len(backend.started)
+
+	drained := make(chan struct{})
+	go func() {
+		for range backend.started {
+		}
+		close(drained)
+	}()
+	manager.Stop()
+	close(backend.started)
+	<-drained
+
+	if growth > 50 {
+		t.Fatalf("scheduling storm created %d goroutines above baseline; want at most 50", growth)
+	}
+	if extraSync != 0 {
+		t.Fatalf("scheduling storm started %d extra syncs after the coalesced follow-up", extraSync)
+	}
+}
+
 func TestManagerStopDrainsInFlightScheduledSync(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.OpenMemory()
@@ -334,27 +393,32 @@ func TestManagerStopDrainsInFlightScheduledSync(t *testing.T) {
 	backend := &gatedBackend{kind: KindGitHub, started: make(chan int64, 4), release: make(chan struct{})}
 	manager := NewManager(store)
 	manager.Registry = NewRegistry(LocalBackend{}, backend)
-	manager.Interval = time.Hour
-	stop := manager.Start(ctx)
-	// wait for initial sync to enter provider
+	manager.ScheduleBoardSync(remote.ID)
 	select {
 	case <-backend.started:
 	case <-time.After(time.Second):
-		t.Fatal("initial sync did not start")
+		t.Fatal("scheduled sync did not start")
 	}
+
 	done := make(chan struct{})
 	go func() {
-		stop()
+		manager.Stop()
 		close(done)
 	}()
-	// Shutdown cancels in-flight provider ops; Stop must wait for worker exit.
+	select {
+	case <-done:
+		close(backend.release)
+		t.Fatal("Stop returned before detached scheduled work drained")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	manager.ScheduleBoardSync(remote.ID)
+	close(backend.release)
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		close(backend.release)
-		t.Fatal("Stop did not drain canceled in-flight sync")
+		t.Fatal("Stop did not return after scheduled work drained")
 	}
-	manager.ScheduleBoardSync(remote.ID)
 	select {
 	case <-backend.started:
 		t.Fatal("ScheduleBoardSync after Stop started provider work")
