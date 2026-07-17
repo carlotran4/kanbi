@@ -7,7 +7,15 @@ import (
 	"github.com/carlotran4/kanbi/internal/kanban"
 )
 
-const ticketProjectionRuntimeSQL = "coalesce(s.status,'" + kanban.StateNotStarted + "')"
+const ticketProjectionRuntimeSQL = `case
+when s.id is null then '` + kanban.StateNotStarted + `'
+when s.is_active=0
+ and s.status='` + kanban.StateError + `'
+ and trim(coalesce(s.harness_session_ref,''))<>''
+ and s.last_detection_source='tmux'
+ and s.last_attention_reason='tmux window missing'
+then '` + kanban.StateExited + `'
+else coalesce(s.status,'` + kanban.StateNotStarted + `') end`
 
 var ticketProjectionColumns = []string{
 	"t.id",

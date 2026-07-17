@@ -43,8 +43,11 @@ stateDiagram-v2
     [*] --> no_session
     no_session --> active_session: start/open
     active_session --> inactive_resumable: graceful close with session_ref
-    active_session --> inactive_error: missing terminal container / launch error / stale container id
+    active_session --> inactive_resumable: terminal container exits with session_ref
+    active_session --> inactive_repair: terminal container exits without session_ref
+    active_session --> inactive_error: launch/resume failure
     inactive_resumable --> active_session: resume
+    inactive_repair --> active_session: repair or start fresh
     inactive_error --> active_session: repair or start fresh
 ```
 
@@ -53,6 +56,8 @@ stateDiagram-v2
 - A tmux `window_id` is valid only if tmux still reports that id with the expected ticket window name. Name fallback must use the session row's stored `tmux_session_name`, not the current process's runtime session. Window ids can be reused after windows close. Herdr sessions store generic `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata` fields; Herdr-native agent status is authoritative when it is not `unknown`.
 - Only one active session per ticket is allowed and SQLite enforces that invariant. Start/resume first writes a `starting` claim before launching a container, so concurrent Kanbi processes cannot both launch the same ticket. Starting fresh clears the prior attempt's legacy and generic runtime references in the lifecycle request, atomically deactivates the old active session, and creates the new claim in the currently configured multiplexer. tmux launches use the current executable's runtime tmux session; if a same-named tmux window already exists in that runtime session, the new window uses a unique suffix. Herdr launches use the configured Herdr session/workspace strategy.
 - Launch, resume-liveness, persistence, and paste-prompt failures transition the claim to inactive `error`; any container created for the failed attempt is closed best-effort so it cannot remain untracked.
+- A terminal container that disappears after a successful launch is not itself evidence of session failure. It becomes inactive `exited` when a verified harness session ref exists, or `repair_needed` when it does not. Legacy inactive `error` rows recorded specifically as a missing tmux window project as `exited` when they have a session ref, without rewriting session history.
+- Terminal transcript text such as `error:`, `failed`, a panic, or a traceback describes the agent's work and must not classify the harness session as `error`. Runtime observation/read failures preserve the last known lifecycle state and record the observation reason separately.
 
 ## Ticket Projection Data Flow
 
@@ -98,7 +103,7 @@ flowchart TD
 
 Watcher rules:
 
-- Pattern detections (`waiting_for_user`, `needs_permission`, `error`) may overwrite manual state.
+- Confident interaction patterns (`waiting_for_user`, `needs_permission`) may overwrite manual state. Transcript error text never changes the session lifecycle state to `error`.
 - Heuristics (`running`, `idle_unknown`, generic pane output) should not immediately overwrite a manual override.
 - Auto-close should never trigger in the same tick that changes a ticket into an eligible state; timeout age starts at `last_state_change_at`.
 
@@ -163,3 +168,5 @@ State bugs to avoid:
 - Do not create a new DB session row just because a valid active ticket window was opened again.
 - Do not let heuristic watcher output immediately overwrite a manual runtime override.
 - Do not auto-close in the same tick that first detects a wait/permission state.
+- Do not infer session failure from errors printed in the agent transcript; only lifecycle/runtime operations can establish `error`.
+- Do not turn a transient multiplexer read failure into a session error. Preserve the last known state and surface the observation failure as diagnostic context.

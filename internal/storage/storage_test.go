@@ -801,8 +801,8 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if listed.Runtime != "error" || listed.SessionActive || listed.LastAttentionReason.String != "tmux window missing" {
-		t.Fatalf("inactive error should project to ticket: %+v", listed)
+	if listed.Runtime != kanban.StateRepairNeeded || listed.SessionActive || listed.LastAttentionReason.String != "terminal container missing" {
+		t.Fatalf("missing unresumable session should require repair: %+v", listed)
 	}
 	id, err = s.UpsertActiveSession(ctx, ticket.ID, Session{
 		Harness:         "pi",
@@ -823,6 +823,59 @@ func TestSessionsRecordRuntimeMetadata(t *testing.T) {
 	}
 	if listed.Runtime != "closed" || listed.SessionActive || listed.LastAttentionReason.String != "done" {
 		t.Fatalf("inactive closed should project to ticket: %+v", listed)
+	}
+}
+
+func TestMissingResumableSessionProjectsAsExited(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Resumable exit", "", "pi")
+	id, err := s.UpsertActiveSession(ctx, ticket.ID, Session{
+		Harness:           "pi",
+		HarnessSessionRef: sql.NullString{String: "resume-me", Valid: true},
+		TmuxSessionName:   "kanbi",
+		TmuxWindowID:      sql.NullString{String: "@7", Valid: true},
+		TmuxWindowName:    "T-001-resumable-exit",
+		Status:            kanban.StateRunning,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSessionMissing(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Runtime != kanban.StateExited || got.SessionActive || got.LastDetectionSource.String != "tmux" {
+		t.Fatalf("missing resumable session = %+v, want inactive exited", got)
+	}
+}
+
+func TestLegacyMissingResumableErrorProjectsAsExited(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Legacy resumable exit", "", "pi")
+	id, err := s.UpsertActiveSession(ctx, ticket.ID, Session{
+		Harness:           "pi",
+		HarnessSessionRef: sql.NullString{String: "resume-me", Valid: true},
+		TmuxSessionName:   "kanbi",
+		TmuxWindowName:    "T-001-legacy-resumable-exit",
+		Status:            kanban.StateRunning,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSessionClosed(ctx, id, kanban.StateError, "tmux", "tmux window missing"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Runtime != kanban.StateExited {
+		t.Fatalf("legacy missing resumable runtime = %q, want exited", got.Runtime)
 	}
 }
 

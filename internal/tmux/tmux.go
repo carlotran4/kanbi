@@ -269,15 +269,32 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			return err
 		}
 		sessionID := ticket.SessionID
-		if !sessionID.Valid || !ticket.SessionActive || !ticket.WindowName.Valid {
+		if !sessionID.Valid || !ticket.SessionActive {
 			continue
 		}
 		if ticket.Multiplexer.Valid && ticket.Multiplexer.String == string(multiplexer.KindHerdr) {
-			detection, _ := m.herdrAdapter().Detect(ctx, ContainerRefFromTicket(ticket))
+			adapter := m.herdrAdapter()
+			ref := ContainerRefFromTicket(ticket)
+			valid, validateErr := adapter.Validate(ctx, ref)
+			if validateErr != nil {
+				if err := m.Store.RecordSessionObservationFailure(ctx, sessionID.Int64, "herdr", validateErr.Error()); err != nil {
+					return err
+				}
+				continue
+			}
+			if !valid {
+				if err := m.Store.MarkSessionMissing(ctx, sessionID.Int64); err != nil {
+					return err
+				}
+				continue
+			}
+			detection, _ := adapter.Detect(ctx, ref)
 			if detection.Source == multiplexer.DetectionSourceUnknown {
 				continue
 			}
-			_ = m.Store.UpdateSessionRuntime(ctx, sessionID.Int64, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false)
+			if err := m.Store.UpdateSessionRuntime(ctx, sessionID.Int64, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
+				return err
+			}
 			continue
 		}
 		_, exists, err := m.ticketWindowRef(ctx, ticket, ticket.WindowName.String)
@@ -348,7 +365,9 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			out, err = adapter.Read(ctx, containerRef, multiplexer.ReadOptions{Lines: 200})
 			detectionSource = "herdr"
 		} else {
-			ref, exists, err := m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
+			var ref string
+			var exists bool
+			ref, exists, err = m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
 			if err != nil {
 				return err
 			}
@@ -361,8 +380,8 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			out, err = m.capturePaneRef(ctx, ses.TmuxSessionName, ref)
 		}
 		if err != nil {
-			if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, detectionSource, err.Error(), "", false); err != nil {
-				return err
+			if recordErr := m.Store.RecordSessionObservationFailure(ctx, ses.ID, detectionSource, err.Error()); recordErr != nil {
+				return recordErr
 			}
 			continue
 		}

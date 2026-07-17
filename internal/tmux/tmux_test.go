@@ -41,6 +41,15 @@ type invalidatingLaunchRunner struct {
 	ticketID int64
 }
 
+type captureErrorRunner struct{ fakeRunner }
+
+func (r *captureErrorRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if len(args) > 0 && args[0] == "capture-pane" {
+		return "", errors.New("temporary capture failure")
+	}
+	return r.fakeRunner.Run(ctx, name, args...)
+}
+
 func (r *invalidatingLaunchRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	out, err := r.fakeRunner.Run(ctx, name, args...)
 	if err == nil && len(args) > 0 && args[0] == "new-window" {
@@ -303,8 +312,8 @@ func TestReconcileMarksSessionMissingWhenWindowGone(t *testing.T) {
 	if got.SessionActive {
 		t.Fatal("session should be marked inactive after window disappears")
 	}
-	if got.Runtime != "error" {
-		t.Fatalf("runtime should be error after missing window, got %q", got.Runtime)
+	if got.Runtime != kanban.StateRepairNeeded {
+		t.Fatalf("runtime should require repair after an unresumable window disappears, got %q", got.Runtime)
 	}
 }
 
@@ -665,8 +674,33 @@ func TestRefreshRuntimeMarksSessionMissingWhenWindowDisappears(t *testing.T) {
 	if got.SessionActive {
 		t.Fatal("session should be inactive when window gone")
 	}
-	if got.Runtime != "error" {
-		t.Fatalf("runtime = %q, want error", got.Runtime)
+	if got.Runtime != kanban.StateRepairNeeded {
+		t.Fatalf("runtime = %q, want repair_needed", got.Runtime)
+	}
+}
+
+func TestRefreshRuntimeDoesNotTurnObservationFailureIntoSessionError(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Observe", "", "pi")
+	runner := &captureErrorRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.RefreshRuntime(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Runtime != kanban.StateRunning || !got.SessionActive {
+		t.Fatalf("observation failure changed session state: %+v", got)
+	}
+	if got.LastAttentionReason.String != "temporary capture failure" {
+		t.Fatalf("observation failure reason = %q", got.LastAttentionReason.String)
 	}
 }
 

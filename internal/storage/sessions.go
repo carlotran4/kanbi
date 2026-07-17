@@ -167,8 +167,25 @@ func (s *Store) UpdateSessionRef(ctx context.Context, sessionID int64, ref strin
 
 func (s *Store) MarkSessionMissing(ctx context.Context, sessionID int64) error {
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `update sessions set status=?, is_active=0, closed_at=?, last_state_change_at=?, last_detected_state=?, last_attention_reason='tmux window missing', last_detection_source='tmux', updated_at=? where id=?`, kanban.StateError, now, now, kanban.StateError, now, sessionID)
-	return err
+	res, err := s.db.ExecContext(ctx, `update sessions set
+status=case when trim(coalesce(harness_session_ref,''))<>'' then ? else ? end,
+is_active=0,
+closed_at=?,
+last_state_change_at=?,
+last_detected_state=case when trim(coalesce(harness_session_ref,''))<>'' then ? else ? end,
+last_attention_reason='terminal container missing',
+last_detection_source=coalesce(nullif(multiplexer,''),'tmux'),
+updated_at=?
+where id=?`, kanban.StateExited, kanban.StateRepairNeeded, now, now, kanban.StateExited, kanban.StateRepairNeeded, now, sessionID)
+	return requireAffected(res, err)
+}
+
+// RecordSessionObservationFailure preserves lifecycle state when the runtime
+// watcher cannot read a live container. An observation failure is not evidence
+// that the harness session itself failed.
+func (s *Store) RecordSessionObservationFailure(ctx context.Context, sessionID int64, source, reason string) error {
+	res, err := s.db.ExecContext(ctx, `update sessions set last_attention_reason=?,last_detection_source=?,updated_at=? where id=? and is_active=1`, nullableString(reason), nullableString(source), time.Now().UTC(), sessionID)
+	return requireAffected(res, err)
 }
 
 func (s *Store) MarkSessionClosed(ctx context.Context, sessionID int64, status, source, reason string) error {

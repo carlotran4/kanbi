@@ -174,10 +174,11 @@ func TestDetectStateAllBranches(t *testing.T) {
 		{"waiting-for-user", "waiting for user input", "", 0, StateWaitingForUser, "pattern", true},
 		{"prompt-ready", "PROMPT_READY\n", "", 0, StateWaitingForUser, "pattern", true},
 		{"shell-prompt", "some output\n> ", "", 0, StateWaitingForUser, "pattern", true},
-		// Pattern: error
-		{"error-colon", "error: something went wrong", "", 0, StateError, "pattern", true},
-		{"panic", "panic: nil pointer", "", 0, StateError, "pattern", true},
-		{"traceback", "Traceback (most recent call last)", "", 0, StateError, "pattern", true},
+		// Transcript errors describe the agent's work, not the harness session.
+		{"error-colon", "error: something went wrong", "", 0, StateRunning, "pane", true},
+		{"panic", "panic: nil pointer", "", 0, StateRunning, "pane", true},
+		{"traceback", "Traceback (most recent call last)", "", 0, StateRunning, "pane", true},
+		{"historical-failure", "command failed\nfixed it; tests now pass", "", 0, StateRunning, "pane", true},
 		// Output changed → running
 		{"new-output", "new content here", "old content", 0, StateRunning, "pane", true},
 		// Idle timeout with no new output → idle_unknown

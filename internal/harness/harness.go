@@ -95,8 +95,6 @@ func DetectState(output string, previousExcerpt string, idleFor time.Duration) (
 		return StateNeedsPermission, "pattern", "permission requested", excerpt, outputChanged
 	case containsAny(lower, "waiting for user", "needs input", "your response", "prompt_ready", "\n> "):
 		return StateWaitingForUser, "pattern", "waiting for user input", excerpt, outputChanged
-	case containsAny(lower, "error:", "failed", "panic:", "traceback"):
-		return StateError, "pattern", "error output observed", excerpt, outputChanged
 	case outputChanged:
 		return StateRunning, "pane", "", excerpt, true
 	case idleFor > 0:

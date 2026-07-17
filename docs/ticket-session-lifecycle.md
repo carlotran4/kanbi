@@ -21,7 +21,7 @@ stateDiagram-v2
     running --> waiting_for_user: detected prompt/wait
     running --> needs_permission: detected approval request
     running --> idle_unknown: idle heuristic
-    running --> error: launch/resume/poll error
+    running --> error: lifecycle/runtime operation failure
 
     waiting_for_user --> running: user/agent output
     needs_permission --> running: user approves
@@ -117,6 +117,8 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 - `x` sends harness exit keys first, waits for process/container exit, then closes the terminal container after timeout if needed.
 - A successfully closed session is inactive and keeps its session ref if one was captured.
+- If a successfully launched terminal container disappears outside the close command, the attempt becomes `exited` and resumable when it has a verified session ref; without a ref it becomes `repair_needed`. Missing containers are not labeled as session errors merely because the process exited.
+- Agent transcript content never establishes session `error`: words such as `error`, `failed`, panic output, and tracebacks concern the work inside the session. Multiplexer read failures likewise preserve the last known runtime state while recording diagnostic context.
 - Archiving a running ticket uses the same safe close path before hiding the ticket.
 
 ### Shutdown / interruption
