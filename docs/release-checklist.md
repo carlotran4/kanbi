@@ -1,6 +1,6 @@
 # Release Checklist
 
-Use this list before tagging a semantic release (`vMAJOR.MINOR.PATCH`). For the first stable release, this checklist is necessary but not sufficient: every gate in [`verification/stable-v1.0-qualification.md`](./verification/stable-v1.0-qualification.md) must be complete for the exact candidate commit. Until then, do not create or publish `v1.0.0`.
+Use this list before tagging a release. Channel and version rules live in [`release-channels.md`](./release-channels.md). Public `v0.x` releases must also complete [`beta-release-checklist.md`](./beta-release-checklist.md). For the first stable release, this checklist is necessary but not sufficient: every gate in [`verification/stable-v1.0-qualification.md`](./verification/stable-v1.0-qualification.md) must be complete for the exact candidate commit, and stable workflow publishing must be explicitly unlocked. Until then, do not create or publish `v1.0.0`.
 
 ## Release blockers
 
@@ -35,13 +35,21 @@ go test ./internal/harness ./internal/tmux ./internal/storage ./internal/diagnos
 ## 3. Local release artifact snapshot
 
 ```bash
-./scripts/build-release.sh X.Y.Z
-tar -tzf ./dist/kanbi_X.Y.Z_$(go env GOOS)_$(go env GOARCH).tar.gz
-# extract and run:
-#   ./kanbi version
-# expect version, commit, UTC build date, platform, database schema
-# confirm BUILDINFO.json matches version/commit/schema_version fields
-sha256sum -c dist/SHA256SUMS --ignore-missing 2>/dev/null || true
+version=0.3.0-beta.1
+./scripts/build-release.sh "$version"
+archive="./dist/kanbi_${version}_$(go env GOOS)_$(go env GOARCH).tar.gz"
+tar -tzf "$archive"
+work=$(mktemp -d) && trap 'rm -rf "$work"' EXIT
+tar -xzf "$archive" -C "$work"
+./scripts/release-artifact-smoke.sh "$work/kanbi" "$version" "$(git rev-parse HEAD)" "$work/BUILDINFO.json"
+(
+  cd dist
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -c SHA256SUMS
+  else
+    shasum -a 256 -c SHA256SUMS
+  fi
+)
 ```
 
 Confirm provenance ldflags and packaged `BUILDINFO.json`:
@@ -55,10 +63,11 @@ Confirm provenance ldflags and packaged `BUILDINFO.json`:
 
 - [ ] Record the full frozen commit SHA and qualification evidence before tagging.
 - [ ] Confirm there are no open P0/P1 defects.
-- [ ] Create annotated tag `vX.Y.Z` on the verified commit.
+- [ ] Create an annotated immutable tag on the verified commit (`v0.3.0-beta.1` for the next beta; `vX.Y.Z` for an authorized stable release).
 - [ ] Push tag to GitHub to trigger `.github/workflows/release.yml`.
 - [ ] Confirm workflow: verify job (fmt/tests/race/vet/govulncheck/smoke) then native builds for linux/darwin amd64/arm64.
-- [ ] Confirm release assets: four archives + `SHA256SUMS`.
+- [ ] Confirm release assets: four archives + `SHA256SUMS` + `BUNDLE_MANIFEST.txt`.
+- [ ] Confirm every `v0.x` or suffixed release is marked GitHub prerelease and does not replace the latest stable release.
 - [ ] Download all four artifacts and confirm each `BUILDINFO.json` and `kanbi version` commit equals the tag target SHA; record native checks in the release evidence matrix.
 
 ## 5. Post-publish smoke

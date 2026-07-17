@@ -403,11 +403,14 @@ The script records a timestamped result under `docs/verification/upgrade-rollbac
 
 GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux tmux smoke job. Keep deterministic tmux manager tests in the normal CI suite; real harness/provider checks remain opt-in. The scheduled daily and manually dispatched CI workflow runs `scripts/soak-runtime.sh` for 60 seconds with the race detector; its fake provider and temporary databases require no credentials and leave no external resources.
 
-Semantic tags (`vMAJOR.MINOR.PATCH`) trigger `.github/workflows/release.yml`. Release builds must use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every build must execute `kanbi version`, package the binary with README/LICENSE/`BUILDINFO.json`, and publish a shared `SHA256SUMS` file. Before tagging, test the native local artifact path with:
+Supported release tags (`vMAJOR.MINOR.PATCH`, `vMAJOR.MINOR.PATCH-beta.N`, and `vMAJOR.MINOR.PATCH-rc.N`) trigger `.github/workflows/release.yml`. All `v0.x` and suffixed tags publish as prereleases; stable major versions remain workflow-locked until stable qualification is approved. Release builds use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every native job validates `BUILDINFO.json`, database initialization, backup/restore, and the fake-harness tmux lifecycle against the exact built binary. The bundle job requires four archives, verifies a shared `SHA256SUMS`, and records `BUNDLE_MANIFEST.txt`; workflow dispatch produces the same combined bundle without publishing. Before tagging, test the native local artifact path with:
 
 ```bash
-./scripts/build-release.sh 0.0.0-dev
-tar -tzf ./dist/kanbi_0.0.0-dev_$(go env GOOS)_$(go env GOARCH).tar.gz
+./scripts/build-release.sh 0.3.0-beta.1
+archive=./dist/kanbi_0.3.0-beta.1_$(go env GOOS)_$(go env GOARCH).tar.gz
+tar -tzf "$archive"
+tmp=$(mktemp -d) && tar -xzf "$archive" -C "$tmp"
+./scripts/release-artifact-smoke.sh "$tmp/kanbi" 0.3.0-beta.1 "$(git rev-parse HEAD)" "$tmp/BUILDINFO.json"
 ```
 
-After extracting the snapshot, verify `kanbi version` reports the supplied version, commit, UTC build date, runtime platform, and current database schema, and that `BUILDINFO.json` matches. Release notes and upgrade-impacting changes belong in `CHANGELOG.md`. Full checklist: [`docs/release-checklist.md`](./release-checklist.md).
+After extracting the snapshot, verify `kanbi version` reports the supplied version, commit, UTC build date, runtime platform, and current database schema, and that `BUILDINFO.json` matches. Release notes and upgrade-impacting changes belong in `CHANGELOG.md`. Channel policy: [`docs/release-channels.md`](./release-channels.md). Beta gate: [`docs/beta-release-checklist.md`](./beta-release-checklist.md). Common checklist: [`docs/release-checklist.md`](./release-checklist.md).

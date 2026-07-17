@@ -2,12 +2,13 @@
 
 ## Supported versions
 
-Kanbi is a UX-ready beta. Security updates are provided for the **latest published semantic release** on GitHub Releases.
+Kanbi is a UX-ready beta. Until a stable release exists, security fixes target the **latest published beta prerelease** on GitHub Releases. Beta support is best-effort and may require upgrading to a newer beta. After stable publication, the latest non-prerelease stable line becomes the supported default.
 
 | Version line | Supported |
 | --- | --- |
-| Latest `vMAJOR.MINOR.PATCH` release | Yes |
-| Older patch/minor releases | No (upgrade to latest) |
+| Latest published `v0.x` beta/prerelease | Best-effort; upgrade to the latest beta |
+| Latest stable release, once available | Yes |
+| Older beta/patch/minor releases | No (upgrade to latest applicable channel) |
 | Untagged `dev` / local builds | Best-effort only |
 
 Database schema migrations are forward-only. Restoring a pre-upgrade backup is the supported rollback path when a newer release is unusable; see `docs/installation.md`.

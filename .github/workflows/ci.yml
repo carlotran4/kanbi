@@ -54,7 +54,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
-      - name: End-to-end smoke
-        run: ./scripts/smoke.sh
+      - name: Install tmux and SQLite CLI
+        run: sudo apt-get update && sudo apt-get install -y tmux sqlite3
+      - name: Build and smoke the packaged artifact path
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=0.0.0-ci
+          commit="$(git rev-parse HEAD)"
+          ./scripts/build-release.sh "$version"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          archive="dist/kanbi_${version}_$(go env GOOS)_$(go env GOARCH).tar.gz"
+          tar -xzf "$archive" -C "$work"
+          ./scripts/release-artifact-smoke.sh "$work/kanbi" "$version" "$commit" "$work/BUILDINFO.json"
+          KANBI_SMOKE_BIN="$work/kanbi" ./scripts/smoke.sh --skip-checks

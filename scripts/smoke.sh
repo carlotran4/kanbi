@@ -15,7 +15,8 @@ Usage: ./scripts/smoke.sh [--skip-checks]
 Runs the tmux-backed end-to-end smoke test with fake harnesses and a
 fake-Herdr doctor probe. By default this also runs go fmt, go test, and
 go vet first. Use --skip-checks when those baseline checks have already
-passed in the same verification loop.
+passed in the same verification loop. Set KANBI_SMOKE_BIN to validate an
+existing release binary instead of rebuilding Kanbi from source.
 USAGE
       exit 0
       ;;
@@ -97,7 +98,17 @@ harnesses:
     prompt_mode: "arg"
 YAML
 
-go build -buildvcs=false -o "$BIN" ./cmd/kanbi
+if [[ -n "${KANBI_SMOKE_BIN:-}" ]]; then
+  [[ -x "$KANBI_SMOKE_BIN" ]] || { echo "KANBI_SMOKE_BIN is not executable: $KANBI_SMOKE_BIN" >&2; exit 1; }
+  cp "$KANBI_SMOKE_BIN" "$BIN"
+  chmod +x "$BIN"
+else
+  go build -buildvcs=false -o "$BIN" ./cmd/kanbi
+fi
+
+# Ref capture must never inspect the operator's real harness histories.
+export HOME="$TMP/home"
+mkdir -p "$HOME"
 
 "$BIN" doctor
 HERDR_CONFIG="$TMP/herdr-config.yaml"

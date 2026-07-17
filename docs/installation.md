@@ -15,7 +15,9 @@ The full matrix—including schema, harness verification status, and what is onl
 
 ## Install a release
 
-1. Open <https://github.com/carlotran4/kanbi/releases/latest>.
+Kanbi is currently in beta. Open <https://github.com/carlotran4/kanbi/releases> and select the intended prerelease explicitly. GitHub's `/releases/latest` endpoint is reserved for a future non-prerelease stable version.
+
+1. Open the release page and read its beta limitations and upgrade notes.
 2. Download the archive matching your operating system and architecture plus `SHA256SUMS`.
 3. Verify the archive before extracting:
 

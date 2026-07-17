@@ -4,7 +4,7 @@ Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sess
 
 ## Install
 
-Download the native archive for Linux or macOS from [GitHub Releases](https://github.com/carlotran4/kanbi/releases/latest), verify it against `SHA256SUMS`, extract `kanbi`, and place it on your `PATH`. Kanbi requires tmux by default and at least one authenticated supported agent CLI.
+Download the native archive for Linux or macOS from [GitHub Releases](https://github.com/carlotran4/kanbi/releases), verify it against `SHA256SUMS`, extract `kanbi`, and place it on your `PATH`. Kanbi beta builds are published as GitHub prereleases when available; GitHub's `/releases/latest` endpoint is reserved for a future stable release. Kanbi requires tmux by default and at least one authenticated supported agent CLI.
 
 ```bash
 kanbi version
@@ -26,7 +26,9 @@ See [`docs/installation.md`](./docs/installation.md) for supported platforms, pr
 - [`docs/installation.md`](./docs/installation.md) — production installation, first run, upgrade, rollback, and uninstall
 - [`docs/compatibility.md`](./docs/compatibility.md) — supported platforms, schema, multiplexers, and harness verification status
 - [`docs/support.md`](./docs/support.md) — diagnostics logging, support-bundle fields, and maintenance policy
-- [`docs/release-checklist.md`](./docs/release-checklist.md) — release provenance and publish checklist
+- [`docs/release-channels.md`](./docs/release-channels.md) — beta/stable version policy and CI/CD channel behavior
+- [`docs/beta-release-checklist.md`](./docs/beta-release-checklist.md) — repeatable beta qualification and publication gates
+- [`docs/release-checklist.md`](./docs/release-checklist.md) — common release provenance and publish checklist
 - [`docs/verification/stable-v1.0-qualification.md`](./docs/verification/stable-v1.0-qualification.md) — GH-292 stable-release gates and evidence record
 - [`SECURITY.md`](./SECURITY.md) — private vulnerability reporting and supported-release policy
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — development setup and contribution guidance
@@ -182,7 +184,7 @@ Kanbi is available under the [MIT License](./LICENSE). Copyright © 2026 Carlo T
 
 ## Status
 
-Kanbi is a UX-ready beta with multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot/Claude command wiring and ref capture, deterministic fake-harness coverage, runtime/sync hardening (owned background work, provider timeouts/retries, lease renew/loss, durable diagnostics, soak coverage), and opt-in real-harness verification. Further polish remains trackable on the board.
+Kanbi is a UX-ready beta with multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot/Claude command wiring and ref capture, deterministic fake-harness coverage, runtime/sync hardening (owned background work, provider timeouts/retries, lease renew/loss, durable diagnostics, soak coverage), and opt-in real-harness verification. The next intended public version is `v0.3.0-beta.1`; it is not yet qualified or published. Missing product features and further polish remain trackable on the board.
 
 ## Runtime states and accessible indicators
 

@@ -31,9 +31,9 @@ flowchart LR
 
 ## Current Objective And Scope
 
-Keep Kanbi a trustworthy alpha for multi-board ticket/session lifecycle management across Pi, Codex, Copilot, Claude, and fake harnesses. tmux remains the default runtime backend; Herdr support is opt-in through multiplexer config.
+Keep Kanbi a trustworthy beta for multi-board ticket/session lifecycle management across Pi, Codex, Copilot, Claude, and fake harnesses. tmux remains the default runtime backend; Herdr support is opt-in through multiplexer config.
 
-Maintain these behaviors as boring, reliable, documented alpha behavior:
+Maintain these behaviors as boring, reliable, documented beta behavior:
 
 - starting a ticket creates exactly one active session attempt;
 - opening an active ticket focuses the right terminal container;
@@ -232,7 +232,7 @@ Indexes used by board projection, latest-session lookup, external identity looku
 
 ## Release And Compatibility
 
-The canonical module path is `github.com/carlotran4/kanbi`. Tagged semantic versions trigger native CGO builds on Linux and macOS for amd64 and arm64; release metadata is injected into `internal/buildinfo`, archives include the binary/README/license/`BUILDINFO.json`, and a shared SHA256 manifest is published with GitHub Release assets. Database migrations are forward-only: older binaries refuse newer schema versions, so rollback requires restoring a pre-upgrade backup. See [`docs/installation.md`](./installation.md), [`docs/compatibility.md`](./compatibility.md), and [`docs/release-checklist.md`](./release-checklist.md).
+The canonical module path is `github.com/carlotran4/kanbi`. Supported stable/beta/RC tags trigger native CGO builds on Linux and macOS for amd64 and arm64. Every native runner validates the exact binary's provenance, database backup/restore, and fake-harness lifecycle before a four-archive checksummed bundle can publish. All `v0.x` and suffixed tags publish as prereleases; stable major versions are workflow-locked until qualification approval. Release metadata is injected into `internal/buildinfo`, and archives include the binary/README/license/`BUILDINFO.json`. Database migrations are forward-only: older binaries refuse newer schema versions, so rollback requires restoring a pre-upgrade backup. See [`docs/release-channels.md`](./release-channels.md), [`docs/installation.md`](./installation.md), [`docs/compatibility.md`](./compatibility.md), and [`docs/release-checklist.md`](./release-checklist.md).
 
 Operations support tools (`kanbi doctor`, opt-in diagnostics logging, `kanbi support-bundle`) are documented in [`docs/support.md`](./support.md).
 

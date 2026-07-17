@@ -7,9 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Snapshot semantic version (for example 0.2.0)"
+        description: "Candidate version (for example 0.3.0-beta.1)"
         required: true
-        default: "0.0.0-dev"
+        default: "0.3.0-beta.1"
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -23,8 +27,26 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux and SQLite CLI
+        run: sudo apt-get update && sudo apt-get install -y tmux sqlite3
+      - name: Validate release version and channel
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+          STABLE_RELEASE_APPROVAL: ${{ vars.KANBI_STABLE_RELEASE_APPROVAL }}
+        run: |
+          set -euo pipefail
+          source <(./scripts/release-version-policy.sh "$RELEASE_VERSION")
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$RELEASE_MAJOR" != "0" ]]; then
+            candidate_sha="$(git rev-parse HEAD)"
+            required_approval="${RELEASE_VERSION_NORMALIZED}@${candidate_sha}"
+            if [[ "$STABLE_RELEASE_APPROVAL" != "$required_approval" ]]; then
+              echo "stable release is locked; after exact-candidate approval set KANBI_STABLE_RELEASE_APPROVAL=$required_approval" >&2
+              exit 2
+            fi
+          fi
+      - name: Release version policy tests
+        run: ./scripts/release-version-policy-test.sh
       - name: Formatting
         run: test -z "$(gofmt -l .)"
       - name: Tests and static analysis
@@ -67,7 +89,17 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build native CGO binary
+      - name: Install native smoke dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y tmux sqlite3
+          else
+            brew install tmux
+          fi
+      - name: Build and validate native CGO artifact
         shell: bash
         env:
           RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
@@ -75,10 +107,6 @@ jobs:
           TARGET_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && ! "${RELEASE_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "release tag must be vMAJOR.MINOR.PATCH" >&2
-            exit 2
-          fi
           version="${RELEASE_VERSION#v}"
           commit="$(git rev-parse HEAD)"
           build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -88,7 +116,6 @@ jobs:
           CGO_ENABLED=1 go build -trimpath \
             -ldflags "-s -w -X github.com/carlotran4/kanbi/internal/buildinfo.Version=$version -X github.com/carlotran4/kanbi/internal/buildinfo.Commit=$commit -X github.com/carlotran4/kanbi/internal/buildinfo.BuildDate=$build_date" \
             -o package/kanbi ./cmd/kanbi
-          package/kanbi version
           schema_version="$(package/kanbi version | sed -n 's/^database schema: //p' | head -n1)"
           go_version="$(go env GOVERSION 2>/dev/null || go version | awk '{print $3}')"
           printf '%s\n' "{" \
@@ -107,29 +134,113 @@ jobs:
             "  \"github_sha\": \"${GITHUB_SHA:-}\"" \
             "}" > package/BUILDINFO.json
           cp README.md LICENSE package/
+
+          python3 -E - package/BUILDINFO.json "$version" "$commit" "$TARGET_OS" "$TARGET_ARCH" <<'PY'
+          import json, sys
+          path, version, commit, target_os, target_arch = sys.argv[1:]
+          doc = json.load(open(path))
+          expected = {
+              "format": "kanbi-buildinfo",
+              "format_version": 1,
+              "version": version,
+              "commit": commit,
+              "os": target_os,
+              "arch": target_arch,
+              "cgo_enabled": True,
+              "module": "github.com/carlotran4/kanbi",
+          }
+          for key, value in expected.items():
+              if doc.get(key) != value:
+                  raise SystemExit(f"BUILDINFO {key}={doc.get(key)!r}, want {value!r}")
+          if not isinstance(doc.get("schema_version"), int) or doc["schema_version"] < 1:
+              raise SystemExit(f"invalid BUILDINFO schema_version: {doc!r}")
+          PY
+
+          ./scripts/release-artifact-smoke.sh package/kanbi "$version" "$commit" package/BUILDINFO.json
+          KANBI_SMOKE_BIN="$PWD/package/kanbi" ./scripts/smoke.sh --skip-checks
+
           archive="kanbi_${version}_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
           tar -czf "$archive" -C package kanbi README.md LICENSE BUILDINFO.json
+          python3 -E - "$archive" <<'PY'
+          import sys, tarfile
+          with tarfile.open(sys.argv[1], "r:gz") as archive:
+              names = sorted(archive.getnames())
+          expected = sorted(["kanbi", "README.md", "LICENSE", "BUILDINFO.json"])
+          if names != expected:
+              raise SystemExit(f"archive members={names!r}, want {expected!r}")
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kanbi-${{ matrix.os }}-${{ matrix.arch }}
           path: kanbi_*.tar.gz
           if-no-files-found: error
 
-  publish:
-    if: github.event_name == 'push'
+  bundle:
     needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    runs-on: ubuntu-24.04
+    outputs:
+      prerelease: ${{ steps.assemble.outputs.prerelease }}
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: kanbi-*
           path: dist
           merge-multiple: true
-      - name: Generate checksums
-        run: cd dist && sha256sum kanbi_*.tar.gz > SHA256SUMS
-      - name: Publish GitHub Release
+      - name: Assemble checksummed release bundle
+        id: assemble
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+        run: |
+          set -euo pipefail
+          source <(./scripts/release-version-policy.sh "$RELEASE_VERSION")
+          echo "prerelease=$RELEASE_IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          cd dist
+          count="$(find . -maxdepth 1 -name 'kanbi_*.tar.gz' | wc -l)"
+          test "$count" -eq 4
+          sha256sum kanbi_*.tar.gz > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          {
+            echo "version=${RELEASE_VERSION#v}"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "created_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            find . -maxdepth 1 -name 'kanbi_*.tar.gz' -printf '%f\n' | sort
+          } > BUNDLE_MANIFEST.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kanbi-release-bundle
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: bundle
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: kanbi-release-bundle
+          path: dist
+      - name: Verify and publish GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --verify-tag --generate-notes --title "Kanbi ${GITHUB_REF_NAME}"
+          RELEASE_IS_PRERELEASE: ${{ needs.bundle.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -c SHA256SUMS
+          prerelease=()
+          if [[ "$RELEASE_IS_PRERELEASE" == "true" ]]; then
+            prerelease+=(--prerelease --latest=false)
+          fi
+          gh release create "$GITHUB_REF_NAME" ./* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --title "Kanbi $GITHUB_REF_NAME" \
+            "${prerelease[@]}"

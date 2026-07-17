@@ -9,7 +9,7 @@ CI guarantees.
 
 | Component | Supported | Verification |
 | --- | --- | --- |
-| Kanbi release artifacts | Semantic tags `vMAJOR.MINOR.PATCH` on GitHub Releases | Automated native CGO builds in `.github/workflows/release.yml`; local `./scripts/build-release.sh` |
+| Kanbi release artifacts | `vMAJOR.MINOR.PATCH`, `vMAJOR.MINOR.PATCH-beta.N`, or `vMAJOR.MINOR.PATCH-rc.N` | Automated native CGO builds and exact-binary smoke in `.github/workflows/release.yml`; local `./scripts/build-release.sh` |
 | Go toolchain | Version in root `go.mod` | CI `setup-go` with `go-version-file: go.mod` |
 | Module path | `github.com/carlotran4/kanbi` | Build system / docs |
 
@@ -24,7 +24,7 @@ CI guarantees.
 | Windows | Not a published release target | Not verified |
 | FreeBSD / other Unix | Not supported | Not verified |
 
-Published archives are native CGO-enabled binaries (SQLite via `go-sqlite3`). Cross-compiling without the matching C toolchain is unsupported.
+Published archives are native CGO-enabled binaries (SQLite via `go-sqlite3`). Cross-compiling without the matching C toolchain is unsupported. All `v0.x` and suffixed releases are prereleases; see [`release-channels.md`](./release-channels.md).
 
 ## Terminal expectations
 
