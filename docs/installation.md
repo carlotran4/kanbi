@@ -57,7 +57,7 @@ Homebrew and system packages are not currently published. Building from source r
    kanbi boards add "My Project" --cwd "$PWD"
    ```
 
-4. Start Kanbi, select the board, and press `n` to create a ticket. Press `e` to edit its description and harness, then `Enter` to start the agent session.
+4. Start Kanbi and select the board. Press `n` to create a ticket and open its inspector, fill in the ticket and harness, then press `Ctrl+S` to save. Back on the board, press `Enter` to start the agent session.
 5. Press `x` to close a ticket session gracefully. Pressing `q` or `Ctrl+C` exits Kanbi without terminating active ticket sessions.
 6. Create a recovery archive before destructive actions or upgrades:
 

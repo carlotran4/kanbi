@@ -1,217 +1,233 @@
 # Kanbi
 
-Kanbi is a Go/Bubble Tea TUI for orchestrating multiple resumable agent CLI sessions across one or more Kanban boards.
+**A keyboard-first command center for coding agents.**
 
-## Install
+Kanbi turns tickets into durable agent workspaces. Create a task, choose Pi, Codex, Copilot, or Claude, and Kanbi opens the agent in its own terminal session—then keeps the board, runtime state, and resume path together.
 
-Download the native archive for Linux or macOS from [GitHub Releases](https://github.com/carlotran4/kanbi/releases), verify it against `SHA256SUMS`, extract `kanbi`, and place it on your `PATH`. Kanbi beta builds are published as GitHub prereleases when available; GitHub's `/releases/latest` endpoint is reserved for a future stable release. Kanbi requires tmux by default and at least one authenticated supported agent CLI.
+Use one board for a project or the **Master** view to supervise work across every project without juggling terminal tabs.
+
+> [!NOTE]
+> Kanbi is currently beta software. It supports Linux and macOS, uses tmux by default, and expects at least one supported agent CLI to be installed and authenticated.
+
+## Why Kanbi?
+
+Running several coding agents usually means losing track of which terminal belongs to which task, which agents need input, and whether a closed session can be resumed.
+
+Kanbi gives that work a home:
+
+- **One active agent session per ticket** — opening an active ticket returns to the right terminal instead of starting a duplicate.
+- **See what needs you** — cards show states such as `running`, `waiting for user`, `permission required`, `closed / resumable`, and `error` in plain text.
+- **Leave and come back** — quitting Kanbi does not kill active agents. When an agent exposes a verified session reference, Kanbi can resume it later.
+- **Keep projects separated** — every board has its own working directory, so agents start in the correct repository.
+- **Supervise everything together** — Master combines tickets from all your boards and supports filtering by project, state, harness, and text.
+- **Stay local or bring your tracker** — use local tickets, GitHub Issues, or Jira-backed boards.
+
+## Quick start
+
+### 1. Install the prerequisites
+
+You need:
+
+- Linux or macOS
+- a UTF-8 terminal
+- [tmux](https://github.com/tmux/tmux) on your `PATH`
+- at least one authenticated agent CLI: **Pi**, **Codex**, **GitHub Copilot CLI**, or **Claude Code**
+
+Kanbi also supports [Herdr](https://herdr.dev/) as an opt-in runtime, but tmux is the recommended default.
+
+### 2. Install Kanbi
+
+Download the archive for your platform and `SHA256SUMS` from [GitHub Releases](https://github.com/carlotran4/kanbi/releases). Kanbi is in beta, so select the prerelease you want explicitly.
+
+```bash
+# After verifying and extracting the downloaded archive:
+mkdir -p "$HOME/.local/bin"
+install -m 0755 kanbi "$HOME/.local/bin/kanbi"
+export PATH="$HOME/.local/bin:$PATH"
+
+kanbi version
+kanbi doctor
+```
+
+Resolve every `fatal` result from `kanbi doctor`. Missing agent CLIs that you do not plan to use are warnings.
+
+See the [installation guide](./docs/installation.md) for platform archives, checksum verification, upgrades, rollback, and source builds.
+
+### 3. Create your first board
+
+Run this from the project you want an agent to work on:
+
+```bash
+cd /path/to/project
+kanbi boards add "My Project" --cwd "$PWD"
+kanbi
+```
+
+Then:
+
+1. Select **My Project** in the board picker.
+2. Press `n` to create a ticket and open its inspector.
+3. Add a title and description, choose an agent, then press `Ctrl+S` to save.
+4. Back on the board, press `Enter` to send the ticket to the agent.
+5. Press `x` when you want to close the session gracefully.
+
+That is the core loop: **plan on the board, work in the agent terminal, return to the board to supervise**.
+
+## How it feels to use
+
+```text
+Create a ticket
+      │
+      ▼
+Press Enter ───────► agent opens in its own terminal session
+      │                              │
+      │                              ├── running
+      │                              ├── waiting for user
+      │                              └── permission required
+      │
+      ▼
+Open again ───────► focus the existing session
+      │
+      ▼
+Close with x ─────► resume later when a session reference is available
+```
+
+Kanbi keeps session history when you start fresh or repair a ticket. If a session cannot be resumed safely, Kanbi asks what to do instead of silently attaching the ticket to the wrong process.
+
+## Essential controls
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Start, open, or resume the selected ticket |
+| `n` | Create a ticket |
+| `e` | Open the ticket inspector/editor |
+| `x` | Gracefully close the ticket's agent session |
+| `b` | Switch boards or open Master |
+| `f` | Filter tickets in Master |
+| `H` / `L` | Move a ticket between columns |
+| `J` / `K` | Reorder a ticket within its column |
+| `a` | Archive a ticket |
+| `g` | Open a linked GitHub issue in the browser |
+| `?` | Show all controls and the runtime-state legend |
+| `q` / `Ctrl+C` | Exit Kanbi **without terminating active agents** |
+
+From the board view, press `?` for the core controls and runtime-state legend. Contextual actions also appear in modals and the footer.
+
+## Built for multiple projects
+
+Each board owns its working directory, workflow, tickets, and local session history. Different boards can both have a `T-001`; Kanbi keeps their work and terminal sessions separate.
+
+Open **Master (all boards)** to:
+
+- see active work across every project;
+- group columns with the same workflow key;
+- search titles, descriptions, IDs, boards, and harnesses;
+- filter by runtime state or project;
+- create and move tickets without changing their owning board when the target board has the matching workflow column.
+
+Press `b` from the board view to switch between Master and a project board.
+
+## Your tickets, your choice of backend
+
+A board chooses one ticket backend when it is created:
+
+- **Local** — private tickets stored by Kanbi on your machine.
+- **GitHub Issues** — sync issue titles, descriptions, workflow labels, state, and comments.
+- **Jira** — sync issue summaries, descriptions, statuses, and comments.
+
+```bash
+# Local board (the default)
+kanbi boards add "Website" --cwd ~/code/website
+
+# GitHub-backed board
+kanbi boards add "Website Issues" \
+  --cwd ~/code/website \
+  --backend github \
+  --config '{"owner":"ACME","repo":"website"}' \
+  --query 'state=open,closed&labels=kanbi'
+
+kanbi sync --board "Website Issues"
+```
+
+Provider credentials should be supplied through the documented environment variables, not embedded in `--config`, because board configuration is stored unencrypted. Runtime sessions and agent resume data always remain local and are never synced to GitHub or Jira.
+
+See [ticket backends](./docs/ticket-backends.md) for GitHub and Jira setup.
+
+## More than a TUI
+
+Kanbi also has a scriptable CLI. Most non-interactive commands support `--json` or `--format json` with versioned response schemas.
+
+```bash
+kanbi boards --json
+kanbi list --json
+kanbi add "Investigate flaky checkout test" --body-file ./ticket.md --json
+kanbi move T-001 --to "In Progress" --json
+kanbi state --json
+kanbi open T-001
+```
+
+When a ticket ID exists on more than one board, add `--board "Board Name"`.
+
+## Data safety
+
+Agent work can be expensive. Kanbi is deliberately conservative around active sessions and history:
+
+- `q` exits the interface but leaves agents running; `x` explicitly closes a session.
+- Starting fresh preserves previous session attempts.
+- Archiving a board is the safe, non-destructive way to hide it.
+- Hard deletion is permanent, local-only, strongly confirmed, and blocked while sessions are active.
+- Full backups include Kanbi's database and attachments.
+
+```bash
+kanbi backup "$HOME/kanbi-backup-$(date +%Y%m%d).kanbi"
+```
+
+Create a backup before upgrades or destructive changes. Restoring requires every Kanbi process using the database to be stopped. See the [installation guide](./docs/installation.md#upgrade) for safe upgrade and rollback steps.
+
+## Compatibility
+
+| Area | Support |
+| --- | --- |
+| Platforms | Linux x86-64/ARM64; macOS Intel/Apple Silicon |
+| Agent CLIs | Pi, Codex, GitHub Copilot CLI, Claude Code |
+| Terminal runtime | tmux by default; Herdr opt-in |
+| Ticket backends | Local, GitHub Issues, Jira |
+| Terminal size | 80×24 minimum practical size; 256 colors recommended |
+| Windows | Not currently a published target |
+
+Agent resume depends on Kanbi capturing a verified session reference from the agent CLI. Upstream CLI changes can affect that integration; exact command and capture behavior is documented in [harness contracts](./docs/harness-contracts.md). See the full [compatibility matrix](./docs/compatibility.md) for verification status.
+
+## Documentation
+
+### Using Kanbi
+
+- [Installation, first run, upgrades, and uninstall](./docs/installation.md)
+- [GitHub and Jira ticket backends](./docs/ticket-backends.md)
+- [Multi-board and Master behavior](./docs/multi-board-behavior.md)
+- [Backup, diagnostics, and support bundles](./docs/support.md)
+- [Compatibility matrix](./docs/compatibility.md)
+- [tmux and Herdr runtime behavior](./docs/multiplexer-contracts.md)
+
+### Contributing
+
+- [Contributing guide](./CONTRIBUTING.md)
+- [Architecture](./docs/architecture.md)
+- [Agent contributor instructions](./AGENTS.md)
+- [Changelog](./CHANGELOG.md)
+- [Security policy](./SECURITY.md)
+
+## Support and security
+
+Start troubleshooting with:
 
 ```bash
 kanbi version
 kanbi doctor
-kanbi --help
-```
-
-See [`docs/installation.md`](./docs/installation.md) for supported platforms, prerequisites, checksum verification, first-run setup, upgrades, rollback, and uninstall. Source-checkout development installation remains documented separately below.
-
-## Project Documents
-
-- [`AGENTS.md`](./AGENTS.md) — onboarding instructions for autonomous coding agents
-- [`docs/architecture.md`](./docs/architecture.md) — current architecture, scope, invariants, and source-of-truth document order
-- [`docs/multi-board-behavior.md`](./docs/multi-board-behavior.md) — current multi-board and Master view behavior
-- [`docs/harness-contracts.md`](./docs/harness-contracts.md) — current supported harness commands/ref capture contracts
-- [`docs/multiplexer-contracts.md`](./docs/multiplexer-contracts.md) — tmux/Herdr runtime substrate contract
-- [`docs/tmux-to-herdr-migration.md`](./docs/tmux-to-herdr-migration.md) — recommended semantics for moving existing tmux workflows to Herdr
-- [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — how autonomous agents should verify their work
-- [`docs/installation.md`](./docs/installation.md) — production installation, first run, upgrade, rollback, and uninstall
-- [`docs/compatibility.md`](./docs/compatibility.md) — supported platforms, schema, multiplexers, and harness verification status
-- [`docs/support.md`](./docs/support.md) — diagnostics logging, support-bundle fields, and maintenance policy
-- [`docs/release-channels.md`](./docs/release-channels.md) — beta/stable version policy and CI/CD channel behavior
-- [`docs/beta-release-checklist.md`](./docs/beta-release-checklist.md) — repeatable beta qualification and publication gates
-- [`docs/release-checklist.md`](./docs/release-checklist.md) — common release provenance and publish checklist
-- [`docs/verification/stable-v1.0-qualification.md`](./docs/verification/stable-v1.0-qualification.md) — GH-292 stable-release gates and evidence record
-- [`SECURITY.md`](./SECURITY.md) — private vulnerability reporting and supported-release policy
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — development setup and contribution guidance
-- [`CHANGELOG.md`](./CHANGELOG.md) — release and upgrade history
-- [`docs/archive/design-spec.md`](./docs/archive/design-spec.md) — historical product/design context; current docs win on conflicts
-
-## First run and multi-board behavior
-
-- On an empty installation, `kanbi` opens with a three-page, dismissible first-run guide covering tmux/harness prerequisites, `kanbi doctor`, board working directories, session start/close semantics, repair, and backups. Press `Esc` to skip it immediately.
-- `kanbi` then opens with a board picker. Choose `Master (all boards)` or a named board; press `c` there to create a board and set the directory where its agent commands will run.
-- Press `b` inside the TUI to switch boards without restarting.
-- Press `g` on a GitHub-backed ticket to open its GitHub issue URL in your browser.
-- `Master` aggregates unarchived tickets from non-archived boards by matching column `workflow_key` (defaults to each column's display name; rename does not change the key).
-- Press `f` in `Master` to filter/search by board, runtime/state, harness, text, or archived tickets. Save (`S`) / apply (`P`) named presets; filters are never auto-applied on startup. Press `C` to clear.
-- Pressing `n` in `Master` prompts for the target board, then creates the ticket in that board's column with the same workflow key.
-- Each board has a working directory. Opening/sending a ticket starts its agent terminal container in the ticket's board directory, including from `Master`.
-- Board-local ticket numbers are preserved, so different boards may both have `T-001`; CLI ticket commands accept `--board NAME` when needed.
-- tmux is the default multiplexer. Each launched board UI uses its own tmux runtime session for ticket windows; session rows store that tmux session name so other board instances can validate or switch to it through the shared database.
-- Agent terminal container names include the board id to avoid cross-board collisions within a runtime namespace.
-- Create boards from the CLI with `kanbi boards add "Board Name" --cwd /path/to/project`; `--cwd` defaults to the current directory. Boards use one ticket metadata backend chosen at creation; `local`, `github`, and `atlassian` (Jira) are implemented. List boards with `kanbi boards`. Provider `--config` JSON is stored unencrypted in SQLite, so keep credentials in the documented environment variables rather than embedding tokens in `--config`.
-- Sync ticket backends from the CLI with `kanbi sync` or `kanbi sync --board "Board Name"`.
-- Rename/update boards with `kanbi boards rename OLD NEW` and `kanbi boards set-cwd NAME /path/to/project`.
-- In the TUI board picker: `c` creates, `r` renames, `w` sets cwd, `a` archives/unarchives, `s` toggles provider sync, `e`/`i` export/import board packages, `A` shows archived boards, and `d` hard-deletes. Archive is the non-destructive default hide path; hard delete is permanent, blocked while sessions are active, local-only, and removes attachments after the SQL commit.
-
-## Backup, restore, and deletion safety
-
-Create a consistent backup (SQLite including committed WAL data, plus attachments) with:
-
-```bash
-kanbi backup ~/kanbi-backup.kanbi
-```
-
-Restore only after stopping every Kanbi process that uses the target database:
-
-```bash
-kanbi restore ~/kanbi-backup.kanbi          # only when no database exists
-kanbi restore ~/kanbi-backup.kanbi --force  # atomically replace an existing database
-```
-
-Full backups contain a versioned `kanbi-backup` manifest, a SQLite snapshot, and attachment files. Restore validates archive paths, the manifest/schema version, and SQLite integrity before replacement. It refuses an existing database without `--force` and refuses restore while SQLite WAL/SHM sidecars exist. Database replacement uses an atomic rename; database and attachment replacement are rollback-protected but cannot be one filesystem transaction, so do not run restore concurrently with Kanbi. External ticket providers are not a backup of local runtime/session history or attachments.
-
-Single-board packages use a separate `kanbi-board-package` format (`kanbi boards export|import`). Import is create-new-only (no merge), remaps IDs in one SQLite transaction, stages attachments with compensating board delete on failure, and always leaves the imported board archived with sync disabled.
-
-Prefer board archive over hard delete. Hard delete is permanent, local-only, blocked while sessions are active, and requires typing the exact board name in the TUI.
-
-## CLI automation surface
-
-Most non-interactive commands support machine-readable output with `--json` or `--format json`.
-JSON payloads include a `schema` field such as `kanbi.v1.tickets` for agent/orchestrator consumers.
-
-Useful agent-facing commands:
-
-```bash
-kanbi boards --json
-kanbi list --json [--board NAME]
-kanbi show T-001 --json [--board NAME]
-kanbi state --json [--board NAME]
-
-kanbi add "Title" --body "..." --json
-kanbi add "Title" --body-file ./ticket.md --json
-kanbi update T-001 --title "New title" --body-file ./body.md --json
-kanbi move T-001 --to "In Progress" --json
-
-kanbi notes list T-001 --json
-kanbi notes add T-001 --body "Progress update" --json
-```
-
-`kanbi open`, `kanbi sync`, and `kanbi doctor` also accept `--json`. Board-local ticket IDs may be ambiguous across boards; pass `--board NAME` when needed.
-
-## Multiplexer configuration
-
-Kanbi defaults to tmux as its configured multiplexer runtime substrate. To launch new ticket sessions through Herdr instead, configure `~/.config/kanbi/config.yaml` (or `$KANBI_CONFIG`):
-
-```yaml
-multiplexer:
-  default: herdr
-  herdr:
-    binary: herdr
-    session: default
-    workspace_strategy: board
-    focus_on_open: false
-```
-
-Existing active sessions keep using the multiplexer stored in their session row, so tmux sessions continue to validate/focus through tmux after switching the default for new launches. Press `M` on a tmux-backed ticket with a session ref to explicitly move it to Herdr by gracefully closing tmux and resuming in a new Herdr pane. Stale or inactive tmux sessions can resume into Herdr only through a valid harness session ref, while start-fresh creates a new Herdr attempt and preserves old tmux history; see [`docs/tmux-to-herdr-migration.md`](./docs/tmux-to-herdr-migration.md). With `default: herdr`, running `kanbi` outside Herdr starts the board UI in a focused Herdr pane and attaches to Herdr; when already inside a Herdr pane it runs the board directly to avoid nesting. For one-off testing, `KANBI_MULTIPLEXER=herdr` overrides `multiplexer.default`.
-
-Herdr basics:
-
-- Install Herdr from <https://herdr.dev/docs/install/> and run `herdr` once so its server/session is available.
-- `multiplexer.herdr.session` selects the Herdr session namespace (`default` is fine for most users).
-- Ticket panes always open as a new tab in the Herdr workspace the Kanbi board itself is running in — never a separate workspace — mirroring tmux windows inside one session.
-- `workspace_strategy: board` groups ticket panes by Kanbi board/project when Kanbi isn't running inside a Herdr pane (e.g. detection falls back to matching an existing workspace by board directory).
-- `focus_on_open: false` lets Kanbi start/focus containers without stealing focus unless requested.
-- Harness config remains separate; `pi`, `codex`, `copilot`, and `claude` still define agent commands and resume refs.
-- Run `kanbi doctor` after changing multiplexer config. If Herdr is selected, doctor checks the configured Herdr binary and `herdr status`.
-
-## Development
-
-This path is for contributors working from a source checkout, not production installation. Install a development launcher on your `PATH`:
-
-```bash
-./scripts/install-dev.sh
-```
-
-By default this writes `~/.local/bin/kanbi`. The launcher rebuilds `.bin/kanbi` from this checkout whenever `cmd/`, `internal/`, `go.mod`, or `go.sum` are newer than the cached binary, then execs it. Set `KANBI_BIN_DIR=/some/path` to install the launcher somewhere else.
-
-Baseline checks:
-
-```bash
-go fmt ./...
-go test ./...
-go vet ./...
-```
-
-Opt-in real GitHub backend smoke test (mutates the configured repository; not run by normal smoke):
-
-```bash
-KANBI_GITHUB_OWNER="OWNER" \
-KANBI_GITHUB_REPO="REPO" \
-./scripts/github-backend-smoke.sh
-```
-
-Auth uses `KANBI_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. The token needs repo issue read/write permission. The script creates a temporary label-scoped issue, pulls it, observes remote edits/comments, closes it, and leaves cleanup best-effort.
-
-Opt-in real Jira backend smoke test (mutates the configured Jira project; not run by normal smoke):
-
-```bash
-KANBI_JIRA_SITE_URL="https://ORG.atlassian.net" \
-KANBI_JIRA_PROJECT_KEY="AK" \
-KANBI_JIRA_EMAIL="you@example.com" \
-KANBI_JIRA_API_TOKEN="TOKEN" \
-./scripts/jira-backend-smoke.sh
-```
-
-## Data privacy and process behavior
-
-Kanbi creates application directories for the current user (`0700`) and restricts sensitive files, including existing config and SQLite database/WAL/SHM files, to `0600`. Explicit pre-existing parent-directory overrides keep their existing permissions. Pressing `q` from the board or `Ctrl+C` anywhere exits the UI without terminating active ticket agent sessions; close a ticket session explicitly with `x`.
-
-Remote-provider sync is owned by the in-process sync manager (startup, periodic, and mutation-triggered) with durable per-board SQLite leases across Kanbi processes, lease renewal during long ops, and cancel-on-lease-loss. Provider HTTP calls have explicit timeouts; only idempotent GET/list requests retry with backoff. Issue create is fail-closed after a durable pending push token so crashes cannot silently duplicate remote tickets; recovery is find-or-link via a body marker. Stale leases recover automatically after expiry. Sync/runtime failures write redacted diagnostics (operation, board/ticket context, timestamp, attempt, cause)—never tokens, prompts, session refs, or terminal excerpts. Deleting a provider-backed note creates a durable local tombstone: the remote comment is not deleted, but it cannot be re-imported into Kanbi on later sync.
-
-### Diagnostics and support bundles
-
-Optional file logging is off by default. Set `diagnostics.level` in config or `KANBI_LOG_LEVEL=debug` to write bounded, `0600` JSON logs under the state directory (rotated; not a daemon). When filing a bug, generate a redacted archive:
-
-```bash
 kanbi support-bundle ~/kanbi-support.zip
 ```
 
-Default bundles include build/schema identity, redacted config, doctor results, recent redacted diagnostics, platform/multiplexer details, migration state, and harness binary presence. They do **not** include ticket bodies, notes, prompts, tokens, session refs, attachment contents, or terminal excerpts. Inspect the zip before sharing; see [`docs/support.md`](./docs/support.md). Report security issues privately via [`SECURITY.md`](./SECURITY.md).
+Support bundles are redacted by default, but inspect the archive before sharing it. Report vulnerabilities privately using the [security policy](./SECURITY.md).
 
 ## License
 
 Kanbi is available under the [MIT License](./LICENSE). Copyright © 2026 Carlo Tran.
-
-## Status
-
-Kanbi is a UX-ready beta with multi-board TUI/CLI behavior, configurable multiplexer-backed ticket sessions, Pi/Codex/Copilot/Claude command wiring and ref capture, deterministic fake-harness coverage, runtime/sync hardening (owned background work, provider timeouts/retries, lease renew/loss, durable diagnostics, soak coverage), and opt-in real-harness verification. The next intended public version is `v0.3.0-beta.1`; it is not yet qualified or published. Missing product features and further polish remain trackable on the board.
-
-## Runtime states and accessible indicators
-
-Every card prints a runtime state in words: `not started`, `starting`, `running`, `waiting for user`, `permission required`, `idle / unknown`, `closing`, `closed / resumable`, `repair required`, or `error`. Waiting and permission requests are therefore distinguishable without theme colors. Cards also pair symbols with text: `● active container`, `○ resumable`, `! error / repair`, and `- no active container`. Press `?` for the complete in-product legend and controls; scroll long help with `j`/`k` or arrow keys.
-
-Major list dialogs follow their focused control in short terminals and help is scrollable. At 80x24 controls remain reachable; below that size Kanbi clips safely and marks hidden content with `more`. Session action failures name the failed operation, retain the underlying cause, and show a concrete next step on a separate line. Provider sync failures are degraded/offline states: Kanbi continues from its local SQLite projection and shows a `kanbi sync --board` retry command. Startup reconciliation failures use the parallel **runtime reconciliation degraded (local data available)** banner with a `kanbi doctor` next step; they are never silently discarded.
-
-See [`docs/ux-readiness.md`](./docs/ux-readiness.md) for the manual terminal/theme/tmux matrix and known accessibility limitations.
-
-## Ticket Inspector And Notes
-
-Press `e` to open the unified ticket inspector/editor. The inspector renders the ticket as a polished document while keeping fields editable in place:
-
-- `Tab` / `Shift+Tab` — move focus between title, description, harness, and notes
-- `Ctrl+S` — save the ticket
-- `Ctrl+E` — open the description in `$EDITOR`
-- paste base64 image data while the description is focused — save it under `~/.local/share/kanbi/attachments/<internal-ticket-database-id>/` and insert a Markdown image reference
-- image references render as inline Kitty graphics in capable terminals during description preview, including Kitty-compatible terminals detected through tmux's environment, or as `[image: filename]` placeholders otherwise
-- `Esc` — cancel/close the inspector
-
-Inside the notes section:
-
-- `a` — add a new note
-- `e` — edit the selected note
-- `d` — delete the selected note
-- `j`/`k` — navigate notes
-- `Ctrl+S` while editing — save the note
-- `Esc` while editing — cancel
-
-Notes are not sent to the agent session. On local boards they remain personal/local annotations. On GitHub and Atlassian/Jira boards, sync maps notes to provider issue comments.
