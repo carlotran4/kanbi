@@ -32,8 +32,8 @@ During the freeze, changes to the SQLite schema, CLI command names, JSON schemas
 | --- | --- | --- | --- |
 | Contract and compatibility freeze | NOT RUN | — | — |
 | Exact-commit deterministic verification | NOT RUN | — | — |
-| Multi-day soak | NOT RUN | [Soak report](#soak-report) | — |
-| Upgrade, downgrade rejection, rollback, restore | NOT RUN | [Disaster-recovery report](#disaster-recovery-report) | — |
+| Multi-day soak | PARTIAL | [24-hour deterministic soak](./soak-20260715-144bd46.md); broader operational matrix remains | automated + maintainer |
+| Upgrade, downgrade rejection, rollback, restore | PARTIAL | [Schema 3→5 local-artifact drill](./disaster-recovery-20260717.md); tagged/RC rerun remains | automated; reviewer pending |
 | Four-platform artifact matrix | NOT RUN | [Artifact matrix](#artifact-matrix) | — |
 | Accessibility/usability matrix | NOT RUN | [Accessibility report](#accessibility-and-usability-report) | — |
 | Diagnostics/support-bundle leakage | NOT RUN | — | — |
@@ -88,27 +88,27 @@ A qualifying soak spans multiple calendar days and includes multiple boards and 
 
 | Field | Value |
 | --- | --- |
-| Candidate SHA | `NOT SET` |
-| Start/end UTC and duration | `NOT SET` |
-| Hosts/platforms | `NOT SET` |
-| Kanbi processes / boards / tickets | `NOT SET` |
-| Runtime/harness/provider mix | `NOT SET` |
-| Failure injections and restarts | `NOT SET` |
-| Backups created/verified | `NOT SET` |
+| Candidate SHA | `144bd46b779d33c393d64b32b3142c3c1b300b66` (implementation soak; final RC not frozen) |
+| Start/end UTC and duration | 2026-07-14 03:49:03 → 2026-07-15 03:49:52 UTC; 86,402 seconds |
+| Hosts/platforms | `devbox`; Linux x86-64; Go 1.26.5; race detector |
+| Kanbi processes / boards / tickets | Deterministic test process; one fake-provider board; no live runtime tickets |
+| Runtime/harness/provider mix | Fake GitHub backend; scheduling, stop-drain, and lease paths |
+| Failure injections and restarts | Scheduling storm; memory safety monitor. No restart in passing run. |
+| Backups created/verified | Not part of this deterministic soak; covered by separate drill |
 
 Record baseline, periodic, and final measurements for RSS, open file descriptors, goroutine count (when instrumented), SQLite busy/locked errors, sync lease recovery, duplicate remote creates, active-session claims, stale/degraded state, and ticket/session row counts. Explain the measurement method and acceptance threshold before starting.
 
-- [ ] No race reports, unbounded resource growth, goroutine leak, persistent lock contention, or silent stale state.
+- [ ] No race reports, unbounded resource growth, goroutine leak, persistent lock contention, or silent stale state on the exact frozen candidate. Supporting evidence: the 24-hour `144bd46` deterministic sync soak passed its in-scope checks; silent stale runtime state was outside that soak's scope.
 - [ ] No duplicate remote mutation.
 - [ ] No incorrect simultaneous active-session claim.
 - [ ] Ticket, note, attachment, and session-history integrity checks match the baseline plus expected mutations.
-- [ ] `KANBI_SOAK_SECONDS=___ ./scripts/soak-runtime.sh` passes on the candidate.
+- [ ] Rerun the required soak on the exact frozen candidate. Supporting evidence: `KANBI_SOAK_SECONDS=86400 ./scripts/soak-runtime.sh` passed on implementation commit `144bd46`.
 
-Timeline, raw logs, metrics, anomalies, and issue links: `NOT SET`
+Timeline, raw logs, metrics, defect/fix history, and hashes: [`soak-20260715-144bd46.md`](./soak-20260715-144bd46.md). The broader multi-process/runtime/provider/backup scenario remains required.
 
 ## Disaster-recovery report
 
-Use a prior tagged artifact and an RC workflow artifact, not two labels built from the same source tree. Set `OLD_ARCHIVE` and `NEW_ARCHIVE` when running the drill. The script verifies the baseline ticket/note/optional-attachment restore path; it does **not** by itself verify downgrade rejection or seeded session history. Complete and record the additional manual checks below rather than treating script `PASS` as the whole gate.
+Use a prior tagged artifact and an RC workflow artifact, not two labels built from the same source tree. Set `OLD_ARCHIVE` and `NEW_ARCHIVE` when running the drill. The script requires different commits and schema versions and verifies migration, downgrade rejection, ticket/note fields, a required attachment, active and inactive session history, rollback, SQLite integrity, and foreign-key consistency.
 
 ```bash
 OLD_ARCHIVE=/path/to/prior.tar.gz \
@@ -116,21 +116,23 @@ NEW_ARCHIVE=/path/to/v1.0.0-rc.tar.gz \
 ./scripts/upgrade-rollback-drill.sh
 ```
 
-- [ ] Old artifact initializes and seeds tickets, notes, a required attachment, and active/inactive session-history fixtures (using a disposable runtime or reviewed fixture setup).
-- [ ] Old artifact creates a verified pre-upgrade backup.
-- [ ] Candidate migrates and normal post-migration use succeeds.
-- [ ] Old artifact rejects the newer database when schema versions differ.
+- [ ] Old tagged artifact initializes and seeds tickets, notes, a required attachment, and active/inactive session-history fixtures.
+- [ ] Old tagged artifact creates a hashed pre-upgrade backup.
+- [ ] Exact RC artifact migrates and normal post-migration use succeeds.
+- [ ] Old artifact rejects the newer database with an explicit newer-schema error.
 - [ ] Prior artifact plus pre-upgrade backup restores successfully.
-- [ ] Post-restore integrity verifies tickets, notes, attachments, session rows, and foreign keys.
+- [ ] Post-restore integrity verifies tickets, notes, restored attachment bytes, session rows, SQLite integrity, and foreign-key consistency.
 - [ ] Expected loss of post-backup changes and the no-in-place-downgrade rule are documented.
+
+Supporting evidence: these behaviors passed with distinct local schema-3/schema-5 build artifacts. Rerun the hardened script with the frozen prior-tag and exact RC workflow artifacts before checking the boxes or changing the gate from `PARTIAL` to `PASS`.
 
 | Field | Value |
 | --- | --- |
-| Old version / SHA / schema | `NOT SET` |
-| New version / SHA / schema | `NOT SET` |
-| Host | `NOT SET` |
-| Drill output | `NOT SET` |
-| Backup hash | `NOT SET` |
+| Old version / SHA / schema | `0.2.0-test` / `e66ba9e98da43792159d500104ad8dbc4340a6b5` / 3 |
+| New version / SHA / schema | `1.0.0-rc.drill` / `144bd46b779d33c393d64b32b3142c3c1b300b66` / 5 |
+| Host | Linux x86-64 |
+| Drill output | [Summary](./disaster-recovery-20260717.md) and [full log](./upgrade-rollback-drill-20260717T033908Z.txt) |
+| Backup hash | `a8c8b19266a94f47ce59e9638bdaab68c019ad07e41a003f47c9a4d0b549fe0b` |
 | Reviewer | `NOT SET` |
 
 ## Artifact matrix

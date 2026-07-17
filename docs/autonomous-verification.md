@@ -397,7 +397,7 @@ Optional real artifact comparison:
 OLD_ARCHIVE=/path/to/old.tar.gz NEW_ARCHIVE=/path/to/new.tar.gz ./scripts/upgrade-rollback-drill.sh
 ```
 
-The script records the latest result under `docs/verification/upgrade-rollback-drill-latest.txt`.
+The script records a timestamped result under `docs/verification/upgrade-rollback-drill-<UTC timestamp>.txt` and updates `upgrade-rollback-drill-latest.txt`. With explicit old/new archives it rejects identical commits or schema versions and verifies required attachment data, active/inactive session history, downgrade rejection, SQLite/foreign-key integrity, and rollback removal of post-backup changes.
 
 ## CI And Release Verification
 

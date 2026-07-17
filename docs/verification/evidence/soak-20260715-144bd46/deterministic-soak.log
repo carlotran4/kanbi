@@ -1,0 +1,3 @@
+kanbi soak-runtime: 86400s concurrent fake provider schedule/stop cycles
+ok  	github.com/carlotran4/kanbi/internal/ticketbackend	86402.168s
+kanbi soak-runtime: pass
