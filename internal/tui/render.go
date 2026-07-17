@@ -118,7 +118,10 @@ func (m Model) baseView() string {
 			b.WriteString(statusStyle.Render(trimToWidth(m.status, maxInt(1, m.width))) + "\n")
 		}
 	}
-	return b.String()
+	// Bubble Tea treats a trailing newline as another terminal row. Returning
+	// one here can make an otherwise height-bounded board scroll the terminal
+	// itself and hide the application header.
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func (m Model) contextBar() string {
@@ -255,7 +258,7 @@ func (m Model) columnView(ci int, col storage.Column) string {
 	usedLines := 0
 	visibleEnd := scrollTop - 1
 	for ti := scrollTop; ti < len(col.Tickets); ti++ {
-		h := cardHeightEx(col.Tickets[ti], inner, ci == m.col && ti == m.card)
+		h := cardHeightEx(col.Tickets[ti], inner, ci == m.col && ti == m.card, m.masterBoard)
 		if usedLines+h > avail {
 			break
 		}
@@ -291,11 +294,7 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 		cursor = ">"
 	}
 
-	title := ticket.DisplayID + " " + ticket.Title
-	if showBoard && ticket.BoardName != "" {
-		title = ticket.DisplayID + " [" + ticket.BoardName + "] " + ticket.Title
-	}
-	titleLines := wrapText(title, cardInnerWidth-2, 3)
+	titleLines := wrapText(cardTitle(ticket, showBoard), cardInnerWidth-2, 3)
 	if len(titleLines) == 0 {
 		titleLines = []string{ticket.DisplayID}
 	}
@@ -367,6 +366,13 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 		return strings.Split(lipgloss.NewStyle().Bold(true).Render(strings.Join(lines, "\n")), "\n")
 	}
 	return lines
+}
+
+func cardTitle(ticket storage.Ticket, showBoard bool) string {
+	if showBoard && ticket.BoardName != "" {
+		return ticket.DisplayID + " [" + ticket.BoardName + "] " + ticket.Title
+	}
+	return ticket.DisplayID + " " + ticket.Title
 }
 
 func runtimeLabel(ticket storage.Ticket) string {

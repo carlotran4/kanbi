@@ -13,6 +13,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/tmux"
@@ -1020,6 +1021,38 @@ func TestScrollFocusedCardAlwaysRendered(t *testing.T) {
 			t.Fatalf("step %d: focused card %d (%s) not found in rendered output (scroll=%d)\n%s",
 				step, model.card, ticket.DisplayID, model.colScroll[0], rendered)
 		}
+	}
+}
+
+func TestMasterScrollKeepsViewWithinTerminalHeight(t *testing.T) {
+	store, ctx := newTestStore(t)
+	board, err := store.CreateBoard(ctx, "A Client Board With A Long Name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10; i++ {
+		createTicket(t, ctx, store, view.Columns[0].ID, fmt.Sprintf("Master ticket %d", i), "", "pi")
+	}
+
+	model := New(ctx, NewService(store, nil))
+	model.masterBoard = true
+	model.width = 80
+	model.height = 20
+	model.reload()
+
+	for i := 0; i < 9; i++ {
+		model, _ = mustUpdate(t, model, "j")
+	}
+	rendered := model.View()
+	if got := lipgloss.Height(rendered); got > model.height {
+		t.Fatalf("Master view height=%d exceeds terminal height=%d; terminal renderer will cut off the top:\n%s", got, model.height, rendered)
+	}
+	if !strings.Contains(rendered, model.view.Columns[model.col].Tickets[model.card].DisplayID) {
+		t.Fatalf("focused Master ticket is not rendered:\n%s", rendered)
 	}
 }
 
