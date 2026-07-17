@@ -66,7 +66,6 @@ func (m Model) View() string {
 }
 
 func (m Model) baseView() string {
-	var b strings.Builder
 	// Header bar: full-width background strip.
 	appName := headerBarStyle.Render("Kanbi")
 	headerName := m.view.Board.Name
@@ -81,47 +80,44 @@ func (m Model) baseView() string {
 	if m.width > barUsed {
 		barPad = lipgloss.NewStyle().Background(palette.header).Render(strings.Repeat(" ", m.width-barUsed))
 	}
-	fmt.Fprintf(&b, "%s %s%s\n\n", appName, boardName, barPad)
+	header := fmt.Sprintf("%s %s%s\n\n", appName, boardName, barPad)
 	board := m.boardView()
-	hint := ""
-	if h := m.hScrollHint(); h != "" {
-		hint = "\n" + h
+	hint := m.hScrollHint()
+
+	footer := []string{
+		footerRule.Render(strings.Repeat("─", m.width)),
+		m.contextBar(),
 	}
-	// Footer lines: rule + hints + optional status/remediation.
-	footerLines := 2
-	if m.status != "" {
-		footerLines++
-		if m.errOperation != "" {
-			footerLines += 2
-		}
-	}
-	// Count lines used so far: header (2) + board + hint (0 or 1 extra).
-	contentLines := 2 + strings.Count(board, "\n")
-	if hint != "" {
-		contentLines++
-	}
-	pad := m.height - contentLines - footerLines
-	if pad < 1 {
-		pad = 1
-	}
-	fmt.Fprintf(&b, "%s%s%s", board, hint, strings.Repeat("\n", pad))
-	// Footer separator rule.
-	rule := footerRule.Render(strings.Repeat("─", m.width))
-	fmt.Fprintf(&b, "%s\n", rule)
-	b.WriteString(m.contextBar() + "\n")
 	if m.status != "" {
 		if m.errOperation != "" {
-			b.WriteString(statusStyle.Render(trimToWidth("Failed operation: "+m.errOperation, maxInt(1, m.width))) + "\n")
-			b.WriteString(statusStyle.Render(trimToWidth("Cause: "+m.status, maxInt(1, m.width))) + "\n")
-			b.WriteString(statusStyle.Render(trimToWidth("Next: "+m.errNext, maxInt(1, m.width))) + "\n")
+			footer = append(footer,
+				statusStyle.Render(trimToWidth("Failed operation: "+m.errOperation, maxInt(1, m.width))),
+				statusStyle.Render(trimToWidth("Cause: "+m.status, maxInt(1, m.width))),
+				statusStyle.Render(trimToWidth("Next: "+m.errNext, maxInt(1, m.width))),
+			)
 		} else {
-			b.WriteString(statusStyle.Render(trimToWidth(m.status, maxInt(1, m.width))) + "\n")
+			footer = append(footer, statusStyle.Render(trimToWidth(m.status, maxInt(1, m.width))))
 		}
 	}
-	// Bubble Tea treats a trailing newline as another terminal row. Returning
-	// one here can make an otherwise height-bounded board scroll the terminal
-	// itself and hide the application header.
-	return strings.TrimSuffix(b.String(), "\n")
+
+	usedRows := 2 + lipgloss.Height(board) + len(footer)
+	if hint != "" {
+		usedRows++
+	}
+	blankRows := m.height - usedRows
+	if blankRows < 0 {
+		blankRows = 0
+	}
+
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteString(board)
+	if hint != "" {
+		b.WriteString("\n" + hint)
+	}
+	b.WriteString(strings.Repeat("\n", blankRows+1))
+	b.WriteString(strings.Join(footer, "\n"))
+	return b.String()
 }
 
 func (m Model) contextBar() string {
@@ -251,35 +247,18 @@ func (m Model) columnView(ci int, col storage.Column) string {
 		scrollTop = len(col.Tickets) - 1
 	}
 
-	inner := boardColumnWidth - 2
-	avail := m.boardContentHeight()
-
-	// Walk forward from scrollTop accumulating cards until we run out of space.
-	usedLines := 0
-	visibleEnd := scrollTop - 1
-	for ti := scrollTop; ti < len(col.Tickets); ti++ {
-		h := cardHeightEx(col.Tickets[ti], inner, ci == m.col && ti == m.card, m.masterBoard)
-		if usedLines+h > avail {
-			break
-		}
-		usedLines += h
-		visibleEnd = ti
-	}
-	if visibleEnd < scrollTop {
-		visibleEnd = scrollTop // always show at least the top card
-	}
-
+	visibleEnd, showAbove, showBelow := m.visibleCardRange(ci, col, scrollTop)
 	hiddenAbove := scrollTop
 	hiddenBelow := len(col.Tickets) - 1 - visibleEnd
 
-	if hiddenAbove > 0 {
+	if showAbove {
 		hint := fmt.Sprintf("(+%d more ▲)", hiddenAbove)
 		lines = append(lines, mutedBorder.Render(padLine(hint, boardColumnWidth)))
 	}
 	for ti := scrollTop; ti <= visibleEnd; ti++ {
 		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], boardColumnWidth, m.masterBoard)...)
 	}
-	if hiddenBelow > 0 {
+	if showBelow {
 		hint := fmt.Sprintf("(+%d more ▼)", hiddenBelow)
 		lines = append(lines, mutedBorder.Render(padLine(hint, boardColumnWidth)))
 	}

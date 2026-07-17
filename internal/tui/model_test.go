@@ -1034,25 +1034,30 @@ func TestMasterScrollKeepsViewWithinTerminalHeight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 60; i++ {
 		createTicket(t, ctx, store, view.Columns[0].ID, fmt.Sprintf("Master ticket %d", i), "", "pi")
 	}
 
 	model := New(ctx, NewService(store, nil))
 	model.masterBoard = true
-	model.width = 80
-	model.height = 20
+	model.width = 160
+	model.height = 40
 	model.reload()
 
-	for i := 0; i < 9; i++ {
+	assertFrame := func(step int) {
+		t.Helper()
+		rendered := model.View()
+		if got := lipgloss.Height(rendered); got > model.height {
+			t.Fatalf("step %d: Master view height=%d exceeds terminal height=%d; terminal renderer will cut off the top:\n%s", step, got, model.height, rendered)
+		}
+		if !strings.Contains(rendered, model.view.Columns[model.col].Tickets[model.card].DisplayID) {
+			t.Fatalf("step %d: focused Master ticket is not rendered:\n%s", step, rendered)
+		}
+	}
+	assertFrame(0)
+	for i := 1; i < 60; i++ {
 		model, _ = mustUpdate(t, model, "j")
-	}
-	rendered := model.View()
-	if got := lipgloss.Height(rendered); got > model.height {
-		t.Fatalf("Master view height=%d exceeds terminal height=%d; terminal renderer will cut off the top:\n%s", got, model.height, rendered)
-	}
-	if !strings.Contains(rendered, model.view.Columns[model.col].Tickets[model.card].DisplayID) {
-		t.Fatalf("focused Master ticket is not rendered:\n%s", rendered)
+		assertFrame(i)
 	}
 }
 

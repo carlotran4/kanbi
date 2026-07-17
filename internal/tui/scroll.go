@@ -16,20 +16,62 @@ func (m *Model) syncScrollDimensions() {
 	}
 }
 
-// boardContentHeight returns the number of terminal rows available for card
-// rendering (total height minus header and footer rows).
+// boardContentHeight returns the terminal rows available below a column's
+// two-line header. Global header/footer rows and the optional horizontal-scroll
+// hint are outside this budget.
 func (m *Model) boardContentHeight() int {
-	// 2 header lines (bar + blank) + 1 rule + 1 hints line = 4 fixed.
-	// Status line is conditional.
-	headerFooter := 4
+	fixed := 2 + 2 + 2 // app header + footer + column header
 	if m.status != "" {
-		headerFooter++
+		fixed++
+		if m.errOperation != "" {
+			fixed += 2
+		}
 	}
-	h := m.height - headerFooter
-	if h < 4 {
-		h = 4
+	if m.hScrollHint() != "" {
+		fixed++
+	}
+	h := m.height - fixed
+	if h < 1 {
+		h = 1
 	}
 	return h
+}
+
+// visibleCardRange uses the same row accounting for cursor following and
+// rendering. The vertical overflow hints consume rows from the card viewport.
+func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop int) (end int, showAbove, showBelow bool) {
+	avail := m.boardContentHeight()
+	showAbove = scrollTop > 0
+	if showAbove {
+		avail--
+	}
+	if avail < 1 {
+		avail = 1
+	}
+
+	inner := boardColumnWidth - 2
+	used := 0
+	end = scrollTop - 1
+	for ti := scrollTop; ti < len(col.Tickets); ti++ {
+		h := cardHeightEx(col.Tickets[ti], inner, ci == m.col && ti == m.card, m.masterBoard)
+		reserveBelowHint := 0
+		if ti < len(col.Tickets)-1 {
+			reserveBelowHint = 1
+		}
+		if used+h+reserveBelowHint > avail {
+			break
+		}
+		used += h
+		end = ti
+	}
+	if end < scrollTop {
+		// Extremely short terminals still show the focused/top card. Omit the
+		// lower hint if it cannot fit rather than scrolling the whole terminal.
+		end = scrollTop
+		used = cardHeightEx(col.Tickets[scrollTop], inner, ci == m.col && scrollTop == m.card, m.masterBoard)
+	}
+	showBelow = end < len(col.Tickets)-1 && used < avail
+	return end, showAbove, showBelow
 }
 
 // cardHeight returns the number of rendered lines a single card occupies inside
@@ -82,9 +124,6 @@ func (m *Model) vScrollFollow() {
 	if len(col.Tickets) == 0 {
 		return
 	}
-	inner := boardColumnWidth - 2
-	avail := m.boardContentHeight()
-
 	if len(m.colScroll) <= m.col {
 		return
 	}
@@ -99,19 +138,7 @@ func (m *Model) vScrollFollow() {
 
 	// Scroll down: advance offset until focused card is visible.
 	for {
-		usedLines := 0
-		visibleEnd := -1
-		for ti := m.colScroll[m.col]; ti < len(col.Tickets); ti++ {
-			h := cardHeightEx(col.Tickets[ti], inner, ti == m.card, m.masterBoard)
-			if usedLines+h > avail {
-				break
-			}
-			usedLines += h
-			visibleEnd = ti
-		}
-		if visibleEnd < 0 {
-			visibleEnd = m.colScroll[m.col]
-		}
+		visibleEnd, _, _ := m.visibleCardRange(m.col, col, m.colScroll[m.col])
 		if m.card <= visibleEnd {
 			break
 		}
