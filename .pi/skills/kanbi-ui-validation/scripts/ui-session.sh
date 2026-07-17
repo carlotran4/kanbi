@@ -8,14 +8,14 @@ SESSION="${KANBI_UI_TMUX_SESSION:-kanbi-ui}"
 WORK="${KANBI_UI_WORKDIR:-${TMPDIR:-/tmp}/kanbi-ui-validation-${USER:-agent}}"
 TARGET="$SESSION:board"
 BIN="$WORK/kanbi"
-DB="$WORK/kanbi.db"
+DB="$WORK/kanbi-ui-test.db"
 CONFIG="$WORK/config.yaml"
 STATE="$WORK/state"
 DATA="$WORK/data"
 
 usage() {
   cat <<EOF
-Usage: $0 start [--clone-db PATH] | capture [--ansi] | key KEY... | text TEXT | resize WIDTH HEIGHT | status | stop
+Usage: $0 start | fixture-path | capture [--ansi] | key KEY... | text TEXT | resize WIDTH HEIGHT | status | stop | clean
 Workspace: $WORK
 Socket:    $SOCKET
 Session:   $SESSION
@@ -36,9 +36,9 @@ run_cli() {
 }
 
 seed_fixture() {
-  run_cli boards add "agent-kanban" --cwd "$ROOT" >/dev/null
-  run_cli boards add "personal-finance" --cwd "$ROOT" >/dev/null
-  run_cli boards add "kanbi" --cwd "$ROOT" >/dev/null
+  run_cli boards add "agent-kanban" --cwd "$ROOT" --backend local >/dev/null
+  run_cli boards add "personal-finance" --cwd "$ROOT" --backend local >/dev/null
+  run_cli boards add "kanbi" --cwd "$ROOT" --backend local >/dev/null
 
   local board i id destination title
   for board in Default agent-kanban personal-finance kanbi; do
@@ -61,21 +61,41 @@ seed_fixture() {
       run_cli move "$id" --to "$destination" --board "$board" >/dev/null
     done
   done
+
+  # Add realistic terminal session projections without ever launching a harness.
+  # Done cards intentionally include elapsed error/resumable labels because they
+  # exercise the tallest production card shape.
+  sqlite3 "$DB" <<'SQL'
+insert into sessions (
+  ticket_id, harness, harness_session_ref, tmux_session_name, tmux_window_name,
+  status, is_active, created_at, updated_at, started_at, closed_at,
+  last_state_change_at, last_detected_state, last_detection_source
+)
+select t.id, t.harness, 'fixture-ref-' || t.id, 'kanbi-ui-fixture',
+       'fixture-' || t.id, 'error', 0,
+       datetime('now', '-37 days'), datetime('now', '-37 days'),
+       datetime('now', '-37 days'), datetime('now', '-37 days'),
+       datetime('now', '-37 days'), 'error', 'fixture'
+  from tickets t
+  join columns c on c.id = t.column_id
+ where c.name = 'Done';
+
+update boards set sync_enabled = 0, backend_query = null, backend_config = null;
+SQL
+}
+
+assert_safe_fixture() {
+  local unsafe
+  unsafe="$(sqlite3 "$DB" "select count(*) from boards where ticket_backend <> 'local' or sync_enabled <> 0 or coalesce(backend_config, '') <> '';")"
+  [[ "$unsafe" == "0" ]] || {
+    echo "refusing to launch unsafe UI fixture: provider-backed or sync-enabled board found" >&2
+    exit 1
+  }
 }
 
 start() {
-  local clone_db=""
   shift
-  while (($#)); do
-    case "$1" in
-      --clone-db)
-        [[ $# -ge 2 ]] || { echo "--clone-db requires a path" >&2; exit 2; }
-        clone_db="$2"
-        shift 2
-        ;;
-      *) echo "unknown start option: $1" >&2; usage; exit 2 ;;
-    esac
-  done
+  (($# == 0)) || { echo "start takes no database options" >&2; usage; exit 2; }
 
   mkdir -p "$SOCKET_DIR"
   if tmux_ui has-session -t "$SESSION" 2>/dev/null; then
@@ -90,12 +110,8 @@ db_path: "$DB"
 tmux_session: "$SESSION"
 EOF
 
-  if [[ -n "$clone_db" ]]; then
-    [[ -f "$clone_db" ]] || { echo "database not found: $clone_db" >&2; exit 2; }
-    sqlite3 "$clone_db" ".backup '$DB'"
-  else
-    seed_fixture
-  fi
+  seed_fixture
+  assert_safe_fixture
 
   local command
   printf -v command 'exec env KANBI_CONFIG=%q KANBI_DB=%q KANBI_STATE_DIR=%q KANBI_DATA_DIR=%q KANBI_TMUX_SESSION=%q TERM=xterm-256color %q' \
@@ -136,6 +152,11 @@ case "${1:-}" in
     [[ $# -eq 3 ]] || { echo "resize requires WIDTH HEIGHT" >&2; exit 2; }
     tmux_ui resize-window -t "$SESSION:board" -x "$2" -y "$3"
     ;;
+  fixture-path)
+    [[ -f "$DB" ]] || { echo "fixture has not been built; run: $0 start" >&2; exit 1; }
+    assert_safe_fixture
+    printf '%s\n' "$DB"
+    ;;
   status)
     require_session
     tmux_ui display-message -p -t "$TARGET" 'session=#{session_name} window=#{window_name} size=#{window_width}x#{window_height} pane=#{pane_id}'
@@ -144,8 +165,14 @@ case "${1:-}" in
     if tmux_ui has-session -t "$SESSION" 2>/dev/null; then
       tmux_ui kill-session -t "$SESSION"
     fi
+    echo "Kanbi UI session stopped. Fixture retained at $DB"
+    ;;
+  clean)
+    if tmux_ui has-session -t "$SESSION" 2>/dev/null; then
+      tmux_ui kill-session -t "$SESSION"
+    fi
     rm -rf "$WORK"
-    echo "Kanbi UI session stopped and workspace removed."
+    echo "Kanbi UI session and fixture removed."
     ;;
   *) usage; exit 2 ;;
 esac

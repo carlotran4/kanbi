@@ -110,7 +110,7 @@ Avoid screenshot/golden terminal tests in early v1 unless necessary.
 
 For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, use the project-scoped `kanbi-ui-validation` skill after model tests. Its helper builds current source, seeds a disposable multi-board database, and launches the real Bubble Tea application on a private tmux socket.
 
-Drive the UI one keypress at a time and capture frames before and after meaningful transitions. Validate the reported terminal size plus 80x24, and exercise Master, a named board, overflow, relevant modals, and resize behavior. Confirm the application header and footer remain visible and the focused control stays on-screen. Never open the user's canonical database directly; use the seeded fixture or the helper's SQLite snapshot option.
+Drive the UI one keypress at a time and capture frames before and after meaningful transitions. Validate the reported terminal size plus 80x24, and exercise Master, a named board, overflow, relevant modals, and resize behavior. Confirm the application header and footer remain visible and the focused control stays on-screen. Never copy or open the user's canonical database: the helper accepts no database path and only launches its deterministic local-backend, sync-disabled `kanbi-ui-test.db` fixture.
 
 Interactive validation supplements rather than replaces a deterministic regression test.
 

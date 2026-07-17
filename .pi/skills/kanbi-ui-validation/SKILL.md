@@ -16,15 +16,15 @@ From the repository root:
 .pi/skills/kanbi-ui-validation/scripts/ui-session.sh start
 ```
 
-The script builds current source, seeds a disposable multi-board database, and launches Kanbi at 160x45 on a private tmux socket. It prints attach and capture commands. Never point the live UI at the user's canonical database.
+The script builds current source, recreates the canonical `kanbi-ui-test.db` fixture, and launches Kanbi at 160x45 on a private tmux socket. The fixture has a stable multi-board shape, realistic elapsed error/resumable cards, local backends only, and provider sync forcibly disabled.
 
-To reproduce against real board shape without mutating it, clone its SQLite snapshot:
+The helper accepts no production database path and refuses to launch if its fixture contains a provider-backed or sync-enabled board. Never copy or open the user's canonical database for UI validation.
+
+Inspect the retained fixture path with:
 
 ```bash
-.pi/skills/kanbi-ui-validation/scripts/ui-session.sh start --clone-db /path/to/kanbi.db
+.pi/skills/kanbi-ui-validation/scripts/ui-session.sh fixture-path
 ```
-
-`sqlite3 .backup` copies committed WAL data into the disposable workspace. Do not press session lifecycle or destructive keys against cloned data unless the test specifically requires them.
 
 ## Drive it like a user
 
@@ -60,4 +60,4 @@ For repeated navigation, run a shell loop one key at a time and capture each fra
 .pi/skills/kanbi-ui-validation/scripts/ui-session.sh stop
 ```
 
-Always stop the disposable session when validation finishes. Report terminal sizes, key sequence, observed result, and automated checks in the final response.
+Always stop the disposable session when validation finishes. `stop` retains the canonical fixture for inspection; `clean` removes both session and fixture. Report terminal sizes, key sequence, observed result, and automated checks in the final response.
