@@ -106,7 +106,15 @@ Test:
 
 Avoid screenshot/golden terminal tests in early v1 unless necessary.
 
-### 6. Doctor Self-Test
+### 6. Interactive TUI Validation
+
+For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, use the project-scoped `kanbi-ui-validation` skill after model tests. Its helper builds current source, seeds a disposable multi-board database, and launches the real Bubble Tea application on a private tmux socket.
+
+Drive the UI one keypress at a time and capture frames before and after meaningful transitions. Validate the reported terminal size plus 80x24, and exercise Master, a named board, overflow, relevant modals, and resize behavior. Confirm the application header and footer remain visible and the focused control stays on-screen. Never open the user's canonical database directly; use the seeded fixture or the helper's SQLite snapshot option.
+
+Interactive validation supplements rather than replaces a deterministic regression test.
+
+### 7. Doctor Self-Test
 `kanbi doctor` should have testable internals.
 
 Separate probe logic from output formatting so tests can simulate:
@@ -127,7 +135,7 @@ Expected behavior:
 - DB/config path unavailable: fatal doctor failure
 - a missing configured harness start binary (including `pi`, `codex`, `copilot`, or `claude` defaults): warning only
 
-### 7. Manual Smoke Test Script
+### 8. Manual Smoke Test Script
 Maintain a script such as:
 
 ```bash
