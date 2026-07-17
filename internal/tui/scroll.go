@@ -102,7 +102,7 @@ func cardHeightEx(ticket storage.Ticket, innerWidth int, focused, showBoard bool
 			previewLines = 4
 		}
 	}
-	stateLines := len(wrapText("["+ticket.Harness+"] "+runtimeLabel(ticket), cardInnerWidth-2, 2))
+	stateLines := len(wrapText(runtimeStateText(ticket), cardInnerWidth-2, 2))
 	if stateLines == 0 {
 		stateLines = 1
 	}

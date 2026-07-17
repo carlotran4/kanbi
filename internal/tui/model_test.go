@@ -880,6 +880,24 @@ func TestModelEscCancelsRepair(t *testing.T) {
 	}
 }
 
+func TestMasterCardHeightIncludesElapsedRuntimeLabel(t *testing.T) {
+	ticket := storage.Ticket{
+		BoardName:         "agent-kanban",
+		DisplayID:         "T-057",
+		Title:             "Add GitHub Issues ticket backend",
+		Harness:           "pi",
+		Runtime:           "error",
+		SessionRef:        sql.NullString{String: "resume-ref", Valid: true},
+		LastStateChangeAt: sqlNullTime(time.Now().Add(-37 * 24 * time.Hour)),
+	}
+
+	measured := cardHeightEx(ticket, boardColumnWidth-2, false, true)
+	rendered := len(cardView(false, ticket, boardColumnWidth, true))
+	if measured < rendered {
+		t.Fatalf("Master card height undercounted elapsed runtime label: measured=%d rendered=%d", measured, rendered)
+	}
+}
+
 func TestElapsedLabel(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -1043,6 +1061,14 @@ func TestMasterScrollKeepsViewWithinTerminalHeight(t *testing.T) {
 	model.width = 160
 	model.height = 40
 	model.reload()
+	for ci := range model.view.Columns {
+		for ti := range model.view.Columns[ci].Tickets {
+			ticket := &model.view.Columns[ci].Tickets[ti]
+			ticket.Runtime = "error"
+			ticket.SessionRef = sql.NullString{String: "resume-ref", Valid: true}
+			ticket.LastStateChangeAt = sqlNullTime(time.Now().Add(-37 * 24 * time.Hour))
+		}
+	}
 
 	assertFrame := func(step int) {
 		t.Helper()

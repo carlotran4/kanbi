@@ -286,12 +286,7 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 		content = append(content, padLine(prefix+line, cardInnerWidth))
 	}
 
-	elapsed := elapsedLabel(ticket)
-	label := runtimeLabel(ticket)
-	stateText := fmt.Sprintf("[%s] %s", ticket.Harness, label)
-	if elapsed != "" {
-		stateText += " · " + elapsed
-	}
+	stateText := runtimeStateText(ticket)
 	stateStyle := lipgloss.NewStyle().Foreground(palette.muted)
 	if ticket.Runtime == kanban.StateNeedsPermission || ticket.Runtime == kanban.StateError || ticket.Runtime == kanban.StateRepairNeeded {
 		stateStyle = lipgloss.NewStyle().Foreground(palette.error_).Bold(true)
@@ -352,6 +347,14 @@ func cardTitle(ticket storage.Ticket, showBoard bool) string {
 		return ticket.DisplayID + " [" + ticket.BoardName + "] " + ticket.Title
 	}
 	return ticket.DisplayID + " " + ticket.Title
+}
+
+func runtimeStateText(ticket storage.Ticket) string {
+	text := fmt.Sprintf("[%s] %s", ticket.Harness, runtimeLabel(ticket))
+	if elapsed := elapsedLabel(ticket); elapsed != "" {
+		text += " · " + elapsed
+	}
+	return text
 }
 
 func runtimeLabel(ticket storage.Ticket) string {
