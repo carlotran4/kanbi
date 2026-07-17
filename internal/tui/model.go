@@ -74,6 +74,8 @@ type Model struct {
 	editField               int
 	editInputs              [3]InputBuffer
 	bodyTA                  textarea.Model
+	bodyPasteRequest        uint64
+	bodyPastePending        bool
 	stateMenu               bool
 	stateIndex              int
 	columnEditing           bool
@@ -198,6 +200,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorFinishedMsg:
 		m.applyEditorResult(msg)
 		return m, tea.ClearScreen
+	case bodyClipboardPasteMsg:
+		return m.applyBodyClipboardPaste(msg), nil
 	case openExternalTicketMsg:
 		if msg.err != nil {
 			m.setActionError("open GitHub issue", msg.err, "Check the ticket URL and your browser configuration, then press g to retry.")
@@ -593,6 +597,8 @@ func (m *Model) startEdit() {
 	}
 	m.editing = true
 	m.editField = 0
+	m.bodyPasteRequest++
+	m.bodyPastePending = false
 	m.editInputs = [3]InputBuffer{
 		NewInputBuffer(t.Title),
 		NewInputBuffer(t.Body),

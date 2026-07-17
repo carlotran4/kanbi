@@ -3,7 +3,9 @@ package attachments
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,21 +40,43 @@ func TicketDir(ticketID int64) string {
 	return filepath.Join(BaseDir(), fmt.Sprintf("%d", ticketID))
 }
 
-// SavePastedImage detects base64-encoded image clipboard content, writes it to
-// the ticket attachment directory, and returns a markdown image reference.
+// SavePastedImage detects encoded image content or a pasted image file path,
+// copies it into the ticket attachment directory, and returns a Markdown ref.
 func SavePastedImage(ticketID int64, pasted string, now time.Time) (string, string, bool, error) {
 	if len(pasted) > maxEncodedImageBytes && looksLikeEncodedImage(pasted) {
 		return "", "", true, fmt.Errorf("pasted image exceeds %d MiB limit", MaxDecodedImageBytes>>20)
 	}
-	data, ext, ok := DecodePastedImage(pasted)
+	data, ext, ok, err := readPastedImagePath(pasted)
+	if err != nil {
+		return "", "", ok, err
+	}
+	if !ok {
+		data, ext, ok = DecodePastedImage(pasted)
+	}
 	if !ok {
 		return "", "", false, nil
 	}
-	path, err := WriteImage(ticketID, data, ext, now)
+	path, ref, err := SaveImage(ticketID, data, ext, now)
 	if err != nil {
 		return "", "", true, err
 	}
-	return path, fmt.Sprintf("![](%s)", markdownPath(path)), true, nil
+	return path, ref, true, nil
+}
+
+// SaveImage writes validated image bytes and returns its durable path and
+// Markdown image reference.
+func SaveImage(ticketID int64, data []byte, ext string, now time.Time) (string, string, error) {
+	if len(data) > MaxDecodedImageBytes {
+		return "", "", fmt.Errorf("image exceeds %d MiB limit", MaxDecodedImageBytes>>20)
+	}
+	if detected := extensionForImage(data, ""); detected == "" || detected != strings.ToLower(ext) {
+		return "", "", fmt.Errorf("image data does not match extension %q", ext)
+	}
+	path, err := WriteImage(ticketID, data, ext, now)
+	if err != nil {
+		return "", "", err
+	}
+	return path, fmt.Sprintf("![](%s)", markdownPath(path)), nil
 }
 
 func DecodePastedImage(pasted string) ([]byte, string, bool) {
@@ -79,6 +103,71 @@ func DecodePastedImage(pasted string) ([]byte, string, bool) {
 		return nil, "", false
 	}
 	return data, ext, true
+}
+
+func readPastedImagePath(pasted string) ([]byte, string, bool, error) {
+	candidate := strings.TrimSpace(pasted)
+	if candidate == "" || strings.ContainsAny(candidate, "\r\n") {
+		return nil, "", false, nil
+	}
+	if len(candidate) >= 2 && ((candidate[0] == '\'' && candidate[len(candidate)-1] == '\'') || (candidate[0] == '"' && candidate[len(candidate)-1] == '"')) {
+		candidate = candidate[1 : len(candidate)-1]
+	}
+	if strings.HasPrefix(candidate, "file://") {
+		u, err := url.Parse(candidate)
+		if err != nil || (u.Host != "" && u.Host != "localhost") {
+			return nil, "", false, nil
+		}
+		candidate = u.Path
+	}
+	if candidate == "~" || strings.HasPrefix(candidate, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			candidate = filepath.Join(home, strings.TrimPrefix(candidate, "~/"))
+		}
+	}
+	likelyImage := isImageExtension(filepath.Ext(candidate))
+	if !likelyImage {
+		return nil, "", false, nil
+	}
+	info, err := os.Stat(candidate)
+	if os.IsNotExist(err) || (err == nil && !info.Mode().IsRegular()) {
+		return nil, "", false, nil
+	}
+	if err != nil {
+		return nil, "", likelyImage, err
+	}
+	if info.Size() > MaxDecodedImageBytes {
+		if likelyImage {
+			return nil, "", true, fmt.Errorf("pasted image exceeds %d MiB limit", MaxDecodedImageBytes>>20)
+		}
+		return nil, "", false, nil
+	}
+	f, err := os.Open(candidate)
+	if err != nil {
+		return nil, "", likelyImage, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, MaxDecodedImageBytes+1))
+	if err != nil {
+		return nil, "", likelyImage, err
+	}
+	if len(data) > MaxDecodedImageBytes {
+		return nil, "", likelyImage, fmt.Errorf("pasted image exceeds %d MiB limit", MaxDecodedImageBytes>>20)
+	}
+	ext := extensionForImage(data, "")
+	if ext == "" {
+		return nil, "", false, nil
+	}
+	return data, ext, true, nil
+}
+
+func isImageExtension(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func WriteImage(ticketID int64, data []byte, ext string, now time.Time) (string, error) {

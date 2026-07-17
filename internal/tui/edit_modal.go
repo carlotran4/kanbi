@@ -128,6 +128,61 @@ func (m *Model) moveAttention(delta int) {
 	m.status = "attention " + m.view.Columns[m.col].Tickets[m.card].DisplayID
 }
 
+type bodyClipboardPasteMsg struct {
+	ticketID int64
+	request  uint64
+	image    []byte
+	ext      string
+	text     string
+	err      error
+}
+
+func readBodyClipboardCmd(ticketID int64, request uint64) tea.Cmd {
+	return func() tea.Msg {
+		image, ext, isImage, err := attachments.ReadClipboardImage()
+		if err != nil {
+			return bodyClipboardPasteMsg{ticketID: ticketID, request: request, err: err}
+		}
+		if isImage {
+			if len(image) == 0 {
+				return bodyClipboardPasteMsg{ticketID: ticketID, request: request, err: fmt.Errorf("image clipboard is empty")}
+			}
+			return bodyClipboardPasteMsg{ticketID: ticketID, request: request, image: image, ext: ext}
+		}
+		text, err := attachments.ReadClipboardText()
+		return bodyClipboardPasteMsg{ticketID: ticketID, request: request, text: text, err: err}
+	}
+}
+
+func (m Model) applyBodyClipboardPaste(msg bodyClipboardPasteMsg) Model {
+	ticket, ok := m.selectedTicket()
+	if !m.editing || m.editField != 1 || !m.bodyPastePending || !ok || ticket.ID != msg.ticketID || msg.request != m.bodyPasteRequest {
+		return m
+	}
+	m.bodyPastePending = false
+	if msg.err != nil {
+		m.status = "paste failed: " + msg.err.Error()
+		return m
+	}
+	if len(msg.image) > 0 {
+		path, ref, err := attachments.SaveImage(ticket.ID, msg.image, msg.ext, time.Now())
+		if err != nil {
+			m.status = "image paste failed: " + err.Error()
+			return m
+		}
+		m.insertBodyImageReference(ref)
+		m.status = "attached " + filepath.Base(path)
+		return m
+	}
+	m.bodyTA.InsertString(msg.text)
+	if msg.text == "" {
+		m.status = "clipboard is empty"
+	} else {
+		m.status = "pasted clipboard text"
+	}
+	return m
+}
+
 func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 	for i := range m.editInputs {
 		clean := stripKittyGraphicsResponseFragments(m.editInputs[i].Value())
@@ -136,7 +191,30 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	if m.editField == 1 && key.Paste {
+		m.bodyPasteRequest++
+		m.bodyPastePending = false
+		m.status = ""
 		return m.handleBodyPaste(key), nil
+	}
+	if m.editField == 1 && key.String() == "ctrl+v" {
+		if m.bodyPastePending {
+			return m, nil
+		}
+		ticket, ok := m.selectedTicket()
+		if !ok {
+			return m, nil
+		}
+		m.bodyPasteRequest++
+		m.bodyPastePending = true
+		m.status = "reading clipboard…"
+		return m, readBodyClipboardCmd(ticket.ID, m.bodyPasteRequest)
+	}
+	if m.bodyPastePending {
+		// Any subsequent edit invalidates the pending asynchronous paste so a
+		// late clipboard read cannot modify a newer editor state.
+		m.bodyPasteRequest++
+		m.bodyPastePending = false
+		m.status = ""
 	}
 	// Notes tab (editField == 3) has its own key handling.
 	if m.editField == 3 {
@@ -229,15 +307,18 @@ func (m Model) handleBodyPaste(key tea.KeyMsg) Model {
 		_ = cmd
 		return m
 	}
+	m.insertBodyImageReference(ref)
+	m.status = "attached " + filepath.Base(path)
+	return m
+}
+
+func (m *Model) insertBodyImageReference(ref string) {
 	insert := ref
 	value := m.bodyTA.Value()
 	if strings.TrimSpace(value) != "" && !strings.HasSuffix(value, "\n") {
 		insert = "\n" + insert
 	}
-	insert += "\n"
-	m.bodyTA.InsertString(insert)
-	m.status = "attached " + filepath.Base(path)
-	return m
+	m.bodyTA.InsertString(insert + "\n")
 }
 
 func (m *Model) saveEdit() {
@@ -423,7 +504,10 @@ func (m Model) editFooter(dirty bool) string {
 	case 0:
 		return prefix + "editing title · Tab body · Ctrl+S save · Esc cancel"
 	case 1:
-		return prefix + "editing description · Ctrl+E editor · Ctrl+S save"
+		if dirty {
+			return "Unsaved · body · Ctrl+V paste/attach · Ctrl+S save"
+		}
+		return "body · Ctrl+V paste/attach · Ctrl+E editor · Ctrl+S save"
 	case 2:
 		return prefix + "editing harness · Tab notes · Ctrl+S save · Esc cancel"
 	case 3:

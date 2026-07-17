@@ -62,6 +62,36 @@ func TestSavePastedImageWritesPerTicketFileAndMarkdownRef(t *testing.T) {
 	}
 }
 
+func TestSavePastedImageCopiesPastedImagePath(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	source := filepath.Join(t.TempDir(), "pi-clipboard-example.png")
+	if err := os.WriteFile(source, tinyPNG, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	path, ref, ok, err := SavePastedImage(47, source, time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("pasted image path was not detected as image")
+	}
+	if path == source {
+		t.Fatal("temporary source path was referenced instead of copied")
+	}
+	if ref != "![]("+filepath.ToSlash(path)+")" {
+		t.Fatalf("markdown ref=%q", ref)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(written) != string(tinyPNG) {
+		t.Fatalf("written data mismatch")
+	}
+}
+
 func TestSavePastedImageRejectsOversizedImageBeforeDecoding(t *testing.T) {
 	payload := "data:image/png;base64," + strings.Repeat("A", maxEncodedImageBytes+1)
 	_, _, isImage, err := SavePastedImage(47, payload, time.Now())

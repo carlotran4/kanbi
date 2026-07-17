@@ -667,6 +667,80 @@ func TestModelBodyPasteStoresImageAttachmentAndInsertsMarkdown(t *testing.T) {
 	}
 }
 
+func TestModelCtrlVPastesClipboardImageIntoBody(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Image paste", "Existing body", "pi")
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlV})
+	if cmd == nil || model.status != "reading clipboard…" {
+		t.Fatalf("ctrl+v cmd=%v status=%q", cmd != nil, model.status)
+	}
+	request := model.bodyPasteRequest
+	model, duplicateCmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlV})
+	if duplicateCmd != nil || model.bodyPasteRequest != request {
+		t.Fatalf("duplicate ctrl+v launched another read: cmd=%v request=%d", duplicateCmd != nil, model.bodyPasteRequest)
+	}
+
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	next, _ := model.Update(bodyClipboardPasteMsg{ticketID: ticket.ID, request: model.bodyPasteRequest, image: png, ext: "png"})
+	model = next.(Model)
+	entries, err := os.ReadDir(filepath.Join(dataHome, "kanbi", "attachments", "1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || !strings.Contains(model.bodyTA.Value(), "![](") {
+		t.Fatalf("attachments=%v body=%q", entries, model.bodyTA.Value())
+	}
+	if !strings.Contains(model.status, "attached ") {
+		t.Fatalf("status=%q", model.status)
+	}
+}
+
+func TestModelCtrlVFallsBackToClipboardText(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Text paste", "Existing body", "pi")
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model.bodyPasteRequest++
+	model.bodyPastePending = true
+	next, _ := model.Update(bodyClipboardPasteMsg{ticketID: ticket.ID, request: model.bodyPasteRequest, text: " pasted text"})
+	model = next.(Model)
+	if got := model.bodyTA.Value(); got != "Existing body pasted text" {
+		t.Fatalf("body=%q", got)
+	}
+}
+
+func TestModelIgnoresStaleAsyncClipboardPaste(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Stale paste", "Existing body", "pi")
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlV})
+	staleRequest := model.bodyPasteRequest
+	model, _ = mustUpdate(t, model, "x")
+	if model.status == "reading clipboard…" {
+		t.Fatal("canceled clipboard read left stale loading status")
+	}
+
+	next, _ := model.Update(bodyClipboardPasteMsg{ticketID: ticket.ID, request: staleRequest, text: " stale"})
+	model = next.(Model)
+	if got := model.bodyTA.Value(); got != "Existing bodyx" {
+		t.Fatalf("stale paste modified body: %q", got)
+	}
+}
+
 func TestModelIgnoresKittyGraphicsResponsesWhileEditingTitle(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)

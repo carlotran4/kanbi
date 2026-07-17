@@ -45,7 +45,7 @@ kanbi boards add "My Project" --cwd "$PWD"
 kanbi
 ```
 
-Select the board, press `n` to create a ticket, save it with `Ctrl+S`, then press `Enter` to start the agent.
+Select the board, press `n` to create a ticket, save it with `Ctrl+S`, then press `Enter` to start the agent. While editing a ticket body, `Ctrl+V` attaches PNG, JPEG, GIF, or WebP clipboard images and pastes text normally; pasted image file paths are copied into Kanbi's attachment storage.
 
 Press `?` for controls. The important distinction is:
 

@@ -25,6 +25,10 @@ Next planned prerelease: `v0.3.0-beta.1` (not yet qualified or published).
 - Installation, first-run, upgrade, rollback, and uninstall guidance.
 - MIT licensing.
 
+### Fixed
+
+- Ticket-body `Ctrl+V` now reads desktop clipboard images asynchronously, falls back to normal text paste, and copies pasted image file paths into durable attachment storage.
+
 ### Changed
 
 - Local ticket archive no longer closes GitHub issues; only terminal columns (`Done`/`Closed`) push closed.

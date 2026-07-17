@@ -9,7 +9,7 @@ Kanbi publishes native, CGO-enabled archives for:
 - macOS Intel (`darwin_amd64`)
 - macOS Apple Silicon (`darwin_arm64`)
 
-A UTF-8 terminal with 256-color support is recommended. Kitty-compatible image rendering is optional. Kanbi defaults to tmux and requires `tmux` on `PATH`; Herdr is an opt-in alternative, but tmux remains recommended and is needed to control existing tmux sessions. Install at least one supported agent CLI: Pi, Codex, Copilot, or Claude, and authenticate it using that tool's own instructions.
+A UTF-8 terminal with 256-color support is recommended. Kitty-compatible image rendering is optional. Ticket-body `Ctrl+V` image paste uses `wl-paste` on Wayland, `xclip` on X11, or optional `pngpaste` on macOS; without a matching helper Kanbi still pastes clipboard text and accepts pasted image file paths. Kanbi defaults to tmux and requires `tmux` on `PATH`; Herdr is an opt-in alternative, but tmux remains recommended and is needed to control existing tmux sessions. Install at least one supported agent CLI: Pi, Codex, Copilot, or Claude, and authenticate it using that tool's own instructions.
 
 The full matrix—including schema, harness verification status, and what is only manually verified—is in [`docs/compatibility.md`](./compatibility.md).
 
