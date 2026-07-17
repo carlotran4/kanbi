@@ -118,7 +118,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - `x` sends harness exit keys first, waits for process/container exit, then closes the terminal container after timeout if needed.
 - A successfully closed session is inactive and keeps its session ref if one was captured.
 - If a successfully launched terminal container disappears outside the close command, the attempt becomes `exited` and resumable when it has a verified session ref; without a ref it becomes `repair_needed`. Missing containers are not labeled as session errors merely because the process exited.
-- Agent transcript content never establishes session `error`: words such as `error`, `failed`, panic output, and tracebacks concern the work inside the session. Multiplexer read failures likewise preserve the last known runtime state while recording diagnostic context.
+- Agent transcript content never establishes session `error`: words such as `error`, `failed`, panic output, and tracebacks concern the work inside the session. Transient multiplexer read failures preserve the last known runtime state while recording diagnostic context; authoritative Herdr `agent_not_found`/`pane_not_found` responses establish that the container exited.
 - Archiving a running ticket uses the same safe close path before hiding the ticket.
 
 ### Shutdown / interruption

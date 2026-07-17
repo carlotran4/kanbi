@@ -380,6 +380,12 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			out, err = m.capturePaneRef(ctx, ses.TmuxSessionName, ref)
 		}
 		if err != nil {
+			if errors.Is(err, multiplexer.ErrContainerNotFound) {
+				if markErr := m.Store.MarkSessionMissing(ctx, ses.ID); markErr != nil {
+					return markErr
+				}
+				continue
+			}
 			if recordErr := m.Store.RecordSessionObservationFailure(ctx, ses.ID, detectionSource, err.Error()); recordErr != nil {
 				return recordErr
 			}

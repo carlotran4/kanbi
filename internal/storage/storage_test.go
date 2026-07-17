@@ -879,6 +879,31 @@ func TestLegacyMissingResumableErrorProjectsAsExited(t *testing.T) {
 	}
 }
 
+func TestLegacyMissingUnresumableErrorProjectsAsRepairNeeded(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Legacy missing ref", "", "pi")
+	id, err := s.UpsertActiveSession(ctx, ticket.ID, Session{
+		Harness:         "pi",
+		TmuxSessionName: "kanbi",
+		TmuxWindowName:  "T-001-legacy-missing-ref",
+		Status:          kanban.StateRunning,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSessionClosed(ctx, id, kanban.StateError, "tmux", "tmux window missing"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Runtime != kanban.StateRepairNeeded {
+		t.Fatalf("legacy missing unresumable runtime = %q, want repair_needed", got.Runtime)
+	}
+}
+
 func TestTicketProjectionSharedByBoardMasterListAndLookup(t *testing.T) {
 	s, ctx := newTestStore(t)
 	defaultView := defaultBoardView(t, ctx, s)

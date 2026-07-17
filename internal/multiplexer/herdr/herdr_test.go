@@ -191,6 +191,30 @@ func TestValidateUsesNativeStateThenReadFallback(t *testing.T) {
 	}
 }
 
+func TestValidateTreatsKnownMissingAgentAndPaneAsInvalid(t *testing.T) {
+	runner := &fakeRunner{
+		out: map[string]string{
+			"agent get old-agent": `{"error":{"code":"agent_not_found","message":"agent target old-agent not found"}}`,
+			"agent read old-agent --source recent-unwrapped --lines 1": `{"error":{"code":"agent_not_found"}}`,
+			"pane read old-pane --source recent-unwrapped --lines 1":   `{"code":"pane_not_found","message":"pane old-pane not found"}`,
+		},
+		err: map[string]error{
+			"agent get old-agent": errors.New("exit status 1"),
+			"agent read old-agent --source recent-unwrapped --lines 1": errors.New("exit status 1"),
+			"pane read old-pane --source recent-unwrapped --lines 1":   errors.New("exit status 1"),
+		},
+	}
+	adapter := NewAdapter(Config{})
+	adapter.Runner = runner
+	valid, err := adapter.Validate(context.Background(), multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, ID: "old-agent", Metadata: `{"pane_id":"old-pane"}`})
+	if err != nil {
+		t.Fatalf("Validate() error = %v, want known absence", err)
+	}
+	if valid {
+		t.Fatal("Validate() = true for missing agent and pane")
+	}
+}
+
 func TestReadExtractsTextFromHerdrCLIEnvelope(t *testing.T) {
 	r := &fakeRunner{out: map[string]string{
 		"agent read agent-1 --source recent-unwrapped --lines 50": `{"id":"cli:agent:read","result":{"read":{"text":"PROMPT_READY\nSESSION_REF=fake-ref","pane_id":"w1:p2"},"type":"pane_read"}}`,

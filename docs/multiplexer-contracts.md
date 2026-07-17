@@ -56,7 +56,7 @@ Kanbi launches harness commands through the Herdr CLI. Herdr concepts map as fol
 | Pane | Terminal container that runs the harness command. |
 | Agent | Herdr-detected coding agent identity/state inside the pane. |
 
-When Herdr reports an agent state, Kanbi prefers that native state. If Herdr state is unavailable or `unknown`, Kanbi falls back to reading pane output and applying harness/pattern detection.
+When Herdr reports an agent state, Kanbi prefers that native state. If Herdr state is unavailable or `unknown`, Kanbi falls back to reading pane output and applying harness/pattern detection. Explicit Herdr `agent_not_found` and `pane_not_found` responses are authoritative container absence rather than generic command failures; Kanbi deactivates that attempt as exited/resumable or repair-needed according to whether a verified harness session ref exists.
 
 ## Doctor And Verification
 

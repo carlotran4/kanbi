@@ -298,6 +298,43 @@ func TestRefreshRuntimeDoesNotObserveHerdrLaunchClaimBeforeContainerIsAttached(t
 	}
 }
 
+func TestRefreshRuntimeMarksMissingHerdrContainerExitedWhenResumable(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Missing Herdr", "", "pi")
+	_, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:           "pi",
+		HarnessSessionRef: sql.NullString{String: "resume-ref", Valid: true},
+		Multiplexer:       "herdr",
+		MuxNamespace:      sql.NullString{String: "old-workspace", Valid: true},
+		MuxContainerID:    sql.NullString{String: "old-agent", Valid: true},
+		MuxContainerName:  sql.NullString{String: "old-agent", Valid: true},
+		MuxMetadata:       sql.NullString{String: `{"pane_id":"old-pane"}`, Valid: true},
+		Status:            kanban.StateRunning,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, _ := writeFakeHerdr(t, map[string]string{
+		"agent get":  `{"state":"unknown"}`,
+		"agent read": "__NOT_FOUND__",
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Herdr.Binary = bin
+	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+
+	if err := manager.RefreshRuntime(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Runtime != kanban.StateExited || got.SessionActive {
+		t.Fatalf("missing Herdr session = %+v, want inactive exited", got)
+	}
+}
+
 func TestRefreshRuntimePrefersHerdrNativeState(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -350,8 +387,8 @@ case "$1 $2" in
   "agent start") echo '` + responses["agent start"] + `' ;;
   "agent focus") echo '` + responses["agent focus"] + `' ;;
   "agent get") echo '` + responses["agent get"] + `' ;;
-  "agent read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; else echo '` + responses["agent read"] + `'; fi ;;
-  "pane read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; else echo '` + responses["agent read"] + `'; fi ;;
+  "agent read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"error":{"code":"agent_not_found"}}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
+  "pane read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"code":"pane_not_found"}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
   "pane send-text") echo '{"ok":true}' ;;
   "pane send-keys") echo '{"ok":true}' ;;
   *) echo '{}' ;;

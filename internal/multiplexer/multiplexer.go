@@ -2,8 +2,13 @@ package multiplexer
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrContainerNotFound means the multiplexer authoritatively reported that a
+// durable container reference no longer exists.
+var ErrContainerNotFound = errors.New("multiplexer container not found")
 
 // Kind identifies the runtime multiplexer provider that owns a live container.
 type Kind string

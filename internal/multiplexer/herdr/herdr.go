@@ -143,6 +143,9 @@ func (a *Adapter) Validate(ctx context.Context, ref multiplexer.ContainerRef) (b
 		return true, nil
 	}
 	if _, err := a.Read(ctx, ref, multiplexer.ReadOptions{Lines: 1}); err != nil {
+		if errors.Is(err, multiplexer.ErrContainerNotFound) {
+			return false, nil
+		}
 		return false, err
 	}
 	return true, nil
@@ -210,9 +213,23 @@ func (a *Adapter) Read(ctx context.Context, ref multiplexer.ContainerRef, opts m
 	}
 	out, err = a.run(ctx, args...)
 	if err != nil {
+		if isNotFoundResponse(out, err) {
+			return out, fmt.Errorf("%w: %s", multiplexer.ErrContainerNotFound, strings.TrimSpace(out))
+		}
 		return out, err
 	}
 	return readText(out), nil
+}
+
+func isNotFoundResponse(out string, err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(out + " " + err.Error())
+	return strings.Contains(text, "agent_not_found") ||
+		strings.Contains(text, "pane_not_found") ||
+		strings.Contains(text, "agent target") && strings.Contains(text, "not found") ||
+		strings.Contains(text, "pane ") && strings.Contains(text, "not found")
 }
 
 func (a *Adapter) SendKeys(ctx context.Context, ref multiplexer.ContainerRef, keys ...string) error {
