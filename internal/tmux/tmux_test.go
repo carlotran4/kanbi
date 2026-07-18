@@ -1020,26 +1020,28 @@ func TestRefreshRuntimePreservesManualStateFromHeuristics(t *testing.T) {
 	}
 }
 
-func TestRefreshRuntimeDoesNotAutoCloseImmediatelyOnNewAttentionState(t *testing.T) {
+func TestRefreshRuntimeNeverAutoClosesAttentionState(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Wait", "", "pi")
 	cfg := config.Defaults(config.Paths{})
-	cfg.AutoCloseWaitingAfter = 0
+	cfg.GracefulExitTimeout = 0
 	runner := &fakeRunner{pane: "PROMPT_READY\n"}
 	manager := &Manager{Config: cfg, Store: store, Runner: runner}
 	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.RefreshRuntime(ctx); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		if err := manager.RefreshRuntime(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, ok, err := store.ActiveSession(ctx, ticket.ID); err != nil || !ok {
-		t.Fatalf("session should remain active on first attention tick ok=%v err=%v", ok, err)
+		t.Fatalf("attention state should remain active until explicitly closed ok=%v err=%v", ok, err)
 	}
 	for _, c := range runner.calls {
 		if len(c.args) > 0 && c.args[0] == "kill-window" {
-			t.Fatalf("should not auto-close on fresh attention transition: %+v", runner.calls)
+			t.Fatalf("runtime refresh must not auto-close attention states: %+v", runner.calls)
 		}
 	}
 }

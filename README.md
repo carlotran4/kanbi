@@ -12,7 +12,7 @@ Use separate boards for separate projects, or supervise everything from one Mast
 
 - **One active agent session per ticket** — reopen a ticket without spawning duplicates.
 - **See what needs attention** — runtime state is visible directly on each card.
-- **Leave agents running** — exiting Kanbi does not terminate active sessions.
+- **Leave agents running** — exiting Kanbi and runtime attention detection do not terminate active sessions.
 - **Keep projects isolated** — every board has its own working directory.
 - **Work across projects** — Master combines and filters all your boards.
 - **Use your own tickets** — work locally or sync with GitHub Issues and Jira.

@@ -47,10 +47,9 @@ type Multiplexer struct {
 }
 
 type Timeouts struct {
-	IdleUnknownAfterSeconds      int `yaml:"idle_unknown_after_seconds"`
-	AutoCloseWaitingAfterMinutes int `yaml:"auto_close_waiting_after_minutes"`
-	GracefulExitTimeoutSeconds   int `yaml:"graceful_exit_timeout_seconds"`
-	PromptReadyTimeoutSeconds    int `yaml:"prompt_ready_timeout_seconds"`
+	IdleUnknownAfterSeconds    int `yaml:"idle_unknown_after_seconds"`
+	GracefulExitTimeoutSeconds int `yaml:"graceful_exit_timeout_seconds"`
+	PromptReadyTimeoutSeconds  int `yaml:"prompt_ready_timeout_seconds"`
 }
 
 // Diagnostics configures opt-in bounded private file logging under StateDir.
@@ -65,20 +64,19 @@ type Diagnostics struct {
 }
 
 type Config struct {
-	Paths                 Paths
-	DBPath                string             `yaml:"db_path"`
-	DefaultHarness        string             `yaml:"default_harness"`
-	TmuxSession           string             `yaml:"tmux_session"`
-	Tmux                  Tmux               `yaml:"tmux"`
-	Multiplexer           Multiplexer        `yaml:"multiplexer"`
-	Diagnostics           Diagnostics        `yaml:"diagnostics"`
-	PromptReadyTimeout    time.Duration      `yaml:"-"`
-	PromptReadyRaw        string             `yaml:"prompt_ready_timeout"`
-	IdleUnknownAfter      time.Duration      `yaml:"-"`
-	AutoCloseWaitingAfter time.Duration      `yaml:"-"`
-	GracefulExitTimeout   time.Duration      `yaml:"-"`
-	Timeouts              Timeouts           `yaml:"timeouts"`
-	Harnesses             map[string]Harness `yaml:"harnesses"`
+	Paths               Paths
+	DBPath              string             `yaml:"db_path"`
+	DefaultHarness      string             `yaml:"default_harness"`
+	TmuxSession         string             `yaml:"tmux_session"`
+	Tmux                Tmux               `yaml:"tmux"`
+	Multiplexer         Multiplexer        `yaml:"multiplexer"`
+	Diagnostics         Diagnostics        `yaml:"diagnostics"`
+	PromptReadyTimeout  time.Duration      `yaml:"-"`
+	PromptReadyRaw      string             `yaml:"prompt_ready_timeout"`
+	IdleUnknownAfter    time.Duration      `yaml:"-"`
+	GracefulExitTimeout time.Duration      `yaml:"-"`
+	Timeouts            Timeouts           `yaml:"timeouts"`
+	Harnesses           map[string]Harness `yaml:"harnesses"`
 }
 
 func ResolvePaths() Paths {
@@ -224,23 +222,21 @@ func defaultConfig(paths Paths, env Env) Config {
 		tmuxSession = DefaultSession
 	}
 	return Config{
-		Paths:                 paths,
-		DBPath:                paths.DBFile,
-		DefaultHarness:        "pi",
-		TmuxSession:           tmuxSession,
-		Tmux:                  Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
-		Multiplexer:           Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
-		Diagnostics:           Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
-		PromptReadyTimeout:    5 * time.Second,
-		PromptReadyRaw:        "5s",
-		IdleUnknownAfter:      120 * time.Second,
-		AutoCloseWaitingAfter: 10 * time.Minute,
-		GracefulExitTimeout:   15 * time.Second,
+		Paths:               paths,
+		DBPath:              paths.DBFile,
+		DefaultHarness:      "pi",
+		TmuxSession:         tmuxSession,
+		Tmux:                Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
+		Multiplexer:         Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
+		Diagnostics:         Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
+		PromptReadyTimeout:  5 * time.Second,
+		PromptReadyRaw:      "5s",
+		IdleUnknownAfter:    120 * time.Second,
+		GracefulExitTimeout: 15 * time.Second,
 		Timeouts: Timeouts{
-			IdleUnknownAfterSeconds:      120,
-			AutoCloseWaitingAfterMinutes: 10,
-			GracefulExitTimeoutSeconds:   15,
-			PromptReadyTimeoutSeconds:    5,
+			IdleUnknownAfterSeconds:    120,
+			GracefulExitTimeoutSeconds: 15,
+			PromptReadyTimeoutSeconds:  5,
 		},
 		Harnesses: harness.DefaultConfigs(),
 	}
@@ -296,9 +292,6 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.Timeouts.IdleUnknownAfterSeconds > 0 {
 		cfg.Timeouts.IdleUnknownAfterSeconds = raw.Timeouts.IdleUnknownAfterSeconds
-	}
-	if raw.Timeouts.AutoCloseWaitingAfterMinutes > 0 {
-		cfg.Timeouts.AutoCloseWaitingAfterMinutes = raw.Timeouts.AutoCloseWaitingAfterMinutes
 	}
 	if raw.Timeouts.GracefulExitTimeoutSeconds > 0 {
 		cfg.Timeouts.GracefulExitTimeoutSeconds = raw.Timeouts.GracefulExitTimeoutSeconds
@@ -394,9 +387,6 @@ func applyTimeoutDefaults(cfg *Config, loadedNestedTimeouts bool) {
 	if cfg.Timeouts.IdleUnknownAfterSeconds <= 0 {
 		cfg.Timeouts.IdleUnknownAfterSeconds = 120
 	}
-	if cfg.Timeouts.AutoCloseWaitingAfterMinutes <= 0 {
-		cfg.Timeouts.AutoCloseWaitingAfterMinutes = 10
-	}
 	if cfg.Timeouts.GracefulExitTimeoutSeconds <= 0 {
 		cfg.Timeouts.GracefulExitTimeoutSeconds = 15
 	}
@@ -404,7 +394,6 @@ func applyTimeoutDefaults(cfg *Config, loadedNestedTimeouts bool) {
 		cfg.Timeouts.PromptReadyTimeoutSeconds = int(cfg.PromptReadyTimeout / time.Second)
 	}
 	cfg.IdleUnknownAfter = time.Duration(cfg.Timeouts.IdleUnknownAfterSeconds) * time.Second
-	cfg.AutoCloseWaitingAfter = time.Duration(cfg.Timeouts.AutoCloseWaitingAfterMinutes) * time.Minute
 	cfg.GracefulExitTimeout = time.Duration(cfg.Timeouts.GracefulExitTimeoutSeconds) * time.Second
 }
 

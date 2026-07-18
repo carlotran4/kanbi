@@ -235,18 +235,18 @@ A change is verified when fake outputs produce expected states:
 - known user prompt -> `waiting_for_user`
 - known approval prompt -> `needs_permission`
 - no output past threshold -> `idle_unknown`
-- unknown idle state is not auto-close eligible
+- runtime detection never closes the terminal container
 - manual override is later replaceable by confident detection
 
-### Auto-Close
+### Runtime Refresh Safety
 A change is verified when:
 
-- `waiting_for_user` past timeout triggers graceful close
-- `needs_permission` past timeout triggers graceful close
-- `idle_unknown` does not auto-close
-- `running` does not auto-close
-- graceful close timeout is handled
-- session becomes `closed` and remains resumable
+- `waiting_for_user` remains active until explicitly closed
+- `needs_permission` remains active until explicitly closed
+- stale attention text cannot cause runtime refresh to close a session
+- `idle_unknown` and `running` remain active
+- explicit graceful close timeout is handled
+- an explicitly closed session becomes `closed` and remains resumable
 
 ### Multiplexers
 

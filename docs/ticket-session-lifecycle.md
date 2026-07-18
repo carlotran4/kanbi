@@ -27,9 +27,9 @@ stateDiagram-v2
     needs_permission --> running: user approves
     idle_unknown --> running: new output
 
-    running --> closing: x/archive/autoclose
-    waiting_for_user --> closing: x/archive/autoclose
-    needs_permission --> closing: x/archive/autoclose
+    running --> closing: x/archive
+    waiting_for_user --> closing: x/archive
+    needs_permission --> closing: x/archive
     idle_unknown --> closing: x/archive
 
     closing --> closed_resumable: graceful close + session_ref
@@ -115,6 +115,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 ### Close / Archive
 
+- Runtime detection never closes a session automatically. Waiting and permission classifications are advisory; the terminal container remains active until an explicit close or archive action.
 - `x` sends harness exit keys first, waits for process/container exit, then closes the terminal container after timeout if needed.
 - A successfully closed session is inactive and keeps its session ref if one was captured.
 - If a successfully launched terminal container disappears outside the close command, the attempt becomes `exited` and resumable when it has a verified session ref; without a ref it becomes `repair_needed`. Missing containers are not labeled as session errors merely because the process exited.

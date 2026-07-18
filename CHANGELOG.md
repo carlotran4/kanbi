@@ -27,6 +27,7 @@ Next planned prerelease: `v0.3.0-beta.1` (not yet qualified or published).
 
 ### Fixed
 
+- Runtime attention detection no longer auto-closes active agent sessions; waiting and permission states remain open until explicitly closed or archived (GH-322).
 - Ticket-body `Ctrl+V` now reads desktop clipboard images asynchronously, falls back to normal text paste, and copies pasted image file paths into durable attachment storage.
 
 ### Changed

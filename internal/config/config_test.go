@@ -93,7 +93,7 @@ func TestNormalizeDefaultsFromInMemoryRawConfig(t *testing.T) {
 	if cfg.Multiplexer.Default != "tmux" || cfg.Multiplexer.Tmux != cfg.Tmux || cfg.Multiplexer.Herdr.Binary != "herdr" {
 		t.Fatalf("multiplexer defaults not applied: %+v", cfg.Multiplexer)
 	}
-	if cfg.PromptReadyTimeout != 5*time.Second || cfg.IdleUnknownAfter != 120*time.Second || cfg.AutoCloseWaitingAfter != 10*time.Minute || cfg.GracefulExitTimeout != 15*time.Second {
+	if cfg.PromptReadyTimeout != 5*time.Second || cfg.IdleUnknownAfter != 120*time.Second || cfg.GracefulExitTimeout != 15*time.Second {
 		t.Fatalf("timeout defaults not applied: %+v", cfg)
 	}
 	if len(cfg.Harnesses["pi"].Start) == 0 || len(cfg.Harnesses["codex"].Start) == 0 || len(cfg.Harnesses["copilot"].Start) == 0 {
@@ -151,17 +151,16 @@ func TestNormalizeNestedTimeoutsAndLegacyPromptTimeout(t *testing.T) {
 	raw := Config{
 		PromptReadyRaw: "2s",
 		Timeouts: Timeouts{
-			IdleUnknownAfterSeconds:      5,
-			AutoCloseWaitingAfterMinutes: 1,
-			GracefulExitTimeoutSeconds:   2,
-			PromptReadyTimeoutSeconds:    3,
+			IdleUnknownAfterSeconds:    5,
+			GracefulExitTimeoutSeconds: 2,
+			PromptReadyTimeoutSeconds:  3,
 		},
 	}
 	cfg, err := Normalize(raw, paths, NormalizeOptions{LoadedNestedTimeouts: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.PromptReadyTimeout != 3*time.Second || cfg.IdleUnknownAfter != 5*time.Second || cfg.AutoCloseWaitingAfter != time.Minute || cfg.GracefulExitTimeout != 2*time.Second {
+	if cfg.PromptReadyTimeout != 3*time.Second || cfg.IdleUnknownAfter != 5*time.Second || cfg.GracefulExitTimeout != 2*time.Second {
 		t.Fatalf("nested timeouts not applied: %+v", cfg)
 	}
 
@@ -244,7 +243,6 @@ tmux:
   board_window_name: board-main
 timeouts:
   idle_unknown_after_seconds: 5
-  auto_close_waiting_after_minutes: 1
   graceful_exit_timeout_seconds: 2
   prompt_ready_timeout_seconds: 3
 `), 0o644); err != nil {
@@ -258,8 +256,25 @@ timeouts:
 	if cfg.DefaultHarness != "codex" || cfg.TmuxSession != "spec-session" || cfg.Tmux.BoardWindowName != "board-main" {
 		t.Fatalf("nested config not applied: %+v", cfg)
 	}
-	if cfg.PromptReadyTimeout != 3*time.Second || cfg.IdleUnknownAfter != 5*time.Second || cfg.AutoCloseWaitingAfter != time.Minute || cfg.GracefulExitTimeout != 2*time.Second {
+	if cfg.PromptReadyTimeout != 3*time.Second || cfg.IdleUnknownAfter != 5*time.Second || cfg.GracefulExitTimeout != 2*time.Second {
 		t.Fatalf("timeouts not applied: %+v", cfg)
+	}
+}
+
+func TestLoadIgnoresRemovedAutoCloseTimeout(t *testing.T) {
+	clearAgentEnv(t)
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgFile, []byte("timeouts:\n  auto_close_waiting_after_minutes: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KANBI_CONFIG", cfgFile)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IdleUnknownAfter != 120*time.Second || cfg.GracefulExitTimeout != 15*time.Second {
+		t.Fatalf("removed auto-close setting affected active timeout defaults: %+v", cfg)
 	}
 }
 

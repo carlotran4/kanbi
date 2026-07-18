@@ -345,20 +345,8 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			containerRef := ContainerRefFromSession(ses)
 			detection, _ := adapter.Detect(ctx, containerRef)
 			if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
-				stateChanged := detection.State != ses.Status
 				if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
 					return err
-				}
-				if isAutoCloseEligible(detection.State) && !stateChanged {
-					ageBase := ses.LastStateChangeAt
-					if !ageBase.Valid {
-						ageBase = sql.NullTime{Time: now, Valid: true}
-					}
-					if now.Sub(ageBase.Time) >= m.Config.AutoCloseWaitingAfter {
-						if err := m.CloseSession(ctx, ticket); err != nil {
-							_ = m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, "herdr", err.Error(), detection.Excerpt, false)
-						}
-					}
 				}
 				continue
 			}
@@ -400,29 +388,16 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			idleFor = now.Sub(lastActivity.Time)
 		}
 		state, source, reason, excerpt, changed := harness.DetectState(out, ses.LastObservedExcerpt.String, idleFor)
-		stateChanged := state != ses.Status
 		if ses.LastDetectionSource.String == "manual" && source != "pattern" {
 			state = ses.Status
 			source = "manual"
 			reason = ses.LastAttentionReason.String
-			stateChanged = false
 		}
 		if detectionSource == "herdr" && source != "pattern" {
 			source = "heuristic"
 		}
 		if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, state, source, reason, excerpt, changed); err != nil {
 			return err
-		}
-		if isAutoCloseEligible(state) && !stateChanged {
-			ageBase := ses.LastStateChangeAt
-			if !ageBase.Valid {
-				ageBase = sql.NullTime{Time: now, Valid: true}
-			}
-			if now.Sub(ageBase.Time) >= m.Config.AutoCloseWaitingAfter {
-				if err := m.CloseSession(ctx, ticket); err != nil {
-					_ = m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateError, "tmux", err.Error(), excerpt, false)
-				}
-			}
 		}
 	}
 	return nil
@@ -859,10 +834,6 @@ func boardClientSessionName(mainSession string) string {
 		mainSession = config.DefaultSession
 	}
 	return fmt.Sprintf("%s-board-%d-%d-%d", mainSession, os.Getpid(), time.Now().UnixNano(), boardSessionSeq.Add(1))
-}
-
-func isAutoCloseEligible(state string) bool {
-	return state == kanban.StateWaitingForUser || state == kanban.StateNeedsPermission || state == kanban.StateExited
 }
 
 func target(session, window string) string {

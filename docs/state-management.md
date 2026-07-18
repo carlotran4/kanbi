@@ -19,10 +19,10 @@ stateDiagram-v2
 
     waiting_for_user --> running: new output/user action
     waiting_for_user --> needs_permission: permission pattern
-    waiting_for_user --> closing: auto-close timeout/manual close/archive
+    waiting_for_user --> closing: manual close/archive
 
     needs_permission --> running: user approves/new output
-    needs_permission --> closing: auto-close timeout/manual close/archive
+    needs_permission --> closing: manual close/archive
 
     idle_unknown --> running: new output
     idle_unknown --> waiting_for_user: confident wait pattern
@@ -97,16 +97,14 @@ flowchart TD
     Detect --> Manual{previous source manual?}
     Manual -- yes + non-pattern heuristic --> Preserve[preserve manual state]
     Manual -- no or confident pattern --> Update[update runtime metadata]
-    Update --> AutoClose{eligible and stable long enough?}
-    AutoClose -- yes --> Close[graceful close]
-    AutoClose -- no --> Done
+    Update --> Done[leave the runtime container running]
 ```
 
 Watcher rules:
 
 - Confident interaction patterns (`waiting_for_user`, `needs_permission`) may overwrite manual state. Transcript error text never changes the session lifecycle state to `error`.
 - Heuristics (`running`, `idle_unknown`, generic pane output) should not immediately overwrite a manual override.
-- Auto-close should never trigger in the same tick that changes a ticket into an eligible state; timeout age starts at `last_state_change_at`.
+- Runtime refresh never closes a terminal container. Waiting and permission states remain active until an explicit close or archive action.
 
 ## Open/Resume Data Flow
 
@@ -168,6 +166,6 @@ State bugs to avoid:
 - Do not validate or control an existing active session against the current process's tmux session; use the stored `tmux_session_name` from the session row.
 - Do not create a new DB session row just because a valid active ticket window was opened again.
 - Do not let heuristic watcher output immediately overwrite a manual runtime override.
-- Do not auto-close in the same tick that first detects a wait/permission state.
+- Do not close sessions from runtime detection; wait/permission classification is advisory and may be imperfect.
 - Do not infer session failure from errors printed in the agent transcript; only lifecycle/runtime operations can establish `error`.
 - Do not turn a transient multiplexer read failure into a session error. Preserve the last known state and surface the observation failure as diagnostic context.
