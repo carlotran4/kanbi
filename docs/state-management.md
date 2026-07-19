@@ -164,7 +164,7 @@ The current implementation is intentionally split this way:
 - `internal/storage`: owns canonical ticket/session rows, ticket notes and deletion tombstones, per-board provider sync leases, remote push pending state tokens, redacted `runtime_diagnostics`, and the ticket projection used by `BoardView`. Linked-note tombstones are hidden from normal reads but visible to sync, preventing a still-present remote comment from being re-imported.
 - `internal/ticketbackend`: owns startup/periodic/mutation-triggered provider sync, HTTP timeouts/retry class for reads, durable find-or-link create recovery, and sync diagnostic writes. Manager stop drains in-flight board syncs.
 - `internal/tmux`: owns lifecycle orchestration, tmux validation, Herdr adapter dispatch, start/resume/switch/close, managed session-ref capture (cancel+WaitGroup), runtime refresh, and repair errors.
-- `internal/tui`: owns transient UI states such as edit mode, repair screen, prompt fallback, column edit, manual mark menu, and bootstrap degraded banners (provider sync / runtime reconciliation).
+- `internal/tui`: owns transient UI states such as edit mode, repair screen, prompt fallback, column edit, manual mark menu, and bootstrap degraded banners (provider sync / runtime reconciliation). An open ticket editor snapshots the ticket identity it was opened for; refreshes may change the board projection and cursor position, but editor saves, notes, attachments, rendering, and external-editor results remain bound to that stable ticket ID.
 
 State bugs to avoid:
 

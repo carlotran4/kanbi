@@ -155,8 +155,8 @@ func readBodyClipboardCmd(ticketID int64, request uint64) tea.Cmd {
 }
 
 func (m Model) applyBodyClipboardPaste(msg bodyClipboardPasteMsg) Model {
-	ticket, ok := m.selectedTicket()
-	if !m.editing || m.editField != 1 || !m.bodyPastePending || !ok || ticket.ID != msg.ticketID || msg.request != m.bodyPasteRequest {
+	ticket := m.editTicket
+	if !m.editing || m.editField != 1 || !m.bodyPastePending || ticket.ID == 0 || ticket.ID != msg.ticketID || msg.request != m.bodyPasteRequest {
 		return m
 	}
 	m.bodyPastePending = false
@@ -200,8 +200,8 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		if m.bodyPastePending {
 			return m, nil
 		}
-		ticket, ok := m.selectedTicket()
-		if !ok {
+		ticket := m.editTicket
+		if ticket.ID == 0 {
 			return m, nil
 		}
 		m.bodyPasteRequest++
@@ -291,8 +291,8 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleBodyPaste(key tea.KeyMsg) Model {
-	t, ok := m.selectedTicket()
-	if !ok {
+	t := m.editTicket
+	if t.ID == 0 {
 		return m
 	}
 	pasted := string(key.Runes)
@@ -322,8 +322,8 @@ func (m *Model) insertBodyImageReference(ref string) {
 }
 
 func (m *Model) saveEdit() {
-	t, ok := m.selectedTicket()
-	if !ok {
+	t := m.editTicket
+	if t.ID == 0 {
 		m.editing = false
 		return
 	}
@@ -378,7 +378,7 @@ func (m Model) editView() string {
 		contentW = 30
 	}
 	descriptionLines := inspectorDescriptionLines(m.height)
-	t, _ := m.selectedTicket()
+	t := m.editTicket
 
 	muted := lipgloss.NewStyle().Foreground(palette.muted)
 	accent := lipgloss.NewStyle().Foreground(palette.accent)
@@ -825,8 +825,8 @@ func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 	case "d":
 		if len(m.notes) > 0 && m.noteIndex < len(m.notes) {
 			n := m.notes[m.noteIndex]
-			t, ok := m.selectedTicket()
-			if !ok {
+			t := m.editTicket
+			if t.ID == 0 {
 				break
 			}
 			if err := m.actions.DeleteNote(m.ctx, n.ID); err != nil {
@@ -841,8 +841,8 @@ func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m *Model) saveNote() {
-	t, ok := m.selectedTicket()
-	if !ok {
+	t := m.editTicket
+	if t.ID == 0 {
 		m.noteEditing = false
 		return
 	}
