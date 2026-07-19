@@ -206,6 +206,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.syncScrollDimensions()
+		m.hScrollFollow()
+		m.vScrollFollow()
 		return m, nil
 	case runtimeTickMsg:
 		if err := m.actions.RefreshRuntime(m.ctx); err != nil {
@@ -473,8 +475,8 @@ func (m *Model) reload() {
 	m.err = err
 	m.clamp()
 	m.syncScrollDimensions()
-	m.vScrollFollow()
 	m.hScrollFollow()
+	m.vScrollFollow()
 }
 
 // syncScrollDimensions ensures colScroll has one entry per column, preserving
@@ -483,6 +485,7 @@ func (m *Model) moveColumn(delta int) {
 	m.col += delta
 	m.clamp()
 	m.hScrollFollow()
+	m.vScrollFollow()
 }
 
 func (m *Model) moveCard(delta int) {

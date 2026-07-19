@@ -11,7 +11,7 @@ Use separate boards for separate projects, or supervise everything from one Mast
 ## Why Kanbi?
 
 - **One active agent session per ticket** — reopen a ticket without spawning duplicates.
-- **See what needs attention** — runtime state is visible directly on each card.
+- **See what needs attention** — responsive cards show compact agent state and, for worktrees, Git health at a glance.
 - **Leave agents running** — exiting Kanbi and runtime attention detection do not terminate active sessions.
 - **Keep projects isolated** — every board has its own working directory, with opt-in per-ticket Git worktrees for concurrent implementations.
 - **Work across projects** — Master combines and filters all your boards.

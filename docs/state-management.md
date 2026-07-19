@@ -76,12 +76,13 @@ flowchart LR
 Projection rules:
 
 - Tickets with no session project as `not_started`.
-- Tickets with a latest active session project that session's runtime status and active container indicator.
-- Tickets with a latest inactive session project that terminal status (`closed`, `error`, `exited`) and resumable/error indicator.
-- Every card shows the projected runtime as text, including not started, starting, running, waiting for user, permission required, idle/unknown, closing, closed/resumable, repair required, and error. Color is supplemental only.
-- Cards show `● active container` only for active sessions with a validated terminal container.
-- Cards show `○ resumable` when no active window exists but a `session_ref` exists.
-- Cards show `! error / repair` for states requiring action and `- no active container` otherwise. The in-product `?` help includes the same legend.
+- Tickets with a latest active session project that session's runtime status and a validated-container indicator when one exists.
+- Tickets with a latest inactive session project that terminal status (`closed`, `error`, `exited`) and resumability when a verified ref exists.
+- Every card has one compact runtime row containing an icon, harness, textual runtime, and elapsed time when it fits. Text remains authoritative and color is supplemental: `·` is ordinary/inactive, `◐` is starting/closing, `●` is validated running, `?` is waiting, `!` is permission/repair, `◌` is idle, `○` is resumable, and `×` is non-resumable error.
+- `●` is shown only for an active session with a validated terminal container. `○` is shown only when no active container exists and a verified `session_ref` does.
+- Cards do not repeat normal container absence on a separate session line. The inspector and in-product `?` help provide the expanded semantics.
+- Worktree-backed cards show one concise Git health row, prioritizing repair/conflict/cleanup state over dirty/divergence/mergeability details. The full branch name remains available in the ticket inspector.
+- Board columns are responsive from a 30-cell minimum to a 44-cell maximum. Visible columns share a width and expand into available space; additional columns remain horizontally scrollable. Terminals narrower than 30 cells retain the minimum and clip rather than squeezing cards further.
 
 ## Runtime Watcher Data Flow
 

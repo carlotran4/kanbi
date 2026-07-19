@@ -56,14 +56,61 @@ func TestMonochromeCardsDistinguishAttentionStates(t *testing.T) {
 	permission := storage.Ticket{DisplayID: "T-002", Title: "Approve", Harness: "pi", Runtime: kanban.StateNeedsPermission}
 	waitText := ansiStrip(strings.Join(cardView(false, waiting, 30, false), "\n"))
 	permissionText := ansiStrip(strings.Join(cardView(false, permission, 30, false), "\n"))
-	if !strings.Contains(waitText, "waiting for user") {
+	if !strings.Contains(waitText, "? pi  waiting") {
 		t.Fatalf("waiting card lacks textual state:\n%s", waitText)
 	}
-	if !strings.Contains(permissionText, "permission required") {
+	if !strings.Contains(permissionText, "! pi  permission") {
 		t.Fatalf("permission card lacks textual state:\n%s", permissionText)
 	}
 	if waitText == permissionText {
 		t.Fatal("attention states must remain distinct with color removed")
+	}
+}
+
+func TestCompactCardOmitsRedundantSessionAndBranchIdentity(t *testing.T) {
+	ticket := storage.Ticket{
+		DisplayID:           "T-001",
+		Title:               "Compact",
+		Harness:             "pi",
+		Runtime:             kanban.StateClosed,
+		SessionRef:          sqlNullStr("resume-ref"),
+		WorkspaceID:         sqlNullInt64(1),
+		WorkspaceBranch:     sqlNullStr("feat/hidden-on-card"),
+		WorkspaceStatusJSON: sqlNullStr(`{"dirty":true,"changed_files":2,"mergeable":true,"mergeability_known":true}`),
+	}
+	view := ansiStrip(strings.Join(cardView(false, ticket, boardColumnMinWidth, false), "\n"))
+	for _, absent := range []string{"session:", "no active container", "feat/hidden-on-card", "[pi]"} {
+		if strings.Contains(view, absent) {
+			t.Fatalf("compact card contains obsolete detail %q:\n%s", absent, view)
+		}
+	}
+	for _, want := range []string{"○ pi  closed", "git · 2 files"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("compact card missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestCardHeightMatchesRenderAtResponsiveWidths(t *testing.T) {
+	ticket := storage.Ticket{
+		DisplayID:           "T-001",
+		BoardName:           "agent-kanban",
+		Title:               "Long responsive card title with workspace health",
+		Body:                "Focused preview stays measurable across widths.",
+		Harness:             "copilot",
+		Runtime:             kanban.StateWaitingForUser,
+		WorkspaceID:         sqlNullInt64(1),
+		WorkspaceBranch:     sqlNullStr("feat/responsive-cards"),
+		WorkspaceStatusJSON: sqlNullStr(`{"ahead":3,"dirty":true,"changed_files":4,"mergeable":true,"mergeability_known":true}`),
+	}
+	for _, width := range []int{boardColumnMinWidth, 39, boardColumnMaxWidth} {
+		for _, focused := range []bool{false, true} {
+			got := cardHeightEx(ticket, width, focused, true)
+			want := len(cardView(focused, ticket, width, true))
+			if got != want {
+				t.Errorf("width=%d focused=%v: measured=%d rendered=%d", width, focused, got, want)
+			}
+		}
 	}
 }
 
@@ -83,7 +130,7 @@ func TestHelpLegendFitsAndScrollsAt80x24(t *testing.T) {
 	if first == model.View() {
 		t.Fatal("help did not scroll")
 	}
-	if !strings.Contains(last, "Indicator legend") && !strings.Contains(last, "active container") {
+	if !strings.Contains(last, "Card indicators") && !strings.Contains(last, "validated live terminal container") {
 		t.Fatalf("scrolling did not make the indicator legend reachable:\n%s", last)
 	}
 }
@@ -102,8 +149,8 @@ func TestActionErrorPreservesCauseAndRendersRemediation(t *testing.T) {
 
 func TestStartingClaimIsNotReportedAsValidatedContainer(t *testing.T) {
 	ticket := storage.Ticket{SessionActive: true, WindowName: sqlNullStr("reserved-name"), Runtime: kanban.StateStarting}
-	if got := windowIndicator(ticket); got != "- no active container" {
-		t.Fatalf("starting claim indicator = %q, want no validated container", got)
+	if got := runtimeIndicator(ticket); got != "◐" {
+		t.Fatalf("starting claim indicator = %q, want transitioning rather than validated running", got)
 	}
 }
 

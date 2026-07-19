@@ -423,6 +423,11 @@ func (m Model) editView() string {
 	if len(meta) > 0 {
 		lines = append(lines, strings.Join(meta, metaText.Render("  ·  ")))
 	}
+	if t.WorkspaceID.Valid && strings.TrimSpace(t.WorkspaceBranch.String) != "" {
+		for _, line := range inspectorBranchLines(t.WorkspaceBranch.String, contentW) {
+			lines = append(lines, metaText.Render(line))
+		}
+	}
 
 	lines = append(lines, "")
 	if m.editField == 1 {
@@ -460,6 +465,22 @@ func (m Model) editView() string {
 	}
 	title := ticketInspectorTitle(t.DisplayID, m.editInputs[0], m.editField == 0, dirty, titleWidth)
 	return ticketInspectorBox(content, title, boxW)
+}
+
+func inspectorBranchLines(branch string, width int) []string {
+	const label = "Branch: "
+	if width <= len(label) {
+		return []string{label + branch}
+	}
+	runes := []rune(branch)
+	firstWidth := width - len(label)
+	firstEnd := minInt(firstWidth, len(runes))
+	lines := []string{label + string(runes[:firstEnd])}
+	for start := firstEnd; start < len(runes); start += width {
+		end := minInt(start+width, len(runes))
+		lines = append(lines, string(runes[start:end]))
+	}
+	return lines
 }
 
 func inspectorPopupWidth(termWidth int) int {
