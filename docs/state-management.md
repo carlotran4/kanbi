@@ -130,7 +130,9 @@ Open rules:
 
 ## Execution Workspace Lifecycle
 
-Boards default to `worktree_mode=off`. Enabling Git worktrees is explicit per board. The first start performs read-only repository/branch preflight, then a branch modal must be confirmed before either a workspace or session is created. SQLite records provisioning intent before `git worktree add`; ready workspaces are reused by resume and start-fresh attempts. Missing paths, repository identity changes, or branch mismatch transition the workspace to `repair_needed` and never fall back to the shared board directory. Integrated and cleanup-required records stop being current while history remains.
+Boards choose `worktree_mode=off|git` at creation. Enabling Git worktrees on an existing board is an explicit, no-active-session migration; inactive legacy sessions remain historical and start fresh on first worktree open. After any workspace history exists, disabling is blocked so a board never mixes execution policies. The first start performs read-only repository/branch preflight, then a branch modal must be confirmed before either a workspace or session is created. SQLite records provisioning intent before `git worktree add`; ready workspaces are reused by resume and start-fresh attempts. Missing paths, repository identity changes, or branch mismatch transition a ready workspace to `repair_needed` and never fall back to the shared board directory.
+
+Successful integration closes the agent, merges into the exact recorded source, marks the workspace integrated, and retires only its linked filesystem checkout. The local ticket branch, stable path, workspace row, and harness session ref remain current. Reopening rehydrates the checkout at the identical path and resumes the same harness session; subsequent commits can be integrated repeatedly. A missing path is expected only for an integrated workspace. Cleanup-required state remains current and actionable.
 
 Git status is observed state stored as a bounded JSON snapshot; observation errors belong to the workspace and do not fail the harness session.
 

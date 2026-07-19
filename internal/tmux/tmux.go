@@ -3,8 +3,10 @@ package tmux
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -322,7 +324,7 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 	// Check the stable ref file first (written by the bundled Pi extension at session start).
 	if ticket.Harness == "pi" {
 		refFilePath := m.piSessionRefFilePath(ticket.ID)
-		if ref, ok := readPiSessionRefFile(refFilePath); ok {
+		if ref, ok := readPiSessionRefFile(refFilePath, ""); ok {
 			if err := m.Store.UpdateSessionRef(ctx, ses.ID, ref); err != nil {
 				return ticket, err
 			}
@@ -372,6 +374,9 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			return listErr
 		}
 		for _, workspace := range workspaces {
+			if workspace.State == storage.WorkspaceStateIntegrated {
+				continue
+			}
 			if validateErr := service.Validate(ctx, workspace); validateErr != nil {
 				if markErr := m.Store.MarkWorkspaceState(ctx, workspace.ID, storage.WorkspaceStateRepairNeeded, validateErr.Error()); markErr != nil {
 					return markErr
@@ -445,6 +450,9 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		for _, workspace := range workspaces {
 			if observeCtx.Err() != nil {
 				break
+			}
+			if workspace.State == storage.WorkspaceStateIntegrated {
+				continue
 			}
 			if _, observeErr := service.Observe(observeCtx, workspace); observeErr != nil {
 				_ = m.Store.RecordWorkspaceObservationError(ctx, workspace.ID, observeErr.Error())
@@ -804,25 +812,36 @@ func isTmuxMissingTarget(out string, err error) bool {
 	return strings.Contains(combined, "can't find session") || strings.Contains(combined, "can't find window")
 }
 
-func (m *Manager) commandWithPiSessionRefCapture(ticket storage.Ticket, command []string) ([]string, string, error) {
+func (m *Manager) commandWithPiSessionRefCapture(ticket storage.Ticket, command []string) ([]string, string, string, error) {
 	extPath, err := m.ensurePiSessionRefExtension()
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
-	// Use a stable per-ticket path (no timestamp) so recoverMissingSessionRef can find it later.
+	// Use a stable per-ticket path so recovery can reconstruct it. A prompt-start
+	// is a new harness attempt, so remove any prior attempt's handoff before Pi
+	// can be polled; otherwise a fresh worktree can inherit a stale session ref.
 	refFile := m.piSessionRefFilePath(ticket.ID)
-	out := make([]string, 0, len(command)+5)
+	if err := os.Remove(refFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, "", "", fmt.Errorf("clear stale Pi session ref handoff: %w", err)
+	}
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
+		return nil, "", "", fmt.Errorf("create Pi session ref attempt token: %w", err)
+	}
+	attemptToken := hex.EncodeToString(random)
+	out := make([]string, 0, len(command)+6)
 	out = append(out,
 		"env",
 		"KANBI_SESSION_REF_FILE="+refFile,
+		"KANBI_SESSION_REF_TOKEN="+attemptToken,
 		"KANBI_TICKET_ID="+fmt.Sprint(ticket.ID),
 	)
 	if len(command) == 0 {
-		return nil, "", errors.New("pi command is empty")
+		return nil, "", "", errors.New("pi command is empty")
 	}
 	out = append(out, command[0], "-e", extPath)
 	out = append(out, command[1:]...)
-	return out, refFile, nil
+	return out, refFile, attemptToken, nil
 }
 
 // piSessionRefFilePath returns the stable ref file path for a given ticket ID.
@@ -855,10 +874,11 @@ func (m *Manager) stateDir() string {
 }
 
 type piSessionRefPayload struct {
-	SessionID string `json:"sessionId"`
+	SessionID    string `json:"sessionId"`
+	AttemptToken string `json:"attemptToken"`
 }
 
-func readPiSessionRefFile(path string) (string, bool) {
+func readPiSessionRefFile(path, expectedToken string) (string, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", false
@@ -867,12 +887,15 @@ func readPiSessionRefFile(path string) (string, bool) {
 	if err := json.Unmarshal(data, &payload); err != nil || strings.TrimSpace(payload.SessionID) == "" {
 		return "", false
 	}
+	if expectedToken != "" && payload.AttemptToken != expectedToken {
+		return "", false
+	}
 	return strings.TrimSpace(payload.SessionID), true
 }
 
-func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText, cwd string, since time.Time, refFile string) (string, bool) {
+func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText, cwd string, since time.Time, refFile, refToken string) (string, bool) {
 	if harnessName == "pi" && refFile != "" {
-		if ref, ok := readPiSessionRefFile(refFile); ok {
+		if ref, ok := readPiSessionRefFile(refFile, refToken); ok {
 			return ref, true
 		}
 	}
@@ -889,7 +912,7 @@ func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText
 	end := time.Now().Add(deadline)
 	for {
 		if harnessName == "pi" && refFile != "" {
-			if ref, ok := readPiSessionRefFile(refFile); ok {
+			if ref, ok := readPiSessionRefFile(refFile, refToken); ok {
 				return ref, true
 			}
 		}

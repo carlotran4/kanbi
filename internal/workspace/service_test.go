@@ -110,7 +110,7 @@ func TestProvisionCreatesDistinctStableWorktreesAndReusesCurrent(t *testing.T) {
 	}
 }
 
-func TestIntegrateMergesRecordedSourceAndRetiresWorkspace(t *testing.T) {
+func TestIntegrateRetainsBranchAndRehydratesForRepeatedIntegration(t *testing.T) {
 	ctx := context.Background()
 	repo := testRepo(t)
 	store, board, ticket := testStore(t)
@@ -133,8 +133,32 @@ func TestIntegrateMergesRecordedSourceAndRetiresWorkspace(t *testing.T) {
 	if _, err := os.Stat(w.WorktreePath); !os.IsNotExist(err) {
 		t.Fatalf("worktree still exists: %v", err)
 	}
-	if _, ok, err := store.CurrentWorkspace(ctx, ticket.ID); err != nil || ok {
-		t.Fatalf("current workspace ok=%v err=%v", ok, err)
+	if out := gitCmd(t, repo, "show-ref", "--verify", "refs/heads/feat/integrate"); out == "" {
+		t.Fatal("retained branch missing")
+	}
+	current, ok, err := store.CurrentWorkspace(ctx, ticket.ID)
+	if err != nil || !ok || current.State != storage.WorkspaceStateIntegrated || !current.RetiredAt.Valid {
+		t.Fatalf("integrated current workspace = %+v ok=%v err=%v", current, ok, err)
+	}
+
+	rehydrated, err := svc.Rehydrate(ctx, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rehydrated.WorktreePath != w.WorktreePath || !pathIsDir(rehydrated.LaunchCWD) {
+		t.Fatalf("rehydrated at wrong path: %+v", rehydrated)
+	}
+	if err := os.WriteFile(filepath.Join(rehydrated.WorktreePath, "feature.txt"), []byte("done\ntweak\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, rehydrated.WorktreePath, "add", ".")
+	gitCmd(t, rehydrated.WorktreePath, "commit", "-m", "tweak")
+	if err := svc.Integrate(ctx, rehydrated, IntegrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "feature.txt"))
+	if err != nil || string(data) != "done\ntweak\n" {
+		t.Fatalf("repeated integration data=%q err=%v", data, err)
 	}
 }
 

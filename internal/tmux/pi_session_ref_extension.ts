@@ -9,6 +9,7 @@ export default function (_pi: ExtensionAPI) {
 
     const payload = {
       sessionId: ctx.sessionManager.getSessionId(),
+      attemptToken: process.env.KANBI_SESSION_REF_TOKEN ?? "",
       sessionFile: ctx.sessionManager.getSessionFile(),
       cwd: ctx.cwd,
       header: ctx.sessionManager.getHeader(),

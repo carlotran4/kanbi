@@ -96,7 +96,8 @@ func (s *Store) countCurrentWorkspaces(ctx context.Context, boardID int64) (int,
 	return n, err
 }
 
-// SetBoardWorktreeMode updates the board's worktree isolation mode (off|git).
+// SetBoardWorktreeMode migrates a board's durable execution policy. The board
+// row serializes this change against lifecycle claims in other processes.
 func (s *Store) SetBoardWorktreeMode(ctx context.Context, boardID int64, mode string) error {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	switch mode {
@@ -104,22 +105,42 @@ func (s *Store) SetBoardWorktreeMode(ctx context.Context, boardID int64, mode st
 	default:
 		return fmt.Errorf("unsupported worktree mode %q", mode)
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=?`, boardID); err != nil {
+		return err
+	}
+	var currentMode string
+	if err := tx.QueryRowContext(ctx, `select coalesce(worktree_mode,'off') from boards where id=?`, boardID).Scan(&currentMode); err != nil {
+		return err
+	}
+	if currentMode == mode {
+		return tx.Commit()
+	}
 	if mode == WorktreeModeGit {
-		if active, err := s.boardHasActiveSessions(ctx, s.db, boardID); err != nil {
+		if active, err := s.boardHasActiveSessions(ctx, tx, boardID); err != nil {
 			return err
 		} else if active {
 			return ErrBoardHasActiveSessions
 		}
 	}
 	if mode == WorktreeModeOff {
-		if current, err := s.countCurrentWorkspaces(ctx, boardID); err != nil {
+		var history int
+		if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=?`, boardID).Scan(&history); err != nil {
 			return err
-		} else if current > 0 {
-			return ErrBoardHasCurrentWorkspaces
+		}
+		if history > 0 {
+			return errors.New("cannot disable Git worktrees after workspace history exists; create a shared-directory board instead")
 		}
 	}
-	res, err := s.db.ExecContext(ctx, `update boards set worktree_mode=?, updated_at=? where id=?`, mode, time.Now().UTC(), boardID)
-	return requireAffected(res, err)
+	res, err := tx.ExecContext(ctx, `update boards set worktree_mode=?, updated_at=? where id=?`, mode, time.Now().UTC(), boardID)
+	if err := requireAffected(res, err); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) MarkBoardSync(ctx context.Context, boardID int64, syncErr error) error {
@@ -167,7 +188,7 @@ func (s *Store) ArchiveBoard(ctx context.Context, boardID int64) error {
 		return ErrBoardHasActiveSessions
 	}
 	var currentWorkspaces int
-	if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&currentWorkspaces); err != nil {
+	if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and is_current=1 and state<>?`, boardID, WorkspaceStateIntegrated).Scan(&currentWorkspaces); err != nil {
 		return err
 	}
 	if currentWorkspaces > 0 {
@@ -312,7 +333,7 @@ func normalizeWorkdir(workdir string) (string, error) {
 }
 
 func (s *Store) CreateBoardWithWorkdir(ctx context.Context, name, workdir string) (Board, error) {
-	return s.CreateBoardWithOptions(ctx, CreateBoardOptions{Name: name, Workdir: workdir, TicketBackend: "local"})
+	return s.CreateBoardWithOptions(ctx, CreateBoardOptions{Name: name, Workdir: workdir, WorktreeMode: WorktreeModeOff, TicketBackend: "local"})
 }
 
 func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOptions) (Board, error) {
@@ -329,6 +350,13 @@ func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOpti
 	}
 	query := strings.TrimSpace(opts.BackendQuery)
 	backendConfig := strings.TrimSpace(opts.BackendConfig)
+	worktreeMode := strings.ToLower(strings.TrimSpace(opts.WorktreeMode))
+	if worktreeMode == "" {
+		worktreeMode = WorktreeModeOff
+	}
+	if worktreeMode != WorktreeModeOff && worktreeMode != WorktreeModeGit {
+		return Board{}, fmt.Errorf("unsupported worktree mode %q", worktreeMode)
+	}
 	var existing int
 	if err := s.db.QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?)`, name).Scan(&existing); err != nil {
 		return Board{}, err
@@ -350,7 +378,7 @@ func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOpti
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,sync_enabled,worktree_mode,created_at,updated_at) values(?,?,?,1,?,?,?,1,?,?,?)`, name, uuid, nullableString(workdir), backend, nullableString(query), nullableString(backendConfig), WorktreeModeOff, now, now)
+	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,sync_enabled,worktree_mode,created_at,updated_at) values(?,?,?,1,?,?,?,1,?,?,?)`, name, uuid, nullableString(workdir), backend, nullableString(query), nullableString(backendConfig), worktreeMode, now, now)
 	if err != nil {
 		return Board{}, err
 	}
@@ -363,7 +391,7 @@ func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOpti
 	if err := tx.Commit(); err != nil {
 		return Board{}, err
 	}
-	return Board{ID: boardID, Name: name, UUID: uuid, Workdir: workdir, TicketBackend: backend, BackendQuery: query, BackendConfig: backendConfig, SyncEnabled: true, WorktreeMode: WorktreeModeOff}, nil
+	return Board{ID: boardID, Name: name, UUID: uuid, Workdir: workdir, TicketBackend: backend, BackendQuery: query, BackendConfig: backendConfig, SyncEnabled: true, WorktreeMode: worktreeMode}, nil
 }
 
 func (s *Store) ensureDefaultBoard(ctx context.Context) error {

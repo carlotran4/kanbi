@@ -42,6 +42,35 @@ func (m *Manager) lifecycle() ticketLifecycle {
 }
 
 func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) error {
+	if l.manager.Store != nil {
+		board, err := l.manager.Store.BoardByID(ctx, req.Ticket.BoardID)
+		if err != nil {
+			return err
+		}
+		req.Ticket.BoardWorktreeMode = board.WorktreeMode
+	}
+	if req.Ticket.BoardWorktreeMode == storage.WorktreeModeGit && !req.Ticket.SessionActive {
+		workspace, ok, err := l.manager.Store.CurrentWorkspace(ctx, req.Ticket.ID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			service := l.manager.workspaceService()
+			if workspace.State == storage.WorkspaceStateIntegrated {
+				if _, err := service.Rehydrate(ctx, workspace); err != nil {
+					return err
+				}
+			} else if err := service.Validate(ctx, workspace); err != nil {
+				_ = l.manager.Store.MarkWorkspaceState(ctx, workspace.ID, storage.WorkspaceStateRepairNeeded, err.Error())
+				return fmt.Errorf("validate ticket workspace: %w", err)
+			}
+			fresh, err := l.manager.Store.TicketByID(ctx, req.Ticket.ID)
+			if err != nil {
+				return err
+			}
+			req.Ticket = fresh
+		}
+	}
 	decision, err := l.Decide(ctx, req)
 	if err != nil {
 		return err
@@ -119,6 +148,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	var renderedPrompt string
 	var promptAlreadySent bool
 	var refFile string
+	var refToken string
 	var err error
 	launchStartedAt := time.Now().UTC()
 	if sendPrompt {
@@ -148,7 +178,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 	}
 	if ticket.Harness == "pi" && promptAlreadySent {
-		command, refFile, err = l.manager.commandWithPiSessionRefCapture(ticket, command)
+		command, refFile, refToken, err = l.manager.commandWithPiSessionRefCapture(ticket, command)
 		if err != nil {
 			return err
 		}
@@ -263,7 +293,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if ticket.SessionRef.Valid {
 		ses.HarnessSessionRef = sql.NullString{String: ticket.SessionRef.String, Valid: true}
 	} else if promptAlreadySent && l.manager.Store != nil {
-		if ref, ok := l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchCWD, launchStartedAt, refFile); ok {
+		if ref, ok := l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchCWD, launchStartedAt, refFile, refToken); ok {
 			ses.HarnessSessionRef = sql.NullString{String: ref, Valid: true}
 		}
 	}
@@ -279,7 +309,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		// keep polling and update exactly the session row created by this launch.
 		if !ses.HarnessSessionRef.Valid && promptAlreadySent && refFile != "" {
 			l.manager.startSessionRefCapture(insertedSessionID, ticket.Harness, defaultPiRefCaptureTimeout, func() (string, bool) {
-				return readPiSessionRefFile(refFile)
+				return readPiSessionRefFile(refFile, refToken)
 			})
 		}
 		// Claude Code can sit on the workspace-trust dialog for an unbounded

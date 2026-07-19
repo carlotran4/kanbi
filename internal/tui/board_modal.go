@@ -77,20 +77,16 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 		return m
 	case "t":
 		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
-			m.status = "choose a real board to toggle worktrees"
+			m.status = "choose a real board to enable worktrees"
 			return m
 		}
 		b := m.boards[m.boardIndex-1]
-		mode := storage.WorktreeModeGit
 		if b.WorktreeMode == storage.WorktreeModeGit {
-			mode = storage.WorktreeModeOff
-		}
-		if err := m.actions.SetBoardWorktreeMode(m.ctx, b.ID, mode); err != nil {
-			m.status = err.Error()
+			m.status = "Git worktrees are a durable board policy; create a separate shared-directory board if needed"
 			return m
 		}
-		m.status = "worktree mode " + mode + " for " + b.Name
-		m.reloadBoards()
+		m.boardWorktreeEnabling = true
+		m.boardWorktreeBoard = b
 		return m
 	case "s":
 		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
@@ -243,7 +239,7 @@ func (m Model) boardPickerView() string {
 	if m.boardPickerMode == "create" {
 		hint = "Enter create · j/k move · Esc cancel"
 	} else {
-		hint = "Enter select · c create · r rename · w cwd · t worktrees · a archive · s sync · e export · i import · A archived · d delete · j/k · Esc"
+		hint = "Enter select · c create · r rename · w cwd · t enable worktrees · a archive · s sync · e export · i import · A archived · d delete · j/k · Esc"
 	}
 	lines = append(lines, lipgloss.NewStyle().Faint(true).Render(hint))
 	popupW := popupWidth(m.width)
@@ -253,6 +249,38 @@ func (m Model) boardPickerView() string {
 		Padding(1, 2).
 		Width(popupW - 4).
 		Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) updateBoardWorktreeEnable(key tea.KeyMsg) Model {
+	switch key.String() {
+	case "esc":
+		m.boardWorktreeEnabling = false
+		m.status = "worktree enable cancelled"
+	case "enter":
+		b := m.boardWorktreeBoard
+		if err := m.actions.SetBoardWorktreeMode(m.ctx, b.ID, storage.WorktreeModeGit); err != nil {
+			m.status = err.Error()
+			return m
+		}
+		m.boardWorktreeEnabling = false
+		m.status = "enabled Git worktrees for " + b.Name
+		m.reloadBoards()
+	}
+	return m
+}
+
+func (m Model) boardWorktreeEnableView() string {
+	b := m.boardWorktreeBoard
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Enable Git worktrees for " + b.Name + "?"),
+		"",
+		"This changes the board's durable execution policy.",
+		"Existing inactive session history is preserved, but legacy sessions will start fresh when first opened in a worktree.",
+		"After the board creates workspace history, worktrees cannot be disabled; create a separate shared-directory board instead.",
+		"",
+		lipgloss.NewStyle().Faint(true).Render("Enter enable · Esc cancel"),
+	}
+	return lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(palette.warning).Padding(1, 2).Width(popupWidth(m.width) - 4).Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) startCurrentBoardRename(returnPicker bool) {
@@ -316,6 +344,7 @@ func (m *Model) startBoardCreate() {
 	m.boardEditID = 0
 	m.boardEditName = ""
 	m.boardEditCWD = cwd
+	m.boardEditMode = storage.WorktreeModeOff
 	m.boardEditField = 0
 }
 
@@ -334,12 +363,20 @@ func (m Model) updateBoardEdit(key tea.KeyMsg) Model {
 		m.boardEditing = false
 	case "tab":
 		if m.boardEditAction == "create" {
-			m.boardEditField = (m.boardEditField + 1) % 2
+			m.boardEditField = (m.boardEditField + 1) % 3
+		}
+	case "left", "right", " ":
+		if m.boardEditAction == "create" && m.boardEditField == 2 {
+			if m.boardEditMode == storage.WorktreeModeGit {
+				m.boardEditMode = storage.WorktreeModeOff
+			} else {
+				m.boardEditMode = storage.WorktreeModeGit
+			}
 		}
 	case "enter":
 		switch m.boardEditAction {
 		case "create":
-			created, err := m.actions.CreateBoardWithWorkdir(m.ctx, strings.TrimSpace(m.boardEditName), strings.TrimSpace(m.boardEditCWD))
+			created, err := m.actions.CreateBoardWithWorkdirMode(m.ctx, strings.TrimSpace(m.boardEditName), strings.TrimSpace(m.boardEditCWD), m.boardEditMode)
 			if err != nil {
 				m.status = err.Error()
 				return m
@@ -358,14 +395,14 @@ func (m Model) updateBoardEdit(key tea.KeyMsg) Model {
 	case "backspace":
 		if m.boardEditField == 0 {
 			m.boardEditName = popRune(m.boardEditName)
-		} else {
+		} else if m.boardEditField == 1 {
 			m.boardEditCWD = popRune(m.boardEditCWD)
 		}
 	default:
 		if len(key.Runes) > 0 {
 			if m.boardEditField == 0 {
 				m.boardEditName += string(key.Runes)
-			} else {
+			} else if m.boardEditField == 1 {
 				m.boardEditCWD += string(key.Runes)
 			}
 		}
@@ -403,8 +440,13 @@ func (m Model) boardEditView() string {
 		}
 		lines = append(lines, fmt.Sprintf("%s name: %s", cursor(0), render(0, m.boardEditName)))
 		lines = append(lines, fmt.Sprintf("%s cwd:  %s", cursor(1), render(1, m.boardEditCWD)))
+		modeLabel := "shared board directory"
+		if m.boardEditMode == storage.WorktreeModeGit {
+			modeLabel = "isolated Git worktrees"
+		}
+		lines = append(lines, fmt.Sprintf("%s execution: %s", cursor(2), modeLabel))
 	}
-	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Tab switch field · Enter save · Esc cancel"))
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Tab switch field · ←/→ change execution · Enter save · Esc cancel"))
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(palette.accent).

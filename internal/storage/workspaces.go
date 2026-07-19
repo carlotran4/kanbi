@@ -30,7 +30,9 @@ func scanWorkspace(row workspaceScanner, w *Workspace) error {
 	return nil
 }
 
-// CurrentWorkspace returns the unfinished current workspace for a ticket, if any.
+// CurrentWorkspace returns the current workspace for a ticket. Integrated
+// workspaces remain current while their filesystem checkout is retired so they
+// can be rehydrated at the same launch path.
 func (s *Store) CurrentWorkspace(ctx context.Context, ticketID int64) (Workspace, bool, error) {
 	var w Workspace
 	err := scanWorkspace(s.db.QueryRowContext(ctx, workspaceSelectSQL+` where ticket_id=? and is_current=1 order by id desc limit 1`, ticketID), &w)
@@ -190,18 +192,28 @@ func (s *Store) RecordWorkspaceObservationError(ctx context.Context, id int64, r
 	return requireAffected(res, err)
 }
 
-// MarkWorkspaceIntegrated marks the current workspace integrated and clears current.
+// MarkWorkspaceIntegrated records a successful integration while retaining the
+// workspace as current. retired_at means only the linked checkout was retired;
+// its branch and durable identity remain available for rehydration.
 func (s *Store) MarkWorkspaceIntegrated(ctx context.Context, id int64) error {
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `update ticket_workspaces set state=?, is_current=0, integrated_at=?, retired_at=?, last_error=null, updated_at=? where id=?`,
+	res, err := s.db.ExecContext(ctx, `update ticket_workspaces set state=?, is_current=1, integrated_at=?, retired_at=?, last_error=null, updated_at=? where id=?`,
 		WorkspaceStateIntegrated, now, now, now, id)
 	return requireAffected(res, err)
 }
 
-// MarkWorkspaceCleanupRequired records that integration/cleanup still needs filesystem work.
+// MarkWorkspaceRehydrated records that the retained branch is checked out again.
+func (s *Store) MarkWorkspaceRehydrated(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `update ticket_workspaces set state=?, is_current=1, retired_at=null, last_error=null, updated_at=? where id=?`,
+		WorkspaceStateReady, time.Now().UTC(), id)
+	return requireAffected(res, err)
+}
+
+// MarkWorkspaceCleanupRequired records that integration succeeded but retiring
+// the filesystem checkout still needs repair. The branch is never deleted.
 func (s *Store) MarkWorkspaceCleanupRequired(ctx context.Context, id int64, reason string) error {
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `update ticket_workspaces set state=?, is_current=0, integrated_at=coalesce(integrated_at,?), last_error=?, updated_at=? where id=?`,
+	res, err := s.db.ExecContext(ctx, `update ticket_workspaces set state=?, is_current=1, integrated_at=coalesce(integrated_at,?), last_error=?, updated_at=? where id=?`,
 		WorkspaceStateCleanupReq, now, nullableString(reason), now, id)
 	return requireAffected(res, err)
 }

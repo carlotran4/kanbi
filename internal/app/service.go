@@ -108,6 +108,9 @@ func (s *Service) ListTickets(ctx context.Context, archived bool) ([]storage.Tic
 func (s *Service) CreateBoardWithWorkdir(ctx context.Context, name, cwd string) (storage.Board, error) {
 	return s.Store.CreateBoardWithWorkdir(ctx, name, cwd)
 }
+func (s *Service) CreateBoardWithWorkdirMode(ctx context.Context, name, cwd, mode string) (storage.Board, error) {
+	return s.Store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: name, Workdir: cwd, WorktreeMode: mode, TicketBackend: "local"})
+}
 func (s *Service) RenameBoard(ctx context.Context, id int64, name string) error {
 	return s.Store.RenameBoard(ctx, id, name)
 }

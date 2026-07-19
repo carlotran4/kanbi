@@ -45,7 +45,8 @@ func (s *Store) claimSession(ctx context.Context, ticketID int64, session Sessio
 	defer tx.Rollback()
 	// Refuse active claims on archived boards so archive cannot race a load.
 	var archived sql.NullTime
-	if err := tx.QueryRowContext(ctx, `select b.archived_at from tickets t join boards b on b.id=t.board_id where t.id=?`, ticketID).Scan(&archived); err != nil {
+	var worktreeMode string
+	if err := tx.QueryRowContext(ctx, `select b.archived_at,coalesce(b.worktree_mode,'off') from tickets t join boards b on b.id=t.board_id where t.id=?`, ticketID).Scan(&archived, &worktreeMode); err != nil {
 		return 0, err
 	}
 	if archived.Valid {
@@ -54,6 +55,18 @@ func (s *Store) claimSession(ctx context.Context, ticketID int64, session Sessio
 	// Touch the parent board row so archive and session claims serialize.
 	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=(select board_id from tickets where id=?)`, ticketID); err != nil {
 		return 0, err
+	}
+	if worktreeMode == WorktreeModeGit {
+		if !session.WorkspaceID.Valid || strings.TrimSpace(session.LaunchCWD.String) == "" {
+			return 0, errors.New("Git-worktree board sessions require a prepared workspace and launch directory")
+		}
+		var validWorkspace int
+		if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where id=? and ticket_id=? and is_current=1 and state in (?,?) and launch_cwd=?`, session.WorkspaceID.Int64, ticketID, WorkspaceStateReady, WorkspaceStateResolving, session.LaunchCWD.String).Scan(&validWorkspace); err != nil {
+			return 0, err
+		}
+		if validWorkspace != 1 {
+			return 0, errors.New("Git-worktree session workspace is not current, launchable, or owned by the ticket")
+		}
 	}
 	now := time.Now().UTC()
 	if replaceActive {

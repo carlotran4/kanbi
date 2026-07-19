@@ -179,6 +179,7 @@ func documentFromAggregate(agg storage.BoardAggregate) Document {
 			Name:             agg.Board.Name,
 			UUID:             agg.Board.UUID,
 			Workdir:          agg.Board.Workdir,
+			WorktreeMode:     agg.Board.WorktreeMode,
 			TicketBackend:    agg.Board.TicketBackend,
 			BackendQuery:     agg.Board.BackendQuery,
 			BackendConfig:    agg.Board.BackendConfig,

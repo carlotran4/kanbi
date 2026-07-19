@@ -29,6 +29,9 @@ func (m Model) View() string {
 	if m.boardRenaming {
 		return overlayModal(base, fitModal(m.boardRenameView(), m.height, 0, true), m.width, m.height)
 	}
+	if m.boardWorktreeEnabling {
+		return overlayModal(base, fitModal(m.boardWorktreeEnableView(), m.height, 0, true), m.width, m.height)
+	}
 	if m.boardEditing {
 		return overlayModal(base, fitModal(m.boardEditView(), m.height, 0, true), m.width, m.height)
 	}
@@ -443,11 +446,17 @@ func ticketWorkspaceLine(ticket storage.Ticket) string {
 		return ""
 	}
 	line := " " + ticket.WorkspaceBranch.String
+	if ticket.WorkspaceState.String == storage.WorkspaceStateIntegrated {
+		return line + " · ✓ integrated · retired (reopens same session)"
+	}
 	if ticket.WorkspaceState.String == storage.WorkspaceStateResolving {
 		return line + " · ◐ resolving"
 	}
 	if ticket.WorkspaceState.String == storage.WorkspaceStateRepairNeeded {
 		return line + " · ! repair required"
+	}
+	if ticket.WorkspaceState.String == storage.WorkspaceStateCleanupReq {
+		return line + " · ! checkout retirement cleanup required"
 	}
 	if ticket.WorkspaceLastError.Valid && strings.TrimSpace(ticket.WorkspaceLastError.String) != "" {
 		return line + " · ! observation error"
@@ -497,7 +506,7 @@ func (m Model) workspaceIntegrationView() string {
 		"Ticket: " + t.WorkspaceBranch.String,
 		ticketWorkspaceLine(t),
 		"",
-		"Kanbi will revalidate both checkouts, close the agent, merge only into the recorded source, and clean up after success.",
+		"Kanbi will revalidate both checkouts, close the agent, merge only into the recorded source, and retire the filesystem checkout. The branch/session remain for exact-path reopen.",
 		"",
 		lipgloss.NewStyle().Faint(true).Render("Enter integrate · Esc cancel"),
 	}

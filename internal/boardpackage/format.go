@@ -42,6 +42,7 @@ type BoardPayload struct {
 	Name             string     `json:"name"`
 	UUID             string     `json:"uuid"`
 	Workdir          string     `json:"workdir,omitempty"`
+	WorktreeMode     string     `json:"worktree_mode,omitempty"`
 	TicketBackend    string     `json:"ticket_backend"`
 	BackendQuery     string     `json:"backend_query,omitempty"`
 	BackendConfig    string     `json:"backend_config,omitempty"`

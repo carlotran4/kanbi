@@ -79,7 +79,7 @@ stateDiagram-v2
   MasterView --> [*]: q
 ```
 
-Startup opens a board picker. While running, `b` reopens the picker and switches without restarting. Inside the board picker: `c` creates a board, `r` renames, `w` updates cwd, `t` explicitly toggles experimental per-ticket Git worktrees, `a` archives/unarchives, `s` toggles sync (when not archived), `e` exports a board package, `i` imports a package, `A` shows archived boards, and `d` hard-deletes with exact-name confirmation. `Master` cannot be renamed or deleted. Archive hides a board and pauses sync without removing tickets, sessions, or attachments.
+Startup opens a board picker. While running, `b` reopens the picker and switches without restarting. Board creation explicitly chooses a shared directory or isolated Git worktrees. Inside the board picker: `c` creates a board, `r` renames, `w` updates cwd, `t` opens confirmation to enable Git worktrees on an existing board, `a` archives/unarchives, `s` toggles sync (when not archived), `e` exports a board package, `i` imports a package, `A` shows archived boards, and `d` hard-deletes with exact-name confirmation. Worktree enablement is not a casual toggle: disabling is rejected after workspace history exists. `Master` cannot be renamed or deleted. Archive hides a board and pauses sync without removing tickets, sessions, or attachments.
 
 ## Master board aggregation
 
@@ -177,7 +177,8 @@ If `BoardWorkdir` is empty, the configured multiplexer falls back to the current
 ```text
 kanbi boards
 kanbi boards list --include-archived
-kanbi boards add "Client B" --cwd /path/to/project
+kanbi boards add "Client B" --cwd /path/to/project --worktree-mode git
+kanbi boards enable-worktrees "Client B"
 kanbi boards rename "Client B" "Client C"
 kanbi boards set-cwd "Client C" /path/to/project
 kanbi boards archive "Client C"
@@ -195,7 +196,7 @@ kanbi open T-001 --board "Client C"
 
 Current behavior:
 
-- `boards add` creates a board with default columns (workflow keys equal to display names), a workdir, stable UUID, sync enabled, and the selected ticket backend. Supported backends are `local`, `github`, and `atlassian`; GitHub boards accept `--config JSON` for owner/repo settings and `--query QUERY` for Issues list filters, while Atlassian/Jira boards use `--query` as JQL and `--config JSON` for site/project settings. The JSON is stored unencrypted in SQLite, so use the documented environment variables for tokens and other credentials.
+- `boards add` creates a board with default columns (workflow keys equal to display names), a workdir, stable UUID, sync enabled, selected execution policy (`--worktree-mode off|git`, default `off`), and the selected ticket backend. Supported backends are `local`, `github`, and `atlassian`; GitHub boards accept `--config JSON` for owner/repo settings and `--query QUERY` for Issues list filters, while Atlassian/Jira boards use `--query` as JQL and `--config JSON` for site/project settings. The JSON is stored unencrypted in SQLite, so use the documented environment variables for tokens and other credentials.
 - `--cwd` defaults to the current directory.
 - `boards rename OLD NEW` renames a board.
 - `boards set-cwd NAME /path` updates a board workdir.
@@ -217,7 +218,7 @@ See [`docs/ticket-backends.md`](./ticket-backends.md).
 ## Board archive vs delete vs package export
 
 - **Board archive** is non-destructive local hide + sync pause. Tickets, notes, sessions, and attachments remain. Active sessions block archive.
-- **Board package export/import** (`kanbi-board-package`) is a single-board portable archive with path-safe attachments and checksum inventory. It is not a full database backup (`kanbi-backup`).
+- **Board package export/import** (`kanbi-board-package`) is a single-board portable archive with path-safe attachments and checksum inventory. It preserves the board execution policy, but machine-local live/retained workspaces still block export and are never presented as portable checkouts. It is not a full database backup (`kanbi-backup`).
 - **Hard board delete** remains distinct, confirmation-gated, local-only, and cascading. Deletion is blocked with active sessions. Attachment cleanup runs only after the SQL commit. Provider-backed note tombstones and remote issues are never hard-deleted by EG-related local flows.
 
 Kanbi still provides `kanbi backup PATH` / `kanbi restore PATH [--force]` for whole-DB SQLite-plus-attachments archives.
