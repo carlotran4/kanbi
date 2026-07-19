@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/carlotran4/kanbi/internal/harness"
+	"github.com/carlotran4/kanbi/internal/statusbar"
 
 	"gopkg.in/yaml.v3"
 )
@@ -71,6 +72,7 @@ type Config struct {
 	Tmux                Tmux               `yaml:"tmux"`
 	Multiplexer         Multiplexer        `yaml:"multiplexer"`
 	Diagnostics         Diagnostics        `yaml:"diagnostics"`
+	StatusBar           *statusbar.Config  `yaml:"status_bar"`
 	PromptReadyTimeout  time.Duration      `yaml:"-"`
 	PromptReadyRaw      string             `yaml:"prompt_ready_timeout"`
 	IdleUnknownAfter    time.Duration      `yaml:"-"`
@@ -189,6 +191,13 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 	cfg.PromptReadyTimeout = timeout
 	applyTimeoutDefaults(&cfg, opts.LoadedNestedTimeouts)
 	mergeHarnessDefaults(&cfg)
+	if cfg.StatusBar == nil {
+		statusBar := statusbar.DefaultConfig()
+		cfg.StatusBar = &statusBar
+	}
+	if err := statusbar.Normalize(cfg.StatusBar); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -221,6 +230,7 @@ func defaultConfig(paths Paths, env Env) Config {
 	if tmuxSession == "" {
 		tmuxSession = DefaultSession
 	}
+	statusBar := statusbar.DefaultConfig()
 	return Config{
 		Paths:               paths,
 		DBPath:              paths.DBFile,
@@ -229,6 +239,7 @@ func defaultConfig(paths Paths, env Env) Config {
 		Tmux:                Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
 		Multiplexer:         Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
 		Diagnostics:         Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
+		StatusBar:           &statusBar,
 		PromptReadyTimeout:  5 * time.Second,
 		PromptReadyRaw:      "5s",
 		IdleUnknownAfter:    120 * time.Second,
@@ -310,6 +321,9 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.Diagnostics.MaxFiles > 0 {
 		cfg.Diagnostics.MaxFiles = raw.Diagnostics.MaxFiles
+	}
+	if raw.StatusBar != nil {
+		cfg.StatusBar = raw.StatusBar
 	}
 }
 

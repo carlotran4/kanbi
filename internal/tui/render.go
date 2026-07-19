@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/carlotran4/kanbi/internal/kanban"
+	"github.com/carlotran4/kanbi/internal/statusbar"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -76,21 +77,16 @@ func (m Model) View() string {
 }
 
 func (m Model) baseView() string {
-	// Header bar: full-width background strip.
-	appName := headerBarStyle.Render("Kanbi")
-	headerName := m.view.Board.Name
-	if m.masterBoard {
-		if summary := m.masterFilterSummary(); summary != "" {
-			headerName += "  filter: " + summary
-		}
+	// Status bar: independently anchored left, center, and right module zones.
+	left, center, right := m.statusBarZones(time.Now())
+	if left != "" {
+		left = " " + left
 	}
-	boardName := boardNameStyle.Render(headerName)
-	barUsed := runeLen("Kanbi") + 2 + runeLen(headerName) + 1
-	barPad := ""
-	if m.width > barUsed {
-		barPad = lipgloss.NewStyle().Background(palette.header).Render(strings.Repeat(" ", m.width-barUsed))
+	if right != "" {
+		right += " "
 	}
-	header := fmt.Sprintf("%s %s%s\n\n", appName, boardName, barPad)
+	headerLine := statusbar.Layout(left, center, right, maxInt(1, m.width))
+	header := statusBarStyle.Render(headerLine) + "\n\n"
 	board := m.boardView()
 	hint := m.hScrollHint()
 
@@ -595,16 +591,10 @@ var (
 	accentBorder   = lipgloss.NewStyle().Foreground(palette.accent)
 	footerRule     = lipgloss.NewStyle().Foreground(palette.muted)
 	statusStyle    = lipgloss.NewStyle().Foreground(palette.muted).Italic(true)
-	headerBarStyle = lipgloss.NewStyle().
+	statusBarStyle = lipgloss.NewStyle().
 			Bold(true).
 			Background(palette.header).
-			Foreground(palette.headerText).
-			PaddingLeft(1).
-			PaddingRight(1)
-	boardNameStyle = lipgloss.NewStyle().
-			Background(palette.header).
-			Foreground(palette.headerSubtleText).
-			PaddingRight(1)
+			Foreground(palette.headerText)
 )
 
 // renderBodyPreview renders 1-2 lines of body preview for a card.

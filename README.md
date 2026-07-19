@@ -49,6 +49,8 @@ Select the board, press `n` to create a ticket, save it with `Ctrl+S`, then pres
 
 Choose `shared board directory` or `isolated Git worktrees` when creating a board. Existing boards can migrate with `b`, select the board, then `t` and confirm **Enable worktrees**. This is a durable board policy: once workspace history exists it cannot be switched back; create a separate shared-directory board instead. First ticket start asks for an editable branch name and records the currently checked-out branch as its source.
 
+The header status bar is configurable with Starship-style modules and independently aligned left, center, and right zones. It can show the board, time, or cached output from bounded custom commands such as a weekly usage script. See [Configuration](./docs/configuration.md).
+
 Press `?` for controls. The important distinction is:
 
 - `x` closes the selected agent session.
@@ -82,6 +84,7 @@ Run `kanbi --help` or `kanbi COMMAND --help` for the rest.
 ## Documentation
 
 - [Installation](./docs/installation.md)
+- [Configuration](./docs/configuration.md)
 - [Ticket backends](./docs/ticket-backends.md)
 - [Multi-board behavior](./docs/multi-board-behavior.md)
 - [Compatibility](./docs/compatibility.md)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/session"
+	"github.com/carlotran4/kanbi/internal/statusbar"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -109,6 +110,11 @@ type Model struct {
 	branchSendPrompt        bool
 	workspaceIntegrating    bool
 	workspaceActionTicket   storage.Ticket
+	statusBar               statusbar.Config
+	statusBarResults        map[string]statusbar.ModuleResult
+	statusBarGeneration     uint64
+	statusBarCtx            context.Context
+	statusBarCancel         context.CancelFunc
 
 	// Notes state (used within the edit modal, editField==3)
 	notes       []storage.Note
@@ -124,7 +130,21 @@ const defaultTermWidth = 220
 const defaultTermHeight = 40
 
 func New(ctx context.Context, store Actions) Model {
-	m := Model{ctx: ctx, actions: store, width: defaultTermWidth, height: defaultTermHeight}
+	return NewWithStatusBar(ctx, store, statusbar.DefaultConfig())
+}
+
+func NewWithStatusBar(ctx context.Context, store Actions, statusBar statusbar.Config) Model {
+	statusBarCtx, statusBarCancel := context.WithCancel(ctx)
+	m := Model{
+		ctx:              ctx,
+		actions:          store,
+		width:            defaultTermWidth,
+		height:           defaultTermHeight,
+		statusBar:        statusBar,
+		statusBarResults: make(map[string]statusbar.ModuleResult),
+		statusBarCtx:     statusBarCtx,
+		statusBarCancel:  statusBarCancel,
+	}
 	m.reloadBoards()
 	m.reload()
 	return m
@@ -137,7 +157,11 @@ func NewWithPicker(ctx context.Context, store Actions) Model {
 // NewWithPickerOptions constructs the startup board picker model. reconcileWarning
 // is an optional bootstrap message for startup reconciliation degraded state.
 func NewWithPickerOptions(ctx context.Context, store Actions, reconcileWarning string) Model {
-	m := New(ctx, store)
+	return NewWithPickerStatusBarOptions(ctx, store, reconcileWarning, statusbar.DefaultConfig())
+}
+
+func NewWithPickerStatusBarOptions(ctx context.Context, store Actions, reconcileWarning string, statusBar statusbar.Config) Model {
+	m := NewWithStatusBar(ctx, store, statusBar)
 	m.boardPicker = true
 	m.boardPickerMode = "switch"
 	m.status = "select a board"
@@ -154,7 +178,9 @@ func NewWithPickerOptions(ctx context.Context, store Actions, reconcileWarning s
 	return m
 }
 
-func (m Model) Init() tea.Cmd { return runtimeTickCmd() }
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(runtimeTickCmd(), m.initialStatusBarCmd())
+}
 
 type runtimeTickMsg time.Time
 
@@ -207,6 +233,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.syncScrollDimensions()
 		return m, nil
+	case statusBarResultMsg:
+		if !m.applyStatusBarResult(msg) {
+			return m, nil
+		}
+		return m, m.scheduleStatusBarRefresh(msg.name, msg.generation)
+	case statusBarRefreshMsg:
+		if msg.generation != m.statusBarGeneration {
+			return m, nil
+		}
+		return m, m.runStatusBarModule(msg.name)
 	case runtimeTickMsg:
 		if err := m.actions.RefreshRuntime(m.ctx); err != nil {
 			m.setActionError("refresh runtime state", err, "Run `kanbi doctor`, then retry. Existing sessions are left running.")
@@ -282,6 +318,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Ctrl+C is a global, non-destructive application quit. Ticket runtime
 	// containers remain alive regardless of which modal currently has focus.
 	if key.String() == "ctrl+c" {
+		m.statusBarCancel()
 		return m, tea.Quit
 	}
 	if isKittyGraphicsResponse(string(key.Runes)) || isKittyGraphicsResponse(key.String()) {
@@ -346,7 +383,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateBoardImport(key), nil
 	}
 	if m.boardPicker {
-		return m.updateBoardPicker(key), nil
+		previousBoardID, previousMaster := m.boardID, m.masterBoard
+		m = m.updateBoardPicker(key)
+		if previousBoardID != m.boardID || previousMaster != m.masterBoard {
+			m.statusBarGeneration++
+			m.statusBarResults = make(map[string]statusbar.ModuleResult)
+			return m, m.initialStatusBarCmd()
+		}
+		return m, nil
 	}
 	if m.repairing {
 		return m.updateRepair(key), nil
@@ -385,6 +429,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "f":
 		m.startMasterFilter()
 	case "q":
+		m.statusBarCancel()
 		return m, tea.Quit
 	case "!":
 		m.moveAttention(1)

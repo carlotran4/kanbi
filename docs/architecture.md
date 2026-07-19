@@ -80,7 +80,8 @@ Stop and ask before:
 | `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. Includes the Herdr adapter under `internal/multiplexer/herdr`. |
 | `internal/tmux` | tmux adapter and compatibility runtime manager. Launch execution, runtime polling, and reconciliation remain here while lifecycle policy lives in `internal/session`. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
-| `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, and terminal-gated image previews. |
+| `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, status-bar scheduling, and terminal-gated image previews. |
+| `internal/statusbar` | Starship-style status modules, three-zone layout, configuration validation, and bounded custom-command execution. |
 | `internal/prompt` | Ticket body/prompt rendering. |
 | `internal/attachments` | XDG data-dir ticket attachment storage and pasted image detection. |
 | `internal/architecture` | Dependency-boundary tests that keep presentation and concrete runtime adapters out of inward-facing packages. |

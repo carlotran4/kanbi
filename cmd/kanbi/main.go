@@ -182,7 +182,7 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		defer manager.Close()
 		svc := tui.NewServiceWithSyncer(cli.store, manager, syncer)
 		svc.DataDir = cfg.Paths.DataDir
-		_, err := tea.NewProgram(tui.NewWithPickerOptions(ctx, svc, reconcileWarning)).Run()
+		_, err := tea.NewProgram(tui.NewWithPickerStatusBarOptions(ctx, svc, reconcileWarning, *cfg.StatusBar)).Run()
 		return err
 	})
 }
