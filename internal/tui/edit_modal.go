@@ -313,8 +313,10 @@ func (m Model) handleBodyPaste(key tea.KeyMsg) Model {
 }
 
 func (m *Model) insertBodyImageReference(ref string) {
-	insert := ref
 	value := m.bodyTA.Value()
+	imageNumber := len(markdownImageRE.FindAllStringIndex(value, -1)) + 1
+	ref = strings.Replace(ref, "![](", fmt.Sprintf("![image %d](", imageNumber), 1)
+	insert := ref
 	if strings.TrimSpace(value) != "" && !strings.HasSuffix(value, "\n") {
 		insert = "\n" + insert
 	}
