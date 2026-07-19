@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/carlotran4/kanbi/internal/storage"
+	"golang.org/x/sys/unix"
 )
 
 var stableComponentRE = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -114,6 +115,9 @@ func (s *Service) Provision(ctx context.Context, opts ProvisionOptions) (storage
 	} else if ok {
 		if current.BoardID != opts.BoardID {
 			return storage.Workspace{}, errors.New("current workspace belongs to a different board")
+		}
+		if current.State == storage.WorkspaceStateIntegrated {
+			return s.Rehydrate(ctx, current)
 		}
 		if err := s.Validate(ctx, current); err != nil {
 			_ = s.Store.MarkWorkspaceState(ctx, current.ID, storage.WorkspaceStateRepairNeeded, err.Error())
@@ -231,6 +235,66 @@ func (s *Service) Validate(ctx context.Context, w storage.Workspace) error {
 	return nil
 }
 
+// Rehydrate recreates an intentionally retired integrated checkout at its exact
+// recorded path from the retained local branch.
+func (s *Service) Rehydrate(ctx context.Context, w storage.Workspace) (storage.Workspace, error) {
+	if w.State != storage.WorkspaceStateIntegrated {
+		return storage.Workspace{}, fmt.Errorf("workspace is not intentionally retired: %s", w.State)
+	}
+	if pathIsDir(w.WorktreePath) {
+		if err := s.Validate(ctx, w); err != nil {
+			return storage.Workspace{}, err
+		}
+		if err := s.Store.MarkWorkspaceRehydrated(ctx, w.ID); err != nil {
+			return storage.Workspace{}, err
+		}
+		w.State, w.RetiredAt = storage.WorkspaceStateReady, sql.NullTime{}
+		return w, nil
+	}
+	err := s.withRepoLock(ctx, w.CommonDir, func() error {
+		exists, err := s.Git.branchExists(ctx, w.RepositoryRoot, w.BranchName)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("retained workspace branch %q is missing", w.BranchName)
+		}
+		if path, checkedOut, err := s.Git.branchWorktree(ctx, w.RepositoryRoot, w.BranchName); err != nil {
+			return err
+		} else if checkedOut {
+			if samePath(path, w.WorktreePath) && pathIsDir(w.WorktreePath) {
+				return s.Validate(ctx, w)
+			}
+			return fmt.Errorf("retained branch %q is checked out by another worktree %s", w.BranchName, path)
+		}
+		if _, statErr := os.Lstat(w.WorktreePath); statErr == nil {
+			return fmt.Errorf("retired workspace path is occupied: %s", w.WorktreePath)
+		} else if !os.IsNotExist(statErr) {
+			return statErr
+		}
+		if err := os.MkdirAll(filepath.Dir(w.WorktreePath), 0o700); err != nil {
+			return err
+		}
+		return s.Git.worktreeAdd(ctx, w.RepositoryRoot, w.WorktreePath, w.BranchName, "", true)
+	})
+	if err != nil {
+		_ = s.Store.RecordWorkspaceObservationError(context.Background(), w.ID, err.Error())
+		return storage.Workspace{}, fmt.Errorf("rehydrate workspace: %w", err)
+	}
+	if err := s.Validate(ctx, w); err != nil {
+		_ = s.Store.MarkWorkspaceState(ctx, w.ID, storage.WorkspaceStateRepairNeeded, err.Error())
+		return storage.Workspace{}, err
+	}
+	if err := s.Store.MarkWorkspaceRehydrated(ctx, w.ID); err != nil {
+		return storage.Workspace{}, err
+	}
+	w.State, w.RetiredAt = storage.WorkspaceStateReady, sql.NullTime{}
+	if _, err := s.Observe(ctx, w); err != nil {
+		_ = s.Store.RecordWorkspaceObservationError(ctx, w.ID, err.Error())
+	}
+	return w, nil
+}
+
 // Observe validates and persists the latest Git status projection.
 func (s *Service) Observe(ctx context.Context, w storage.Workspace) (Observation, error) {
 	if err := s.Validate(ctx, w); err != nil {
@@ -279,8 +343,9 @@ func (s *Service) Resolve(ctx context.Context, w storage.Workspace) (Observation
 }
 
 // Integrate merges the clean ticket branch into the exact recorded source
-// checkout/branch, validates, and only then removes the managed worktree and
-// branch. Failures roll the source checkout back to its pre-merge commit.
+// checkout/branch, validates, and then retires only the linked checkout. The
+// local branch and current durable workspace remain for exact-path rehydration.
+// Failures roll the source checkout back to its pre-merge commit.
 func (s *Service) Integrate(ctx context.Context, w storage.Workspace, opts IntegrateOptions) error {
 	if err := s.Validate(ctx, w); err != nil {
 		return err
@@ -360,10 +425,6 @@ func (s *Service) Integrate(ctx context.Context, w storage.Workspace, opts Integ
 			_ = s.Store.MarkWorkspaceCleanupRequired(ctx, w.ID, err.Error())
 			return fmt.Errorf("remove integrated worktree: %w", err)
 		}
-		if _, err := s.Git.run(ctx, w.RepositoryRoot, "branch", "-d", w.BranchName); err != nil {
-			_ = s.Store.MarkWorkspaceCleanupRequired(ctx, w.ID, err.Error())
-			return fmt.Errorf("remove integrated branch: %w", err)
-		}
 		return nil
 	})
 }
@@ -382,14 +443,19 @@ func (s *Service) withRepoLock(ctx context.Context, commonDir string, fn func() 
 	if err := os.MkdirAll(lockRoot, 0o700); err != nil {
 		return err
 	}
-	lockPath := filepath.Join(lockRoot, hex.EncodeToString(digest[:])+".lock")
+	lockPath := filepath.Join(lockRoot, hex.EncodeToString(digest[:])+".flock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lockFile.Close()
 	for {
-		err := os.Mkdir(lockPath, 0o700)
+		err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
-			defer os.Remove(lockPath)
+			defer unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
 			return fn()
 		}
-		if !os.IsExist(err) {
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
 			return err
 		}
 		select {

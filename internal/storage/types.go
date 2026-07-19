@@ -264,6 +264,7 @@ type RemoteTicket struct {
 type CreateBoardOptions struct {
 	Name          string
 	Workdir       string
+	WorktreeMode  string
 	TicketBackend string
 	BackendQuery  string
 	BackendConfig string

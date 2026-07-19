@@ -343,7 +343,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				if b.LastSyncError.Valid && strings.TrimSpace(b.LastSyncError.String) != "" {
 					status = "sync_error=" + b.LastSyncError.String
 				}
-				fmt.Printf("%d\t%s\t%s\t%s\t%s\n", b.ID, b.Name, b.Workdir, b.TicketBackend, status)
+				fmt.Printf("%d\t%s\t%s\t%s\tworktree_mode=%s\t%s\n", b.ID, b.Name, b.Workdir, b.TicketBackend, b.WorktreeMode, status)
 			}
 			return nil
 		}
@@ -399,6 +399,31 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.board", "board": jsonBoard(updated)})
 			}
 			fmt.Printf("%d\t%s\t%s\t%s\n", updated.ID, updated.Name, updated.Workdir, updated.TicketBackend)
+			return nil
+		}
+		if args[0] == "enable-worktrees" || args[0] == "disable-worktrees" {
+			if len(args) != 2 {
+				return fmt.Errorf("usage: kanbi boards %s NAME", args[0])
+			}
+			b, err := cli.BoardByName(args[1])
+			if err != nil {
+				return err
+			}
+			mode := storage.WorktreeModeGit
+			if args[0] == "disable-worktrees" {
+				mode = storage.WorktreeModeOff
+			}
+			if err := cli.store.SetBoardWorktreeMode(ctx, b.ID, mode); err != nil {
+				return err
+			}
+			updated, err := cli.store.BoardByID(ctx, b.ID)
+			if err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.board", "board": jsonBoard(updated)})
+			}
+			fmt.Printf("%d\t%s\tworktree_mode=%s\n", updated.ID, updated.Name, updated.WorktreeMode)
 			return nil
 		}
 		if args[0] == "archive" || args[0] == "unarchive" || args[0] == "enable-sync" || args[0] == "disable-sync" {
@@ -547,7 +572,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			fmt.Printf("%d\t%s\tworkflow_key=%s\n", col.ID, col.Name, col.WorkflowKey)
 			return nil
 		}
-		return fmt.Errorf("usage: kanbi boards [list [--include-archived]|add NAME ...|rename OLD NEW|set-cwd NAME PATH|archive NAME|unarchive NAME|enable-sync NAME|disable-sync NAME|export NAME PATH|import PATH [--name NEW] [--preview]|set-column-key NAME --column DISPLAY --key KEY]")
+		return fmt.Errorf("usage: kanbi boards [list [--include-archived]|add NAME ...|rename OLD NEW|set-cwd NAME PATH|enable-worktrees NAME|disable-worktrees NAME|archive NAME|unarchive NAME|enable-sync NAME|disable-sync NAME|export NAME PATH|import PATH [--name NEW] [--preview]|set-column-key NAME --column DISPLAY --key KEY]")
 	})
 }
 
@@ -1296,6 +1321,7 @@ func jsonBoard(b storage.Board) any {
 		"uuid":               b.UUID,
 		"name":               b.Name,
 		"workdir":            b.Workdir,
+		"worktree_mode":      b.WorktreeMode,
 		"ticket_backend":     b.TicketBackend,
 		"backend_query":      b.BackendQuery,
 		"backend_config":     b.BackendConfig,
@@ -1416,6 +1442,15 @@ func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {
 				return storage.CreateBoardOptions{}, fmt.Errorf("--cwd requires a value")
 			}
 			opts.Workdir = args[i]
+		case "--worktree-mode":
+			i++
+			if i >= len(args) {
+				return storage.CreateBoardOptions{}, fmt.Errorf("--worktree-mode requires off or git")
+			}
+			opts.WorktreeMode = strings.ToLower(strings.TrimSpace(args[i]))
+			if opts.WorktreeMode != storage.WorktreeModeOff && opts.WorktreeMode != storage.WorktreeModeGit {
+				return storage.CreateBoardOptions{}, fmt.Errorf("--worktree-mode must be off or git")
+			}
 		case "--backend":
 			i++
 			if i >= len(args) {
@@ -1445,7 +1480,7 @@ func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {
 		}
 	}
 	if opts.Name == "" {
-		return storage.CreateBoardOptions{}, fmt.Errorf("usage: kanbi boards add \"Name\" [--cwd /path] [--backend local|github|atlassian] [--query QUERY] [--config JSON]")
+		return storage.CreateBoardOptions{}, fmt.Errorf("usage: kanbi boards add \"Name\" [--cwd /path] [--worktree-mode off|git] [--backend local|github|atlassian] [--query QUERY] [--config JSON]")
 	}
 	if opts.TicketBackend == "" {
 		opts.TicketBackend = ticketbackend.KindLocal

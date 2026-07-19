@@ -21,6 +21,7 @@ type BoardQueries interface {
 
 type BoardCommands interface {
 	CreateBoardWithWorkdir(context.Context, string, string) (storage.Board, error)
+	CreateBoardWithWorkdirMode(context.Context, string, string, string) (storage.Board, error)
 	RenameBoard(context.Context, int64, string) error
 	SetBoardWorkdir(context.Context, int64, string) error
 	SetBoardWorktreeMode(context.Context, int64, string) error

@@ -52,9 +52,11 @@ Exit status is 0 for success/help and 1 for command, configuration, or runtime e
 var commandHelp = map[string]string{
 	"boards": `Usage: kanbi boards [--json]
        kanbi boards list [--include-archived]
-       kanbi boards add NAME [--cwd PATH] [--backend local|github|atlassian] [--query QUERY] [--config JSON]
+       kanbi boards add NAME [--cwd PATH] [--worktree-mode off|git] [--backend local|github|atlassian] [--query QUERY] [--config JSON]
        kanbi boards rename OLD NEW
        kanbi boards set-cwd NAME PATH
+       kanbi boards enable-worktrees NAME
+       kanbi boards disable-worktrees NAME  # only before any workspace history
        kanbi boards archive NAME
        kanbi boards unarchive NAME
        kanbi boards enable-sync NAME

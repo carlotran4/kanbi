@@ -1,5 +1,6 @@
 .bin/
 /dist/
+/.pi-subagents/
 /kanbi
 .pi/
 .pi-subagents/

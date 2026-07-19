@@ -124,6 +124,7 @@ func Import(ctx context.Context, store *storage.Store, dataDir, archivePath stri
 	insert := storage.BoardAggregateInsert{
 		Name:             name,
 		Workdir:          doc.Board.Workdir,
+		WorktreeMode:     doc.Board.WorktreeMode,
 		TicketBackend:    doc.Board.TicketBackend,
 		BackendQuery:     doc.Board.BackendQuery,
 		BackendConfig:    doc.Board.BackendConfig,

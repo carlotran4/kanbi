@@ -126,7 +126,7 @@ erDiagram
 - A **ticket** is durable work metadata: non-blank title, body, supported harness preference, workflow column, archive status. A ticket may move only between columns owned by its board.
 - Column names are unique by exact spelling within a board. Master aggregation matches column `workflow_key` values (defaulted to each column's display name at creation; rename does not change the key). At most one column per workflow key is allowed on a board.
 - External ticket and note identities are unique within their owning board/ticket so sync never has to choose an ambiguous local row.
-- A **workspace** is a durable ticket-owned execution checkout. Git-worktree boards retain workspace intent/history independently of terminal sessions; at most one workspace is current per ticket.
+- A **workspace** is a durable ticket-owned execution checkout. Git-worktree boards retain workspace intent/history independently of terminal sessions; at most one workspace is current per ticket. Integration retires only the linked checkout while retaining its branch, stable path, and session continuity; reopening rehydrates the exact path.
 - A **session** is one attempt to run an agent for a ticket and snapshots its nullable workspace id and launch directory.
 - **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while the GitHub and Atlassian/Jira backends map notes to provider comments.
 - An **active session** is a session believed to own a live terminal container, but it must still pass validation before being trusted.

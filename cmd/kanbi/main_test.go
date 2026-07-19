@@ -180,12 +180,18 @@ func TestParseOpenArgsUnknownFlag(t *testing.T) {
 
 func TestParseBoardAddArgsCWD(t *testing.T) {
 	dir := t.TempDir()
-	opts, err := parseBoardAddArgs([]string{"Client", "--cwd", dir, "--backend", "local", "--query", "ignored for local"})
+	opts, err := parseBoardAddArgs([]string{"Client", "--cwd", dir, "--worktree-mode", "git", "--backend", "local", "--query", "ignored for local"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.Name != "Client" || opts.Workdir != dir || opts.TicketBackend != "local" || opts.BackendQuery != "ignored for local" {
+	if opts.Name != "Client" || opts.Workdir != dir || opts.WorktreeMode != storage.WorktreeModeGit || opts.TicketBackend != "local" || opts.BackendQuery != "ignored for local" {
 		t.Fatalf("opts=%+v", opts)
+	}
+}
+
+func TestParseBoardAddArgsRejectsInvalidWorktreeMode(t *testing.T) {
+	if _, err := parseBoardAddArgs([]string{"Client", "--worktree-mode", "sometimes"}); err == nil {
+		t.Fatal("expected invalid worktree mode")
 	}
 }
 

@@ -122,7 +122,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 On a current workspace that is observed as conflicting, `r` closes the live agent before merging the latest recorded source branch into the ticket worktree, then resumes the same workspace with a conflict-file prompt that explicitly forbids merging into source. Conflicts remain isolated in the ticket worktree and project decisions can surface through normal needs-input state.
 
-On a current workspace, `m` opens a textual confirmation showing source, ticket branch, and cached status. Confirmation revalidates clean checkouts and repository identity, serializes by Git common directory across Kanbi processes, closes the agent, merges only into the recorded source checkout, and removes the worktree/local branch only after success. Conflict or validation failure preserves the workspace; cleanup failure is recorded separately after a successful merge.
+On a current workspace, `m` opens a textual confirmation showing source, ticket branch, and cached status. Confirmation revalidates clean checkouts and repository identity, serializes by Git common directory across Kanbi processes, closes the agent, and merges only into the recorded source checkout. After success Kanbi removes only the linked filesystem checkout: the local ticket branch, stable path, durable workspace, and harness ref remain available. Reopening recreates that worktree at the exact path and resumes the same session; a tweak can be committed and integrated again. Conflict or validation failure preserves the live workspace, while checkout-retirement failure is recorded as cleanup-required.
 
 ### Close / Archive
 

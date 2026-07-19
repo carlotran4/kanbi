@@ -42,7 +42,10 @@ type Model struct {
 	boardEditID             int64
 	boardEditName           string
 	boardEditCWD            string
+	boardEditMode           string
 	boardEditField          int
+	boardWorktreeEnabling   bool
+	boardWorktreeBoard      storage.Board
 	boardDeleting           bool
 	boardDeleteID           int64
 	boardDeleteName         string
@@ -296,7 +299,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOnboarding(key), nil
 	}
 	// Clear stale status on any keypress (unless a modal is consuming input).
-	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.boardRenaming && !m.boardEditing && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen {
+	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen {
 		m.status = ""
 		m.errOperation = ""
 		m.errNext = ""
@@ -326,6 +329,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.boardRenaming {
 		return m.updateBoardRename(key), nil
+	}
+	if m.boardWorktreeEnabling {
+		return m.updateBoardWorktreeEnable(key), nil
 	}
 	if m.boardEditing {
 		return m.updateBoardEdit(key), nil

@@ -93,6 +93,7 @@ type AggregateSession struct {
 type BoardAggregateInsert struct {
 	Name             string
 	Workdir          string
+	WorktreeMode     string
 	TicketBackend    string
 	BackendQuery     string
 	BackendConfig    string
@@ -266,6 +267,13 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 	if !validTicketBackend(backend) {
 		return BoardInsertResult{}, fmt.Errorf("unsupported ticket backend %q", backend)
 	}
+	worktreeMode := strings.ToLower(strings.TrimSpace(in.WorktreeMode))
+	if worktreeMode == "" {
+		worktreeMode = WorktreeModeOff
+	}
+	if worktreeMode != WorktreeModeOff && worktreeMode != WorktreeModeGit {
+		return BoardInsertResult{}, fmt.Errorf("unsupported worktree mode %q", worktreeMode)
+	}
 	var existing int
 	if err := s.db.QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?)`, name).Scan(&existing); err != nil {
 		return BoardInsertResult{}, err
@@ -294,8 +302,8 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 	defer tx.Rollback()
 
 	now := time.Now().UTC()
-	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,archived_at,sync_enabled,source_export_uuid,created_at,updated_at) values(?,?,?,?,?,?,?,?,0,?,?,?)`,
-		name, uuid, nullableString(strings.TrimSpace(in.Workdir)), in.NextTicketNumber, backend, nullableString(strings.TrimSpace(in.BackendQuery)), nullableString(strings.TrimSpace(in.BackendConfig)), now, nullableString(strings.TrimSpace(in.SourceExportUUID)), now, now)
+	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,worktree_mode,archived_at,sync_enabled,source_export_uuid,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,0,?,?,?)`,
+		name, uuid, nullableString(strings.TrimSpace(in.Workdir)), in.NextTicketNumber, backend, nullableString(strings.TrimSpace(in.BackendQuery)), nullableString(strings.TrimSpace(in.BackendConfig)), worktreeMode, now, nullableString(strings.TrimSpace(in.SourceExportUUID)), now, now)
 	if err != nil {
 		return BoardInsertResult{}, err
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/storage"
+	workspacepkg "github.com/carlotran4/kanbi/internal/workspace"
 )
 
 type call struct {
@@ -63,16 +65,23 @@ func (r *invalidatingLaunchRunner) Run(ctx context.Context, name string, args ..
 func (r *piRefWritingRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	if len(args) >= 1 && args[0] == "new-window" {
 		cmd := args[len(args)-1]
-		marker := "KANBI_SESSION_REF_FILE="
-		if idx := strings.Index(cmd, marker); idx >= 0 {
+		value := func(marker string) string {
+			idx := strings.Index(cmd, marker)
+			if idx < 0 {
+				return ""
+			}
 			start := idx + len(marker)
 			end := start
 			for end < len(cmd) && cmd[end] != '\'' && cmd[end] != ' ' {
 				end++
 			}
-			refFile := cmd[start:end]
+			return cmd[start:end]
+		}
+		refFile := value("KANBI_SESSION_REF_FILE=")
+		token := value("KANBI_SESSION_REF_TOKEN=")
+		if refFile != "" {
 			_ = os.MkdirAll(filepath.Dir(refFile), 0o755)
-			_ = os.WriteFile(refFile, []byte(`{"sessionId":"`+r.ref+`"}`+"\n"), 0o644)
+			_ = os.WriteFile(refFile, []byte(`{"sessionId":"`+r.ref+`","attemptToken":"`+token+`"}`+"\n"), 0o644)
 		}
 	}
 	return r.fakeRunner.Run(ctx, name, args...)
@@ -357,6 +366,83 @@ func TestRenameTicketWindowUpdatesDBAndTmux(t *testing.T) {
 	if ses.TmuxWindowName != wantName {
 		t.Fatalf("DB window name = %q, want %s", ses.TmuxWindowName, wantName)
 	}
+}
+
+func TestOpenIntegratedWorkspaceRehydratesBeforeResumingStoredRef(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	runGit("init", "-b", "develop")
+	runGit("config", "user.email", "kanbi-test@example.invalid")
+	runGit("config", "user.name", "Kanbi Test")
+	if err := os.WriteFile(filepath.Join(repo, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", ".")
+	runGit("commit", "-m", "base")
+	if err := store.SetBoardWorkdir(ctx, view.Board.ID, repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetBoardWorktreeMode(ctx, view.Board.ID, storage.WorktreeModeGit); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Rehydrate", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	svc := &workspacepkg.Service{Store: store, StateDir: stateDir}
+	w, err := svc.Provision(ctx, workspacepkg.ProvisionOptions{BoardID: view.Board.ID, BoardUUID: view.Board.UUID, BoardCWD: repo, TicketID: ticket.ID, Branch: "feat/rehydrate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: "kanbi", TmuxWindowName: "rehydrate", WorkspaceID: sql.NullInt64{Int64: w.ID, Valid: true}, LaunchCWD: sqlString(w.LaunchCWD), Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateSessionRef(ctx, sessionID, "resume-in-same-path"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkSessionClosed(ctx, sessionID, "closed", "tmux", "integrating"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkWorkspaceIntegrated(ctx, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	runGit("worktree", "remove", w.WorktreePath)
+
+	ticket, err = store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	cfg := config.Defaults(config.Paths{StateDir: stateDir})
+	manager := &Manager{Config: cfg, Store: store, Runner: runner, ResumeCheckAfter: time.Millisecond, WorkspaceService: svc}
+	if err := manager.OpenTicket(ctx, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(w.LaunchCWD); err != nil {
+		t.Fatalf("workspace not rehydrated: %v", err)
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" {
+			joined := strings.Join(c.args, " ")
+			if !strings.Contains(joined, "resume-in-same-path") || !strings.Contains(joined, w.LaunchCWD) {
+				t.Fatalf("resume did not use retained ref/path: %v", c.args)
+			}
+			return
+		}
+	}
+	t.Fatal("resume window not launched")
 }
 
 func TestOpenTicketResumesWithStoredRef(t *testing.T) {
@@ -755,30 +841,60 @@ func TestWindowNameAndShellCommand(t *testing.T) {
 	}
 }
 
+func TestPromptStartClearsStalePiSessionRefHandoff(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := config.Defaults(config.Paths{StateDir: stateDir})
+	manager := &Manager{Config: cfg}
+	ticket := storage.Ticket{ID: 42}
+	refFile := manager.piSessionRefFilePath(ticket.ID)
+	if err := os.MkdirAll(filepath.Dir(refFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(refFile, []byte(`{"sessionId":"stale-ref"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command, gotPath, token, err := manager.commandWithPiSessionRefCapture(ticket, []string{"pi", "prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != refFile || token == "" || !strings.Contains(strings.Join(command, " "), "KANBI_SESSION_REF_TOKEN="+token) {
+		t.Fatalf("command=%v ref path=%q token=%q", command, gotPath, token)
+	}
+	if _, err := os.Stat(refFile); !os.IsNotExist(err) {
+		t.Fatalf("stale handoff was not removed: %v", err)
+	}
+	if err := os.WriteFile(refFile, []byte(`{"sessionId":"late-old-ref","attemptToken":"old-attempt"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ref, ok := readPiSessionRefFile(refFile, token); ok {
+		t.Fatalf("accepted delayed stale ref %q for new token", ref)
+	}
+}
+
 func TestReadPiSessionRefFileRejectsMissingMalformedOrEmptyRefs(t *testing.T) {
 	dir := t.TempDir()
-	if _, ok := readPiSessionRefFile(filepath.Join(dir, "missing.json")); ok {
+	if _, ok := readPiSessionRefFile(filepath.Join(dir, "missing.json"), ""); ok {
 		t.Fatal("missing file should not yield a ref")
 	}
 	bad := filepath.Join(dir, "bad.json")
 	if err := os.WriteFile(bad, []byte(`not-json`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := readPiSessionRefFile(bad); ok {
+	if _, ok := readPiSessionRefFile(bad, ""); ok {
 		t.Fatal("malformed JSON should not yield a ref")
 	}
 	empty := filepath.Join(dir, "empty.json")
 	if err := os.WriteFile(empty, []byte(`{"sessionId":"   "}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := readPiSessionRefFile(empty); ok {
+	if _, ok := readPiSessionRefFile(empty, ""); ok {
 		t.Fatal("blank session id should not yield a ref")
 	}
 	valid := filepath.Join(dir, "valid.json")
 	if err := os.WriteFile(valid, []byte(`{"sessionId":"  019e-good  "}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ref, ok := readPiSessionRefFile(valid)
+	ref, ok := readPiSessionRefFile(valid, "")
 	if !ok || ref != "019e-good" {
 		t.Fatalf("valid ref = %q ok=%v", ref, ok)
 	}

@@ -64,6 +64,13 @@ func seedPackagedBoard(t *testing.T, s *storage.Store, ctx context.Context, data
 	if err := s.MarkSessionClosed(ctx, sesID, "closed", "test", "done"); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetBoardWorktreeMode(ctx, board.ID, storage.WorktreeModeGit); err != nil {
+		t.Fatal(err)
+	}
+	board, err = s.BoardByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	attachDir := filepath.Join(dataDir, "attachments", fmt.Sprintf("%d", ticket.ID))
 	if err := os.MkdirAll(attachDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -101,6 +108,9 @@ func TestBoardPackageRoundTripPreservesTombstoneAndSession(t *testing.T) {
 	}
 	if !result.Board.ArchivedAt.Valid || result.Board.SyncEnabled {
 		t.Fatalf("import should archive+disable sync: %+v", result.Board)
+	}
+	if result.Board.WorktreeMode != storage.WorktreeModeGit {
+		t.Fatalf("import lost board execution policy: %+v", result.Board)
 	}
 	if !result.Board.SourceExportUUID.Valid || result.Board.SourceExportUUID.String != board.UUID {
 		t.Fatalf("source export uuid missing: %+v", result.Board)
