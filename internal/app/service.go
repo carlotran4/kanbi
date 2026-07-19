@@ -27,6 +27,13 @@ type SessionManager interface {
 	MoveTicketToDefaultMultiplexer(context.Context, storage.Ticket) error
 }
 
+type WorkspaceManager interface {
+	PreflightTicketWorkspace(context.Context, storage.Ticket, string) (storage.WorkspacePreflight, error)
+	PrepareTicketWorkspace(context.Context, storage.Ticket, string, bool) error
+	ResolveTicketWorkspace(context.Context, storage.Ticket) error
+	IntegrateTicketWorkspace(context.Context, storage.Ticket) error
+}
+
 // TicketSyncer is the board-scoped synchronization seam used after mutations.
 // ScheduleBoardSync is preferred for mutation paths so ownership stays inside
 // the sync manager (cancel + drain) instead of fire-and-forget app goroutines.
@@ -106,6 +113,9 @@ func (s *Service) RenameBoard(ctx context.Context, id int64, name string) error 
 }
 func (s *Service) SetBoardWorkdir(ctx context.Context, id int64, cwd string) error {
 	return s.Store.SetBoardWorkdir(ctx, id, cwd)
+}
+func (s *Service) SetBoardWorktreeMode(ctx context.Context, id int64, mode string) error {
+	return s.Store.SetBoardWorktreeMode(ctx, id, mode)
 }
 
 func (s *Service) DeleteBoard(ctx context.Context, boardID int64) error {
@@ -271,6 +281,34 @@ func (s *Service) MoveTicketToDefaultMultiplexer(ctx context.Context, ticket sto
 		return fmt.Errorf("move to default multiplexer unavailable")
 	}
 	return s.Manager.MoveTicketToDefaultMultiplexer(ctx, ticket)
+}
+func (s *Service) PreflightTicketWorkspace(ctx context.Context, ticket storage.Ticket, branch string) (storage.WorkspacePreflight, error) {
+	manager, ok := s.Manager.(WorkspaceManager)
+	if !ok {
+		return storage.WorkspacePreflight{}, fmt.Errorf("workspace preparation unavailable")
+	}
+	return manager.PreflightTicketWorkspace(ctx, ticket, branch)
+}
+func (s *Service) PrepareTicketWorkspace(ctx context.Context, ticket storage.Ticket, branch string, existing bool) error {
+	manager, ok := s.Manager.(WorkspaceManager)
+	if !ok {
+		return fmt.Errorf("workspace preparation unavailable")
+	}
+	return manager.PrepareTicketWorkspace(ctx, ticket, branch, existing)
+}
+func (s *Service) ResolveTicketWorkspace(ctx context.Context, ticket storage.Ticket) error {
+	manager, ok := s.Manager.(WorkspaceManager)
+	if !ok {
+		return fmt.Errorf("workspace resolution unavailable")
+	}
+	return manager.ResolveTicketWorkspace(ctx, ticket)
+}
+func (s *Service) IntegrateTicketWorkspace(ctx context.Context, ticket storage.Ticket) error {
+	manager, ok := s.Manager.(WorkspaceManager)
+	if !ok {
+		return fmt.Errorf("workspace integration unavailable")
+	}
+	return manager.IntegrateTicketWorkspace(ctx, ticket)
 }
 func (s *Service) UpdateSessionRef(ctx context.Context, ticket storage.Ticket, ref string) error {
 	if ticket.SessionID.Valid {

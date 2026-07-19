@@ -75,6 +75,23 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 		}
 		m.reloadBoards()
 		return m
+	case "t":
+		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+			m.status = "choose a real board to toggle worktrees"
+			return m
+		}
+		b := m.boards[m.boardIndex-1]
+		mode := storage.WorktreeModeGit
+		if b.WorktreeMode == storage.WorktreeModeGit {
+			mode = storage.WorktreeModeOff
+		}
+		if err := m.actions.SetBoardWorktreeMode(m.ctx, b.ID, mode); err != nil {
+			m.status = err.Error()
+			return m
+		}
+		m.status = "worktree mode " + mode + " for " + b.Name
+		m.reloadBoards()
+		return m
 	case "s":
 		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
 			m.status = "choose a real board to toggle sync"
@@ -202,6 +219,9 @@ func (m Model) boardPickerView() string {
 	lines = append(lines, row(0, masterLabel))
 	for i, board := range m.boards {
 		label := board.Name
+		if board.WorktreeMode == storage.WorktreeModeGit {
+			label += "  " + lipgloss.NewStyle().Faint(true).Render("[Git worktrees]")
+		}
 		if board.ArchivedAt.Valid {
 			label += "  " + lipgloss.NewStyle().Faint(true).Render("[archived]")
 		} else if !board.SyncEnabled {
@@ -223,7 +243,7 @@ func (m Model) boardPickerView() string {
 	if m.boardPickerMode == "create" {
 		hint = "Enter create · j/k move · Esc cancel"
 	} else {
-		hint = "Enter select · c create · r rename · w cwd · a archive · s sync · e export · i import · A show archived · d delete · j/k · Esc"
+		hint = "Enter select · c create · r rename · w cwd · t worktrees · a archive · s sync · e export · i import · A archived · d delete · j/k · Esc"
 	}
 	lines = append(lines, lipgloss.NewStyle().Faint(true).Render(hint))
 	popupW := popupWidth(m.width)

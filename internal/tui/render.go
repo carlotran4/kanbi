@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -60,6 +61,12 @@ func (m Model) View() string {
 	}
 	if m.repairing {
 		return overlayModal(base, fitModal(m.repairView(), m.height, 0, true), m.width, m.height)
+	}
+	if m.branchNaming {
+		return overlayModal(base, fitModal(m.branchNameView(), m.height, 0, true), m.width, m.height)
+	}
+	if m.workspaceIntegrating {
+		return overlayModal(base, fitModal(m.workspaceIntegrationView(), m.height, 0, true), m.width, m.height)
 	}
 
 	return base
@@ -299,6 +306,11 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 	for _, line := range wrapText("session: "+windowIndicator(ticket), cardInnerWidth-2, 2) {
 		content = append(content, padLine("  "+line, cardInnerWidth))
 	}
+	if workspaceLine := ticketWorkspaceLine(ticket); workspaceLine != "" {
+		for _, line := range wrapText(workspaceLine, cardInnerWidth-2, 2) {
+			content = append(content, padLine("  "+line, cardInnerWidth))
+		}
+	}
 
 	// Body preview — only shown on the focused card.
 	if focused {
@@ -409,6 +421,108 @@ func windowIndicator(ticket storage.Ticket) string {
 	default:
 		return "- no active container"
 	}
+}
+
+func workspaceNeedsResolution(ticket storage.Ticket) bool {
+	if ticket.WorkspaceState.String == storage.WorkspaceStateResolving {
+		return true
+	}
+	var obs struct {
+		Conflicts []string `json:"conflicts"`
+		Mergeable bool     `json:"mergeable"`
+		Known     bool     `json:"mergeability_known"`
+	}
+	if !ticket.WorkspaceStatusJSON.Valid || json.Unmarshal([]byte(ticket.WorkspaceStatusJSON.String), &obs) != nil {
+		return false
+	}
+	return len(obs.Conflicts) > 0 || (obs.Known && !obs.Mergeable)
+}
+
+func ticketWorkspaceLine(ticket storage.Ticket) string {
+	if !ticket.WorkspaceID.Valid || strings.TrimSpace(ticket.WorkspaceBranch.String) == "" {
+		return ""
+	}
+	line := " " + ticket.WorkspaceBranch.String
+	if ticket.WorkspaceState.String == storage.WorkspaceStateResolving {
+		return line + " · ◐ resolving"
+	}
+	if ticket.WorkspaceState.String == storage.WorkspaceStateRepairNeeded {
+		return line + " · ! repair required"
+	}
+	if ticket.WorkspaceLastError.Valid && strings.TrimSpace(ticket.WorkspaceLastError.String) != "" {
+		return line + " · ! observation error"
+	}
+	var obs struct {
+		Ahead             int      `json:"ahead"`
+		Behind            int      `json:"behind"`
+		Dirty             bool     `json:"dirty"`
+		ChangedFiles      int      `json:"changed_files"`
+		Conflicts         []string `json:"conflicts"`
+		Mergeable         bool     `json:"mergeable"`
+		MergeabilityKnown bool     `json:"mergeability_known"`
+	}
+	if !ticket.WorkspaceStatusJSON.Valid || json.Unmarshal([]byte(ticket.WorkspaceStatusJSON.String), &obs) != nil {
+		return line + " · …"
+	}
+	if obs.Ahead > 0 {
+		line += fmt.Sprintf(" · +%d", obs.Ahead)
+	}
+	if obs.Behind > 0 {
+		line += fmt.Sprintf("/-%d", obs.Behind)
+	}
+	if len(obs.Conflicts) > 0 {
+		return line + fmt.Sprintf(" · ✕ %d conflicts", len(obs.Conflicts))
+	}
+	if obs.Dirty {
+		line += " · dirty"
+	} else if obs.ChangedFiles > 0 {
+		line += fmt.Sprintf(" · %d files", obs.ChangedFiles)
+	}
+	if obs.MergeabilityKnown {
+		if obs.Mergeable {
+			line += " · ✓ mergeable"
+		} else {
+			line += " · ✕ conflicts"
+		}
+	}
+	return line
+}
+
+func (m Model) workspaceIntegrationView() string {
+	t := m.workspaceActionTicket
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Integrate ticket workspace locally?"),
+		"",
+		"Source: " + t.WorkspaceSourceBranch.String,
+		"Ticket: " + t.WorkspaceBranch.String,
+		ticketWorkspaceLine(t),
+		"",
+		"Kanbi will revalidate both checkouts, close the agent, merge only into the recorded source, and clean up after success.",
+		"",
+		lipgloss.NewStyle().Faint(true).Render("Enter integrate · Esc cancel"),
+	}
+	return lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(palette.warning).Padding(1, 2).Width(popupWidth(m.width) - 4).Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) branchNameView() string {
+	p := m.branchPreflight
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Branch name"),
+		"",
+		"Source: " + p.SourceBranch,
+		"> " + renderWithCursor(m.branchName, len([]rune(m.branchName))),
+	}
+	if p.SourceDirty {
+		lines = append(lines, "", lipgloss.NewStyle().Foreground(palette.warning).Render("Source has uncommitted changes; they are not included."))
+	}
+	if p.BranchExists {
+		lines = append(lines, "", lipgloss.NewStyle().Foreground(palette.warning).Render("Branch already exists. Press Enter again to use it explicitly."))
+	}
+	if m.branchConfirmed && p.SourceDirty && !p.BranchExists {
+		lines = append(lines, "", lipgloss.NewStyle().Foreground(palette.warning).Render("Press Enter again to continue without source changes."))
+	}
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Enter validate/create · Esc cancel (creates no session or workspace)"))
+	return lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(palette.accent).Padding(1, 2).Width(popupWidth(m.width) - 4).Render(strings.Join(lines, "\n"))
 }
 
 func elapsedLabel(ticket storage.Ticket) string {

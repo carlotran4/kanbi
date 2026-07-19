@@ -74,8 +74,8 @@ func (s *Store) claimSession(ctx context.Context, ticketID int64, session Sessio
 		status = kanban.StateRunning
 	}
 	applySessionMuxDefaults(&session)
-	res, err := tx.ExecContext(ctx, `insert into sessions(ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,multiplexer,mux_namespace,mux_container_id,mux_container_name,mux_metadata,status,is_active,started_at,last_seen_tmux_at,last_state_change_at,last_detected_state,last_detection_source,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		ticketID, session.Harness, nullableString(session.HarnessSessionRef.String), nullableString(session.HarnessSessionName.String), session.TmuxSessionName, nullableString(session.TmuxWindowID.String), session.TmuxWindowName, session.Multiplexer, nullableString(session.MuxNamespace.String), nullableString(session.MuxContainerID.String), nullableString(session.MuxContainerName.String), nullableString(session.MuxMetadata.String), status, 1, now, now, now, status, "system", now, now)
+	res, err := tx.ExecContext(ctx, `insert into sessions(ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,multiplexer,mux_namespace,mux_container_id,mux_container_name,mux_metadata,workspace_id,launch_cwd,status,is_active,started_at,last_seen_tmux_at,last_state_change_at,last_detected_state,last_detection_source,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		ticketID, session.Harness, nullableString(session.HarnessSessionRef.String), nullableString(session.HarnessSessionName.String), session.TmuxSessionName, nullableString(session.TmuxWindowID.String), session.TmuxWindowName, session.Multiplexer, nullableString(session.MuxNamespace.String), nullableString(session.MuxContainerID.String), nullableString(session.MuxContainerName.String), nullableString(session.MuxMetadata.String), nullInt64Value(session.WorkspaceID), nullableString(session.LaunchCWD.String), status, 1, now, now, now, status, "system", now, now)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
 			return 0, ErrActiveSessionExists
@@ -123,13 +123,25 @@ func (s *Store) SessionByID(ctx context.Context, sessionID int64) (Session, bool
 	return s.sessionByQuery(ctx, sessionSelectSQL+` where id=?`, sessionID)
 }
 
-const sessionSelectSQL = `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,coalesce(multiplexer,'tmux'),coalesce(mux_namespace,tmux_session_name),coalesce(mux_container_id,tmux_window_id),coalesce(mux_container_name,tmux_window_name),mux_metadata,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions`
+// BindSessionLaunch records the workspace and launch directory while a durable
+// session claim is still starting. Once set, these audit fields are immutable.
+func (s *Store) BindSessionLaunch(ctx context.Context, sessionID int64, workspaceID sql.NullInt64, launchCWD string) error {
+	launchCWD = strings.TrimSpace(launchCWD)
+	if launchCWD == "" {
+		return errors.New("session launch cwd is required")
+	}
+	res, err := s.db.ExecContext(ctx, `update sessions set workspace_id=?,launch_cwd=?,updated_at=? where id=? and is_active=1 and status=? and workspace_id is null and launch_cwd is null`,
+		nullInt64Value(workspaceID), launchCWD, time.Now().UTC(), sessionID, kanban.StateStarting)
+	return requireAffected(res, err)
+}
+
+const sessionSelectSQL = `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,coalesce(multiplexer,'tmux'),coalesce(mux_namespace,tmux_session_name),coalesce(mux_container_id,tmux_window_id),coalesce(mux_container_name,tmux_window_name),mux_metadata,workspace_id,launch_cwd,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions`
 
 func (s *Store) sessionByQuery(ctx context.Context, query string, ticketID int64) (Session, bool, error) {
 	var ses Session
 	var active int
 	err := s.db.QueryRowContext(ctx, query, ticketID).
-		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Multiplexer, &ses.MuxNamespace, &ses.MuxContainerID, &ses.MuxContainerName, &ses.MuxMetadata, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt)
+		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Multiplexer, &ses.MuxNamespace, &ses.MuxContainerID, &ses.MuxContainerName, &ses.MuxMetadata, &ses.WorkspaceID, &ses.LaunchCWD, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, false, nil
 	}
@@ -153,6 +165,13 @@ func applySessionMuxDefaults(session *Session) {
 	if !session.MuxContainerName.Valid && session.TmuxWindowName != "" {
 		session.MuxContainerName = sql.NullString{String: session.TmuxWindowName, Valid: true}
 	}
+}
+
+func nullInt64Value(v sql.NullInt64) any {
+	if !v.Valid {
+		return nil
+	}
+	return v.Int64
 }
 
 func (s *Store) RenameSessionWindow(ctx context.Context, ticketID int64, name string) error {

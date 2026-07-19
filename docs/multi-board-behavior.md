@@ -79,7 +79,7 @@ stateDiagram-v2
   MasterView --> [*]: q
 ```
 
-Startup opens a board picker. While running, `b` reopens the picker and switches without restarting. Inside the board picker: `c` creates a board, `r` renames, `w` updates cwd, `a` archives/unarchives, `s` toggles sync (when not archived), `e` exports a board package, `i` imports a package, `A` shows archived boards, and `d` hard-deletes with exact-name confirmation. `Master` cannot be renamed or deleted. Archive hides a board and pauses sync without removing tickets, sessions, or attachments.
+Startup opens a board picker. While running, `b` reopens the picker and switches without restarting. Inside the board picker: `c` creates a board, `r` renames, `w` updates cwd, `t` explicitly toggles experimental per-ticket Git worktrees, `a` archives/unarchives, `s` toggles sync (when not archived), `e` exports a board package, `i` imports a package, `A` shows archived boards, and `d` hard-deletes with exact-name confirmation. `Master` cannot be renamed or deleted. Archive hides a board and pauses sync without removing tickets, sessions, or attachments.
 
 ## Master board aggregation
 
@@ -166,7 +166,7 @@ sequenceDiagram
   M->>Store: UpsertActiveSession(ticket, container metadata)
 ```
 
-The working directory is selected from the ticket's owning board, including when the ticket is opened from Master.
+The working directory is selected from the ticket's owning board, including when the ticket is opened from Master. For an opted-in Git-worktree board, first start creates a ticket workspace and the terminal container launches in its recorded launch directory; legacy and opt-out sessions continue using the board cwd.
 
 Each board UI executable uses the configured multiplexer as its runtime substrate. With the default tmux implementation, new ticket windows are created in the runtime tmux session for the executable that launched them, and the session row stores that `tmux_session_name`. Other board instances use the stored container reference when validating, switching to, capturing, or closing an already-active ticket session. With Herdr, sessions store Herdr workspace/agent/pane metadata in the generic multiplexer fields.
 

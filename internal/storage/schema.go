@@ -19,6 +19,7 @@ create table if not exists boards (
   archived_at datetime,
   sync_enabled integer not null default 1,
   source_export_uuid text,
+  worktree_mode text not null default 'off',
   created_at datetime not null,
   updated_at datetime not null
 );
@@ -66,6 +67,31 @@ create table if not exists tickets (
   unique(board_id, display_number)
 );
 
+create table if not exists ticket_workspaces (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  board_id integer not null references boards(id) on delete cascade,
+  kind text not null default 'git_worktree',
+  state text not null,
+  is_current integer not null default 0,
+  owns_worktree integer not null default 1,
+  repository_root text not null default '',
+  common_dir text not null default '',
+  worktree_path text not null default '',
+  launch_subdir text not null default '',
+  launch_cwd text not null default '',
+  branch_name text not null default '',
+  source_branch text not null default '',
+  source_commit_sha text not null default '',
+  base_commit_sha text not null default '',
+  last_status_json text,
+  last_error text,
+  integrated_at datetime,
+  retired_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null
+);
+
 create table if not exists sessions (
   id integer primary key autoincrement,
   ticket_id integer not null references tickets(id) on delete cascade,
@@ -80,6 +106,8 @@ create table if not exists sessions (
   mux_container_id text,
   mux_container_name text,
   mux_metadata text,
+  workspace_id integer references ticket_workspaces(id) on delete set null,
+  launch_cwd text,
   status text not null,
   is_active integer not null default 1,
   started_at datetime,

@@ -155,7 +155,31 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	}
 
 	muxKind := l.manager.defaultMultiplexerKind()
-	claim := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Multiplexer: string(muxKind), Status: kanban.StateStarting}
+	launchCWD := ticket.BoardWorkdir
+	var launchWorkspace storage.Workspace
+	if ticket.BoardWorktreeMode == storage.WorktreeModeGit {
+		service := l.manager.workspaceService()
+		if service == nil || l.manager.Store == nil {
+			return errors.New("Git worktree mode requires durable storage and a workspace service")
+		}
+		var ok bool
+		launchWorkspace, ok, err = l.manager.Store.CurrentWorkspace(ctx, ticket.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errors.New("ticket has no prepared Git workspace; reopen it and choose a branch")
+		}
+		if err := service.Validate(ctx, launchWorkspace); err != nil {
+			_ = l.manager.Store.MarkWorkspaceState(ctx, launchWorkspace.ID, storage.WorkspaceStateRepairNeeded, err.Error())
+			return fmt.Errorf("validate ticket workspace: %w", err)
+		}
+		launchCWD = launchWorkspace.LaunchCWD
+	}
+	claim := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Multiplexer: string(muxKind), Status: kanban.StateStarting, LaunchCWD: sql.NullString{String: launchCWD, Valid: strings.TrimSpace(launchCWD) != ""}}
+	if launchWorkspace.ID != 0 {
+		claim.WorkspaceID = sql.NullInt64{Int64: launchWorkspace.ID, Valid: true}
+	}
 	if ticket.SessionRef.Valid {
 		claim.HarnessSessionRef = ticket.SessionRef
 	}
@@ -187,10 +211,10 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	var containerRef multiplexer.ContainerRef
 	if muxKind == multiplexer.KindHerdr {
 		namespace := claim.MuxNamespace.String
-		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: ticket.BoardWorkdir, Command: command, Namespace: namespace})
+		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: launchCWD, Command: command, Namespace: namespace})
 	} else {
 		var out string
-		out, err = l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, ticket.BoardWorkdir), ShellCommand(command))...)
+		out, err = l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, launchCWD), ShellCommand(command))...)
 		if err == nil {
 			windowID = strings.TrimSpace(out)
 			containerRef = multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: l.manager.Config.TmuxSession, ID: windowID, Name: name}
@@ -225,7 +249,10 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 	}
 
-	ses := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Multiplexer: string(containerRef.Kind), Status: kanban.StateRunning}
+	ses := storage.Session{TicketID: ticket.ID, Harness: ticket.Harness, TmuxSessionName: l.manager.Config.TmuxSession, TmuxWindowName: name, Multiplexer: string(containerRef.Kind), Status: kanban.StateRunning, LaunchCWD: sql.NullString{String: launchCWD, Valid: strings.TrimSpace(launchCWD) != ""}}
+	if launchWorkspace.ID != 0 {
+		ses.WorkspaceID = sql.NullInt64{Int64: launchWorkspace.ID, Valid: true}
+	}
 	if ses.Multiplexer == "" {
 		ses.Multiplexer = string(multiplexer.KindTmux)
 	}
@@ -236,7 +263,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if ticket.SessionRef.Valid {
 		ses.HarnessSessionRef = sql.NullString{String: ticket.SessionRef.String, Valid: true}
 	} else if promptAlreadySent && l.manager.Store != nil {
-		if ref, ok := l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, ticket.BoardWorkdir, launchStartedAt, refFile); ok {
+		if ref, ok := l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchCWD, launchStartedAt, refFile); ok {
 			ses.HarnessSessionRef = sql.NullString{String: ref, Valid: true}
 		}
 	}
@@ -260,7 +287,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		// synchronous capture deadline.
 		if !ses.HarnessSessionRef.Valid && promptAlreadySent && ticket.Harness == "claude" {
 			harnessName := ticket.Harness
-			cwd := ticket.BoardWorkdir
+			cwd := launchCWD
 			promptText := renderedPrompt
 			since := launchStartedAt
 			l.manager.startSessionRefCapture(insertedSessionID, harnessName, defaultClaudeRefCaptureTimeout, func() (string, bool) {

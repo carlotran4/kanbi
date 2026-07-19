@@ -84,6 +84,10 @@ flowchart TD
 
 ## Command Rules
 
+### Git Worktree Preparation
+
+When a board has explicitly enabled Git worktrees, the first `Enter` resolves the repository containing the board cwd, requires a non-detached source branch, records that branch and HEAD SHA, and opens an editable branch-name modal. Cancel is non-mutating. Existing branches and dirty source checkouts require explicit confirmation; branches already checked out elsewhere are rejected. The linked worktree is rooted at a stable board-UUID/ticket-ID path, while repository-subdirectory boards launch in the equivalent subdirectory. Later resume and start-fresh attempts reuse the current workspace.
+
 ### Send Prompt Semantics
 
 For a never-started ticket, the default `Enter` action sends the prompt and opens the ticket:
@@ -96,6 +100,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - Attempts harness-specific session ref capture. Delayed Pi/Claude capture is owned by the runtime manager and updates the exact session attempt that initiated it, even if a newer attempt becomes active before capture completes.
 - If launch or prompt delivery fails, closes any newly-created container best-effort and leaves the attempt as an inactive `error` row.
 - Delayed session-ref capture is bounded, attempt-bound, and canceled on manager shutdown.
+- Workspace-backed attempts use the session's immutable launch-cwd snapshot for initial capture, delayed capture, validation, recovery, and resume.
 
 ### `Enter`: Default Ticket Action
 
@@ -112,6 +117,12 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - `f` starts fresh with the rendered ticket prompt. The previous session history remains; legacy tmux and generic multiplexer references from that attempt are cleared from the new lifecycle request, and the new run becomes the only active session. It is launched through the currently configured multiplexer. tmux launches use the current executable's runtime tmux session and a separate window rather than reusing any existing same-named window; Herdr launches use the configured Herdr session/workspace strategy.
 - `M` in the board view explicitly moves a tmux-backed ticket to the configured Herdr multiplexer when a harness session ref exists: Kanbi gracefully closes the active tmux window, then resumes the harness in a new Herdr pane/agent and stores that new container metadata. Without a session ref, use start-fresh instead.
 - `c` cancels.
+
+### Workspace Resolution And Local Integration
+
+On a current workspace that is observed as conflicting, `r` closes the live agent before merging the latest recorded source branch into the ticket worktree, then resumes the same workspace with a conflict-file prompt that explicitly forbids merging into source. Conflicts remain isolated in the ticket worktree and project decisions can surface through normal needs-input state.
+
+On a current workspace, `m` opens a textual confirmation showing source, ticket branch, and cached status. Confirmation revalidates clean checkouts and repository identity, serializes by Git common directory across Kanbi processes, closes the agent, merges only into the recorded source checkout, and removes the worktree/local branch only after success. Conflict or validation failure preserves the workspace; cleanup failure is recorded separately after a successful merge.
 
 ### Close / Archive
 

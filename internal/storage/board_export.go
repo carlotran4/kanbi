@@ -131,12 +131,19 @@ func (s *Store) LoadBoardAggregate(ctx context.Context, boardID int64) (BoardAgg
 	if active > 0 {
 		return BoardAggregate{}, ErrBoardHasActiveSessions
 	}
+	var currentWorkspaces int
+	if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&currentWorkspaces); err != nil {
+		return BoardAggregate{}, err
+	}
+	if currentWorkspaces > 0 {
+		return BoardAggregate{}, ErrBoardHasCurrentWorkspaces
+	}
 
 	var board Board
 	var syncEnabled int
 	if err := tx.QueryRowContext(ctx, boardSelectSQL+` where id=?`, boardID).Scan(
 		&board.ID, &board.Name, &board.UUID, &board.Workdir, &board.TicketBackend, &board.BackendQuery, &board.BackendConfig,
-		&board.LastSyncAt, &board.LastSyncError, &board.ArchivedAt, &syncEnabled, &board.SourceExportUUID,
+		&board.LastSyncAt, &board.LastSyncError, &board.ArchivedAt, &syncEnabled, &board.SourceExportUUID, &board.WorktreeMode,
 	); err != nil {
 		return BoardAggregate{}, err
 	}

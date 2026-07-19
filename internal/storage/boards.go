@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const boardSelectSQL = `select id, name, coalesce(uuid,''), coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,''), last_sync_at, last_sync_error, archived_at, coalesce(sync_enabled,1), source_export_uuid from boards`
+const boardSelectSQL = `select id, name, coalesce(uuid,''), coalesce(workdir,''), coalesce(ticket_backend,'local'), coalesce(backend_query,''), coalesce(backend_config,''), last_sync_at, last_sync_error, archived_at, coalesce(sync_enabled,1), source_export_uuid, coalesce(worktree_mode,'off') from boards`
 
 type boardScanner interface {
 	Scan(dest ...any) error
@@ -22,10 +22,13 @@ type boardScanner interface {
 
 func scanBoard(row boardScanner, b *Board) error {
 	var syncEnabled int
-	if err := row.Scan(&b.ID, &b.Name, &b.UUID, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig, &b.LastSyncAt, &b.LastSyncError, &b.ArchivedAt, &syncEnabled, &b.SourceExportUUID); err != nil {
+	if err := row.Scan(&b.ID, &b.Name, &b.UUID, &b.Workdir, &b.TicketBackend, &b.BackendQuery, &b.BackendConfig, &b.LastSyncAt, &b.LastSyncError, &b.ArchivedAt, &syncEnabled, &b.SourceExportUUID, &b.WorktreeMode); err != nil {
 		return err
 	}
 	b.SyncEnabled = syncEnabled != 0
+	if b.WorktreeMode == "" {
+		b.WorktreeMode = WorktreeModeOff
+	}
 	return nil
 }
 
@@ -78,7 +81,44 @@ func (s *Store) SetBoardWorkdir(ctx context.Context, boardID int64, workdir stri
 	if err != nil {
 		return err
 	}
+	if current, err := s.countCurrentWorkspaces(ctx, boardID); err != nil {
+		return err
+	} else if current > 0 {
+		return ErrBoardHasCurrentWorkspaces
+	}
 	res, err := s.db.ExecContext(ctx, `update boards set workdir=?, updated_at=? where id=?`, nullableString(workdir), time.Now().UTC(), boardID)
+	return requireAffected(res, err)
+}
+
+func (s *Store) countCurrentWorkspaces(ctx context.Context, boardID int64) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&n)
+	return n, err
+}
+
+// SetBoardWorktreeMode updates the board's worktree isolation mode (off|git).
+func (s *Store) SetBoardWorktreeMode(ctx context.Context, boardID int64, mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case WorktreeModeOff, WorktreeModeGit:
+	default:
+		return fmt.Errorf("unsupported worktree mode %q", mode)
+	}
+	if mode == WorktreeModeGit {
+		if active, err := s.boardHasActiveSessions(ctx, s.db, boardID); err != nil {
+			return err
+		} else if active {
+			return ErrBoardHasActiveSessions
+		}
+	}
+	if mode == WorktreeModeOff {
+		if current, err := s.countCurrentWorkspaces(ctx, boardID); err != nil {
+			return err
+		} else if current > 0 {
+			return ErrBoardHasCurrentWorkspaces
+		}
+	}
+	res, err := s.db.ExecContext(ctx, `update boards set worktree_mode=?, updated_at=? where id=?`, mode, time.Now().UTC(), boardID)
 	return requireAffected(res, err)
 }
 
@@ -125,6 +165,13 @@ func (s *Store) ArchiveBoard(ctx context.Context, boardID int64) error {
 	}
 	if active {
 		return ErrBoardHasActiveSessions
+	}
+	var currentWorkspaces int
+	if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&currentWorkspaces); err != nil {
+		return err
+	}
+	if currentWorkspaces > 0 {
+		return ErrBoardHasCurrentWorkspaces
 	}
 	now := time.Now().UTC()
 	var syncing int
@@ -182,6 +229,13 @@ func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
 	}
 	if active {
 		return errors.New("cannot delete board with active sessions")
+	}
+	var currentWorkspaces int
+	if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&currentWorkspaces); err != nil {
+		return err
+	}
+	if currentWorkspaces > 0 {
+		return ErrBoardHasCurrentWorkspaces
 	}
 
 	res, err := tx.ExecContext(ctx, `delete from boards where id=?`, boardID)
@@ -296,7 +350,7 @@ func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOpti
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,sync_enabled,created_at,updated_at) values(?,?,?,1,?,?,?,1,?,?)`, name, uuid, nullableString(workdir), backend, nullableString(query), nullableString(backendConfig), now, now)
+	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,sync_enabled,worktree_mode,created_at,updated_at) values(?,?,?,1,?,?,?,1,?,?,?)`, name, uuid, nullableString(workdir), backend, nullableString(query), nullableString(backendConfig), WorktreeModeOff, now, now)
 	if err != nil {
 		return Board{}, err
 	}
@@ -309,7 +363,7 @@ func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOpti
 	if err := tx.Commit(); err != nil {
 		return Board{}, err
 	}
-	return Board{ID: boardID, Name: name, UUID: uuid, Workdir: workdir, TicketBackend: backend, BackendQuery: query, BackendConfig: backendConfig, SyncEnabled: true}, nil
+	return Board{ID: boardID, Name: name, UUID: uuid, Workdir: workdir, TicketBackend: backend, BackendQuery: query, BackendConfig: backendConfig, SyncEnabled: true, WorktreeMode: WorktreeModeOff}, nil
 }
 
 func (s *Store) ensureDefaultBoard(ctx context.Context) error {
@@ -331,7 +385,7 @@ func (s *Store) ensureDefaultBoard(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,sync_enabled,created_at,updated_at) values('Default',?,?,1,'local',1,?,?)`, uuid, nullableString(cwd), now, now)
+	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,sync_enabled,worktree_mode,created_at,updated_at) values('Default',?,?,1,'local',1,?,?,?)`, uuid, nullableString(cwd), WorktreeModeOff, now, now)
 	if err != nil {
 		return err
 	}

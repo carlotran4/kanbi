@@ -23,6 +23,7 @@ var migrations = []migration{
 	{version: 3, name: "sync leases and note tombstones", apply: migrateProductionSafety},
 	{version: 4, name: "runtime diagnostics and remote push state", apply: migrateRuntimeHardening},
 	{version: 5, name: "board archive, workflow keys, filter presets", apply: migrateBoardArchiveAndWorkflow},
+	{version: 6, name: "ticket workspaces and session launch cwd", apply: migrateTicketWorkspaces},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.
@@ -327,6 +328,75 @@ func migrateBoardArchiveAndWorkflow(ctx context.Context, tx *sql.Tx) error {
 	}
 	if _, err := tx.ExecContext(ctx, `create unique index if not exists master_filter_presets_name_nocase_uq on master_filter_presets(name collate nocase)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateTicketWorkspaces(ctx context.Context, tx *sql.Tx) error {
+	boardColumns, err := tableColumns(ctx, tx, "boards")
+	if err != nil {
+		return err
+	}
+	if !boardColumns["worktree_mode"] {
+		if _, err := tx.ExecContext(ctx, `alter table boards add column worktree_mode text not null default 'off'`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `update boards set worktree_mode='off' where worktree_mode is null or worktree_mode=''`); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `create table if not exists ticket_workspaces (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  board_id integer not null references boards(id) on delete cascade,
+  kind text not null default 'git_worktree',
+  state text not null,
+  is_current integer not null default 0,
+  owns_worktree integer not null default 1,
+  repository_root text not null default '',
+  common_dir text not null default '',
+  worktree_path text not null default '',
+  launch_subdir text not null default '',
+  launch_cwd text not null default '',
+  branch_name text not null default '',
+  source_branch text not null default '',
+  source_commit_sha text not null default '',
+  base_commit_sha text not null default '',
+  last_status_json text,
+  last_error text,
+  integrated_at datetime,
+  retired_at datetime,
+  created_at datetime not null,
+  updated_at datetime not null
+)`); err != nil {
+		return err
+	}
+
+	sessionColumns, err := tableColumns(ctx, tx, "sessions")
+	if err != nil {
+		return err
+	}
+	if !sessionColumns["workspace_id"] {
+		if _, err := tx.ExecContext(ctx, `alter table sessions add column workspace_id integer references ticket_workspaces(id) on delete set null`); err != nil {
+			return err
+		}
+	}
+	if !sessionColumns["launch_cwd"] {
+		if _, err := tx.ExecContext(ctx, `alter table sessions add column launch_cwd text`); err != nil {
+			return err
+		}
+	}
+
+	for _, statement := range []string{
+		`create unique index if not exists ticket_workspaces_one_current_per_ticket on ticket_workspaces(ticket_id) where is_current=1`,
+		`create index if not exists idx_ticket_workspaces_ticket_id on ticket_workspaces(ticket_id,id desc)`,
+		`create index if not exists idx_ticket_workspaces_board_state on ticket_workspaces(board_id,state)`,
+		`create index if not exists idx_sessions_workspace_id on sessions(workspace_id)`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
 	}
 	return nil
 }

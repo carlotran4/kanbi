@@ -10,6 +10,25 @@ var ErrActiveSessionExists = errors.New("ticket already has an active session")
 
 var ErrTicketHasActiveSession = errors.New("cannot archive ticket with an active session; close it first")
 
+var ErrBoardHasCurrentWorkspaces = errors.New("board has current ticket workspaces; integrate or repair them first")
+
+const (
+	// WorktreeModeOff keeps launches in the shared board working directory.
+	WorktreeModeOff = "off"
+	// WorktreeModeGit creates isolated Git worktrees per ticket workspace.
+	WorktreeModeGit = "git"
+
+	WorkspaceKindGitWorktree = "git_worktree"
+
+	WorkspaceStateProvisioning = "provisioning"
+	WorkspaceStateReady        = "ready"
+	WorkspaceStateResolving    = "resolving"
+	WorkspaceStateRepairNeeded = "repair_needed"
+	WorkspaceStateIntegrated   = "integrated"
+	WorkspaceStateRetired      = "retired"
+	WorkspaceStateCleanupReq   = "cleanup_required"
+)
+
 type Board struct {
 	ID               int64
 	Name             string
@@ -23,6 +42,8 @@ type Board struct {
 	ArchivedAt       sql.NullTime
 	SyncEnabled      bool
 	SourceExportUUID sql.NullString
+	// WorktreeMode is off or git. Existing boards default to off.
+	WorktreeMode string
 }
 
 // ColumnView is a query model for a board column and its projected tickets.
@@ -48,7 +69,9 @@ type TicketProjection struct {
 	ID                    int64
 	BoardID               int64
 	BoardName             string
+	BoardUUID             string
 	BoardWorkdir          string
+	BoardWorktreeMode     string
 	ColumnID              int64
 	ExternalID            sql.NullString
 	ExternalURL           sql.NullString
@@ -76,12 +99,22 @@ type TicketProjection struct {
 	MuxMetadata           sql.NullString
 	SessionID             sql.NullInt64
 	SessionRef            sql.NullString
+	SessionWorkspaceID    sql.NullInt64
+	SessionLaunchCWD      sql.NullString
 	LastOutputAt          sql.NullTime
 	LastStateChangeAt     sql.NullTime
 	LastDetectedState     sql.NullString
 	LastAttentionReason   sql.NullString
 	LastDetectionSource   sql.NullString
 	LastObservedExcerpt   sql.NullString
+	// Current workspace projection (nullable when no unfinished workspace).
+	WorkspaceID           sql.NullInt64
+	WorkspaceState        sql.NullString
+	WorkspaceBranch       sql.NullString
+	WorkspaceSourceBranch sql.NullString
+	WorkspaceLaunchCWD    sql.NullString
+	WorkspaceStatusJSON   sql.NullString
+	WorkspaceLastError    sql.NullString
 	NoteCount             int
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
@@ -116,6 +149,8 @@ type Session struct {
 	MuxContainerID      sql.NullString
 	MuxContainerName    sql.NullString
 	MuxMetadata         sql.NullString
+	WorkspaceID         sql.NullInt64
+	LaunchCWD           sql.NullString
 	Status              string
 	IsActive            bool
 	StartedAt           sql.NullTime
@@ -127,6 +162,42 @@ type Session struct {
 	LastAttentionReason sql.NullString
 	LastDetectionSource sql.NullString
 	LastObservedExcerpt sql.NullString
+}
+
+// Workspace is the durable execution workspace for an isolated ticket checkout.
+// WorkspacePreflight is the read-only result used before a user confirms
+// creation or explicit reuse of a Git branch.
+type WorkspacePreflight struct {
+	SourceBranch string
+	SourceCommit string
+	SourceDirty  bool
+	Branch       string
+	BranchExists bool
+}
+
+type Workspace struct {
+	ID              int64
+	TicketID        int64
+	BoardID         int64
+	Kind            string
+	State           string
+	IsCurrent       bool
+	OwnsWorktree    bool
+	RepositoryRoot  string
+	CommonDir       string
+	WorktreePath    string
+	LaunchSubdir    string
+	LaunchCWD       string
+	BranchName      string
+	SourceBranch    string
+	SourceCommitSHA string
+	BaseCommitSHA   string
+	LastStatusJSON  sql.NullString
+	LastError       sql.NullString
+	IntegratedAt    sql.NullTime
+	RetiredAt       sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // BoardView is a query model containing a board and its populated columns.

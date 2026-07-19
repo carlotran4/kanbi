@@ -10,6 +10,8 @@ flowchart LR
     CLI --> Manager
     TUI[Bubble Tea TUI] --> App[Application service]
     App --> Store[(SQLite)]
+    App --> Workspace[Execution workspace manager]
+    Workspace --> Git[Git linked worktrees]
     App --> Manager[Runtime manager]
     Manager --> Policy[Session lifecycle policy]
     Manager --> Mux[Configured multiplexer: tmux or Herdr]
@@ -73,6 +75,7 @@ Stop and ask before:
 | `internal/boardpackage` | Versioned single-board packages (`kanbi-board-package`) with path-safe attachments, preview, create-new import, and compensating rollback. |
 | `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. Includes board archive/sync flags, workflow keys, filter presets, and board aggregate load/import. `TicketProjection` and `ColumnView` are explicit read models. |
 | `internal/session` | Provider-neutral lifecycle policy and errors, durable session repository contract, and compiled-in multiplexer registry. |
+| `internal/workspace` | Multiplexer-neutral Git repository inspection, branch/worktree provisioning and validation, status observation, conflict resolution primitives, serialized local integration, and conservative cleanup. |
 | `internal/ticketbackend` | Board-scoped ticket metadata backend registry and owned startup/periodic/mutation sync orchestration (cancel + WaitGroup drain). Providers receive a narrow sync repository. Implements timeouts, GET retry classification, durable find-or-link create recovery, the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
 | `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. Includes the Herdr adapter under `internal/multiplexer/herdr`. |
 | `internal/tmux` | tmux adapter and compatibility runtime manager. Launch execution, runtime polling, and reconciliation remain here while lifecycle policy lives in `internal/session`. |
@@ -123,7 +126,8 @@ erDiagram
 - A **ticket** is durable work metadata: non-blank title, body, supported harness preference, workflow column, archive status. A ticket may move only between columns owned by its board.
 - Column names are unique by exact spelling within a board. Master aggregation matches column `workflow_key` values (defaulted to each column's display name at creation; rename does not change the key). At most one column per workflow key is allowed on a board.
 - External ticket and note identities are unique within their owning board/ticket so sync never has to choose an ambiguous local row.
-- A **session** is one attempt to run an agent for a ticket.
+- A **workspace** is a durable ticket-owned execution checkout. Git-worktree boards retain workspace intent/history independently of terminal sessions; at most one workspace is current per ticket.
+- A **session** is one attempt to run an agent for a ticket and snapshots its nullable workspace id and launch directory.
 - **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while the GitHub and Atlassian/Jira backends map notes to provider comments.
 - An **active session** is a session believed to own a live terminal container, but it must still pass validation before being trusted.
 - A **terminal container** is the live process container for an active session: a tmux window for tmux, or a Herdr pane/agent for Herdr.

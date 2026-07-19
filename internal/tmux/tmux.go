@@ -25,6 +25,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/prompt"
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/storage"
+	workspacepkg "github.com/carlotran4/kanbi/internal/workspace"
 )
 
 var ErrPromptAlreadySent = session.ErrPromptAlreadySent
@@ -76,6 +77,10 @@ type Manager struct {
 
 	herdrWorkspaceOnce sync.Once
 	herdrWorkspaceID   string
+
+	// WorkspaceService may be injected by tests. Production lazily constructs
+	// the Git workspace service from Config.Paths and Store.
+	WorkspaceService *workspacepkg.Service
 }
 
 func NewManager(cfg config.Config, store *storage.Store) *Manager {
@@ -86,6 +91,108 @@ func NewManager(cfg config.Config, store *storage.Store) *Manager {
 // context. Call Close before closing the store to cancel and join that work.
 func NewManagerWithContext(ctx context.Context, cfg config.Config, store *storage.Store) *Manager {
 	return &Manager{Config: cfg, Store: store, Runner: ExecRunner{}, ResumeCheckAfter: defaultResumeCheckAfter, background: newBackgroundState(ctx)}
+}
+
+func (m *Manager) workspaceService() *workspacepkg.Service {
+	if m.WorkspaceService == nil && m.Store != nil {
+		m.WorkspaceService = &workspacepkg.Service{Store: m.Store, StateDir: m.Config.Paths.StateDir}
+	}
+	return m.WorkspaceService
+}
+
+// PreflightTicketWorkspace performs read-only Git checks for the branch modal.
+func (m *Manager) PreflightTicketWorkspace(ctx context.Context, ticket storage.Ticket, branch string) (storage.WorkspacePreflight, error) {
+	service := m.workspaceService()
+	if service == nil {
+		return storage.WorkspacePreflight{}, errors.New("workspace storage is unavailable")
+	}
+	return service.Preflight(ctx, workspacepkg.ProvisionOptions{
+		BoardID: ticket.BoardID, BoardUUID: ticket.BoardUUID, BoardCWD: ticket.BoardWorkdir,
+		TicketID: ticket.ID, Branch: branch,
+	})
+}
+
+// PrepareTicketWorkspace provisions a branch only after explicit TUI confirmation.
+func (m *Manager) PrepareTicketWorkspace(ctx context.Context, ticket storage.Ticket, branch string, existing bool) error {
+	service := m.workspaceService()
+	if service == nil {
+		return errors.New("workspace storage is unavailable")
+	}
+	_, err := service.Provision(ctx, workspacepkg.ProvisionOptions{
+		BoardID: ticket.BoardID, BoardUUID: ticket.BoardUUID, BoardCWD: ticket.BoardWorkdir,
+		TicketID: ticket.ID, Branch: branch, ExistingBranch: existing,
+	})
+	return err
+}
+
+func (m *Manager) ResolveTicketWorkspace(ctx context.Context, ticket storage.Ticket) error {
+	workspace, ok, err := m.Store.CurrentWorkspace(ctx, ticket.ID)
+	if err != nil || !ok {
+		if err != nil {
+			return err
+		}
+		return errors.New("ticket has no current workspace")
+	}
+	if ticket.SessionActive {
+		if err := m.CloseSession(ctx, ticket); err != nil {
+			return err
+		}
+	}
+	obs, mergeErr := m.workspaceService().Resolve(ctx, workspace)
+	if mergeErr != nil && len(obs.Conflicts) == 0 {
+		return mergeErr
+	}
+	fresh, err := m.Store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		return err
+	}
+	if err := m.OpenTicket(ctx, fresh, false); err != nil {
+		return err
+	}
+	fresh, err = m.Store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		return err
+	}
+	ref := ContainerRefFromTicket(fresh)
+	adapter, err := m.multiplexerAdapter(ref.Kind)
+	if err != nil {
+		return err
+	}
+	message := "Resolve the in-progress Git merge conflicts in this ticket worktree. Conflicting files: " + strings.Join(obs.Conflicts, ", ") + ". Run relevant checks and commit the resolution. Do not merge into the source branch."
+	if err := adapter.SendText(ctx, ref, message); err != nil {
+		return err
+	}
+	return adapter.SendKeys(ctx, ref, "Enter")
+}
+
+func (m *Manager) IntegrateTicketWorkspace(ctx context.Context, ticket storage.Ticket) error {
+	workspace, ok, err := m.Store.CurrentWorkspace(ctx, ticket.ID)
+	if err != nil || !ok {
+		if err != nil {
+			return err
+		}
+		return errors.New("ticket has no current workspace")
+	}
+	return m.workspaceService().Integrate(ctx, workspace, workspacepkg.IntegrateOptions{Close: func(ctx context.Context) error {
+		fresh, err := m.Store.TicketByID(ctx, ticket.ID)
+		if err != nil {
+			return err
+		}
+		if !fresh.SessionActive {
+			return nil
+		}
+		return m.CloseSession(ctx, fresh)
+	}})
+}
+
+func ticketLaunchCWD(ticket storage.Ticket) string {
+	if ticket.SessionLaunchCWD.Valid && strings.TrimSpace(ticket.SessionLaunchCWD.String) != "" {
+		return ticket.SessionLaunchCWD.String
+	}
+	if ticket.WorkspaceLaunchCWD.Valid && strings.TrimSpace(ticket.WorkspaceLaunchCWD.String) != "" {
+		return ticket.WorkspaceLaunchCWD.String
+	}
+	return ticket.BoardWorkdir
 }
 
 func (m *Manager) defaultMultiplexerKind() multiplexer.Kind {
@@ -198,7 +305,7 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 		return ticket, nil
 	}
 	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
-	cwd := ticket.BoardWorkdir
+	cwd := ticketLaunchCWD(ticket)
 	if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
 		if harness.ValidateSessionRefInCWD(ticket.Harness, ticket.SessionRef.String, promptText, cwd) {
 			return ticket, nil
@@ -259,6 +366,19 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if m.Store == nil {
 		return nil
 	}
+	if service := m.workspaceService(); service != nil {
+		workspaces, listErr := m.Store.ListCurrentWorkspaces(ctx, 0)
+		if listErr != nil {
+			return listErr
+		}
+		for _, workspace := range workspaces {
+			if validateErr := service.Validate(ctx, workspace); validateErr != nil {
+				if markErr := m.Store.MarkWorkspaceState(ctx, workspace.ID, storage.WorkspaceStateRepairNeeded, validateErr.Error()); markErr != nil {
+					return markErr
+				}
+			}
+		}
+	}
 	tickets, err := m.Store.ListTickets(ctx, false)
 	if err != nil {
 		return err
@@ -315,6 +435,22 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	if m.Store == nil {
 		return nil
+	}
+	if service := m.workspaceService(); service != nil {
+		workspaces, err := m.Store.ListCurrentWorkspaces(ctx, 0)
+		if err != nil {
+			return err
+		}
+		observeCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+		for _, workspace := range workspaces {
+			if observeCtx.Err() != nil {
+				break
+			}
+			if _, observeErr := service.Observe(observeCtx, workspace); observeErr != nil {
+				_ = m.Store.RecordWorkspaceObservationError(ctx, workspace.ID, observeErr.Error())
+			}
+		}
+		cancel()
 	}
 	tickets, err := m.Store.ListTickets(ctx, false)
 	if err != nil {

@@ -98,6 +98,14 @@ type Model struct {
 	errNext                 string
 	editorTicketID          int64
 	reconcileWarning        string
+	branchNaming            bool
+	branchTicket            storage.Ticket
+	branchName              string
+	branchPreflight         storage.WorkspacePreflight
+	branchConfirmed         bool
+	branchSendPrompt        bool
+	workspaceIntegrating    bool
+	workspaceActionTicket   storage.Ticket
 
 	// Notes state (used within the edit modal, editField==3)
 	notes       []storage.Note
@@ -160,6 +168,12 @@ type closeSessionMsg struct {
 
 type moveMultiplexerMsg struct {
 	displayID string
+	err       error
+}
+
+type workspaceActionMsg struct {
+	displayID string
+	action    string
 	err       error
 }
 
@@ -249,6 +263,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reload()
 		}
 		return m, nil
+	case workspaceActionMsg:
+		if msg.err != nil {
+			m.setActionError(msg.action+" ticket workspace", msg.err, "Commit or repair the workspace and source checkout, refresh status, then retry.")
+		} else {
+			m.status = msg.action + "d " + msg.displayID
+			m.reload()
+		}
+		return m, nil
 	}
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -274,13 +296,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOnboarding(key), nil
 	}
 	// Clear stale status on any keypress (unless a modal is consuming input).
-	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.boardRenaming && !m.boardEditing && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen {
+	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.boardRenaming && !m.boardEditing && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen {
 		m.status = ""
 		m.errOperation = ""
 		m.errNext = ""
 	}
 	if m.masterFilterOpen {
 		return m.updateMasterFilter(key), nil
+	}
+	if m.workspaceIntegrating {
+		switch key.String() {
+		case "esc":
+			m.workspaceIntegrating = false
+			return m, nil
+		case "enter":
+			m.workspaceIntegrating = false
+			t := m.workspaceActionTicket
+			return m, func() tea.Msg {
+				return workspaceActionMsg{displayID: t.DisplayID, action: "integrate", err: m.actions.IntegrateTicketWorkspace(m.ctx, t)}
+			}
+		}
+		return m, nil
+	}
+	if m.branchNaming {
+		return m.updateBranchName(key)
 	}
 	if m.promptFallback {
 		return m.updatePromptFallback(key)
@@ -368,6 +407,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.startColumnEdit("add")
 	case "r":
+		if t, ok := m.selectedTicket(); ok && t.WorkspaceID.Valid && workspaceNeedsResolution(t) {
+			return m, func() tea.Msg {
+				return workspaceActionMsg{displayID: t.DisplayID, action: "resolve", err: m.actions.ResolveTicketWorkspace(m.ctx, t)}
+			}
+		}
 		m.startColumnEdit("rename")
 	case "D":
 		m.deleteColumn()
@@ -380,7 +424,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "g":
 		return m, m.openExternalTicket()
 	case "m":
-		m.startStateMenu()
+		if t, ok := m.selectedTicket(); ok && t.WorkspaceID.Valid {
+			m.workspaceIntegrating = true
+			m.workspaceActionTicket = t
+			m.status = "confirm local integration"
+		} else {
+			m.startStateMenu()
+		}
 	case "M":
 		return m, m.moveToDefaultMultiplexerCmd()
 	case "enter":
@@ -629,6 +679,26 @@ func (m *Model) defaultTicketCmd() tea.Cmd {
 		return nil
 	}
 	sendPrompt := !t.SessionID.Valid
+	if t.BoardWorktreeMode == storage.WorktreeModeGit && !t.WorkspaceID.Valid && !t.SessionActive {
+		branch := normalizeBranchName(t.Title)
+		preflight, err := m.actions.PreflightTicketWorkspace(m.ctx, t, branch)
+		if err != nil {
+			m.setActionError("prepare Git workspace", err, "Fix the board Git checkout, branch name, or worktree collision, then press Enter to retry.")
+			return nil
+		}
+		m.branchNaming = true
+		m.branchTicket = t
+		m.branchName = branch
+		m.branchPreflight = preflight
+		m.branchConfirmed = false
+		m.branchSendPrompt = sendPrompt
+		m.status = "choose a branch for " + t.DisplayID
+		return nil
+	}
+	return m.openTicketCmd(t, sendPrompt)
+}
+
+func (m *Model) openTicketCmd(t storage.Ticket, sendPrompt bool) tea.Cmd {
 	if sendPrompt {
 		m.status = "sending prompt " + t.DisplayID + "…"
 	} else {
@@ -636,11 +706,86 @@ func (m *Model) defaultTicketCmd() tea.Cmd {
 	}
 	ctx := m.ctx
 	return func() tea.Msg {
-		return openTicketMsg{
-			ticket:     t,
-			sendPrompt: sendPrompt,
-			err:        m.actions.OpenTicket(ctx, t, sendPrompt),
+		return openTicketMsg{ticket: t, sendPrompt: sendPrompt, err: m.actions.OpenTicket(ctx, t, sendPrompt)}
+	}
+}
+
+func normalizeBranchName(title string) string {
+	var out strings.Builder
+	lastSeparator := false
+	for _, r := range strings.ToLower(strings.TrimSpace(title)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			out.WriteRune(r)
+			lastSeparator = false
+		case r == '/':
+			value := strings.Trim(out.String(), "-./")
+			out.Reset()
+			out.WriteString(value)
+			if value != "" && !strings.HasSuffix(value, "/") {
+				out.WriteRune('/')
+			}
+			lastSeparator = false
+		default:
+			if out.Len() > 0 && !lastSeparator && !strings.HasSuffix(out.String(), "/") {
+				out.WriteRune('-')
+				lastSeparator = true
+			}
 		}
+	}
+	value := strings.Trim(out.String(), "-./")
+	if value == "" {
+		return "ticket"
+	}
+	return value
+}
+
+func (m Model) updateBranchName(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.branchNaming = false
+		m.status = "workspace creation cancelled"
+		return m, nil
+	case "backspace":
+		m.branchName = popRune(m.branchName)
+		m.branchConfirmed = false
+		return m, nil
+	case "enter":
+		preflight, err := m.actions.PreflightTicketWorkspace(m.ctx, m.branchTicket, strings.TrimSpace(m.branchName))
+		if err != nil {
+			m.status = err.Error()
+			m.branchConfirmed = false
+			return m, nil
+		}
+		warningsChanged := preflight.BranchExists != m.branchPreflight.BranchExists || preflight.SourceDirty != m.branchPreflight.SourceDirty || preflight.SourceCommit != m.branchPreflight.SourceCommit || preflight.SourceBranch != m.branchPreflight.SourceBranch
+		m.branchPreflight = preflight
+		if warningsChanged {
+			m.branchConfirmed = false
+		}
+		if (preflight.BranchExists || preflight.SourceDirty) && !m.branchConfirmed {
+			m.branchConfirmed = true
+			m.status = "review the warning, then press Enter again to confirm"
+			return m, nil
+		}
+		if err := m.actions.PrepareTicketWorkspace(m.ctx, m.branchTicket, preflight.Branch, preflight.BranchExists); err != nil {
+			m.status = err.Error()
+			m.branchConfirmed = false
+			return m, nil
+		}
+		m.branchNaming = false
+		if m.branchTicket.SessionID.Valid {
+			t := m.branchTicket
+			return m, func() tea.Msg {
+				return openTicketMsg{ticket: t, sendPrompt: true, err: m.actions.StartFreshTicket(m.ctx, t, true)}
+			}
+		}
+		return m, m.openTicketCmd(m.branchTicket, m.branchSendPrompt)
+	default:
+		if len(key.Runes) > 0 {
+			m.branchName += string(key.Runes)
+			m.branchConfirmed = false
+		}
+		return m, nil
 	}
 }
 

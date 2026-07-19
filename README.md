@@ -13,7 +13,7 @@ Use separate boards for separate projects, or supervise everything from one Mast
 - **One active agent session per ticket** — reopen a ticket without spawning duplicates.
 - **See what needs attention** — runtime state is visible directly on each card.
 - **Leave agents running** — exiting Kanbi and runtime attention detection do not terminate active sessions.
-- **Keep projects isolated** — every board has its own working directory.
+- **Keep projects isolated** — every board has its own working directory, with opt-in per-ticket Git worktrees for concurrent implementations.
 - **Work across projects** — Master combines and filters all your boards.
 - **Use your own tickets** — work locally or sync with GitHub Issues and Jira.
 
@@ -46,6 +46,8 @@ kanbi
 ```
 
 Select the board, press `n` to create a ticket, save it with `Ctrl+S`, then press `Enter` to start the agent. While editing a ticket body, `Ctrl+V` attaches PNG, JPEG, GIF, or WebP clipboard images and pastes text normally; pasted image file paths are copied into Kanbi's attachment storage.
+
+For Git repositories, open the board picker with `b`, select a board, and press `t` to opt into experimental per-ticket worktrees. The first start then asks for an editable branch name and records the currently checked-out branch as its source. Existing boards remain in shared-directory mode until explicitly enabled.
 
 Press `?` for controls. The important distinction is:
 

@@ -22,7 +22,9 @@ var ticketProjectionColumns = []string{
 	"t.id",
 	"t.board_id",
 	"(select name from boards where id=t.board_id)",
+	"(select coalesce(uuid,'') from boards where id=t.board_id)",
 	"(select coalesce(workdir,'') from boards where id=t.board_id)",
+	"(select coalesce(worktree_mode,'off') from boards where id=t.board_id)",
 	"t.column_id",
 	"t.external_id",
 	"t.external_url",
@@ -50,12 +52,21 @@ var ticketProjectionColumns = []string{
 	"s.mux_metadata",
 	"s.id",
 	"s.harness_session_ref",
+	"s.workspace_id",
+	"s.launch_cwd",
 	"s.last_output_at",
 	"s.last_state_change_at",
 	"s.last_detected_state",
 	"s.last_attention_reason",
 	"s.last_detection_source",
 	"s.last_observed_excerpt",
+	"w.id",
+	"w.state",
+	"w.branch_name",
+	"w.source_branch",
+	"w.launch_cwd",
+	"w.last_status_json",
+	"w.last_error",
 	"t.created_at",
 	"t.updated_at",
 	"(select count(*) from ticket_notes where ticket_id=t.id and deleted_at is null)",
@@ -65,6 +76,9 @@ const latestSessionProjectionJoin = `
 from tickets t
 left join sessions s on s.id=(
   select id from sessions where ticket_id=t.id order by id desc limit 1
+)
+left join ticket_workspaces w on w.id=(
+  select id from ticket_workspaces where ticket_id=t.id and is_current=1 order by id desc limit 1
 ) `
 
 func ticketProjectionSQL(suffix string) string {
@@ -98,7 +112,7 @@ func (s *Store) queryProjectedTickets(ctx context.Context, suffix string, args .
 func scanProjectedTicket(rows *sql.Rows) (Ticket, error) {
 	var t Ticket
 	var active int
-	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardWorkdir, &t.ColumnID, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.RemotePushState, &t.RemotePushToken, &t.RemotePushAttemptedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.Multiplexer, &t.MuxNamespace, &t.MuxContainerID, &t.MuxContainerName, &t.MuxMetadata, &t.SessionID, &t.SessionRef, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.CreatedAt, &t.UpdatedAt, &t.NoteCount); err != nil {
+	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardUUID, &t.BoardWorkdir, &t.BoardWorktreeMode, &t.ColumnID, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.RemotePushState, &t.RemotePushToken, &t.RemotePushAttemptedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.Multiplexer, &t.MuxNamespace, &t.MuxContainerID, &t.MuxContainerName, &t.MuxMetadata, &t.SessionID, &t.SessionRef, &t.SessionWorkspaceID, &t.SessionLaunchCWD, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.WorkspaceID, &t.WorkspaceState, &t.WorkspaceBranch, &t.WorkspaceSourceBranch, &t.WorkspaceLaunchCWD, &t.WorkspaceStatusJSON, &t.WorkspaceLastError, &t.CreatedAt, &t.UpdatedAt, &t.NoteCount); err != nil {
 		return Ticket{}, err
 	}
 	t.SessionActive = active == 1

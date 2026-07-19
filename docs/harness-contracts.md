@@ -2,7 +2,7 @@
 
 This document specifies the verified command surface, session ref capture method, and known limitations for each supported harness.
 
-Built-in harness contracts are localized in `internal/harness/contracts.go`: command defaults, prompt mode, exit keys, ref capture function, and this document's anchor are grouped per harness. `internal/config/config.go` loads those defaults while still allowing YAML overrides.
+Built-in harness contracts are localized in `internal/harness/contracts.go`: command defaults, prompt mode, exit keys, ref capture function, and this document's anchor are grouped per harness. `internal/config/config.go` loads those defaults while still allowing YAML overrides. For workspace-backed attempts, every cwd-sensitive capture, validation, delayed capture, recovery, and resume check uses the session's immutable launch-directory snapshot.
 
 Currently supported: Pi, Codex, Copilot, Claude.
 

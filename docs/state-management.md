@@ -51,7 +51,7 @@ stateDiagram-v2
     inactive_error --> active_session: repair or start fresh
 ```
 
-- `sessions.is_active = 1` means the session owns the ticket's single runtime slot. A `starting` row is a durable pre-launch claim and may not have a container reference yet; after launch it represents the live tmux window or Herdr agent/pane owned by the ticket.
+- `sessions.is_active = 1` means the session owns the ticket's single runtime slot. A `starting` row is a durable pre-launch claim and may not have a container reference yet; after launch it represents the live tmux window or Herdr agent/pane owned by the ticket. Sessions also snapshot nullable `workspace_id` and `launch_cwd`; all harness-ref capture, validation, recovery, and resume checks use that launch directory instead of assuming the board cwd.
 - `sessions.is_active = 0` does not mean the ticket is `not_started`. The ticket should project the latest session's terminal state (`closed`, `error`, `exited`) and any `session_ref`.
 - A tmux `window_id` is valid only if tmux still reports that id with the expected ticket window name. Name fallback must use the session row's stored `tmux_session_name`, not the current process's runtime session. Window ids can be reused after windows close. Herdr sessions store generic `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata` fields; Herdr-native agent status is authoritative when it is not `unknown`.
 - Only one active session per ticket is allowed and SQLite enforces that invariant. Start/resume first writes a `starting` claim before launching a container, so concurrent Kanbi processes cannot both launch the same ticket. Starting fresh clears the prior attempt's legacy and generic runtime references in the lifecycle request, atomically deactivates the old active session, and creates the new claim in the currently configured multiplexer. tmux launches use the current executable's runtime tmux session; if a same-named tmux window already exists in that runtime session, the new window uses a unique suffix. Herdr launches use the configured Herdr session/workspace strategy.
@@ -127,6 +127,12 @@ Open rules:
 - Do not trust stale terminal container ids without multiplexer validation.
 - If a previous session exists but no valid window/ref exists, show repair/start-fresh.
 - `send prompt` is only valid for a never-started ticket.
+
+## Execution Workspace Lifecycle
+
+Boards default to `worktree_mode=off`. Enabling Git worktrees is explicit per board. The first start performs read-only repository/branch preflight, then a branch modal must be confirmed before either a workspace or session is created. SQLite records provisioning intent before `git worktree add`; ready workspaces are reused by resume and start-fresh attempts. Missing paths, repository identity changes, or branch mismatch transition the workspace to `repair_needed` and never fall back to the shared board directory. Integrated and cleanup-required records stop being current while history remains.
+
+Git status is observed state stored as a bounded JSON snapshot; observation errors belong to the workspace and do not fail the harness session.
 
 ## Board Data Lifecycle
 

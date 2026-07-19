@@ -23,6 +23,7 @@ type BoardCommands interface {
 	CreateBoardWithWorkdir(context.Context, string, string) (storage.Board, error)
 	RenameBoard(context.Context, int64, string) error
 	SetBoardWorkdir(context.Context, int64, string) error
+	SetBoardWorktreeMode(context.Context, int64, string) error
 	DeleteBoard(context.Context, int64) error
 	ArchiveBoard(context.Context, int64) error
 	UnarchiveBoard(context.Context, int64) error
@@ -64,6 +65,10 @@ type SessionCommands interface {
 	StartFreshTicket(context.Context, storage.Ticket, bool) error
 	MoveTicketToDefaultMultiplexer(context.Context, storage.Ticket) error
 	UpdateSessionRef(context.Context, storage.Ticket, string) error
+	PreflightTicketWorkspace(context.Context, storage.Ticket, string) (storage.WorkspacePreflight, error)
+	PrepareTicketWorkspace(context.Context, storage.Ticket, string, bool) error
+	ResolveTicketWorkspace(context.Context, storage.Ticket) error
+	IntegrateTicketWorkspace(context.Context, storage.Ticket) error
 }
 
 type NoteCommands interface {
