@@ -314,13 +314,43 @@ func (m Model) handleBodyPaste(key tea.KeyMsg) Model {
 
 func (m *Model) insertBodyImageReference(ref string) {
 	value := m.bodyTA.Value()
-	imageNumber := len(markdownImageRE.FindAllStringIndex(value, -1)) + 1
-	ref = strings.Replace(ref, "![](", fmt.Sprintf("![image %d](", imageNumber), 1)
 	insert := ref
 	if strings.TrimSpace(value) != "" && !strings.HasSuffix(value, "\n") {
 		insert = "\n" + insert
 	}
 	m.bodyTA.InsertString(insert + "\n")
+
+	// Number generated image labels by their final order in the prompt, not by
+	// paste time. Preserve meaningful user-authored alt text while counting it.
+	targetLine := m.bodyTA.Line()
+	targetColumn := m.bodyTA.LineInfo().StartColumn + m.bodyTA.LineInfo().ColumnOffset
+	m.bodyTA.SetValue(numberPromptImages(m.bodyTA.Value()))
+	for m.bodyTA.Line() > targetLine {
+		m.bodyTA.CursorUp()
+	}
+	m.bodyTA.SetCursor(targetColumn)
+}
+
+func numberPromptImages(value string) string {
+	matches := markdownImageRE.FindAllStringIndex(value, -1)
+	if len(matches) == 0 {
+		return value
+	}
+	var b strings.Builder
+	last := 0
+	for i, match := range matches {
+		b.WriteString(value[last:match[0]])
+		image := value[match[0]:match[1]]
+		close := strings.Index(image, "](")
+		alt := image[2:close]
+		if alt == "" || generatedImageAltRE.MatchString(alt) {
+			image = fmt.Sprintf("![image %d%s", i+1, image[close:])
+		}
+		b.WriteString(image)
+		last = match[1]
+	}
+	b.WriteString(value[last:])
+	return b.String()
 }
 
 func (m *Model) saveEdit() {
@@ -330,7 +360,7 @@ func (m *Model) saveEdit() {
 		return
 	}
 	title := stripKittyGraphicsResponseFragments(m.editInputs[0].Value())
-	body := m.bodyTA.Value()
+	body := numberPromptImages(m.bodyTA.Value())
 	harness := stripKittyGraphicsResponseFragments(m.editInputs[2].Value())
 	if strings.TrimSpace(harness) == "" {
 		harness = "pi"

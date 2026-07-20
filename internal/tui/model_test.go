@@ -768,6 +768,35 @@ func TestModelBodyPasteStoresImageAttachmentAndInsertsMarkdown(t *testing.T) {
 	}
 }
 
+func TestNumberPromptImagesUsesFinalPromptOrder(t *testing.T) {
+	value := "![image 2](/later.png)\n![diagram](/diagram.png)\n![](/new.png)"
+	want := "![image 1](/later.png)\n![diagram](/diagram.png)\n![image 3](/new.png)"
+	if got := numberPromptImages(value); got != want {
+		t.Fatalf("numberPromptImages() = %q, want %q", got, want)
+	}
+}
+
+func TestModelSaveRenumbersImagesAfterBodyReorder(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Reordered images", "![image 2](/second.png)\n![image 1](/first.png)", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlS})
+	got, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "![image 1](/second.png)\n![image 2](/first.png)"
+	if got.Body != want {
+		t.Fatalf("saved body = %q, want %q", got.Body, want)
+	}
+}
+
 func TestModelCtrlVPastesClipboardImageIntoBody(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
@@ -1236,6 +1265,7 @@ func TestMasterScrollKeepsViewWithinTerminalHeight(t *testing.T) {
 	model.width = 160
 	model.height = 40
 	model.reload()
+	model.integrationNotice = "integration candidate ready to promote · press I"
 	for ci := range model.view.Columns {
 		for ti := range model.view.Columns[ci].Tickets {
 			ticket := &model.view.Columns[ci].Tickets[ti]

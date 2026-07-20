@@ -551,7 +551,6 @@ func (m *Model) reload() {
 	m.clamp()
 	m.syncScrollDimensions()
 	m.hScrollFollow()
-	m.vScrollFollow()
 	m.integrationNotice = ""
 	if m.view.Board.ID != 0 && m.view.Board.WorktreeMode == storage.WorktreeModeGit {
 		if runs, listErr := m.actions.ListIntegrationRuns(m.ctx, m.view.Board.ID); listErr == nil {
@@ -572,6 +571,7 @@ func (m *Model) reload() {
 			}
 		}
 	}
+	m.vScrollFollow()
 }
 
 // syncScrollDimensions ensures colScroll has one entry per column, preserving
@@ -1030,12 +1030,13 @@ func (m *Model) applyEditorResult(msg editorFinishedMsg) {
 		m.status = msg.err.Error()
 		return
 	}
+	body := numberPromptImages(msg.body)
 	if m.editing {
 		if msg.ticketID != m.editTicket.ID || msg.ticketID != m.editorTicketID {
 			return
 		}
-		m.editInputs[1] = NewInputBuffer(msg.body)
-		m.bodyTA.SetValue(msg.body)
+		m.editInputs[1] = NewInputBuffer(body)
+		m.bodyTA.SetValue(body)
 		m.status = "body loaded from editor"
 		return
 	}
@@ -1044,7 +1045,7 @@ func (m *Model) applyEditorResult(msg editorFinishedMsg) {
 		m.status = err.Error()
 		return
 	}
-	if err := m.actions.UpdateTicket(m.ctx, t.ID, t.Title, msg.body, t.Harness); err != nil {
+	if err := m.actions.UpdateTicket(m.ctx, t.ID, t.Title, body, t.Harness); err != nil {
 		m.status = err.Error()
 		return
 	}

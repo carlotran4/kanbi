@@ -20,8 +20,9 @@ import (
 )
 
 var (
-	markdownImageRE = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
-	bareImagePathRE = regexp.MustCompile(`(?:~|/|\.)[^\s)\]]+\.(?:png|jpg|jpeg|gif|webp)\b`)
+	markdownImageRE     = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
+	generatedImageAltRE = regexp.MustCompile(`^image [0-9]+$`)
+	bareImagePathRE     = regexp.MustCompile(`(?:~|/|\.)[^\s)\]]+\.(?:png|jpg|jpeg|gif|webp)\b`)
 )
 
 type imageProtocol int

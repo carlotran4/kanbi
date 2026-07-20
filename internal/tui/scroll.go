@@ -27,6 +27,9 @@ func (m *Model) boardContentHeight() int {
 			fixed += 2
 		}
 	}
+	if m.integrationNotice != "" {
+		fixed++
+	}
 	if m.hScrollHint() != "" {
 		fixed++
 	}
