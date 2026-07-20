@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -98,6 +99,62 @@ func TestNormalizeDefaultsFromInMemoryRawConfig(t *testing.T) {
 	}
 	if len(cfg.Harnesses["pi"].Start) == 0 || len(cfg.Harnesses["codex"].Start) == 0 || len(cfg.Harnesses["copilot"].Start) == 0 {
 		t.Fatalf("default harnesses not applied: %+v", cfg.Harnesses)
+	}
+}
+
+func TestNormalizeStatusBarDefaultsAndOverrides(t *testing.T) {
+	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
+	cfg, err := Normalize(Config{}, paths, NormalizeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StatusBar == nil || cfg.StatusBar.Left != "$kanbi $board" || cfg.StatusBar.CommandTimeoutDuration != 500*time.Millisecond {
+		t.Fatalf("status bar defaults=%+v", cfg.StatusBar)
+	}
+
+	cfgFile := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgFile, []byte(`
+status_bar:
+  left: "$kanbi"
+  center: "${custom.usage}"
+  right: "$time"
+  command_timeout: 750ms
+  time:
+    format: "15:04:05"
+  custom:
+    usage:
+      command: ["usage-left", "--weekly"]
+      refresh_interval: 5m
+      format: "weekly $output"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := LoadRaw(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Normalize(raw, paths, NormalizeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage := cfg.StatusBar.Custom["usage"]
+	if cfg.StatusBar.Left != "$kanbi" || cfg.StatusBar.Center != "${custom.usage}" || cfg.StatusBar.Right != "$time" || cfg.StatusBar.CommandTimeoutDuration != 750*time.Millisecond || usage.RefreshDuration != 5*time.Minute || usage.TimeoutDuration != 750*time.Millisecond {
+		t.Fatalf("status bar override=%+v usage=%+v", cfg.StatusBar, usage)
+	}
+}
+
+func TestNormalizeRejectsInvalidStatusBar(t *testing.T) {
+	paths := Paths{DBFile: "/data/kanbi.db"}
+	cfgFile := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgFile, []byte("status_bar:\n  left: '$missing'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := LoadRaw(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Normalize(raw, paths, NormalizeOptions{}); err == nil || !strings.Contains(err.Error(), "unknown module") {
+		t.Fatalf("expected status bar validation error, got %v", err)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/carlotran4/kanbi/internal/statusbar"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/tmux"
 )
@@ -35,13 +36,59 @@ func (m *quitTestManager) MoveTicketToDefaultMultiplexer(context.Context, storag
 	return nil
 }
 
+func TestCustomStatusBarRendersThreeZones(t *testing.T) {
+	store, ctx := newTestStore(t)
+	cfg := statusbar.Config{
+		Left:   "$kanbi $board",
+		Center: "${custom.usage}",
+		Right:  "$time",
+		Time:   statusbar.TimeModule{Format: "15:04"},
+		Custom: map[string]statusbar.CustomModule{
+			"usage": {Command: []string{"sh", "-c", "printf '42%% weekly left'"}, RefreshInterval: "5m"},
+		},
+	}
+	if err := statusbar.Normalize(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	model := NewWithStatusBar(ctx, NewService(store, nil), cfg)
+	model.width = 80
+	model.height = 24
+	msg := model.runStatusBarModule("usage")()
+	updated, _ := model.Update(msg)
+	model = updated.(Model)
+
+	header := strings.Split(ansiStrip(model.View()), "\n")[0]
+	if len([]rune(header)) != 80 || !strings.HasPrefix(header, " Kanbi ") || !strings.Contains(header, "42% weekly left") {
+		t.Fatalf("custom status header malformed: %q", header)
+	}
+	centerStart := strings.Index(header, "42% weekly left")
+	if centerStart != (80-len("42% weekly left"))/2 {
+		t.Fatalf("center module not centered: start=%d header=%q", centerStart, header)
+	}
+}
+
+func TestStatusBarIgnoresResultsFromPreviousBoardGeneration(t *testing.T) {
+	model, _, _ := newTestModel(t)
+	model.statusBarGeneration = 2
+	model.statusBarResults["usage"] = statusbar.ModuleResult{Value: "current"}
+	if model.applyStatusBarResult(statusBarResultMsg{name: "usage", generation: 1, value: "stale"}) {
+		t.Fatal("stale result should not be applied")
+	}
+	if got := model.statusBarResults["usage"].Value; got != "current" {
+		t.Fatalf("stale result overwrote current value: %q", got)
+	}
+}
+
 func TestQuitDoesNotKillTicketSessions(t *testing.T) {
 	store, ctx := newTestStore(t)
 	manager := &quitTestManager{}
 	model := New(ctx, NewService(store, manager))
-	_, cmd := mustUpdate(t, model, "q")
+	model, cmd := mustUpdate(t, model, "q")
 	if cmd == nil {
 		t.Fatal("q must return quit command")
+	}
+	if model.statusBarCtx.Err() != context.Canceled {
+		t.Fatal("q did not cancel status bar commands")
 	}
 	if manager.killed {
 		t.Fatal("normal quit killed ticket sessions")

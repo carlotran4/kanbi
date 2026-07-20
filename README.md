@@ -51,6 +51,8 @@ Choose `shared board directory` or `isolated Git worktrees` when creating a boar
 
 Press `I` on a named worktree board to select clean ticket worktrees and launch a repository integration agent. Reopen `I` to focus the agent, review a ready candidate with `p`, or cancel with `x`. Integration agents use `integration.harness` (default `pi`) and optional `integration.validation_command` from config. The agent reports a committed candidate through `kanbi integration report`; Kanbi independently verifies and promotes it rather than trusting transcript text or allowing the agent to mutate source.
 
+The header status bar is configurable with Starship-style modules and independently aligned left, center, and right zones. It can show the board, time, or cached output from bounded custom commands such as a weekly usage script. See [Configuration](./docs/configuration.md).
+
 Press `?` for controls. The important distinction is:
 
 - `x` closes the selected agent session.
@@ -84,6 +86,7 @@ Run `kanbi --help` or `kanbi COMMAND --help` for the rest.
 ## Documentation
 
 - [Installation](./docs/installation.md)
+- [Configuration](./docs/configuration.md)
 - [Ticket backends](./docs/ticket-backends.md)
 - [Multi-board behavior](./docs/multi-board-behavior.md)
 - [Compatibility](./docs/compatibility.md)

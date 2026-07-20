@@ -9,6 +9,7 @@ Next planned prerelease: `v0.3.0-beta.1` (not yet qualified or published).
 ### Added
 
 - Agent-assisted repository integration runs: press `I` to select ticket worktrees, supervise a dedicated integration agent, accept a structured candidate report, and safely promote the verified combined result.
+- Starship-style custom status bars with left, center, and right module zones plus bounded periodically refreshed command modules (GH-325).
 - Opt-in bounded diagnostics file logging (`diagnostics.level` / `KANBI_LOG_LEVEL`) with `0600` permissions, rotation, and structured JSON records.
 - `kanbi support-bundle PATH` for redacted, path-safe diagnostic archives usable in degraded environments.
 - Expanded secret redaction for tokens, headers, URLs, session-ref patterns, and config/env sanitization with automated tests.

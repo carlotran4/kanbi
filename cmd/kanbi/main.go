@@ -186,7 +186,7 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		svc := tui.NewServiceWithSyncer(cli.store, manager, syncer)
 		svc.DataDir = cfg.Paths.DataDir
 		svc.Integration = &integrationpkg.Service{Store: cli.store, StateDir: cfg.Paths.StateDir, Launcher: manager, Workspace: manager.WorkspaceService, DefaultHarness: cfg.Integration.Harness, ValidationCommand: cfg.Integration.ValidationCommand}
-		_, err := tea.NewProgram(tui.NewWithPickerOptions(ctx, svc, reconcileWarning)).Run()
+		_, err := tea.NewProgram(tui.NewWithPickerStatusBarOptions(ctx, svc, reconcileWarning, *cfg.StatusBar)).Run()
 		return err
 	})
 }
