@@ -227,6 +227,63 @@ func TestJiraSyncDoesNotCountPartialUpdateAndRetries(t *testing.T) {
 	}
 }
 
+func TestJiraSyncDoesNotOverwriteMoveMadeAfterLocalSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Jira", Workdir: t.TempDir(), TicketBackend: KindAtlassian, BackendConfig: `{"site_url":"https://acme.atlassian.net","project_key":"AK","email":"me@example.com","api_token":"tok"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Add(-2 * time.Hour)
+	client := &fakeJiraClient{issues: []JiraIssue{
+		{ID: "10330", Key: "AK-330", BrowseURL: "url", Summary: "ticket", Description: "body", Status: "In Progress", UpdatedAt: base},
+		{ID: "10331", Key: "AK-331", BrowseURL: "url", Summary: "review occupant", Description: "body", Status: "Review", UpdatedAt: base},
+	}, comments: map[string][]JiraComment{}}
+	backend := JiraBackend{Client: client}
+	if _, err := backend.Sync(ctx, store, board); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.TicketByDisplayIDInBoard(ctx, "AK-330", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, err := store.ColumnIDByBoardAndName(ctx, board.ID, "Review")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client.issues[0].UpdatedAt = time.Now().UTC()
+	gated := &gatedTicketSnapshotRepository{SyncRepository: store, snapshotTaken: make(chan struct{}), resume: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() {
+		_, err := backend.Sync(ctx, gated, board)
+		done <- err
+	}()
+	<-gated.snapshotTaken
+	if err := store.MoveTicket(ctx, ticket.ID, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	close(gated.resume)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ColumnID != reviewID {
+		t.Fatalf("stale sync reverted concurrent move: column=%d want review=%d", updated.ColumnID, reviewID)
+	}
+	res, err := backend.Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pushed < 1 || len(client.updatedIssues) < 1 || client.updatedIssues[0].Status != "Review" {
+		t.Fatalf("newer move did not converge to Jira: result=%+v updates=%+v", res, client.updatedIssues)
+	}
+}
+
 func TestJiraHTTPUpdateIssueTransitionFailures(t *testing.T) {
 	tests := []struct {
 		name               string

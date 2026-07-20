@@ -136,17 +136,23 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 					return res, err
 				}
 				issue = updated
-				if _, err := store.UpsertRemoteTicket(ctx, jiraRemoteTicket(cfg, board.ID, local.ColumnID, issue)); err != nil {
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(cfg, board.ID, local.ColumnID, issue), local.UpdatedAt)
+				if err != nil {
 					return res, err
 				}
-				_ = store.ClearTicketRemotePush(ctx, local.ID)
-				res.Pushed++
+				if applied {
+					_ = store.ClearTicketRemotePush(ctx, local.ID)
+					res.Pushed++
+				}
 			} else if remoteNewer {
-				if _, err := store.UpsertRemoteTicket(ctx, jiraRemoteTicket(cfg, board.ID, columnID, issue)); err != nil {
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(cfg, board.ID, columnID, issue), local.UpdatedAt)
+				if err != nil {
 					return res, err
 				}
-				_ = store.ClearTicketRemotePush(ctx, local.ID)
-				res.Pulled++
+				if applied {
+					_ = store.ClearTicketRemotePush(ctx, local.ID)
+					res.Pulled++
+				}
 			}
 			if err := b.syncComments(ctx, store, client, cfg, local.ID, issue.ID); err != nil {
 				return res, err
@@ -159,7 +165,7 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 				if have != "" && have == marker.Token {
 					rt := jiraRemoteTicket(cfg, board.ID, local.ColumnID, issue)
 					rt.SourceTicketID = local.ID
-					if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
+					if _, _, err := store.UpsertRemoteTicketIfUnchanged(ctx, rt, time.Time{}); err != nil {
 						return res, err
 					}
 					_ = store.ClearTicketRemotePush(ctx, local.ID)
@@ -215,7 +221,7 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 		}
 		rt := jiraRemoteTicket(cfg, board.ID, local.ColumnID, created)
 		rt.SourceTicketID = local.ID
-		if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
+		if _, _, err := store.UpsertRemoteTicketIfUnchanged(ctx, rt, local.UpdatedAt); err != nil {
 			return res, err
 		}
 		_ = store.ClearTicketRemotePush(ctx, local.ID)
