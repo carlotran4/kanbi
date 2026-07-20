@@ -123,6 +123,47 @@ create table if not exists sessions (
   updated_at datetime not null
 );
 
+create table if not exists integration_runs (
+  id integer primary key autoincrement,
+  public_id text not null,
+  board_id integer not null references boards(id) on delete cascade,
+  state text not null,
+  repository_root text not null,
+  common_dir text not null,
+  worktree_path text not null,
+  branch_name text not null,
+  source_branch text not null,
+  source_sha text not null,
+  candidate_sha text,
+  harness text not null,
+  token_hash text not null,
+  prompt text not null,
+  validation_command text,
+  last_error text,
+  multiplexer text,
+  mux_namespace text,
+  mux_container_id text,
+  mux_container_name text,
+  mux_metadata text,
+  harness_session_ref text,
+  created_at datetime not null,
+  updated_at datetime not null,
+  completed_at datetime,
+  promoted_at datetime
+);
+
+create table if not exists integration_run_items (
+  id integer primary key autoincrement,
+  run_id integer not null references integration_runs(id) on delete cascade,
+  workspace_id integer not null references ticket_workspaces(id) on delete cascade,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  branch_name text not null,
+  head_sha text not null,
+  position integer not null,
+  unique(run_id, workspace_id),
+  unique(run_id, position)
+);
+
 create table if not exists board_sync_leases (
   board_id integer primary key references boards(id) on delete cascade,
   owner text not null,

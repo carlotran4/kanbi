@@ -24,6 +24,7 @@ var migrations = []migration{
 	{version: 4, name: "runtime diagnostics and remote push state", apply: migrateRuntimeHardening},
 	{version: 5, name: "board archive, workflow keys, filter presets", apply: migrateBoardArchiveAndWorkflow},
 	{version: 6, name: "ticket workspaces and session launch cwd", apply: migrateTicketWorkspaces},
+	{version: 7, name: "repository integration runs", apply: migrateIntegrationRuns},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.
@@ -395,6 +396,62 @@ func migrateTicketWorkspaces(ctx context.Context, tx *sql.Tx) error {
 		`create index if not exists idx_sessions_workspace_id on sessions(workspace_id)`,
 	} {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateIntegrationRuns(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, `create table if not exists integration_runs (
+  id integer primary key autoincrement,
+  public_id text not null,
+  board_id integer not null references boards(id) on delete cascade,
+  state text not null,
+  repository_root text not null,
+  common_dir text not null,
+  worktree_path text not null,
+  branch_name text not null,
+  source_branch text not null,
+  source_sha text not null,
+  candidate_sha text,
+  harness text not null,
+  token_hash text not null,
+  prompt text not null,
+  validation_command text,
+  last_error text,
+  multiplexer text,
+  mux_namespace text,
+  mux_container_id text,
+  mux_container_name text,
+  mux_metadata text,
+  harness_session_ref text,
+  created_at datetime not null,
+  updated_at datetime not null,
+  completed_at datetime,
+  promoted_at datetime
+)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `create table if not exists integration_run_items (
+  id integer primary key autoincrement,
+  run_id integer not null references integration_runs(id) on delete cascade,
+  workspace_id integer not null references ticket_workspaces(id) on delete cascade,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  branch_name text not null,
+  head_sha text not null,
+  position integer not null,
+  unique(run_id, workspace_id),
+  unique(run_id, position)
+)`); err != nil {
+		return err
+	}
+	for _, q := range []string{
+		`create unique index if not exists integration_runs_public_id_uq on integration_runs(public_id)`,
+		`create unique index if not exists integration_runs_one_active_repo_source on integration_runs(common_dir,source_branch) where state in ('planning','running','waiting_for_user','needs_permission','ready','blocked','promoting','cleanup_required')`,
+		`create index if not exists integration_run_items_run_position on integration_run_items(run_id,position)`,
+	} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}
 	}

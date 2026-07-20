@@ -49,6 +49,8 @@ Select the board, press `n` to create a ticket, save it with `Ctrl+S`, then pres
 
 Choose `shared board directory` or `isolated Git worktrees` when creating a board. Existing boards can migrate with `b`, select the board, then `t` and confirm **Enable worktrees**. This is a durable board policy: once workspace history exists it cannot be switched back; create a separate shared-directory board instead. First ticket start asks for an editable branch name and records the currently checked-out branch as its source.
 
+Press `I` on a named worktree board to select clean ticket worktrees and launch a repository integration agent. Reopen `I` to focus the agent, review a ready candidate with `p`, or cancel with `x`. Integration agents use `integration.harness` (default `pi`) and optional `integration.validation_command` from config. The agent reports a committed candidate through `kanbi integration report`; Kanbi independently verifies and promotes it rather than trusting transcript text or allowing the agent to mutate source.
+
 Press `?` for controls. The important distinction is:
 
 - `x` closes the selected agent session.

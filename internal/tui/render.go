@@ -20,6 +20,9 @@ func (m Model) View() string {
 	// Always render the base board first so modals can overlay it.
 	base := m.baseView()
 
+	if m.integrationOpen {
+		return overlayModal(base, fitModal(m.integrationView(), m.height, 0, true), m.width, m.height)
+	}
 	if m.firstRun {
 		return overlayModal(base, fitModal(m.onboardingView(), m.height, 0, false), m.width, m.height)
 	}
@@ -98,6 +101,9 @@ func (m Model) baseView() string {
 		footerRule.Render(strings.Repeat("─", m.width)),
 		m.contextBar(),
 	}
+	if m.integrationNotice != "" {
+		footer = append(footer, lipgloss.NewStyle().Foreground(palette.warning).Bold(true).Render(trimToWidth(m.integrationNotice, maxInt(1, m.width))))
+	}
 	if m.status != "" {
 		if m.errOperation != "" {
 			footer = append(footer,
@@ -131,7 +137,7 @@ func (m Model) baseView() string {
 }
 
 func (m Model) contextBar() string {
-	items := []string{"Enter:send/open", "n:new", "e:ticket", "b:boards"}
+	items := []string{"Enter:send/open", "n:new", "e:ticket", "I:integrate", "b:boards"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
@@ -915,6 +921,7 @@ func (m Model) helpView() string {
 	row("H/L", "move ticket left/right")
 	row("J/K", "reorder ticket up/down")
 	row("M", "move resumable session to configured multiplexer")
+	row("I", "select worktrees for an agent-assisted integration run")
 
 	section("Boards and columns")
 	row("b / f", "board picker / Master filters")

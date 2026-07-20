@@ -153,6 +153,16 @@ func (s *Store) MarkBoardSync(ctx context.Context, boardID int64, syncErr error)
 	return err
 }
 
+func (s *Store) boardHasActiveIntegrationRuns(ctx context.Context, querier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, boardID int64) (bool, error) {
+	var active int
+	if err := querier.QueryRowContext(ctx, `select count(*) from integration_runs where board_id=? and state not in (?,?,?)`, boardID, IntegrationStatePromoted, IntegrationStateFailed, IntegrationStateCancelled).Scan(&active); err != nil {
+		return false, err
+	}
+	return active > 0, nil
+}
+
 func (s *Store) boardHasActiveSessions(ctx context.Context, querier interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, boardID int64) (bool, error) {
@@ -186,6 +196,13 @@ func (s *Store) ArchiveBoard(ctx context.Context, boardID int64) error {
 	}
 	if active {
 		return ErrBoardHasActiveSessions
+	}
+	integrationActive, err := s.boardHasActiveIntegrationRuns(ctx, tx, boardID)
+	if err != nil {
+		return err
+	}
+	if integrationActive {
+		return ErrBoardHasActiveIntegrationRuns
 	}
 	var currentWorkspaces int
 	if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and is_current=1 and state<>?`, boardID, WorkspaceStateIntegrated).Scan(&currentWorkspaces); err != nil {
@@ -250,6 +267,13 @@ func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
 	}
 	if active {
 		return errors.New("cannot delete board with active sessions")
+	}
+	integrationActive, err := s.boardHasActiveIntegrationRuns(ctx, tx, boardID)
+	if err != nil {
+		return err
+	}
+	if integrationActive {
+		return ErrBoardHasActiveIntegrationRuns
 	}
 	var currentWorkspaces int
 	if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&currentWorkspaces); err != nil {

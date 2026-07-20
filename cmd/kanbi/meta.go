@@ -18,6 +18,7 @@ Usage:
 
 Commands:
   boards     List, add, rename, or update boards
+  integration Report, promote, cancel, or list repository integration runs
   add        Create a ticket
   list       List tickets
   show       Show one ticket
@@ -50,6 +51,12 @@ Exit status is 0 for success/help and 1 for command, configuration, or runtime e
 `
 
 var commandHelp = map[string]string{
+	"integration": `Usage: kanbi integration list
+       kanbi integration report --run ID --status ready|blocked|failed [--commit SHA] [--message TEXT]
+       kanbi integration promote RUN_ID
+       kanbi integration cancel RUN_ID
+
+Agent integration sessions receive KANBI_INTEGRATION_TOKEN automatically. A ready report records a candidate only; promotion independently validates source, ticket heads, ancestry, cleanliness, and configured checks.`,
 	"boards": `Usage: kanbi boards [--json]
        kanbi boards list [--include-archived]
        kanbi boards add NAME [--cwd PATH] [--worktree-mode off|git] [--backend local|github|atlassian] [--query QUERY] [--config JSON]

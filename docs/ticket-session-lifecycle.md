@@ -124,6 +124,12 @@ On a current workspace that is observed as conflicting, `r` closes the live agen
 
 On a current workspace, `m` opens a textual confirmation showing source, ticket branch, and cached status. Confirmation revalidates clean checkouts and repository identity, serializes by Git common directory across Kanbi processes, closes the agent, and merges only into the recorded source checkout. After success Kanbi removes only the linked filesystem checkout: the local ticket branch, stable path, durable workspace, and harness ref remain available. Reopening recreates that worktree at the exact path and resumes the same session; a tweak can be committed and integrated again. Conflict or validation failure preserves the live workspace, while checkout-retirement failure is recorded as cleanup-required.
 
+### Repository Integration Agent
+
+A repository integration run is not a synthetic ticket. It snapshots one source branch/head and selected current ticket workspace branch heads, creates a managed integration branch/worktree from that exact source SHA, and launches the configured integration harness there. The generated prompt forbids source mutation/push/deletion, requires every exact selected SHA, semantic review, user questions for ambiguity, checks, a clean commit, and a final structured `kanbi integration report` command.
+
+Reports are token-authenticated through the launched environment. Kanbi independently verifies report cwd, cleanliness, source and item ancestry, and candidate commit. Promotion revalidates the source checkout/branch/head, every selected branch head, active ticket sessions, and configured validation under the shared repository flock. Only then does it fast-forward source once, mark selected workspaces integrated, retire their checkouts, preserve their branches/session continuity, and remove the temporary integration checkout/branch. Changed heads or failed checks never promote.
+
 ### Close / Archive
 
 - Runtime detection never closes a session automatically. Waiting and permission classifications are advisory; the terminal container remains active until an explicit close or archive action.

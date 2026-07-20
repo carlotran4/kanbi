@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
+	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -109,6 +110,14 @@ type Model struct {
 	branchSendPrompt        bool
 	workspaceIntegrating    bool
 	workspaceActionTicket   storage.Ticket
+	integrationOpen         bool
+	integrationCandidates   []integrationpkg.Candidate
+	integrationSelected     map[int64]bool
+	integrationIndex        int
+	integrationRun          storage.IntegrationRun
+	integrationPromoting    bool
+	integrationCancelling   bool
+	integrationNotice       string
 
 	// Notes state (used within the edit modal, editField==3)
 	notes       []storage.Note
@@ -172,6 +181,12 @@ type closeSessionMsg struct {
 type moveMultiplexerMsg struct {
 	displayID string
 	err       error
+}
+
+type integrationActionMsg struct {
+	action string
+	run    storage.IntegrationRun
+	err    error
 }
 
 type workspaceActionMsg struct {
@@ -266,6 +281,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reload()
 		}
 		return m, nil
+	case integrationActionMsg:
+		if msg.err != nil {
+			m.setActionError(msg.action+" integration", msg.err, "Review the integration run, ticket branches, and source checkout, then retry.")
+		} else {
+			m.status = msg.action + " integration " + msg.run.PublicID
+			m.integrationRun = msg.run
+			m.reload()
+		}
+		return m, nil
 	case workspaceActionMsg:
 		if msg.err != nil {
 			m.setActionError(msg.action+" ticket workspace", msg.err, "Commit or repair the workspace and source checkout, refresh status, then retry.")
@@ -299,10 +323,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOnboarding(key), nil
 	}
 	// Clear stale status on any keypress (unless a modal is consuming input).
-	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen {
+	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.integrationOpen && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen {
 		m.status = ""
 		m.errOperation = ""
 		m.errNext = ""
+	}
+	if m.integrationOpen {
+		return m.updateIntegration(key)
 	}
 	if m.masterFilterOpen {
 		return m.updateMasterFilter(key), nil
@@ -439,6 +466,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case "M":
 		return m, m.moveToDefaultMultiplexerCmd()
+	case "I":
+		return m, m.openIntegration()
 	case "enter":
 		return m, withClearKittyImages(m.defaultTicketCmd())
 	case "x":
@@ -475,6 +504,26 @@ func (m *Model) reload() {
 	m.syncScrollDimensions()
 	m.vScrollFollow()
 	m.hScrollFollow()
+	m.integrationNotice = ""
+	if m.view.Board.ID != 0 && m.view.Board.WorktreeMode == storage.WorktreeModeGit {
+		if runs, listErr := m.actions.ListIntegrationRuns(m.ctx, m.view.Board.ID); listErr == nil {
+			for _, run := range runs {
+				if m.integrationOpen && run.PublicID == m.integrationRun.PublicID {
+					m.integrationRun = run
+				}
+				switch run.State {
+				case storage.IntegrationStateWaitingForUser:
+					m.integrationNotice = "integration agent waiting for user · press I"
+				case storage.IntegrationStateNeedsPermission:
+					m.integrationNotice = "integration agent needs permission · press I"
+				case storage.IntegrationStateReady:
+					if m.integrationNotice == "" {
+						m.integrationNotice = "integration candidate ready to promote · press I"
+					}
+				}
+			}
+		}
+	}
 }
 
 // syncScrollDimensions ensures colScroll has one entry per column, preserving

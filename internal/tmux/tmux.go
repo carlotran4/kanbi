@@ -441,6 +441,9 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	if m.Store == nil {
 		return nil
 	}
+	if err := m.RefreshIntegrationRuns(ctx); err != nil {
+		return err
+	}
 	if service := m.workspaceService(); service != nil {
 		workspaces, err := m.Store.ListCurrentWorkspaces(ctx, 0)
 		if err != nil {

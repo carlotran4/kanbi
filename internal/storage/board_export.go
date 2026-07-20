@@ -132,6 +132,13 @@ func (s *Store) LoadBoardAggregate(ctx context.Context, boardID int64) (BoardAgg
 	if active > 0 {
 		return BoardAggregate{}, ErrBoardHasActiveSessions
 	}
+	integrationActive, err := s.boardHasActiveIntegrationRuns(ctx, tx, boardID)
+	if err != nil {
+		return BoardAggregate{}, err
+	}
+	if integrationActive {
+		return BoardAggregate{}, ErrBoardHasActiveIntegrationRuns
+	}
 	var currentWorkspaces int
 	if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&currentWorkspaces); err != nil {
 		return BoardAggregate{}, err

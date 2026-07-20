@@ -6,6 +6,8 @@ Built-in harness contracts are localized in `internal/harness/contracts.go`: com
 
 Currently supported: Pi, Codex, Copilot, Claude.
 
+Repository integration runs launch the configured `integration.harness` through the same compiled start-command contract and require an argument-mode prompt. The generated prompt supplies exact immutable SHAs and a final `kanbi integration report` command. The report token is injected only through the runtime environment and stored durably only as a hash; no harness transcript is trusted as completion evidence.
+
 ## Pi
 
 **Binary:** `pi`

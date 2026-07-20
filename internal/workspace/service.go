@@ -434,6 +434,11 @@ func mustJSON(value any) string {
 	return string(data)
 }
 
+// WithRepoLock serializes repository-mutating operations across Kanbi processes.
+func (s *Service) WithRepoLock(ctx context.Context, commonDir string, fn func() error) error {
+	return s.withRepoLock(ctx, commonDir, fn)
+}
+
 func (s *Service) withRepoLock(ctx context.Context, commonDir string, fn func() error) error {
 	if strings.TrimSpace(s.StateDir) == "" {
 		return errors.New("state directory is required for repository locking")

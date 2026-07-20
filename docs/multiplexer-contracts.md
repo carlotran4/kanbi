@@ -25,7 +25,7 @@ A multiplexer adapter must provide these operations for one terminal container:
 | Close | Close the container after graceful harness exit attempts. |
 | Detect | Report provider-native state when available, otherwise allow pane-output fallback. |
 
-Session rows persist the generic fields `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata`. Legacy tmux fields remain populated for tmux sessions and are backfilled into generic fields during migration.
+Session rows persist the generic fields `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata`. Legacy tmux fields remain populated for tmux sessions and are backfilled into generic fields during migration. Repository integration agents use the same adapter launch/focus/read/close contract, but their container metadata belongs to `integration_runs`; Kanbi never creates a synthetic ticket session for them.
 
 ## tmux Behavior
 

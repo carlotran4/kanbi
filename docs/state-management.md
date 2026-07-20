@@ -136,6 +136,12 @@ Successful integration closes the agent, merges into the exact recorded source, 
 
 Git status is observed state stored as a bounded JSON snapshot; observation errors belong to the workspace and do not fail the harness session.
 
+## Repository Integration Runs
+
+Repository integration runs are durable repository-scoped operations, not synthetic tickets or ticket sessions. SQLite stores the exact source SHA, ordered selected workspace/branch SHAs, managed candidate checkout, runtime container reference, token hash, candidate report, and lifecycle (`planning`, `running`, `waiting_for_user`, `needs_permission`, `ready`, `blocked`, `promoting`, `promoted`, `failed`, or `cancelled`). Only one active run may target a Git common directory/source branch.
+
+The integration agent works only in the candidate checkout and reports through the token-authenticated `kanbi integration report` command. Transcript text is never completion evidence. Promotion records durable `promoting` intent, revalidates source/candidate/item heads and clean worktrees after closing ticket agents, runs configured validation, and fast-forwards source once. Startup/retry reconciliation recognizes when source already equals the candidate and completes bookkeeping without repeating the merge. Active runs block board archive, export, and deletion.
+
 ## Board Data Lifecycle
 
 - Active boards participate in the picker, Master aggregation, and provider sync. Archived boards retain their columns, tickets, notes, attachment ownership, provider identities, and every session row, but are excluded from normal views and sync.

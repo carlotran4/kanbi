@@ -259,6 +259,10 @@ A multiplexer change is verified when:
 - fake Herdr scripts can simulate `herdr status` in deterministic tests/smoke
 - real Herdr lifecycle checks are opt-in only and not run by normal smoke
 
+### Repository Integration Runs
+
+A change is verified when temporary Git repositories prove selection snapshots exact source/item SHAs, integration agents launch only in the managed candidate checkout, token-authenticated reports reject dirty/wrong/incomplete candidates, promotion closes agents and revalidates clean ticket/source worktrees, source updates once by fast-forward, crash-after-fast-forward reconciliation is idempotent, and cancellation never mutates ticket worktrees or source. TUI validation must cover `I` selection, disabled dirty rows, waiting/permission notice, ready detail, promotion confirmation, cancellation confirmation, scrolling, and 80x24.
+
 ### Tmux Manager
 A change is verified when:
 

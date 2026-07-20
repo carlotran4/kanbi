@@ -278,6 +278,17 @@ func TestLoadIgnoresRemovedAutoCloseTimeout(t *testing.T) {
 	}
 }
 
+func TestIntegrationDefaultsAndOverrides(t *testing.T) {
+	paths := Paths{ConfigFile: filepath.Join(t.TempDir(), "config.yaml"), DataDir: t.TempDir(), StateDir: t.TempDir(), DBFile: filepath.Join(t.TempDir(), "db")}
+	cfg, err := Normalize(Config{Integration: Integration{Harness: "codex", ValidationCommand: "go test ./..."}}, paths, NormalizeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Integration.Harness != "codex" || cfg.Integration.ValidationCommand != "go test ./..." {
+		t.Fatalf("integration=%+v", cfg.Integration)
+	}
+}
+
 func clearAgentEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{

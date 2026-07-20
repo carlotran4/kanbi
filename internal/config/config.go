@@ -54,6 +54,11 @@ type Timeouts struct {
 
 // Diagnostics configures opt-in bounded private file logging under StateDir.
 // Logging is disabled (level off) unless set via config or KANBI_LOG_LEVEL.
+type Integration struct {
+	Harness           string `yaml:"harness"`
+	ValidationCommand string `yaml:"validation_command"`
+}
+
 type Diagnostics struct {
 	// Level is off|error|warn|info|debug. Default off.
 	Level string `yaml:"level"`
@@ -71,6 +76,7 @@ type Config struct {
 	Tmux                Tmux               `yaml:"tmux"`
 	Multiplexer         Multiplexer        `yaml:"multiplexer"`
 	Diagnostics         Diagnostics        `yaml:"diagnostics"`
+	Integration         Integration        `yaml:"integration"`
 	PromptReadyTimeout  time.Duration      `yaml:"-"`
 	PromptReadyRaw      string             `yaml:"prompt_ready_timeout"`
 	IdleUnknownAfter    time.Duration      `yaml:"-"`
@@ -229,6 +235,7 @@ func defaultConfig(paths Paths, env Env) Config {
 		Tmux:                Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
 		Multiplexer:         Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
 		Diagnostics:         Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
+		Integration:         Integration{Harness: "pi"},
 		PromptReadyTimeout:  5 * time.Second,
 		PromptReadyRaw:      "5s",
 		IdleUnknownAfter:    120 * time.Second,
@@ -301,6 +308,12 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.Harnesses != nil {
 		cfg.Harnesses = raw.Harnesses
+	}
+	if raw.Integration.Harness != "" {
+		cfg.Integration.Harness = raw.Integration.Harness
+	}
+	if raw.Integration.ValidationCommand != "" {
+		cfg.Integration.ValidationCommand = raw.Integration.ValidationCommand
 	}
 	if raw.Diagnostics.Level != "" {
 		cfg.Diagnostics.Level = raw.Diagnostics.Level

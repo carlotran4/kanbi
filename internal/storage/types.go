@@ -12,6 +12,8 @@ var ErrTicketHasActiveSession = errors.New("cannot archive ticket with an active
 
 var ErrBoardHasCurrentWorkspaces = errors.New("board has current ticket workspaces; integrate or repair them first")
 
+var ErrBoardHasActiveIntegrationRuns = errors.New("board has an active integration run; finish or cancel it first")
+
 const (
 	// WorktreeModeOff keeps launches in the shared board working directory.
 	WorktreeModeOff = "off"

@@ -10,6 +10,7 @@ import (
 
 	"github.com/carlotran4/kanbi/internal/attachments"
 	"github.com/carlotran4/kanbi/internal/boardpackage"
+	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/ticketbackend"
 )
@@ -25,6 +26,10 @@ type SessionManager interface {
 	KillSession(context.Context) error
 	StartFreshTicket(context.Context, storage.Ticket, bool) error
 	MoveTicketToDefaultMultiplexer(context.Context, storage.Ticket) error
+}
+
+type IntegrationRuntimeManager interface {
+	FocusIntegration(context.Context, storage.IntegrationRun) error
 }
 
 type WorkspaceManager interface {
@@ -47,7 +52,8 @@ type Service struct {
 	Manager SessionManager
 	Syncer  TicketSyncer
 	// DataDir is the Kanbi data root (parent of attachments/). Used by board package ops.
-	DataDir string
+	DataDir     string
+	Integration *integrationpkg.Service
 }
 
 func NewService(store *storage.Store, manager SessionManager) *Service {
@@ -56,6 +62,46 @@ func NewService(store *storage.Store, manager SessionManager) *Service {
 
 func NewServiceWithSyncer(store *storage.Store, manager SessionManager, syncer TicketSyncer) *Service {
 	return &Service{Store: store, Manager: manager, Syncer: syncer}
+}
+
+func (s *Service) IntegrationCandidates(ctx context.Context, boardID int64) ([]integrationpkg.Candidate, error) {
+	if s.Integration == nil {
+		return nil, fmt.Errorf("integration unavailable")
+	}
+	return s.Integration.Eligible(ctx, boardID)
+}
+func (s *Service) CreateIntegration(ctx context.Context, opts integrationpkg.CreateOptions) (integrationpkg.CreateResult, error) {
+	if s.Integration == nil {
+		return integrationpkg.CreateResult{}, fmt.Errorf("integration unavailable")
+	}
+	return s.Integration.Create(ctx, opts)
+}
+func (s *Service) CancelIntegration(ctx context.Context, publicID string) error {
+	if s.Integration == nil {
+		return fmt.Errorf("integration unavailable")
+	}
+	return s.Integration.Cancel(ctx, publicID)
+}
+func (s *Service) PromoteIntegration(ctx context.Context, publicID string) error {
+	if s.Integration == nil {
+		return fmt.Errorf("integration unavailable")
+	}
+	return s.Integration.Promote(ctx, publicID, integrationpkg.PromoteOptions{CloseTicket: func(ctx context.Context, t storage.Ticket) error {
+		if s.Manager == nil {
+			return fmt.Errorf("session close unavailable")
+		}
+		return s.Manager.CloseSession(ctx, t)
+	}})
+}
+func (s *Service) ListIntegrationRuns(ctx context.Context, boardID int64) ([]storage.IntegrationRun, error) {
+	return s.Store.ListIntegrationRuns(ctx, boardID)
+}
+func (s *Service) FocusIntegration(ctx context.Context, run storage.IntegrationRun) error {
+	manager, ok := s.Manager.(IntegrationRuntimeManager)
+	if !ok {
+		return fmt.Errorf("integration focus unavailable")
+	}
+	return manager.FocusIntegration(ctx, run)
 }
 
 func (s *Service) BoardView(ctx context.Context) (storage.BoardView, error) {

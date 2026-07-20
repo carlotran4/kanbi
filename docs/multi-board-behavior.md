@@ -172,6 +172,10 @@ Each board UI executable uses the configured multiplexer as its runtime substrat
 
 If `BoardWorkdir` is empty, the configured multiplexer falls back to the current process working directory. Ticket container names include the board ID (`b{board_id}-...`) so duplicate board-local IDs do not collide within a runtime namespace.
 
+## Agent-assisted repository integration
+
+On a named Git-worktree board, `I` lists current ticket workspaces. Clean/ready rows are selectable with `Space`; dirty or repair states remain visible with textual reasons. `Enter` snapshots the selected branch heads and source head, creates a temporary integration checkout, and opens the configured integration agent. A repository/source cohort can have only one active run. Returning to `I` opens that run: `Enter` focuses the agent, `p` confirms a ready candidate promotion, and `x` confirms cancellation. Waiting-for-user, permission, and ready states appear in the board footer. Master integration selection is intentionally unavailable because repository/source grouping would be ambiguous.
+
 ## CLI behavior
 
 ```text
@@ -217,8 +221,8 @@ See [`docs/ticket-backends.md`](./ticket-backends.md).
 
 ## Board archive vs delete vs package export
 
-- **Board archive** is non-destructive local hide + sync pause. Tickets, notes, sessions, and attachments remain. Active sessions block archive.
-- **Board package export/import** (`kanbi-board-package`) is a single-board portable archive with path-safe attachments and checksum inventory. It preserves the board execution policy, but machine-local live/retained workspaces still block export and are never presented as portable checkouts. It is not a full database backup (`kanbi-backup`).
+- **Board archive** is non-destructive local hide + sync pause. Tickets, notes, sessions, and attachments remain. Active ticket sessions and active integration runs block archive.
+- **Board package export/import** (`kanbi-board-package`) is a single-board portable archive with path-safe attachments and checksum inventory. It preserves the board execution policy, but machine-local live/retained workspaces and active integration runs block export and are never presented as portable checkouts. Completed integration-run history remains available through full database backup rather than the portable board package. It is not a full database backup (`kanbi-backup`).
 - **Hard board delete** remains distinct, confirmation-gated, local-only, and cascading. Deletion is blocked with active sessions. Attachment cleanup runs only after the SQL commit. Provider-backed note tombstones and remote issues are never hard-deleted by EG-related local flows.
 
 Kanbi still provides `kanbi backup PATH` / `kanbi restore PATH [--force]` for whole-DB SQLite-plus-attachments archives.

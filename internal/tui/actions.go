@@ -5,6 +5,7 @@ import (
 
 	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/boardpackage"
+	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -57,6 +58,15 @@ type ColumnCommands interface {
 	ReorderColumn(context.Context, int64, int) error
 }
 
+type IntegrationCommands interface {
+	IntegrationCandidates(context.Context, int64) ([]integrationpkg.Candidate, error)
+	CreateIntegration(context.Context, integrationpkg.CreateOptions) (integrationpkg.CreateResult, error)
+	PromoteIntegration(context.Context, string) error
+	CancelIntegration(context.Context, string) error
+	ListIntegrationRuns(context.Context, int64) ([]storage.IntegrationRun, error)
+	FocusIntegration(context.Context, storage.IntegrationRun) error
+}
+
 type SessionCommands interface {
 	OpenTicket(context.Context, storage.Ticket, bool) error
 	RefreshRuntime(context.Context) error
@@ -86,6 +96,7 @@ type Actions interface {
 	TicketCommands
 	ColumnCommands
 	SessionCommands
+	IntegrationCommands
 	NoteCommands
 }
 
