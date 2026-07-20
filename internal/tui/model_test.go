@@ -637,6 +637,54 @@ func TestModelEditTicketUpdatesStore(t *testing.T) {
 	}
 }
 
+func TestModelEditRemainsBoundToTicketAfterRefreshArchivesIt(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	edited, err := store.CreateTicket(ctx, view.Columns[0].ID, "Ticket A", "body A", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.CreateTicket(ctx, view.Columns[0].ID, "Ticket B", "body B", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model.editInputs[0].Set("Edited ticket A")
+	model.bodyTA.SetValue("edited body A")
+	model.editInputs[2].Set("codex")
+
+	if err := store.ArchiveTicket(ctx, edited.ID); err != nil {
+		t.Fatal(err)
+	}
+	next, _ := model.Update(runtimeTickMsg(time.Now()))
+	model = next.(Model)
+	if selected, ok := model.selectedTicket(); !ok || selected.ID != other.ID {
+		t.Fatalf("refresh should move cursor to ticket B, selected=%+v ok=%v", selected, ok)
+	}
+	inspector := ansiStrip(model.editView())
+	if !strings.Contains(inspector, "T-001") || strings.Contains(inspector, "T-002") {
+		t.Fatalf("editor was visually retargeted after refresh:\n%s", inspector)
+	}
+
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlS})
+	gotEdited, err := store.TicketByID(ctx, edited.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotOther, err := store.TicketByID(ctx, other.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEdited.Title != "Edited ticket A" || gotEdited.Body != "edited body A" || gotEdited.Harness != "codex" {
+		t.Fatalf("ticket A = title %q body %q harness %q, want buffered edits", gotEdited.Title, gotEdited.Body, gotEdited.Harness)
+	}
+	if gotOther.Title != "Ticket B" || gotOther.Body != "body B" || gotOther.Harness != "pi" {
+		t.Fatalf("ticket B was corrupted: title %q body %q harness %q", gotOther.Title, gotOther.Body, gotOther.Harness)
+	}
+}
+
 func TestModelBodyPasteStoresImageAttachmentAndInsertsMarkdown(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)

@@ -75,6 +75,7 @@ type Model struct {
 	status                  string
 	err                     error
 	editing                 bool
+	editTicket              storage.Ticket
 	editField               int
 	editInputs              [3]InputBuffer
 	bodyTA                  textarea.Model
@@ -701,6 +702,7 @@ func (m *Model) startEdit() {
 		return
 	}
 	m.editing = true
+	m.editTicket = t
 	m.editField = 0
 	m.bodyPasteRequest++
 	m.bodyPastePending = false
@@ -934,8 +936,12 @@ func defaultExternalURLCommand(url string) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("no browser opener found for GitHub URL")
 }
 
-func (m Model) openBodyEditor() tea.Cmd {
+func (m *Model) openBodyEditor() tea.Cmd {
 	t, ok := m.selectedTicket()
+	if m.editing {
+		t = m.editTicket
+		ok = t.ID != 0
+	}
 	if !ok {
 		return nil
 	}
@@ -944,6 +950,7 @@ func (m Model) openBodyEditor() tea.Cmd {
 	if m.editing {
 		body = m.bodyTA.Value()
 	}
+	m.editorTicketID = ticketID
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		if _, err := exec.LookPath("nano"); err == nil {
@@ -976,6 +983,9 @@ func (m *Model) applyEditorResult(msg editorFinishedMsg) {
 		return
 	}
 	if m.editing {
+		if msg.ticketID != m.editTicket.ID || msg.ticketID != m.editorTicketID {
+			return
+		}
 		m.editInputs[1] = NewInputBuffer(msg.body)
 		m.bodyTA.SetValue(msg.body)
 		m.status = "body loaded from editor"
