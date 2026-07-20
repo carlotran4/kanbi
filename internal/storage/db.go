@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -102,6 +102,23 @@ func (s *Store) verifyForeignKeys(ctx context.Context) error {
 }
 
 func (s *Store) Init(ctx context.Context) error {
+	deadline := time.Now().Add(sqliteBusyTimeout)
+	for {
+		err := s.initOnce(ctx)
+		if err == nil || !isSQLiteBusy(err) || time.Now().After(deadline) {
+			return err
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *Store) initOnce(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return err
 	}
@@ -115,6 +132,11 @@ func (s *Store) Init(ctx context.Context) error {
 		return err
 	}
 	return s.verifyForeignKeys(ctx)
+}
+
+func isSQLiteBusy(err error) bool {
+	var sqliteErr sqlite3.Error
+	return errors.As(err, &sqliteErr) && (sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked)
 }
 
 func ensureParent(path string) error {

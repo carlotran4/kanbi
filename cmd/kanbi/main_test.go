@@ -503,9 +503,9 @@ func TestRunBoardTUIIntegrationSwitchesBoards(t *testing.T) {
 	tmuxCmd(t, "send-keys", "-t", sessionName, "b")
 	output = waitForTmuxOutput(t, sessionName, "Select board")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // select Client B
-	output = waitForTmuxOutput(t, sessionName, "switched to Client B")
+	output = waitForTmuxOutput(t, sessionName, "Kanbi Client B")
 	tmuxCmd(t, "send-keys", "-t", sessionName, "q")
-	for _, want := range []string{"New ticket", "Client task", "switched to Client B"} {
+	for _, want := range []string{"New ticket", "Client task", "Kanbi Client B"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TUI output missing %q\n--- output ---\n%s", want, output)
 		}
@@ -757,10 +757,18 @@ func waitForTmuxOutputWithout(t *testing.T, sessionName, unwanted string) string
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	var output string
+	clearFrames := 0
 	for time.Now().Before(deadline) {
 		output = stripANSI(tmuxCmd(t, "capture-pane", "-p", "-t", sessionName))
-		if !strings.Contains(output, unwanted) {
-			return output
+		if strings.Contains(output, unwanted) {
+			clearFrames = 0
+		} else {
+			clearFrames++
+			// Bubble Tea redraws can briefly expose an empty pane between frames.
+			// Require stable absence before sending the next input event.
+			if clearFrames >= 2 {
+				return output
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
