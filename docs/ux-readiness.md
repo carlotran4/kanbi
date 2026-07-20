@@ -14,15 +14,19 @@ In an empty XDG environment, startup presents a dismissible three-page guide bef
 
 ## Runtime and indicator semantics
 
-Cards always show a textual runtime label. Waiting for ordinary input and permission approval are explicitly different strings in monochrome output. Symbols are redundant shorthand:
+Cards use one compact runtime row with icon, harness, textual state, and elapsed time when it fits. Waiting for ordinary input and permission approval remain explicitly different strings in monochrome output. Symbols are redundant shorthand:
 
 | Text and symbol | Meaning |
 | --- | --- |
-| `● active container` | A live multiplexer container was validated. |
-| `○ resumable` | No live container exists and a verified harness ref is stored. |
-| `! error / repair` | User action is required. |
-| `- no active container` | No validated live container is present. |
+| `● running` | A live multiplexer container was validated. |
+| `○ resumable` | No live container exists and a verified harness ref can resume the adjacent state, including closed, exited, or error. |
+| `? waiting` / `! permission` | User input or approval is required. |
+| `◐ starting` / `◐ closing` | A runtime transition is underway. |
+| `◌ idle` / `× error` | Activity is unknown, or a non-resumable operation failed. |
+| `· not started` | No special runtime capability is present. |
 | `> focused` | Current keyboard target. |
+
+Normal container absence is not repeated on a separate card row. Worktree cards use a second compact `git` row for branch health, prioritizing repair, cleanup, and conflicts; the inspector shows the full branch name.
 
 Press `?` for this legend and the implemented controls. Help scrolls with `j`/`k` or arrows.
 
@@ -33,6 +37,8 @@ The board renders from the local SQLite projection rather than blocking on a pro
 Runtime refresh/open/close/multiplexer-move errors render the failed operation, underlying cause, and a concrete next action on separate lines. They never imply that session history was discarded. Other validation errors remain inline beside their focused control. Kanbi has no remote-loading screen because provider sync is deliberately non-blocking and the local projection is available immediately; this is the useful loading behavior rather than an indeterminate blocker.
 
 ## Responsive behavior
+
+Board columns expand evenly between 30 and 44 cells. At 80x24, two columns fit at 39 cells; additional columns remain horizontally scrollable instead of being squeezed. Four default columns expand to 39 cells at 160 columns and cap at 44 on wider terminals. Below 30 columns, Kanbi retains the minimum card width and clips safely.
 
 At 80x24, major popups are constrained to the terminal. List dialogs follow their focused textual `>` marker, keeping the selected control reachable. Help has explicit scrolling. Below that size, long content is clipped with `more`; focus-following dialogs keep the selected control visible rather than pretending their navigation keys scroll content. Ticket description and notes fields retain their own textarea/thread navigation.
 
@@ -63,12 +69,13 @@ Terminal/theme/runtime matrix:
 
 | Layout | Theme/output | Runtime | Checks |
 | --- | --- | --- | --- |
-| 80x24 | dark | tmux | onboarding, picker, help scrolling, inspector, filters, repair, delete confirmation |
+| 80x24 | dark | tmux | two 39-cell columns, horizontal/vertical focus-follow, inspector, filters, help, repair |
 | 80x24 | light | tmux | focus border/text contrast; waiting vs permission text |
-| 120x40 | dark | tmux | long ticket content, notes, long board/column names |
+| 120x40 | dark | tmux | responsive width threshold, long ticket content, notes, long board/column names |
 | 120x40 | light | tmux | all semantic colors remain supplemental |
 | 60x18 | monochrome (`NO_COLOR=1` where supported) | tmux | textual states/indicators, clipped modal guidance, controls reachable |
-| 40x12 | monochrome | no session launch | safe degradation and `Ctrl+C` exit |
+| 160x45 | dark | tmux | four equal expanded columns, compact runtime/Git rows, resize wide → narrow → wide |
+| 40x12 | monochrome | no session launch | 30-cell minimum, safe clipping, and `Ctrl+C` exit |
 
 Also include Unicode ticket titles/body, combining characters, emoji, very long unbroken words, provider sync failure, database-load failure, and a missing tmux/harness in the pass. Record terminal emulator, `TERM`, theme, tmux version, and any discrepancy in the release report.
 

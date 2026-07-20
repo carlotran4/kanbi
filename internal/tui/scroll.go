@@ -39,7 +39,7 @@ func (m *Model) boardContentHeight() int {
 
 // visibleCardRange uses the same row accounting for cursor following and
 // rendering. The vertical overflow hints consume rows from the card viewport.
-func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop int) (end int, showAbove, showBelow bool) {
+func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWidth int) (end int, showAbove, showBelow bool) {
 	avail := m.boardContentHeight()
 	showAbove = scrollTop > 0
 	if showAbove {
@@ -49,11 +49,10 @@ func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop int) (end
 		avail = 1
 	}
 
-	inner := boardColumnWidth - 2
 	used := 0
 	end = scrollTop - 1
 	for ti := scrollTop; ti < len(col.Tickets); ti++ {
-		h := cardHeightEx(col.Tickets[ti], inner, ci == m.col && ti == m.card, m.masterBoard)
+		h := cardHeightEx(col.Tickets[ti], columnWidth, ci == m.col && ti == m.card, m.masterBoard)
 		reserveBelowHint := 0
 		if ti < len(col.Tickets)-1 {
 			reserveBelowHint = 1
@@ -68,20 +67,20 @@ func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop int) (end
 		// Extremely short terminals still show the focused/top card. Omit the
 		// lower hint if it cannot fit rather than scrolling the whole terminal.
 		end = scrollTop
-		used = cardHeightEx(col.Tickets[scrollTop], inner, ci == m.col && scrollTop == m.card, m.masterBoard)
+		used = cardHeightEx(col.Tickets[scrollTop], columnWidth, ci == m.col && scrollTop == m.card, m.masterBoard)
 	}
 	showBelow = end < len(col.Tickets)-1 && used < avail
 	return end, showAbove, showBelow
 }
 
-// cardHeight returns the number of rendered lines a single card occupies inside
-// a column (box top + title lines + meta line + preview lines + box bottom).
-func cardHeight(ticket storage.Ticket, innerWidth int) int {
-	return cardHeightEx(ticket, innerWidth, false, false)
+// cardHeight returns the exact number of lines rendered by cardView at the
+// supplied outer card width.
+func cardHeight(ticket storage.Ticket, width int) int {
+	return cardHeightEx(ticket, width, false, false)
 }
 
-func cardHeightEx(ticket storage.Ticket, innerWidth int, focused, showBoard bool) int {
-	cardInnerWidth := innerWidth - 4
+func cardHeightEx(ticket storage.Ticket, width int, focused, showBoard bool) int {
+	cardInnerWidth := width - 4
 	titleLines := wrapText(cardTitle(ticket, showBoard), cardInnerWidth-2, 3)
 	if len(titleLines) == 0 {
 		titleLines = []string{ticket.DisplayID}
@@ -98,20 +97,13 @@ func cardHeightEx(ticket storage.Ticket, innerWidth int, focused, showBoard bool
 				previewLines++
 			}
 		}
-		if previewLines > 4 {
-			previewLines = 4
-		}
 	}
-	stateLines := len(wrapText(runtimeStateText(ticket), cardInnerWidth-2, 2))
-	if stateLines == 0 {
-		stateLines = 1
+	workspaceLines := 0
+	if ticketWorkspaceCardLine(ticket, cardInnerWidth-2) != "" {
+		workspaceLines = 1
 	}
-	sessionLines := len(wrapText("session: "+windowIndicator(ticket), cardInnerWidth-2, 2))
-	if sessionLines == 0 {
-		sessionLines = 1
-	}
-	// top/bottom borders + title + textual state/session lines + preview.
-	return 2 + len(titleLines) + stateLines + sessionLines + previewLines
+	// Top/bottom borders + title + compact status + optional workspace + preview.
+	return 2 + len(titleLines) + 1 + workspaceLines + previewLines
 }
 
 // vScrollFollow adjusts the scroll offset for the focused column so the
@@ -136,9 +128,10 @@ func (m *Model) vScrollFollow() {
 		m.colScroll[m.col] = 0
 	}
 
+	columnWidth, _ := m.boardColumnLayout()
 	// Scroll down: advance offset until focused card is visible.
 	for {
-		visibleEnd, _, _ := m.visibleCardRange(m.col, col, m.colScroll[m.col])
+		visibleEnd, _, _ := m.visibleCardRange(m.col, col, m.colScroll[m.col], columnWidth)
 		if m.card <= visibleEnd {
 			break
 		}
@@ -155,22 +148,24 @@ func (m *Model) hScrollFollow() {
 	if len(m.view.Columns) == 0 {
 		return
 	}
-	colW := boardColumnWidth + boardColumnGap
-	// Scroll left: retreat offset if focused column is left of window.
+	// Retreat to the earliest viewport that still contains the focused column.
+	// This also reveals newly available columns after a narrow-to-wide resize.
 	for m.col < m.colOffset {
 		m.colOffset--
 	}
-	// Scroll right: advance offset until focused column is visible.
-	for {
-		used := 0
-		lastVisible := m.colOffset - 1
-		for ci := m.colOffset; ci < len(m.view.Columns); ci++ {
-			if used+colW > m.width {
-				break
-			}
-			used += colW
-			lastVisible = ci
+	for m.colOffset > 0 {
+		previous := m.colOffset
+		m.colOffset--
+		_, visibleCount := m.boardColumnLayout()
+		if m.col > m.colOffset+visibleCount-1 {
+			m.colOffset = previous
+			break
 		}
+	}
+	// Scroll right: advance offset until the focused column is visible.
+	for {
+		_, visibleCount := m.boardColumnLayout()
+		lastVisible := m.colOffset + visibleCount - 1
 		if m.col <= lastVisible {
 			break
 		}

@@ -248,6 +248,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.syncScrollDimensions()
+		m.hScrollFollow()
+		m.vScrollFollow()
 		return m, nil
 	case statusBarResultMsg:
 		if !m.applyStatusBarResult(msg) {
@@ -548,8 +550,8 @@ func (m *Model) reload() {
 	m.err = err
 	m.clamp()
 	m.syncScrollDimensions()
-	m.vScrollFollow()
 	m.hScrollFollow()
+	m.vScrollFollow()
 	m.integrationNotice = ""
 	if m.view.Board.ID != 0 && m.view.Board.WorktreeMode == storage.WorktreeModeGit {
 		if runs, listErr := m.actions.ListIntegrationRuns(m.ctx, m.view.Board.ID); listErr == nil {
@@ -578,6 +580,7 @@ func (m *Model) moveColumn(delta int) {
 	m.col += delta
 	m.clamp()
 	m.hScrollFollow()
+	m.vScrollFollow()
 }
 
 func (m *Model) moveCard(delta int) {

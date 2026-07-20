@@ -145,28 +145,45 @@ func (m Model) contextBar() string {
 }
 
 const (
-	boardColumnWidth = 30
-	boardColumnGap   = 1
+	boardColumnMinWidth = 30
+	boardColumnMaxWidth = 44
+	boardColumnGap      = 1
 )
+
+// boardColumnLayout returns the shared width and number of columns rendered
+// from the current horizontal offset. Cards expand into spare room but retain
+// the original 30-cell minimum on narrow terminals.
+func (m Model) boardColumnLayout() (width, count int) {
+	remaining := len(m.view.Columns) - m.colOffset
+	if remaining <= 0 {
+		return boardColumnMinWidth, 0
+	}
+	count = m.width / (boardColumnMinWidth + boardColumnGap)
+	if count < 1 {
+		count = 1
+	}
+	if count > remaining {
+		count = remaining
+	}
+	width = m.width/count - boardColumnGap
+	if width < boardColumnMinWidth {
+		width = boardColumnMinWidth
+	}
+	if width > boardColumnMaxWidth {
+		width = boardColumnMaxWidth
+	}
+	return width, count
+}
 
 func (m Model) boardView() string {
 	if len(m.view.Columns) == 0 {
-		return boxLines([]string{"No columns yet.", "Press c to create the first column.", "Press ? for help."}, minInt(boardColumnWidth, maxInt(12, m.width)))
+		return boxLines([]string{"No columns yet.", "Press c to create the first column.", "Press ? for help."}, minInt(boardColumnMinWidth, maxInt(12, m.width)))
 	}
 
-	colW := boardColumnWidth + boardColumnGap
-	var columns []string
-	usedWidth := 0
-	for ci := m.colOffset; ci < len(m.view.Columns); ci++ {
-		if usedWidth+colW > m.width {
-			break
-		}
-		columns = append(columns, m.columnView(ci, m.view.Columns[ci]))
-		usedWidth += colW
-	}
-	if len(columns) == 0 {
-		// Terminal too narrow to fit even one column; show it anyway.
-		columns = append(columns, m.columnView(m.colOffset, m.view.Columns[m.colOffset]))
+	columnWidth, visibleCount := m.boardColumnLayout()
+	columns := make([]string, 0, visibleCount)
+	for ci := m.colOffset; ci < m.colOffset+visibleCount; ci++ {
+		columns = append(columns, m.columnView(ci, m.view.Columns[ci], columnWidth))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, columns...)
 }
@@ -179,16 +196,8 @@ func (m Model) hScrollHint() string {
 	}
 	hiddenLeft := m.colOffset
 
-	colW := boardColumnWidth + boardColumnGap
-	usedWidth := 0
-	lastVisible := m.colOffset - 1
-	for ci := m.colOffset; ci < len(m.view.Columns); ci++ {
-		if usedWidth+colW > m.width {
-			break
-		}
-		usedWidth += colW
-		lastVisible = ci
-	}
+	_, visibleCount := m.boardColumnLayout()
+	lastVisible := m.colOffset + visibleCount - 1
 	hiddenRight := len(m.view.Columns) - 1 - lastVisible
 
 	if hiddenLeft == 0 && hiddenRight <= 0 {
@@ -215,7 +224,7 @@ func (m Model) hScrollHint() string {
 	return dim.Render(hint)
 }
 
-func (m Model) columnView(ci int, col storage.Column) string {
+func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 	focused := ci == m.col
 	borderStyle := mutedBorder
 	if focused {
@@ -232,8 +241,8 @@ func (m Model) columnView(ci int, col storage.Column) string {
 	}
 	count := fmt.Sprintf("%d", len(col.Tickets))
 	lines := []string{
-		spaceBetween(headerText, count, boardColumnWidth),
-		borderStyle.Render(strings.Repeat("─", boardColumnWidth)),
+		spaceBetween(headerText, count, columnWidth),
+		borderStyle.Render(strings.Repeat("─", columnWidth)),
 	}
 
 	if len(col.Tickets) == 0 {
@@ -241,8 +250,8 @@ func (m Model) columnView(ci int, col storage.Column) string {
 		if m.masterBoard {
 			empty = "No tickets match. Press f to change filters."
 		}
-		for _, line := range wrapText(empty, boardColumnWidth, 3) {
-			lines = append(lines, padLine(line, boardColumnWidth))
+		for _, line := range wrapText(empty, columnWidth, 3) {
+			lines = append(lines, padLine(line, columnWidth))
 		}
 		return lipgloss.NewStyle().MarginRight(boardColumnGap).Render(strings.Join(lines, "\n"))
 	}
@@ -259,20 +268,20 @@ func (m Model) columnView(ci int, col storage.Column) string {
 		scrollTop = len(col.Tickets) - 1
 	}
 
-	visibleEnd, showAbove, showBelow := m.visibleCardRange(ci, col, scrollTop)
+	visibleEnd, showAbove, showBelow := m.visibleCardRange(ci, col, scrollTop, columnWidth)
 	hiddenAbove := scrollTop
 	hiddenBelow := len(col.Tickets) - 1 - visibleEnd
 
 	if showAbove {
 		hint := fmt.Sprintf("(+%d more ▲)", hiddenAbove)
-		lines = append(lines, mutedBorder.Render(padLine(hint, boardColumnWidth)))
+		lines = append(lines, mutedBorder.Render(padLine(hint, columnWidth)))
 	}
 	for ti := scrollTop; ti <= visibleEnd; ti++ {
-		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], boardColumnWidth, m.masterBoard)...)
+		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], columnWidth, m.masterBoard)...)
 	}
 	if showBelow {
 		hint := fmt.Sprintf("(+%d more ▼)", hiddenBelow)
-		lines = append(lines, mutedBorder.Render(padLine(hint, boardColumnWidth)))
+		lines = append(lines, mutedBorder.Render(padLine(hint, columnWidth)))
 	}
 
 	return lipgloss.NewStyle().MarginRight(boardColumnGap).Render(strings.Join(lines, "\n"))
@@ -298,23 +307,16 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 		content = append(content, padLine(prefix+line, cardInnerWidth))
 	}
 
-	stateText := runtimeStateText(ticket)
+	stateText := cardStatusLine(ticket, cardInnerWidth-2)
 	stateStyle := lipgloss.NewStyle().Foreground(palette.muted)
 	if ticket.Runtime == kanban.StateNeedsPermission || ticket.Runtime == kanban.StateError || ticket.Runtime == kanban.StateRepairNeeded {
 		stateStyle = lipgloss.NewStyle().Foreground(palette.error_).Bold(true)
 	} else if ticket.Runtime == kanban.StateWaitingForUser {
 		stateStyle = lipgloss.NewStyle().Foreground(palette.warning).Bold(true)
 	}
-	for _, line := range wrapText(stateText, cardInnerWidth-2, 2) {
-		content = append(content, padLine("  "+stateStyle.Render(line), cardInnerWidth))
-	}
-	for _, line := range wrapText("session: "+windowIndicator(ticket), cardInnerWidth-2, 2) {
-		content = append(content, padLine("  "+line, cardInnerWidth))
-	}
-	if workspaceLine := ticketWorkspaceLine(ticket); workspaceLine != "" {
-		for _, line := range wrapText(workspaceLine, cardInnerWidth-2, 2) {
-			content = append(content, padLine("  "+line, cardInnerWidth))
-		}
+	content = append(content, padLine("  "+stateStyle.Render(stateText), cardInnerWidth))
+	if workspaceLine := ticketWorkspaceCardLine(ticket, cardInnerWidth-2); workspaceLine != "" {
+		content = append(content, padLine("  "+workspaceLine, cardInnerWidth))
 	}
 
 	// Body preview — only shown on the focused card.
@@ -366,16 +368,27 @@ func cardTitle(ticket storage.Ticket, showBoard bool) string {
 	return ticket.DisplayID + " " + ticket.Title
 }
 
-func runtimeStateText(ticket storage.Ticket) string {
-	text := fmt.Sprintf("[%s] %s", ticket.Harness, runtimeLabel(ticket))
-	if elapsed := elapsedLabel(ticket); elapsed != "" {
-		text += " · " + elapsed
+func cardStatusLine(ticket storage.Ticket, width int) string {
+	harness := strings.TrimSpace(ticket.Harness)
+	if harness == "" {
+		harness = "pi"
 	}
-	return text
+	indicator, label := runtimeIndicator(ticket), runtimeLabel(ticket)
+	fixedWidth := lipgloss.Width(indicator) + 1 + 2 + lipgloss.Width(label)
+	if maxHarnessWidth := width - fixedWidth; lipgloss.Width(harness) > maxHarnessWidth {
+		harness = trimToWidth(harness, maxInt(1, maxHarnessWidth))
+	}
+	line := fmt.Sprintf("%s %s  %s", indicator, harness, label)
+	if elapsed := elapsedLabel(ticket); elapsed != "" {
+		withElapsed := line + " · " + elapsed
+		if lipgloss.Width(withElapsed) <= width {
+			line = withElapsed
+		}
+	}
+	return trimToWidth(line, width)
 }
 
 func runtimeLabel(ticket storage.Ticket) string {
-	resumable := ticket.SessionRef.Valid && strings.TrimSpace(ticket.SessionRef.String) != "" && !ticket.SessionActive
 	switch ticket.Runtime {
 	case kanban.StateNotStarted, "":
 		return "not started"
@@ -384,47 +397,45 @@ func runtimeLabel(ticket storage.Ticket) string {
 	case kanban.StateRunning:
 		return "running"
 	case kanban.StateWaitingForUser:
-		return "waiting for user"
+		return "waiting"
 	case kanban.StateNeedsPermission:
-		return "permission required"
+		return "permission"
 	case kanban.StateIdleUnknown:
-		return "idle / unknown"
+		return "idle"
 	case kanban.StateClosing:
 		return "closing"
 	case kanban.StateClosed:
-		if resumable {
-			return "closed / resumable"
-		}
 		return "closed"
 	case kanban.StateExited:
-		if resumable {
-			return "exited / resumable"
-		}
 		return "exited"
 	case kanban.StateRepairNeeded:
-		return "repair required"
+		return "repair"
 	case kanban.StateError:
-		if resumable {
-			return "error / resumable"
-		}
 		return "error"
 	default:
-		return "idle / unknown (" + strings.ReplaceAll(ticket.Runtime, "_", " ") + ")"
+		return "unknown"
 	}
 }
 
-func windowIndicator(ticket storage.Ticket) string {
+func runtimeIndicator(ticket storage.Ticket) string {
+	resumable := ticket.SessionRef.Valid && strings.TrimSpace(ticket.SessionRef.String) != "" && !ticket.SessionActive
 	switch {
-	case ticket.SessionActive && (ticket.WindowID.Valid || ticket.MuxContainerID.Valid):
-		return "● active container"
-	case ticket.SessionRef.Valid && strings.TrimSpace(ticket.SessionRef.String) != "" && !ticket.SessionActive:
-		return "○ resumable"
-	case ticket.Runtime == kanban.StateRepairNeeded:
-		return "! repair"
+	case ticket.Runtime == kanban.StateWaitingForUser:
+		return "?"
+	case ticket.Runtime == kanban.StateNeedsPermission || ticket.Runtime == kanban.StateRepairNeeded:
+		return "!"
+	case resumable:
+		return "○"
 	case ticket.Runtime == kanban.StateError:
-		return "! error"
+		return "×"
+	case ticket.Runtime == kanban.StateStarting || ticket.Runtime == kanban.StateClosing:
+		return "◐"
+	case ticket.Runtime == kanban.StateIdleUnknown:
+		return "◌"
+	case ticket.Runtime == kanban.StateRunning && ticket.SessionActive && (ticket.WindowID.Valid || ticket.MuxContainerID.Valid):
+		return "●"
 	default:
-		return "- no active container"
+		return "·"
 	}
 }
 
@@ -443,26 +454,28 @@ func workspaceNeedsResolution(ticket storage.Ticket) bool {
 	return len(obs.Conflicts) > 0 || (obs.Known && !obs.Mergeable)
 }
 
-func ticketWorkspaceLine(ticket storage.Ticket) string {
+func ticketWorkspaceCardLine(ticket storage.Ticket, width int) string {
 	if !ticket.WorkspaceID.Valid || strings.TrimSpace(ticket.WorkspaceBranch.String) == "" {
 		return ""
 	}
-	line := " " + ticket.WorkspaceBranch.String
-	if ticket.WorkspaceState.String == storage.WorkspaceStateIntegrated {
-		return line + " · ✓ integrated · retired (reopens same session)"
+	terminalState := ""
+	switch ticket.WorkspaceState.String {
+	case storage.WorkspaceStateIntegrated:
+		terminalState = "git ✓ integrated"
+	case storage.WorkspaceStateResolving:
+		terminalState = "git ◐ resolving"
+	case storage.WorkspaceStateRepairNeeded:
+		terminalState = "git ! workspace repair"
+	case storage.WorkspaceStateCleanupReq:
+		terminalState = "git ! cleanup required"
 	}
-	if ticket.WorkspaceState.String == storage.WorkspaceStateResolving {
-		return line + " · ◐ resolving"
-	}
-	if ticket.WorkspaceState.String == storage.WorkspaceStateRepairNeeded {
-		return line + " · ! repair required"
-	}
-	if ticket.WorkspaceState.String == storage.WorkspaceStateCleanupReq {
-		return line + " · ! checkout retirement cleanup required"
+	if terminalState != "" {
+		return trimToWidth(terminalState, width)
 	}
 	if ticket.WorkspaceLastError.Valid && strings.TrimSpace(ticket.WorkspaceLastError.String) != "" {
-		return line + " · ! observation error"
+		return trimToWidth("git ! status unavailable", width)
 	}
+
 	var obs struct {
 		Ahead             int      `json:"ahead"`
 		Behind            int      `json:"behind"`
@@ -473,28 +486,64 @@ func ticketWorkspaceLine(ticket storage.Ticket) string {
 		MergeabilityKnown bool     `json:"mergeability_known"`
 	}
 	if !ticket.WorkspaceStatusJSON.Valid || json.Unmarshal([]byte(ticket.WorkspaceStatusJSON.String), &obs) != nil {
-		return line + " · …"
-	}
-	if obs.Ahead > 0 {
-		line += fmt.Sprintf(" · +%d", obs.Ahead)
-	}
-	if obs.Behind > 0 {
-		line += fmt.Sprintf("/-%d", obs.Behind)
+		return trimToWidth("git … status pending", width)
 	}
 	if len(obs.Conflicts) > 0 {
-		return line + fmt.Sprintf(" · ✕ %d conflicts", len(obs.Conflicts))
+		return trimToWidth(fmt.Sprintf("git ✕ %d conflicts", len(obs.Conflicts)), width)
 	}
-	if obs.Dirty {
-		line += " · dirty"
-	} else if obs.ChangedFiles > 0 {
-		line += fmt.Sprintf(" · %d files", obs.ChangedFiles)
+	if obs.MergeabilityKnown && !obs.Mergeable {
+		return trimToWidth("git ✕ conflicts", width)
 	}
-	if obs.MergeabilityKnown {
-		if obs.Mergeable {
-			line += " · ✓ mergeable"
+
+	line := "git"
+	if obs.Dirty || obs.ChangedFiles > 0 {
+		if obs.ChangedFiles > 0 {
+			line = appendCardMeta(line, fmt.Sprintf("%d files", obs.ChangedFiles), width)
 		} else {
-			line += " · ✕ conflicts"
+			line = appendCardMeta(line, "dirty", width)
 		}
+	}
+	divergence := ""
+	if obs.Ahead > 0 {
+		divergence = fmt.Sprintf("+%d", obs.Ahead)
+	}
+	if obs.Behind > 0 {
+		if divergence == "" {
+			divergence = fmt.Sprintf("-%d", obs.Behind)
+		} else {
+			divergence += fmt.Sprintf("/-%d", obs.Behind)
+		}
+	}
+	if divergence != "" {
+		line = appendCardMeta(line, divergence, width)
+	}
+	if !obs.Dirty && obs.ChangedFiles == 0 && divergence == "" {
+		line = appendCardMeta(line, "clean", width)
+	}
+	if obs.MergeabilityKnown && obs.Mergeable {
+		line = appendCardMeta(line, "✓ mergeable", width)
+	}
+	return line
+}
+
+func appendCardMeta(line, value string, width int) string {
+	candidate := line + " · " + value
+	if lipgloss.Width(candidate) <= width {
+		return candidate
+	}
+	return line
+}
+
+func ticketWorkspaceDetailLine(ticket storage.Ticket) string {
+	if !ticket.WorkspaceID.Valid || strings.TrimSpace(ticket.WorkspaceBranch.String) == "" {
+		return ""
+	}
+	line := " " + ticket.WorkspaceBranch.String
+	if status := ticketWorkspaceCardLine(ticket, 1<<20); status != "" {
+		line += " · " + strings.TrimPrefix(status, "git ")
+	}
+	if ticket.WorkspaceState.String == storage.WorkspaceStateIntegrated {
+		line += " · retired (reopens same session)"
 	}
 	return line
 }
@@ -506,7 +555,7 @@ func (m Model) workspaceIntegrationView() string {
 		"",
 		"Source: " + t.WorkspaceSourceBranch.String,
 		"Ticket: " + t.WorkspaceBranch.String,
-		ticketWorkspaceLine(t),
+		ticketWorkspaceDetailLine(t),
 		"",
 		"Kanbi will revalidate both checkouts, close the agent, merge only into the recorded source, and retire the filesystem checkout. The branch/session remain for exact-path reopen.",
 		"",
@@ -923,18 +972,19 @@ func (m Model) helpView() string {
 	section("Textual state legend")
 	row("not started", "no session attempt yet")
 	row("starting / running", "launching / agent is active")
-	row("waiting for user", "agent needs user input")
-	row("permission required", "agent requests approval; not the same as waiting")
-	row("idle / unknown", "no confident activity signal")
-	row("closed / resumable", "container closed; verified ref can resume")
-	row("repair required", "retry, edit ref, or start fresh")
+	row("waiting", "agent needs user input")
+	row("permission", "agent requests approval; not the same as waiting")
+	row("idle", "no confident activity signal")
+	row("closed / exited", "latest session ended")
+	row("repair", "retry, edit ref, or start fresh")
 	row("error", "operation or session failed; read Cause and Next")
 
-	section("Indicator legend (works without color)")
-	row("● active container", "validated live terminal container")
-	row("○ resumable", "no live container; verified session ref exists")
-	row("! error / repair", "action is required")
-	row("- no active", "no validated live container")
+	section("Card indicators (work without color)")
+	row("● running", "validated live terminal container")
+	row("○ resumable", "verified ref can resume the shown state")
+	row("? / !", "waiting / permission or repair")
+	row("◐ / ◌ / ×", "transitioning / idle / error")
+	row("· not started", "no special runtime capability")
 	row("> focused", "current keyboard target")
 
 	section("Safety")

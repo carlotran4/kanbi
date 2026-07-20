@@ -521,46 +521,42 @@ func (s *openingStore) UpdateSessionRef(ctx context.Context, ticket storage.Tick
 	return nil
 }
 
-func TestCardRuntimeLabelsAndWindowIndicators(t *testing.T) {
+func TestCardStatusLines(t *testing.T) {
 	cases := []struct {
-		ticket   storage.Ticket
-		wantMeta string
+		name   string
+		ticket storage.Ticket
+		want   string
 	}{
-		{storage.Ticket{Harness: "pi", Runtime: "not_started"}, "not started"},
-		{storage.Ticket{Harness: "pi", Runtime: "starting"}, "starting"},
-		{storage.Ticket{Harness: "pi", Runtime: "running", SessionActive: true, WindowName: sqlNullStr("T-001-demo")}, "running"},
-		{storage.Ticket{Harness: "pi", Runtime: "waiting_for_user"}, "waiting for user"},
-		{storage.Ticket{Harness: "pi", Runtime: "needs_permission"}, "permission required"},
-		{storage.Ticket{Harness: "pi", Runtime: "idle_unknown"}, "idle / unknown"},
-		{storage.Ticket{Harness: "pi", Runtime: "closing"}, "closing"},
-		{storage.Ticket{Harness: "pi", Runtime: "closed", SessionRef: sqlNullStr("abc")}, "closed / resumable"},
-		{storage.Ticket{Harness: "pi", Runtime: "closed"}, "closed"},
-		{storage.Ticket{Harness: "pi", Runtime: "exited"}, "exited"},
-		{storage.Ticket{Harness: "pi", Runtime: "repair_needed"}, "repair required"},
-		{storage.Ticket{Harness: "pi", Runtime: "error", SessionRef: sqlNullStr("abc")}, "error / resumable"},
-		{storage.Ticket{Harness: "pi", Runtime: "error"}, "error"},
+		{"not started", storage.Ticket{Harness: "pi", Runtime: "not_started"}, "· pi  not started"},
+		{"starting claim", storage.Ticket{Harness: "pi", Runtime: "starting", SessionActive: true, WindowName: sqlNullStr("reserved")}, "◐ pi  starting"},
+		{"validated running", storage.Ticket{Harness: "pi", Runtime: "running", SessionActive: true, WindowID: sqlNullStr("@2")}, "● pi  running"},
+		{"unvalidated running", storage.Ticket{Harness: "pi", Runtime: "running", SessionActive: true}, "· pi  running"},
+		{"waiting", storage.Ticket{Harness: "pi", Runtime: "waiting_for_user"}, "? pi  waiting"},
+		{"permission", storage.Ticket{Harness: "pi", Runtime: "needs_permission"}, "! pi  permission"},
+		{"idle", storage.Ticket{Harness: "pi", Runtime: "idle_unknown"}, "◌ pi  idle"},
+		{"closing", storage.Ticket{Harness: "pi", Runtime: "closing"}, "◐ pi  closing"},
+		{"resumable closed", storage.Ticket{Harness: "pi", Runtime: "closed", SessionRef: sqlNullStr("abc")}, "○ pi  closed"},
+		{"closed", storage.Ticket{Harness: "pi", Runtime: "closed"}, "· pi  closed"},
+		{"resumable error", storage.Ticket{Harness: "pi", Runtime: "error", SessionRef: sqlNullStr("abc")}, "○ pi  error"},
+		{"error", storage.Ticket{Harness: "pi", Runtime: "error"}, "× pi  error"},
+		{"repair", storage.Ticket{Harness: "pi", Runtime: "repair_needed"}, "! pi  repair"},
 	}
 	for _, tc := range cases {
-		if got := runtimeLabel(tc.ticket); !strings.Contains(got, tc.wantMeta) {
-			t.Errorf("runtimeLabel(%s runtime=%s ref=%v) = %q, want %q",
-				tc.ticket.Harness, tc.ticket.Runtime, tc.ticket.SessionRef.Valid, got, tc.wantMeta)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cardStatusLine(tc.ticket, 24); got != tc.want {
+				t.Fatalf("cardStatusLine = %q, want %q", got, tc.want)
+			}
+		})
 	}
+}
 
-	// windowIndicator: - for prior session without ref (cleanly closed, not repair-needed)
-	closedNoRef := storage.Ticket{SessionID: sqlNullInt64(5), Runtime: "closed"}
-	if ind := windowIndicator(closedNoRef); ind != "- no active container" {
-		t.Errorf("windowIndicator for closed-no-ref = %q", ind)
+func TestCardStatusLineOnlyIncludesElapsedWhenItFits(t *testing.T) {
+	ticket := storage.Ticket{Harness: "pi", Runtime: "running", LastStateChangeAt: sqlNullTime(time.Now().Add(-5 * time.Minute))}
+	if got := cardStatusLine(ticket, 24); !strings.HasSuffix(got, " · 5m") {
+		t.Fatalf("wide status line should include elapsed time: %q", got)
 	}
-
-	// windowIndicator: ○ for resumable, even when the previous tmux window went missing.
-	resumableTicket := storage.Ticket{SessionRef: sqlNullStr("abc"), Runtime: "closed"}
-	if ind := windowIndicator(resumableTicket); ind != "○ resumable" {
-		t.Errorf("windowIndicator for resumable = %q", ind)
-	}
-	resumableAfterMissingWindow := storage.Ticket{SessionRef: sqlNullStr("abc"), Runtime: "error"}
-	if ind := windowIndicator(resumableAfterMissingWindow); ind != "○ resumable" {
-		t.Errorf("windowIndicator for error-with-ref = %q", ind)
+	if got := cardStatusLine(ticket, 13); strings.Contains(got, "5m") || lipgloss.Width(got) > 13 {
+		t.Fatalf("narrow status line should omit elapsed and fit: %q", got)
 	}
 }
 
@@ -1060,10 +1056,10 @@ func TestMasterCardHeightIncludesElapsedRuntimeLabel(t *testing.T) {
 		LastStateChangeAt: sqlNullTime(time.Now().Add(-37 * 24 * time.Hour)),
 	}
 
-	measured := cardHeightEx(ticket, boardColumnWidth-2, false, true)
-	rendered := len(cardView(false, ticket, boardColumnWidth, true))
-	if measured < rendered {
-		t.Fatalf("Master card height undercounted elapsed runtime label: measured=%d rendered=%d", measured, rendered)
+	measured := cardHeightEx(ticket, boardColumnMinWidth, false, true)
+	rendered := len(cardView(false, ticket, boardColumnMinWidth, true))
+	if measured != rendered {
+		t.Fatalf("Master card height mismatch: measured=%d rendered=%d", measured, rendered)
 	}
 }
 
@@ -1369,13 +1365,55 @@ func TestHorizontalScrollHintAppearsAndUpdates(t *testing.T) {
 	}
 }
 
-func TestWindowSizeMsgUpdatesTerminalDimensions(t *testing.T) {
+func TestResponsiveBoardColumnLayout(t *testing.T) {
 	store, ctx := newTestStore(t)
 	model := New(ctx, NewService(store, nil))
-	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	cases := []struct {
+		terminalWidth int
+		wantWidth     int
+		wantCount     int
+	}{
+		{29, 30, 1},
+		{70, 34, 2},
+		{80, 39, 2},
+		{124, 30, 4},
+		{160, 39, 4},
+		{220, 44, 4},
+	}
+	for _, tc := range cases {
+		model.width = tc.terminalWidth
+		gotWidth, gotCount := model.boardColumnLayout()
+		if gotWidth != tc.wantWidth || gotCount != tc.wantCount {
+			t.Errorf("terminal width %d: layout=(%d,%d), want=(%d,%d)", tc.terminalWidth, gotWidth, gotCount, tc.wantWidth, tc.wantCount)
+		}
+		if gotWidth < boardColumnMinWidth || gotWidth > boardColumnMaxWidth {
+			t.Errorf("terminal width %d produced out-of-bounds column width %d", tc.terminalWidth, gotWidth)
+		}
+	}
+}
+
+func TestWindowSizeMsgUpdatesDimensionsAndRevealsColumnsAfterWidening(t *testing.T) {
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
+	model.width, model.height = 80, 24
+	for range 3 {
+		model, _ = mustUpdate(t, model, "l")
+	}
+	if model.colOffset == 0 {
+		t.Fatal("narrow viewport should scroll horizontally to the focused final column")
+	}
+
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	m := next.(Model)
-	if m.width != 120 || m.height != 30 {
-		t.Fatalf("expected 120x30, got %dx%d", m.width, m.height)
+	if m.width != 160 || m.height != 30 {
+		t.Fatalf("expected 160x30, got %dx%d", m.width, m.height)
+	}
+	if m.colOffset != 0 {
+		t.Fatalf("wide viewport should reveal all default columns, colOffset=%d", m.colOffset)
+	}
+	_, visibleCount := m.boardColumnLayout()
+	if visibleCount != len(m.view.Columns) {
+		t.Fatalf("wide viewport shows %d of %d columns", visibleCount, len(m.view.Columns))
 	}
 }
 
@@ -1482,12 +1520,12 @@ func TestMoveTicketScrollFollowsTicket(t *testing.T) {
 	}
 
 	// Verify the focused card is actually within the rendered viewport.
-	inner := boardColumnWidth - 2
+	columnWidth, _ := model.boardColumnLayout()
 	avail := model.boardContentHeight()
 	usedLines := 0
 	visible := false
 	for ti := scroll; ti < len(model.view.Columns[model.col].Tickets); ti++ {
-		h := cardHeight(model.view.Columns[model.col].Tickets[ti], inner)
+		h := cardHeight(model.view.Columns[model.col].Tickets[ti], columnWidth)
 		if ti > scroll {
 			h++
 		}
