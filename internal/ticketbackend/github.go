@@ -145,26 +145,35 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 					return res, err
 				}
 				issue = updated
-				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, local.ColumnID, issue, archivedTime(local))); err != nil {
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, githubRemoteTicket(board.ID, local.ColumnID, issue, archivedTime(local)), local.UpdatedAt)
+				if err != nil {
 					return res, err
 				}
-				_ = store.ClearTicketRemotePush(ctx, local.ID)
-				res.Pushed++
+				if applied {
+					_ = store.ClearTicketRemotePush(ctx, local.ID)
+					res.Pushed++
+				}
 			} else if remoteWins {
-				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, columnID, issue, nil)); err != nil {
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, githubRemoteTicket(board.ID, columnID, issue, nil), local.UpdatedAt)
+				if err != nil {
 					return res, err
 				}
-				_ = store.ClearTicketRemotePush(ctx, local.ID)
-				res.Pulled++
+				if applied {
+					_ = store.ClearTicketRemotePush(ctx, local.ID)
+					res.Pulled++
+				}
 			} else if local.ArchivedAt.Valid && issue.ClosedAt != nil && githubTerminalColumn(cfg, localColumn) {
 				// Older GitHub syncs incorrectly stored GitHub closed_at as Kanbi
 				// archived_at, hiding Done tickets. Closed remote issues should remain
 				// visible; only Kanbi's explicit archive action hides them.
-				if _, err := store.UpsertRemoteTicket(ctx, githubRemoteTicket(board.ID, local.ColumnID, issue, nil)); err != nil {
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, githubRemoteTicket(board.ID, local.ColumnID, issue, nil), local.UpdatedAt)
+				if err != nil {
 					return res, err
 				}
-				_ = store.ClearTicketRemotePush(ctx, local.ID)
-				res.Pulled++
+				if applied {
+					_ = store.ClearTicketRemotePush(ctx, local.ID)
+					res.Pulled++
+				}
 			}
 			commentConflicts, err := b.syncComments(ctx, store, client, cfg, local.ID, issue.Number)
 			if err != nil {
@@ -180,7 +189,7 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 				if have != "" && have == marker.Token {
 					rt := githubRemoteTicket(board.ID, local.ColumnID, issue, archivedTime(local))
 					rt.SourceTicketID = local.ID
-					if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
+					if _, _, err := store.UpsertRemoteTicketIfUnchanged(ctx, rt, time.Time{}); err != nil {
 						return res, err
 					}
 					_ = store.ClearTicketRemotePush(ctx, local.ID)
@@ -249,7 +258,7 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 		}
 		rt := githubRemoteTicket(board.ID, local.ColumnID, created, archivedTime(local))
 		rt.SourceTicketID = local.ID
-		if _, err := store.UpsertRemoteTicket(ctx, rt); err != nil {
+		if _, _, err := store.UpsertRemoteTicketIfUnchanged(ctx, rt, local.UpdatedAt); err != nil {
 			// Remote issue likely exists; keep pending for recover-by-token.
 			return res, err
 		}
@@ -443,7 +452,19 @@ func githubColumns(cfg GitHubConfig, issues []GitHubIssue) []string {
 		}
 	}
 	if !seen[cfg.DefaultOpenColumn] {
+		seen[cfg.DefaultOpenColumn] = true
 		cols = append([]string{cfg.DefaultOpenColumn}, cols...)
+	}
+	workflowColumns := make([]string, 0, len(cfg.WorkflowLabels))
+	for column := range cfg.WorkflowLabels {
+		if !seen[column] {
+			workflowColumns = append(workflowColumns, column)
+		}
+	}
+	sort.Strings(workflowColumns)
+	for _, column := range workflowColumns {
+		seen[column] = true
+		cols = append(cols, column)
 	}
 	if !seen[cfg.ClosedColumn] {
 		cols = append(cols, cfg.ClosedColumn)

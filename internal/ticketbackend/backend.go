@@ -51,6 +51,7 @@ type SyncRepository interface {
 	SyncBoardColumns(context.Context, int64, []string) (map[string]int64, error)
 	SyncTicketsForBoard(context.Context, int64) ([]storage.Ticket, error)
 	UpsertRemoteTicket(context.Context, storage.RemoteTicket) (storage.Ticket, error)
+	UpsertRemoteTicketIfUnchanged(context.Context, storage.RemoteTicket, time.Time) (storage.Ticket, bool, error)
 	ListNotes(context.Context, int64) ([]storage.Note, error)
 	ListNotesForSync(context.Context, int64) ([]storage.Note, error)
 	UpsertRemoteNote(context.Context, int64, string, string, time.Time) error

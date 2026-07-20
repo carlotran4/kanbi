@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,35 @@ type fakeGitHubClient struct {
 	updatedIssues   []GitHubIssueUpdate
 	createdComments []string
 	updatedComments []string
+	createStarted   chan struct{}
+	resumeCreate    chan struct{}
+	updateStarted   chan struct{}
+	resumeUpdate    chan struct{}
+}
+
+type gatedTicketSnapshotRepository struct {
+	SyncRepository
+	once          sync.Once
+	snapshotTaken chan struct{}
+	resume        chan struct{}
+}
+
+func (r *gatedTicketSnapshotRepository) SyncTicketsForBoard(ctx context.Context, boardID int64) ([]storage.Ticket, error) {
+	tickets, err := r.SyncRepository.SyncTicketsForBoard(ctx, boardID)
+	wait := false
+	r.once.Do(func() {
+		wait = true
+		close(r.snapshotTaken)
+	})
+	if !wait {
+		return tickets, err
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-r.resume:
+		return tickets, err
+	}
 }
 
 func (f *fakeGitHubClient) ListIssues(context.Context, GitHubConfig) ([]GitHubIssue, error) {
@@ -29,7 +59,15 @@ func (f *fakeGitHubClient) ListIssues(context.Context, GitHubConfig) ([]GitHubIs
 func (f *fakeGitHubClient) ListComments(_ context.Context, _ GitHubConfig, n int) ([]GitHubComment, error) {
 	return append([]GitHubComment(nil), f.comments[n]...), nil
 }
-func (f *fakeGitHubClient) CreateIssue(_ context.Context, _ GitHubConfig, u GitHubIssueUpdate) (GitHubIssue, error) {
+func (f *fakeGitHubClient) CreateIssue(ctx context.Context, _ GitHubConfig, u GitHubIssueUpdate) (GitHubIssue, error) {
+	if f.createStarted != nil {
+		close(f.createStarted)
+		select {
+		case <-ctx.Done():
+			return GitHubIssue{}, ctx.Err()
+		case <-f.resumeCreate:
+		}
+	}
 	f.createdIssues = append(f.createdIssues, u)
 	n := 1000 + len(f.createdIssues)
 	issue := GitHubIssue{Number: n, HTMLURL: "url", UpdatedAt: time.Now().UTC()}
@@ -49,7 +87,17 @@ func (f *fakeGitHubClient) CreateIssue(_ context.Context, _ GitHubConfig, u GitH
 	return issue, nil
 }
 
-func (f *fakeGitHubClient) UpdateIssue(_ context.Context, _ GitHubConfig, n int, u GitHubIssueUpdate) (GitHubIssue, error) {
+func (f *fakeGitHubClient) UpdateIssue(ctx context.Context, _ GitHubConfig, n int, u GitHubIssueUpdate) (GitHubIssue, error) {
+	if f.updateStarted != nil {
+		close(f.updateStarted)
+		select {
+		case <-ctx.Done():
+			return GitHubIssue{}, ctx.Err()
+		case <-f.resumeUpdate:
+		}
+		f.updateStarted = nil
+		f.resumeUpdate = nil
+	}
 	f.updatedIssues = append(f.updatedIssues, u)
 	for i := range f.issues {
 		if f.issues[i].Number == n {
@@ -492,6 +540,163 @@ func TestGitHubSyncLocalMoveUpdatesStatusLabelsAndCloses(t *testing.T) {
 	labels := strings.Join(update.Labels, ",")
 	if strings.Contains(labels, "needs-review") || strings.Contains(labels, "status:") || !strings.Contains(labels, "kanbi") {
 		t.Fatalf("unsafe labels: %v", update.Labels)
+	}
+}
+
+func TestGitHubSyncDoesNotOverwriteMoveMadeAfterLocalSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Add(-2 * time.Hour)
+	client := &fakeGitHubClient{issues: []GitHubIssue{{Number: 330, HTMLURL: "url", Title: "ticket", Body: "body", State: "open", Labels: []GitHubLabel{{Name: "in-progress"}}, UpdatedAt: base}}, comments: map[int][]GitHubComment{}}
+	backend := GitHubBackend{Client: client}
+	if _, err := backend.Sync(ctx, store, board); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.TicketByDisplayIDInBoard(ctx, "GH-330", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, err := store.ColumnIDByBoardAndName(ctx, board.ID, "Review")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client.issues[0].UpdatedAt = time.Now().UTC()
+	gated := &gatedTicketSnapshotRepository{SyncRepository: store, snapshotTaken: make(chan struct{}), resume: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() {
+		_, err := backend.Sync(ctx, gated, board)
+		done <- err
+	}()
+	<-gated.snapshotTaken
+	if err := store.MoveTicket(ctx, ticket.ID, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	close(gated.resume)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ColumnID != reviewID {
+		t.Fatalf("stale sync reverted concurrent move: column=%d want review=%d", updated.ColumnID, reviewID)
+	}
+	res, err := backend.Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pushed != 1 || len(client.updatedIssues) != 1 {
+		t.Fatalf("newer move did not converge to GitHub: result=%+v updates=%d", res, len(client.updatedIssues))
+	}
+	if labels := strings.Join(client.updatedIssues[0].Labels, ","); !strings.Contains(labels, "needs-review") || strings.Contains(labels, "in-progress") {
+		t.Fatalf("pushed stale workflow labels: %v", client.updatedIssues[0].Labels)
+	}
+}
+
+func TestGitHubSyncPreservesMoveMadeWhileProviderUpdateIsInFlight(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Add(-2 * time.Hour)
+	client := &fakeGitHubClient{issues: []GitHubIssue{{Number: 331, HTMLURL: "url", Title: "ticket", Body: "body", State: "open", Labels: []GitHubLabel{{Name: "in-progress"}}, UpdatedAt: base}}, comments: map[int][]GitHubComment{}}
+	backend := GitHubBackend{Client: client}
+	if _, err := backend.Sync(ctx, store, board); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ := store.TicketByDisplayIDInBoard(ctx, "GH-331", board.ID)
+	reviewID, _ := store.ColumnIDByBoardAndName(ctx, board.ID, "Review")
+	blockedID, _ := store.ColumnIDByBoardAndName(ctx, board.ID, "Blocked")
+	if err := store.MoveTicket(ctx, ticket.ID, reviewID); err != nil {
+		t.Fatal(err)
+	}
+
+	client.updateStarted = make(chan struct{})
+	client.resumeUpdate = make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := backend.Sync(ctx, store, board)
+		done <- err
+	}()
+	<-client.updateStarted
+	if err := store.MoveTicket(ctx, ticket.ID, blockedID); err != nil {
+		t.Fatal(err)
+	}
+	close(client.resumeUpdate)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := store.TicketByID(ctx, ticket.ID)
+	if updated.ColumnID != blockedID {
+		t.Fatalf("push acknowledgement reverted concurrent move: column=%d want blocked=%d", updated.ColumnID, blockedID)
+	}
+
+	res, err := backend.Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pushed != 1 || len(client.updatedIssues) != 2 {
+		t.Fatalf("concurrent move did not converge: result=%+v updates=%d", res, len(client.updatedIssues))
+	}
+	if labels := strings.Join(client.updatedIssues[1].Labels, ","); !strings.Contains(labels, "blocked") || strings.Contains(labels, "needs-review") {
+		t.Fatalf("latest move was not pushed: %v", client.updatedIssues[1].Labels)
+	}
+}
+
+func TestGitHubSyncPreservesMoveMadeWhileRemoteCreateIsInFlight(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, _ := store.BoardViewByID(ctx, board.ID)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "local", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, _ := store.ColumnIDByBoardAndName(ctx, board.ID, "Review")
+	client := &fakeGitHubClient{comments: map[int][]GitHubComment{}, createStarted: make(chan struct{}), resumeCreate: make(chan struct{})}
+	backend := GitHubBackend{Client: client}
+	done := make(chan error, 1)
+	go func() {
+		_, err := backend.Sync(ctx, store, board)
+		done <- err
+	}()
+	<-client.createStarted
+	if err := store.MoveTicket(ctx, ticket.ID, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	close(client.resumeCreate)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	linked, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !linked.ExternalID.Valid || linked.ColumnID != reviewID {
+		t.Fatalf("remote-create link lost concurrent move: %+v", linked)
+	}
+
+	res, err := backend.Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pushed != 1 || len(client.updatedIssues) != 1 {
+		t.Fatalf("linked concurrent move did not converge: result=%+v updates=%d", res, len(client.updatedIssues))
+	}
+	if labels := strings.Join(client.updatedIssues[0].Labels, ","); !strings.Contains(labels, "needs-review") {
+		t.Fatalf("latest move was not pushed after create: %v", client.updatedIssues[0].Labels)
 	}
 }
 

@@ -107,6 +107,9 @@ func TestGitHubPendingCreateRecoversByTokenWithoutDuplicate(t *testing.T) {
 	if len(client.createdIssues) != 1 {
 		t.Fatalf("created=%d", len(client.createdIssues))
 	}
+	if err := store.UpdateTicket(ctx, local.ID, "edited while pending", "new body", local.Harness); err != nil {
+		t.Fatal(err)
+	}
 	// Pending state remains; second sync must link existing remote rather than create again.
 	res, err = (GitHubBackend{Client: client}).Sync(ctx, store, board)
 	if err != nil {
@@ -125,8 +128,14 @@ func TestGitHubPendingCreateRecoversByTokenWithoutDuplicate(t *testing.T) {
 	if ticket.RemotePushState.Valid {
 		t.Fatalf("push state still set: %+v", ticket.RemotePushState)
 	}
-	if ticket.Body != "body" || strings.Contains(ticket.Body, "kanbi:local-ticket") {
-		t.Fatalf("marker leaked into local GitHub body: %q", ticket.Body)
+	if ticket.Title != "edited while pending" || ticket.Body != "new body" || strings.Contains(ticket.Body, "kanbi:local-ticket") {
+		t.Fatalf("pending edit was not preserved after GitHub link: %+v", ticket)
+	}
+	if _, err := (GitHubBackend{Client: client}).Sync(ctx, store, board); err != nil {
+		t.Fatalf("converge sync: %v", err)
+	}
+	if len(client.updatedIssues) != 1 || client.updatedIssues[0].Title == nil || *client.updatedIssues[0].Title != "edited while pending" {
+		t.Fatalf("pending edit did not converge to GitHub: %+v", client.updatedIssues)
 	}
 	_ = res
 }
@@ -154,6 +163,9 @@ func TestJiraPendingCreateRecoversByTokenWithoutDuplicate(t *testing.T) {
 	if len(client.createdIssues) != 1 {
 		t.Fatalf("created=%d", len(client.createdIssues))
 	}
+	if err := store.UpdateTicket(ctx, local.ID, "edited while pending", "new body", local.Harness); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := (JiraBackend{Client: client}).Sync(ctx, store, board); err != nil {
 		t.Fatalf("recover sync: %v", err)
 	}
@@ -167,8 +179,14 @@ func TestJiraPendingCreateRecoversByTokenWithoutDuplicate(t *testing.T) {
 	if !ticket.ExternalID.Valid {
 		t.Fatal("ticket was not linked after recover")
 	}
-	if ticket.Body != "body" || strings.Contains(ticket.Body, "kanbi:local-ticket") {
-		t.Fatalf("marker leaked into local Jira body: %q", ticket.Body)
+	if ticket.Title != "edited while pending" || ticket.Body != "new body" || strings.Contains(ticket.Body, "kanbi:local-ticket") {
+		t.Fatalf("pending edit was not preserved after Jira link: %+v", ticket)
+	}
+	if _, err := (JiraBackend{Client: client}).Sync(ctx, store, board); err != nil {
+		t.Fatalf("converge sync: %v", err)
+	}
+	if len(client.updatedIssues) != 1 || client.updatedIssues[0].Summary != "edited while pending" {
+		t.Fatalf("pending edit did not converge to Jira: %+v", client.updatedIssues)
 	}
 }
 
@@ -216,6 +234,14 @@ func (s *crashAfterCreateStore) UpsertRemoteTicket(ctx context.Context, rt stora
 		return storage.Ticket{}, errors.New("injected crash after remote create")
 	}
 	return s.Store.UpsertRemoteTicket(ctx, rt)
+}
+
+func (s *crashAfterCreateStore) UpsertRemoteTicketIfUnchanged(ctx context.Context, rt storage.RemoteTicket, expected time.Time) (storage.Ticket, bool, error) {
+	if rt.SourceTicketID == s.ticketID && !s.tripped {
+		s.tripped = true
+		return storage.Ticket{}, false, errors.New("injected crash after remote create")
+	}
+	return s.Store.UpsertRemoteTicketIfUnchanged(ctx, rt, expected)
 }
 
 func TestPushMarkerRoundTrip(t *testing.T) {
