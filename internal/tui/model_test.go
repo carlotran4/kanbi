@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/carlotran4/kanbi/internal/prompt"
 	"github.com/carlotran4/kanbi/internal/statusbar"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/tmux"
@@ -749,9 +750,18 @@ func TestModelBodyPasteStoresImageAttachmentAndInsertsMarkdown(t *testing.T) {
 	if len(entries) != 1 || filepath.Ext(entries[0].Name()) != ".png" {
 		t.Fatalf("attachments = %+v", entries)
 	}
-	wantRef := "![](" + filepath.ToSlash(filepath.Join(wantDir, entries[0].Name())) + ")"
+	wantRef := "![image 1](" + filepath.ToSlash(filepath.Join(wantDir, entries[0].Name())) + ")"
 	if !strings.Contains(model.bodyTA.Value(), "Existing body\n"+wantRef+"\n") {
 		t.Fatalf("body = %q, want inserted ref %q", model.bodyTA.Value(), wantRef)
+	}
+
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(base64.StdEncoding.EncodeToString(png)), Paste: true})
+	if !strings.Contains(model.bodyTA.Value(), "![image 2](") {
+		t.Fatalf("second image was not numbered in prompt order: body=%q", model.bodyTA.Value())
+	}
+	renderedPrompt := prompt.Render("T-001", "Image paste", model.bodyTA.Value())
+	if !strings.Contains(renderedPrompt, "![image 1](") || !strings.Contains(renderedPrompt, "![image 2](") {
+		t.Fatalf("rendered prompt does not preserve numbered images: %q", renderedPrompt)
 	}
 	if !strings.Contains(model.status, "attached ") {
 		t.Fatalf("status = %q", model.status)
@@ -785,7 +795,7 @@ func TestModelCtrlVPastesClipboardImageIntoBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || !strings.Contains(model.bodyTA.Value(), "![](") {
+	if len(entries) != 1 || !strings.Contains(model.bodyTA.Value(), "![image 1](") {
 		t.Fatalf("attachments=%v body=%q", entries, model.bodyTA.Value())
 	}
 	if !strings.Contains(model.status, "attached ") {
