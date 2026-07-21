@@ -112,16 +112,36 @@ func (m *Model) moveAttention(delta int) {
 		m.status = "no attention tickets"
 		return
 	}
-	current := 0
+	current := -1
 	for i, p := range positions {
 		if p.col == m.col && p.card == m.card {
 			current = i
 			break
 		}
 	}
-	next := (current + delta) % len(positions)
-	if next < 0 {
-		next += len(positions)
+
+	next := 0
+	if current >= 0 {
+		next = (current + delta) % len(positions)
+		if next < 0 {
+			next += len(positions)
+		}
+	} else if delta < 0 {
+		next = len(positions) - 1
+		for i := len(positions) - 1; i >= 0; i-- {
+			p := positions[i]
+			if p.col < m.col || (p.col == m.col && p.card < m.card) {
+				next = i
+				break
+			}
+		}
+	} else {
+		for i, p := range positions {
+			if p.col > m.col || (p.col == m.col && p.card > m.card) {
+				next = i
+				break
+			}
+		}
 	}
 	m.col = positions[next].col
 	m.card = positions[next].card

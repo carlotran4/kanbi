@@ -211,6 +211,7 @@ func TestModelEnterSendPromptAndAttentionNavigation(t *testing.T) {
 	view := defaultBoardView(t, ctx, store)
 	first, _ := store.CreateTicket(ctx, view.Columns[0].ID, "First", "", "pi")
 	second, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Second", "", "pi")
+	third, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Third", "", "pi")
 	sessionID, err := store.UpsertActiveSession(ctx, second.ID, storage.Session{
 		Harness:         "pi",
 		TmuxSessionName: "kanbi",
@@ -221,6 +222,18 @@ func TestModelEnterSendPromptAndAttentionNavigation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.UpdateSessionRuntime(ctx, sessionID, "waiting_for_user", "manual", "waiting", "", false); err != nil {
+		t.Fatal(err)
+	}
+	thirdSessionID, err := store.UpsertActiveSession(ctx, third.ID, storage.Session{
+		Harness:         "pi",
+		TmuxSessionName: "kanbi",
+		TmuxWindowName:  "T-003-third",
+		Status:          "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateSessionRuntime(ctx, thirdSessionID, "needs_permission", "manual", "permission", "", false); err != nil {
 		t.Fatal(err)
 	}
 	wrapped := &openingStore{Service: NewService(store, nil)}
