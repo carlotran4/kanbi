@@ -37,6 +37,11 @@ jobs:
         run: |
           set -euo pipefail
           source <(./scripts/release-version-policy.sh "$RELEASE_VERSION")
+          notes="docs/releases/v${RELEASE_VERSION_NORMALIZED}.md"
+          if [[ ! -s "$notes" ]]; then
+            echo "reviewed release notes are required at $notes" >&2
+            exit 2
+          fi
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$RELEASE_MAJOR" != "0" ]]; then
             candidate_sha="$(git rev-parse HEAD)"
             required_approval="${RELEASE_VERSION_NORMALIZED}@${candidate_sha}"
@@ -97,8 +102,13 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y tmux sqlite3
           else
-            brew install tmux
+            brew install tmux sqlite
+            sqlite_bin="$(brew --prefix sqlite)/bin"
+            echo "$sqlite_bin" >> "$GITHUB_PATH"
+            export PATH="$sqlite_bin:$PATH"
           fi
+          command -v tmux
+          command -v sqlite3
       - name: Build and validate native CGO artifact
         shell: bash
         env:
@@ -221,6 +231,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: kanbi-release-bundle
@@ -238,9 +249,11 @@ jobs:
           if [[ "$RELEASE_IS_PRERELEASE" == "true" ]]; then
             prerelease+=(--prerelease --latest=false)
           fi
+          notes_file="$GITHUB_WORKSPACE/docs/releases/${GITHUB_REF_NAME}.md"
+          test -s "$notes_file"
           gh release create "$GITHUB_REF_NAME" ./* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --generate-notes \
+            --notes-file "$notes_file" \
             --title "Kanbi $GITHUB_REF_NAME" \
             "${prerelease[@]}"

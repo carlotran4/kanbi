@@ -119,33 +119,39 @@ multiplexer:
     binary: "$FAKE_HERDR"
     session: smoke
 YAML
-KANBI_CONFIG="$HERDR_CONFIG" KANBI_DB="$TMP/herdr-doctor.db" "$BIN" doctor | grep -q 'ok herdr session smoke'
+HERDR_DOCTOR_OUTPUT="$(KANBI_CONFIG="$HERDR_CONFIG" KANBI_DB="$TMP/herdr-doctor.db" "$BIN" doctor)"
+grep -q 'ok herdr session smoke' <<<"$HERDR_DOCTOR_OUTPUT"
 "$BIN" add "Smoke test ticket" --body "Verify smoke path" --harness pi
-"$BIN" list | grep -q "T-001"
+LIST_OUTPUT="$("$BIN" list)"
+grep -q "T-001" <<<"$LIST_OUTPUT"
 "$BIN" open T-001 --send-prompt
 "$BIN" add "Codex smoke ticket" --body "Verify codex prompt arg" --harness codex
-"$BIN" list | grep -q "T-002"
+LIST_OUTPUT="$("$BIN" list)"
+grep -q "T-002" <<<"$LIST_OUTPUT"
 "$BIN" open T-002 --send-prompt
 "$BIN" add "Claude smoke ticket" --body "Verify claude prompt arg" --harness claude
-"$BIN" list | grep -q "T-003"
+LIST_OUTPUT="$("$BIN" list)"
+grep -q "T-003" <<<"$LIST_OUTPUT"
 "$BIN" open T-003 --send-prompt
 
 tmux has-session -t "$SESSION"
-tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^board$'
-tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-001-smoke-test-ticket$'
-tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-002-codex-smoke-ticket$'
-tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q '^b1-T-003-claude-smoke-ticket$'
-sqlite3 "$KANBI_DB" "select tmux_window_id from sessions where is_active=1" | grep -q '^@'
+WINDOWS="$(tmux list-windows -t "$SESSION" -F '#{window_name}')"
+grep -q '^board$' <<<"$WINDOWS"
+grep -q '^b1-T-001-smoke-test-ticket$' <<<"$WINDOWS"
+grep -q '^b1-T-002-codex-smoke-ticket$' <<<"$WINDOWS"
+grep -q '^b1-T-003-claude-smoke-ticket$' <<<"$WINDOWS"
+ACTIVE_WINDOW_IDS="$(sqlite3 "$KANBI_DB" "select tmux_window_id from sessions where is_active=1")"
+grep -q '^@' <<<"$ACTIVE_WINDOW_IDS"
 
 sleep 0.5
 OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-001-smoke-test-ticket")"
-printf '%s\n' "$OUT" | grep -q '# T-001: Smoke test ticket'
-printf '%s\n' "$OUT" | grep -q 'Verify smoke path'
+grep -q '# T-001: Smoke test ticket' <<<"$OUT"
+grep -q 'Verify smoke path' <<<"$OUT"
 CODEX_OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-002-codex-smoke-ticket")"
-printf '%s\n' "$CODEX_OUT" | grep -q '# T-002: Codex smoke ticket'
-printf '%s\n' "$CODEX_OUT" | grep -q 'Verify codex prompt arg'
+grep -q '# T-002: Codex smoke ticket' <<<"$CODEX_OUT"
+grep -q 'Verify codex prompt arg' <<<"$CODEX_OUT"
 CLAUDE_OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-003-claude-smoke-ticket")"
-printf '%s\n' "$CLAUDE_OUT" | grep -q '# T-003: Claude smoke ticket'
-printf '%s\n' "$CLAUDE_OUT" | grep -q 'Verify claude prompt arg'
+grep -q '# T-003: Claude smoke ticket' <<<"$CLAUDE_OUT"
+grep -q 'Verify claude prompt arg' <<<"$CLAUDE_OUT"
 
 echo "smoke ok"

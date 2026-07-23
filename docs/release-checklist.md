@@ -8,8 +8,9 @@ P0 covers security/credential leakage, durable-data or history loss/corruption, 
 
 ## 1. Content freeze
 
-- [ ] Intended changes landed on the main branch; CI green on the commit to tag.
+- [ ] Intended changes landed on the repository default branch; CI green on the commit to tag.
 - [ ] `CHANGELOG.md` Unreleased section rewritten into a dated version section; links for upgrade impact.
+- [ ] Reviewed notes exist at `docs/releases/vVERSION.md`; the release workflow rejects missing notes and publishes this file verbatim.
 - [ ] User-facing docs updated (`README.md`, `docs/installation.md`, contracts as needed).
 - [ ] Compat matrix (`docs/compatibility.md`) still accurate for claimed platforms/deps.
 
