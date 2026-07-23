@@ -1,0 +1,40 @@
+$ ./scripts/build-release.sh 0.3.0-beta.1
+kanbi 0.3.0-beta.1
+commit: c263b19a4d4af8bb57d5df295bf1227a756e8082
+built: 2026-07-23T03:24:09Z
+go: go1.26.5-X:nodwarf5
+platform: linux/amd64
+database schema: 7
+created <checkout>/dist/kanbi_0.3.0-beta.1_linux_amd64.tar.gz
+checksums <checkout>/dist/SHA256SUMS
+kanbi
+README.md
+LICENSE
+BUILDINFO.json
+metadata ok: version=0.3.0-beta.1 commit=c263b19a4d4af8bb57d5df295bf1227a756e8082 schema=7 linux/amd64
+database initialization and backup/restore integrity ok
+release artifact smoke: PASS
+kanbi_0.3.0-beta.1_linux_amd64.tar.gz: OK
+kanbi doctor
+ok build 0.3.0-beta.1 commit c263b19a4d4af8bb57d5df295bf1227a756e8082 built 2026-07-23T03:24:09Z linux/amd64 go1.26.5-X:nodwarf5
+ok database schema version 7
+ok multiplexer tmux
+ok tmux tmux 3.7b
+ok sqlite /tmp/tmp.obWfgV6BaB/kanbi.db
+ok config /tmp/tmp.obWfgV6BaB/config.yaml
+ok shell /usr/bin/bash
+warn not inside tmux
+ok terminal xterm-256color
+ok tmux session kanbi-smoke-137968
+ok harness claude
+ok harness codex
+ok harness copilot
+ok harness pi
+T-001 Smoke test ticket [pi]
+opened Default T-001 b1-T-001-smoke-test-ticket
+T-002 Codex smoke ticket [codex]
+opened Default T-002 b1-T-002-codex-smoke-ticket
+T-003 Claude smoke ticket [claude]
+opened Default T-003 b1-T-003-claude-smoke-ticket
+smoke ok
+RESULT: PASS

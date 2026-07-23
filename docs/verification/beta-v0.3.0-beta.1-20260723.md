@@ -1,23 +1,23 @@
 # v0.3.0-beta.1 Qualification Record — 2026-07-23
 
 Issue: GH-296  
-Status: **BLOCKED — NOT QUALIFIED; DO NOT TAG OR PUBLISH**
+Status: **QUALIFIED — AUTHORIZED TO TAG `v0.3.0-beta.1`**
 
-This record retains completed evidence for a provisional first-public-beta candidate while preserving every unmet publication gate. It does not imply feature completeness or stable readiness.
+This record retains completed evidence for the first-public-beta candidate. The maintainer accepted the explicitly documented unavailable/partial real-service checks on 2026-07-23 and authorized publication. This qualification does not imply feature completeness or stable readiness.
 
 ## Candidate identity
 
 | Field | Value |
 | --- | --- |
 | Version | `0.3.0-beta.1` |
-| Provisional candidate SHA | `86fbee85337dbf36041c1dc6055acc97c923dd18` |
+| Candidate SHA | `c263b19a4d4af8bb57d5df295bf1227a756e8082` |
 | Qualification date UTC | `2026-07-23` |
-| GitHub CI | [run 29975842589](https://github.com/carlotran4/kanbi/actions/runs/29975842589) — PASS |
-| Workflow-dispatch run | [run 29975845153](https://github.com/carlotran4/kanbi/actions/runs/29975845153) — PASS |
-| Combined bundle | `kanbi-release-bundle` artifact from run 29975845153 |
-| Decision | **BLOCKED** — candidate is not on the repository default branch |
+| GitHub CI | [run 29976823338](https://github.com/carlotran4/kanbi/actions/runs/29976823338) — PASS |
+| Workflow-dispatch run | [run 29976938673](https://github.com/carlotran4/kanbi/actions/runs/29976938673) — PASS |
+| Combined bundle | `kanbi-release-bundle` artifact from run 29976938673 |
+| Decision | **QUALIFIED — AUTHORIZED TO TAG** |
 
-The candidate commit is pushed only to `release-qualification-publish-the-next-beta-and-preserve-the-path-to-stable`. No tag or GitHub Release was created.
+The exact candidate is on the repository default branch. At the time of this pre-publication record, no tag or GitHub Release had yet been created.
 
 ## Beta scope and limitations
 
@@ -43,20 +43,20 @@ Result: **PASS — zero known open P0/P1 defects** in the reviewed issue set.
 
 ## Exact-commit deterministic verification
 
-Environment and complete retained output: [`evidence/beta-20260723-86fbee8/`](./evidence/beta-20260723-86fbee8/).
+Environment and complete retained output: [`evidence/beta-20260723-c263b19/`](./evidence/beta-20260723-c263b19/).
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| `go fmt ./...` and clean `gofmt -l` | PASS | [`deterministic.log`](./evidence/beta-20260723-86fbee8/deterministic.log) |
-| `go test ./...` | PASS | [`deterministic.log`](./evidence/beta-20260723-86fbee8/deterministic.log) |
-| `go test -race ./...` | PASS | [`race.log`](./evidence/beta-20260723-86fbee8/race.log) |
-| `go vet ./...` | PASS | [`deterministic.log`](./evidence/beta-20260723-86fbee8/deterministic.log) |
-| `govulncheck ./...` | PASS — zero reachable vulnerabilities | [`govulncheck.log`](./evidence/beta-20260723-86fbee8/govulncheck.log) |
-| `./scripts/smoke.sh --skip-checks` | PASS — real tmux + fake harnesses | [`smoke.log`](./evidence/beta-20260723-86fbee8/smoke.log) |
-| 60-second deterministic soak | PASS | [`soak.log`](./evidence/beta-20260723-86fbee8/soak.log) |
-| Focused harness/tmux/storage/backend/diagnostics tests | PASS | [`deterministic.log`](./evidence/beta-20260723-86fbee8/deterministic.log) |
-| Local exact-binary build/artifact/backup/restore/tmux smoke | PASS | [`local-artifact.log`](./evidence/beta-20260723-86fbee8/local-artifact.log) |
-| GitHub CI on exact SHA | PASS | [run 29975842589](https://github.com/carlotran4/kanbi/actions/runs/29975842589) |
+| `go fmt ./...` and clean `gofmt -l` | PASS | [`deterministic.log`](./evidence/beta-20260723-c263b19/deterministic.log) |
+| `go test ./...` | PASS | [`deterministic.log`](./evidence/beta-20260723-c263b19/deterministic.log) |
+| `go test -race ./...` | PASS | [`race.log`](./evidence/beta-20260723-c263b19/race.log) |
+| `go vet ./...` | PASS | [`deterministic.log`](./evidence/beta-20260723-c263b19/deterministic.log) |
+| `govulncheck ./...` | PASS — zero reachable vulnerabilities | [`govulncheck.log`](./evidence/beta-20260723-c263b19/govulncheck.log) |
+| `./scripts/smoke.sh --skip-checks` | PASS — real tmux + fake harnesses | [`smoke.log`](./evidence/beta-20260723-c263b19/smoke.log) |
+| 60-second deterministic soak | PASS | [`soak.log`](./evidence/beta-20260723-c263b19/soak.log) |
+| Focused harness/tmux/storage/backend/diagnostics tests | PASS | [`deterministic.log`](./evidence/beta-20260723-c263b19/deterministic.log) |
+| Local exact-binary build/artifact/backup/restore/tmux smoke | PASS | [`local-artifact.log`](./evidence/beta-20260723-c263b19/local-artifact.log) |
+| GitHub CI on exact SHA | PASS | [run 29976823338](https://github.com/carlotran4/kanbi/actions/runs/29976823338) |
 
 The dependency upgrade to `golang.org/x/text v0.39.0` removes the reachable `GO-2026-5970` finding that blocked the prior scheduled run. `scripts/smoke.sh` also no longer uses early-exiting `grep -q` pipelines that could turn successful producer output into a `pipefail`/SIGPIPE exit 141.
 
@@ -64,21 +64,21 @@ The dependency upgrade to `golang.org/x/text v0.39.0` removes the reachable `GO-
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| Synthetic token/header/session-ref/config/content canaries excluded or redacted | PASS | [`diagnostics.log`](./evidence/beta-20260723-86fbee8/diagnostics.log) |
-| Logging disabled by default; enabled files `0600`; rotation bounded | PASS | [`diagnostics.log`](./evidence/beta-20260723-86fbee8/diagnostics.log) |
-| Degraded bundle with unavailable database/runtime | PASS | [`support-bundle-manual.txt`](./evidence/beta-20260723-86fbee8/support-bundle-manual.txt) |
-| Archive inventory/path policy | PASS | [`support-bundle-inventory.txt`](./evidence/beta-20260723-86fbee8/support-bundle-inventory.txt) |
+| Synthetic token/header/session-ref/config/content canaries excluded or redacted | PASS | [`diagnostics.log`](./evidence/beta-20260723-c263b19/diagnostics.log) |
+| Logging disabled by default; enabled files `0600`; rotation bounded | PASS | [`diagnostics.log`](./evidence/beta-20260723-c263b19/diagnostics.log) |
+| Degraded bundle with unavailable database/runtime | PASS | [`support-bundle-manual.txt`](./evidence/beta-20260723-c263b19/support-bundle-manual.txt) |
+| Archive inventory/path policy | PASS | [`support-bundle-inventory.txt`](./evidence/beta-20260723-c263b19/support-bundle-inventory.txt) |
 
-The real-harness evidence was sanitized before retention so its captured Pi resume handle is not committed.
+The real-harness evidence was sanitized before retention so captured Pi and Codex resume handles are not committed.
 
 ## Real runtime, harness, and provider matrix
 
 | Check | Result | Reason/evidence |
 | --- | --- | --- |
 | tmux | PASS | Deterministic and real-harness lifecycle logs |
-| Pi | PASS | Start, prompt, verified ref capture, close; [`real-harnesses.log`](./evidence/beta-20260723-86fbee8/real-harnesses.log) |
-| Codex | PARTIAL | Real start/prompt/close passed; ref was not captured within the script window, so repair/start-fresh fallback was verified |
-| Copilot | PARTIAL | Real start/close passed; ref remained pending after eight seconds, so repair/start-fresh fallback was verified |
+| Pi | PASS | Start, prompt, verified ref capture, close; [`real-harnesses.log`](./evidence/beta-20260723-c263b19/real-harnesses.log) |
+| Codex | PASS | Real start/prompt/ref capture/close passed; [`real-harnesses.log`](./evidence/beta-20260723-c263b19/real-harnesses.log) |
+| Copilot | ACCEPTED PARTIAL | Real start/close passed; ref remained pending after eight seconds, so repair/start-fresh fallback was verified and accepted for this beta by the maintainer |
 | Claude | UNAVAILABLE | `claude` binary absent on qualification host |
 | Herdr | NOT RUN | Binary is installed, but no isolated disposable real-Herdr fixture was available; the host was attached to an operator workspace. Deterministic fake-Herdr doctor/adapter checks passed. |
 | GitHub backend | NOT RUN | Authentication exists, but no disposable repository was designated; the smoke mutates remote issues/comments. Deterministic backend tests passed. |
@@ -88,9 +88,9 @@ Unavailable and partial checks are not represented as passes.
 
 ## Four-platform candidate bundle
 
-Workflow-dispatch [run 29975845153](https://github.com/carlotran4/kanbi/actions/runs/29975845153) passed verify, all four native jobs, and bundle assembly. The dispatch correctly skipped publishing.
+Workflow-dispatch [run 29976938673](https://github.com/carlotran4/kanbi/actions/runs/29976938673) passed verify, all four native jobs, and bundle assembly. The dispatch correctly skipped publishing.
 
-Downloaded-bundle verification: [`candidate-bundle.log`](./evidence/beta-20260723-86fbee8/candidate-bundle.log).
+Downloaded-bundle verification: [`candidate-bundle.log`](./evidence/beta-20260723-c263b19/candidate-bundle.log).
 
 | Artifact | Checksum | Version/commit | Platform/CGO/schema | Exact-binary runner smoke |
 | --- | --- | --- | --- | --- |
@@ -99,7 +99,7 @@ Downloaded-bundle verification: [`candidate-bundle.log`](./evidence/beta-2026072
 | `darwin_amd64` | PASS | PASS | PASS | PASS |
 | `darwin_arm64` | PASS | PASS | PASS | PASS |
 
-`BUNDLE_MANIFEST.txt` reports the provisional SHA, all four checksums verify, and every `BUILDINFO.json` reports version `0.3.0-beta.1`, the full provisional SHA, native OS/arch, CGO enabled, and schema 7.
+`BUNDLE_MANIFEST.txt` reports the candidate SHA, all four checksums verify, and every `BUILDINFO.json` reports version `0.3.0-beta.1`, the full candidate SHA, native OS/arch, CGO enabled, and schema 7.
 
 ## Compatibility and recovery
 
@@ -107,16 +107,17 @@ Downloaded-bundle verification: [`candidate-bundle.log`](./evidence/beta-2026072
 - This is the first published Kanbi artifact if approved; there is no previous distributed release artifact. The conditional prior-distributed-artifact upgrade/rollback comparison is therefore **not applicable** to this beta. Historical schema 3→5 drill evidence remains in [`disaster-recovery-20260717.md`](./disaster-recovery-20260717.md), but it is not claimed as exact-candidate evidence.
 - Existing development databases migrate forward to schema 7. Release notes require a pre-upgrade backup and explain that rollback restores that backup and loses post-backup changes.
 
-## Publication gates still open
+## Publication authorization and remaining attestation
 
 - [x] Maintainer triaged GH-276, GH-295, and GH-329: the empty placeholders were deleted and GH-329 was accepted as a non-blocking feature request.
-- [ ] Candidate lands on the repository default branch without changing the qualified tree; otherwise freeze and qualify a new SHA.
-- [ ] Maintainer accepts or reruns the partial Codex/Copilot checks and records whether real Herdr/GitHub/Jira checks can be safely run in disposable resources.
-- [ ] Create the annotated immutable `v0.3.0-beta.1` tag only after the gates above close.
-- [ ] Confirm the tag workflow republishes the same four-platform content as a GitHub prerelease, not latest stable.
+- [x] Candidate landed on the repository default branch and exact-commit local/CI/release-dispatch verification passed.
+- [x] Maintainer accepted the documented Copilot partial result and unavailable Claude/Herdr/GitHub/Jira checks for this beta.
+- [x] Maintainer authorized publication on 2026-07-23.
+- [ ] Create the annotated immutable `v0.3.0-beta.1` tag at the exact candidate SHA.
+- [ ] Confirm the tag workflow republishes the four-platform content as a GitHub prerelease, not latest stable.
 - [ ] Download a published asset and complete checksum/install/version/doctor/disposable-session/backup smoke.
 
-Until those items are complete, the retained evidence supports continued qualification work only. It does not authorize publication.
+The remaining items are post-authorization publication/attestation steps. Any mismatch requires yanking the release; the tag must never move.
 
 ## Stable path preserved
 

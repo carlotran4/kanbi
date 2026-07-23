@@ -1,0 +1,34 @@
+$ go fmt ./...
+$ test -z "$(gofmt -l .)"
+$ go test ./...
+ok  	github.com/carlotran4/kanbi/cmd/kanbi	3.117s
+?   	github.com/carlotran4/kanbi/internal/app	[no test files]
+ok  	github.com/carlotran4/kanbi/internal/architecture	(cached)
+ok  	github.com/carlotran4/kanbi/internal/attachments	(cached)
+ok  	github.com/carlotran4/kanbi/internal/backup	(cached)
+ok  	github.com/carlotran4/kanbi/internal/boardpackage	(cached)
+ok  	github.com/carlotran4/kanbi/internal/boardruntime	0.113s
+ok  	github.com/carlotran4/kanbi/internal/buildinfo	(cached)
+ok  	github.com/carlotran4/kanbi/internal/config	(cached)
+ok  	github.com/carlotran4/kanbi/internal/diagnostics	0.042s
+ok  	github.com/carlotran4/kanbi/internal/harness	(cached)
+ok  	github.com/carlotran4/kanbi/internal/integration	1.204s
+?   	github.com/carlotran4/kanbi/internal/kanban	[no test files]
+?   	github.com/carlotran4/kanbi/internal/multiplexer	[no test files]
+ok  	github.com/carlotran4/kanbi/internal/multiplexer/herdr	(cached)
+ok  	github.com/carlotran4/kanbi/internal/prompt	(cached)
+ok  	github.com/carlotran4/kanbi/internal/session	(cached)
+ok  	github.com/carlotran4/kanbi/internal/statusbar	0.027s
+ok  	github.com/carlotran4/kanbi/internal/storage	(cached)
+ok  	github.com/carlotran4/kanbi/internal/ticketbackend	4.078s
+ok  	github.com/carlotran4/kanbi/internal/tmux	7.962s
+ok  	github.com/carlotran4/kanbi/internal/tui	0.693s
+ok  	github.com/carlotran4/kanbi/internal/workspace	0.476s
+$ go vet ./...
+$ go test ./internal/harness ./internal/tmux ./internal/storage ./internal/ticketbackend ./internal/diagnostics
+ok  	github.com/carlotran4/kanbi/internal/harness	(cached)
+ok  	github.com/carlotran4/kanbi/internal/tmux	(cached)
+ok  	github.com/carlotran4/kanbi/internal/storage	(cached)
+ok  	github.com/carlotran4/kanbi/internal/ticketbackend	(cached)
+ok  	github.com/carlotran4/kanbi/internal/diagnostics	(cached)
+RESULT: PASS

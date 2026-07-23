@@ -1,0 +1,5 @@
+$ KANBI_SOAK_SECONDS=60 ./scripts/soak-runtime.sh
+kanbi soak-runtime: 60s concurrent fake provider schedule/stop cycles
+ok  	github.com/carlotran4/kanbi/internal/ticketbackend	61.437s
+kanbi soak-runtime: pass
+RESULT: PASS
