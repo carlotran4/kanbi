@@ -6,6 +6,18 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 No changes yet.
 
+## [0.3.0-beta.2] - 2026-07-23
+
+Corrective beta superseding `v0.3.0-beta.1`, which accidentally omitted two completed Herdr compatibility commits from its frozen candidate.
+
+### Fixed
+
+- Launch agents against current Herdr releases through the pane-first `agent start --kind <harness> --pane <id>` contract while preserving a capability-detected legacy fallback.
+- Normalize internal Herdr agent names to the required lowercase 32-character format without shortening ticket tab/container labels.
+- Preserve integration environment variables during Herdr pane creation and reject unsupported custom pane-first harness executables instead of silently substituting another command.
+
+There is no schema change from beta.1. See the reviewed [beta.2 release notes](./docs/releases/v0.3.0-beta.2.md) for compatibility, migration, rollback, support, and security guidance.
+
 ## [0.3.0-beta.1] - 2026-07-23
 
 First public beta. This release defines a testable beta surface; it does not claim feature completeness or stable `v1.0.0` readiness. See the reviewed [beta release notes](./docs/releases/v0.3.0-beta.1.md) for install, migration, rollback, support, and security guidance.

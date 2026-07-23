@@ -14,7 +14,7 @@ Kanbi uses one release pipeline from development betas through stable releases. 
 
 The release workflow accepts only `MAJOR.MINOR.PATCH`, `MAJOR.MINOR.PATCH-beta.N`, and `MAJOR.MINOR.PATCH-rc.N`, with an optional leading `v`. All `0.x` tags and every suffixed tag are published as GitHub prereleases, so they do not replace GitHub's latest stable release.
 
-The next intended beta code is **`v0.3.0-beta.1`**. This is a target, not an already-qualified or published release.
+The current corrective beta target is **`v0.3.0-beta.2`**, superseding the published `v0.3.0-beta.1` without moving its immutable tag. A target is not qualified or published until its dated verification record completes every applicable beta gate.
 
 ## One artifact path
 
