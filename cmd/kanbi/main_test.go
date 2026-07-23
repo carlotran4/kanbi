@@ -83,6 +83,28 @@ func TestCLIRejectsInvalidTicketValues(t *testing.T) {
 	}
 }
 
+func TestCLIOpenRejectsArchivedTicket(t *testing.T) {
+	run, openStore := setupCLI(t)
+	if err := run("add", "Archived"); err != nil {
+		t.Fatal(err)
+	}
+	s := openStore()
+	ticket, err := s.TicketByDisplayID(context.Background(), "T-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveTicket(context.Background(), ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run("open", "T-001", "--send-prompt"); !errors.Is(err, storage.ErrTicketArchived) {
+		t.Fatalf("open archived ticket error=%v, want %v", err, storage.ErrTicketArchived)
+	}
+	if _, ok, err := s.LatestSession(context.Background(), ticket.ID); err != nil || ok {
+		t.Fatalf("open archived ticket created a session: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestCLIUpdateRejectsInvalidValuesWithoutChangingTicket(t *testing.T) {
 	run, openStore := setupCLI(t)
 	if err := run("add", "Original"); err != nil {

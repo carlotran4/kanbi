@@ -43,13 +43,16 @@ func (s *Store) claimSession(ctx context.Context, ticketID int64, session Sessio
 		return 0, err
 	}
 	defer tx.Rollback()
-	// Refuse active claims on archived boards so archive cannot race a load.
-	var archived sql.NullTime
+	// Refuse active claims on archived tickets or boards so archive cannot race a launch.
+	var ticketArchived, boardArchived sql.NullTime
 	var worktreeMode string
-	if err := tx.QueryRowContext(ctx, `select b.archived_at,coalesce(b.worktree_mode,'off') from tickets t join boards b on b.id=t.board_id where t.id=?`, ticketID).Scan(&archived, &worktreeMode); err != nil {
+	if err := tx.QueryRowContext(ctx, `select t.archived_at,b.archived_at,coalesce(b.worktree_mode,'off') from tickets t join boards b on b.id=t.board_id where t.id=?`, ticketID).Scan(&ticketArchived, &boardArchived, &worktreeMode); err != nil {
 		return 0, err
 	}
-	if archived.Valid {
+	if ticketArchived.Valid {
+		return 0, ErrTicketArchived
+	}
+	if boardArchived.Valid {
 		return 0, errors.New("cannot start a session on an archived board")
 	}
 	// Touch the parent board row so archive and session claims serialize.

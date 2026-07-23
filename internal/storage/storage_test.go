@@ -1246,6 +1246,26 @@ func assertContiguousColumnPositions(t *testing.T, columns []Column) {
 	}
 }
 
+func TestClaimSessionRejectsArchivedTicket(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Archived", "", "pi")
+	if err := s.ArchiveTicket(ctx, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	claim := Session{Harness: "pi", TmuxSessionName: "test", TmuxWindowName: "ticket"}
+	if _, err := s.ClaimSession(ctx, ticket.ID, claim, false); !errors.Is(err, ErrTicketArchived) {
+		t.Fatalf("ClaimSession() error=%v, want %v", err, ErrTicketArchived)
+	}
+	if _, err := s.UpsertActiveSession(ctx, ticket.ID, claim); !errors.Is(err, ErrTicketArchived) {
+		t.Fatalf("UpsertActiveSession() error=%v, want %v", err, ErrTicketArchived)
+	}
+	if _, ok, err := s.LatestSession(ctx, ticket.ID); err != nil || ok {
+		t.Fatalf("archived ticket created a session: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestArchiveTicketRejectsActiveSession(t *testing.T) {
 	s, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, s)

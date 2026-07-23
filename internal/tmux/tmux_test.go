@@ -297,6 +297,29 @@ func TestLifecycleDecideRejectsUnknownStoredMultiplexer(t *testing.T) {
 	}
 }
 
+func TestOpenTicketRejectsArchivedTicketBeforeLaunchingContainer(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Archived", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ArchiveTicket(ctx, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store, Runner: runner}
+
+	if err := manager.OpenTicket(ctx, ticket, true); !errors.Is(err, storage.ErrTicketArchived) {
+		t.Fatalf("OpenTicket() error=%v, want %v", err, storage.ErrTicketArchived)
+	}
+	for _, call := range runner.calls {
+		if len(call.args) > 0 && call.args[0] == "new-window" {
+			t.Fatalf("archived ticket launched a container: %+v", call)
+		}
+	}
+}
+
 func TestReconcileMarksSessionMissingWhenWindowGone(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
