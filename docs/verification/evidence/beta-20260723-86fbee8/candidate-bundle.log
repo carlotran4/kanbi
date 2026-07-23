@@ -1,0 +1,21 @@
+$ sha256sum -c SHA256SUMS
+kanbi_0.3.0-beta.1_darwin_amd64.tar.gz: OK
+kanbi_0.3.0-beta.1_darwin_arm64.tar.gz: OK
+kanbi_0.3.0-beta.1_linux_amd64.tar.gz: OK
+kanbi_0.3.0-beta.1_linux_arm64.tar.gz: OK
+$ cat BUNDLE_MANIFEST.txt
+version=0.3.0-beta.1
+commit=86fbee85337dbf36041c1dc6055acc97c923dd18
+run_id=29975845153
+created_utc=2026-07-23T03:08:48Z
+kanbi_0.3.0-beta.1_darwin_amd64.tar.gz
+kanbi_0.3.0-beta.1_darwin_arm64.tar.gz
+kanbi_0.3.0-beta.1_linux_amd64.tar.gz
+kanbi_0.3.0-beta.1_linux_arm64.tar.gz
+$ inspect all BUILDINFO.json records
+kanbi_0.3.0-beta.1_darwin_amd64.tar.gz: PASS 0.3.0-beta.1 86fbee85337dbf36041c1dc6055acc97c923dd18 darwin/amd64 cgo=True schema=7
+kanbi_0.3.0-beta.1_darwin_arm64.tar.gz: PASS 0.3.0-beta.1 86fbee85337dbf36041c1dc6055acc97c923dd18 darwin/arm64 cgo=True schema=7
+kanbi_0.3.0-beta.1_linux_amd64.tar.gz: PASS 0.3.0-beta.1 86fbee85337dbf36041c1dc6055acc97c923dd18 linux/amd64 cgo=True schema=7
+kanbi_0.3.0-beta.1_linux_arm64.tar.gz: PASS 0.3.0-beta.1 86fbee85337dbf36041c1dc6055acc97c923dd18 linux/arm64 cgo=True schema=7
+four-platform BUILDINFO matrix: PASS
+RESULT: PASS

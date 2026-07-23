@@ -1,0 +1,3 @@
+degraded bundle: PASS
+archive members: README.txt, field-policies.json, manifest.json, support-bundle.json
+RESULT: PASS
