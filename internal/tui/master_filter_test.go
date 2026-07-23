@@ -48,6 +48,57 @@ func TestMasterFilterModalAppliesSearchAndClear(t *testing.T) {
 	}
 }
 
+func TestMasterFilterEscapeDiscardsDraftChanges(t *testing.T) {
+	store, ctx := newTestStore(t)
+	client, _ := store.CreateBoard(ctx, "Client B")
+	defaultView := defaultBoardView(t, ctx, store)
+	clientView, _ := store.BoardViewByID(ctx, client.ID)
+	_, _ = store.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi")
+	_, _ = store.CreateTicket(ctx, clientView.Columns[0].ID, "Codex handoff", "", "codex")
+
+	model := New(ctx, NewService(store, nil))
+	model.masterBoard = true
+	model.masterFilter.BoardIDs = []int64{defaultView.Board.ID, client.ID}
+	model.masterFilter.Search = "Default"
+	model.reloadBoards()
+	model.reload()
+
+	model, _ = mustUpdate(t, model, "f")
+	model, _ = mustUpdate(t, model, "x")
+	defaultBoardIndex := -1
+	for i, board := range model.boards {
+		if board.ID == defaultView.Board.ID {
+			defaultBoardIndex = i
+			break
+		}
+	}
+	if defaultBoardIndex < 0 {
+		t.Fatal("default board missing from filter options")
+	}
+	model.masterFilterField = 2 + defaultBoardIndex
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeySpace})
+	if model.masterFilter.Search != "Default" {
+		t.Fatalf("editing modal mutated applied search before Enter: %q", model.masterFilter.Search)
+	}
+	if len(model.masterFilter.BoardIDs) != 2 || model.masterFilter.BoardIDs[0] != defaultView.Board.ID || model.masterFilter.BoardIDs[1] != client.ID {
+		t.Fatalf("editing modal mutated applied board selection before Enter: %v", model.masterFilter.BoardIDs)
+	}
+	if got := tuiTicketTitles(model); len(got) != 1 || got[0] != "Default task" {
+		t.Fatalf("editing modal reloaded applied results before Enter: %v", got)
+	}
+
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if model.masterFilterOpen {
+		t.Fatal("Escape should close filter modal")
+	}
+	if model.masterFilter.Search != "Default" {
+		t.Fatalf("Escape should preserve applied search, got %q", model.masterFilter.Search)
+	}
+	if got := tuiTicketTitles(model); len(got) != 1 || got[0] != "Default task" {
+		t.Fatalf("Escape should preserve applied results: %v", got)
+	}
+}
+
 func tuiTicketTitles(model Model) []string {
 	var titles []string
 	for _, col := range model.view.Columns {
@@ -72,10 +123,10 @@ func TestMasterFilterCanToggleBoardHarnessRuntimeAndArchived(t *testing.T) {
 	model.reloadBoards()
 	model.reload()
 	model, _ = mustUpdate(t, model, "f")
-	model.masterFilter.BoardIDs = []int64{client.ID}
-	model.masterFilter.Harnesses = []string{"codex"}
-	model.masterFilter.Runtimes = []string{"running"}
-	model.masterFilter.IncludeArchived = true
+	model.masterFilterDraft.BoardIDs = []int64{client.ID}
+	model.masterFilterDraft.Harnesses = []string{"codex"}
+	model.masterFilterDraft.Runtimes = []string{"running"}
+	model.masterFilterDraft.IncludeArchived = true
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	if got := tuiTicketTitles(model); len(got) != 1 || got[0] != "Active codex" {
 		t.Fatalf("runtime filter should include active running only titles=%v\n%s", got, model.View())
@@ -96,7 +147,7 @@ func TestMasterFilterPresetSaveApplyDelete(t *testing.T) {
 	model.reloadBoards()
 	model.reload()
 	model, _ = mustUpdate(t, model, "f")
-	model.masterFilter.Search = "codex"
+	model.masterFilterDraft.Search = "codex"
 	model, _ = mustUpdate(t, model, "S")
 	if model.filterPresetMode != "save" {
 		t.Fatalf("expected filter preset save mode, got %q status=%s", model.filterPresetMode, model.status)
@@ -107,8 +158,10 @@ func TestMasterFilterPresetSaveApplyDelete(t *testing.T) {
 	if err != nil || len(presets) != 1 || presets[0].Name != "codex-only" {
 		t.Fatalf("presets=%+v err=%v", presets, err)
 	}
+	if !model.masterFilter.Empty() || model.activePresetName != "" {
+		t.Fatalf("saving draft should not apply it: filter=%+v preset=%q", model.masterFilter, model.activePresetName)
+	}
 	// Clear and re-apply.
-	model, _ = mustUpdate(t, model, "f")
 	model, _ = mustUpdate(t, model, "C")
 	model, _ = mustUpdate(t, model, "f")
 	model, _ = mustUpdate(t, model, "P")
