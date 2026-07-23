@@ -87,7 +87,7 @@ Creates a versioned, path-safe zip (`format: kanbi-support-bundle`) without muta
 | `schema_version` | max applied / binary schema | included |
 | `doctor` | severity/name/detail/error | redacted text |
 | `runtime_diagnostics` | durable redacted failure rows | no bodies/prompts/session refs |
-| `harnesses` | binary presence only | no auth state |
+| `harnesses` | binary presence and configured command | filesystem paths in configured commands redacted; no auth state |
 | `recent_diagnostics_log` | tail of opt-in log if present | redacted |
 | `degraded` | collection problems | included |
 

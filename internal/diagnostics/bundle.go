@@ -150,7 +150,7 @@ func DefaultFieldPolicies() []FieldPolicy {
 		{Field: "migrations", Policy: "schema_migrations version/name/applied_at only", Default: "included when DB openable"},
 		{Field: "doctor", Policy: "doctor probe severity/name/detail (redacted)", Default: "included"},
 		{Field: "runtime_diagnostics", Policy: "durable redacted failure rows (no bodies/prompts/session refs)", Default: "included when DB openable"},
-		{Field: "harnesses", Policy: "binary presence only, no auth state", Default: "included"},
+		{Field: "harnesses", Policy: "binary presence and configured command; filesystem paths redacted; no auth state", Default: "included"},
 		{Field: "recent_diagnostics_log", Policy: "tail of opt-in log file after redaction; may be empty", Default: "included if present"},
 		{Field: "ticket bodies / notes / prompts", Policy: "never collected", Default: "excluded"},
 		{Field: "session refs / terminal excerpts / attachments", Policy: "never collected", Default: "excluded"},
@@ -368,7 +368,8 @@ func collectHarnessPresence(cfg config.Config, lookPath func(string) (string, er
 		if len(h.Start) > 0 {
 			cmd = h.Start[0]
 		}
-		p := HarnessPresence{Name: name, Command: cmd}
+		redactedCmd := RedactCommandPath(cmd)
+		p := HarnessPresence{Name: name, Command: redactedCmd}
 		if cmd == "" {
 			p.LookupErr = "no start command"
 			out = append(out, p)
@@ -376,7 +377,7 @@ func collectHarnessPresence(cfg config.Config, lookPath func(string) (string, er
 		}
 		if _, err := lookPath(cmd); err != nil {
 			p.Present = false
-			p.LookupErr = RedactText(err.Error())
+			p.LookupErr = strings.ReplaceAll(RedactText(err.Error()), cmd, redactedCmd)
 		} else {
 			p.Present = true
 		}

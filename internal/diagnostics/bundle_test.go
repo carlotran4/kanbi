@@ -3,6 +3,8 @@ package diagnostics
 import (
 	"archive/zip"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,6 +183,73 @@ backend:
 	for _, required := range []string{"manifest.json", "support-bundle.json", "README.txt", "field-policies.json"} {
 		if !names[required] {
 			t.Fatalf("missing %s in %v", required, names)
+		}
+	}
+}
+
+func TestSupportBundleRedactsCustomHarnessPathInAllSurfaces(t *testing.T) {
+	dir := t.TempDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateCommand := filepath.Join(home, "private-project", "bin", "agent")
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("harnesses:\n  private:\n    start: ["+privateCommand+"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle := Collect(context.Background(), CollectOptions{
+		Config: config.Config{
+			Paths: config.Paths{ConfigFile: configPath, StateDir: dir},
+			Harnesses: map[string]config.Harness{
+				"private": {Start: []string{privateCommand}},
+			},
+		},
+		LookPath: func(command string) (string, error) {
+			return "", fmt.Errorf("executable %s unavailable", command)
+		},
+	})
+	if got, want := bundle.Harnesses[0].Command, RedactCommandPath(privateCommand); got != want {
+		t.Fatalf("harness command = %q, want %q", got, want)
+	}
+
+	payload, err := jsonMarshal(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for surface, content := range map[string]string{
+		"structured payload": string(payload),
+		"human summary":      HumanSummary(bundle),
+	} {
+		if strings.Contains(content, privateCommand) || strings.Contains(content, "private-project") {
+			t.Fatalf("%s leaked custom harness path %q", surface, privateCommand)
+		}
+	}
+
+	destination := filepath.Join(dir, "support.zip")
+	if err := WriteArchive(destination, bundle); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.OpenReader(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	for _, file := range reader.File {
+		content, err := func() ([]byte, error) {
+			entry, err := file.Open()
+			if err != nil {
+				return nil, err
+			}
+			defer entry.Close()
+			return io.ReadAll(entry)
+		}()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(content), privateCommand) || strings.Contains(string(content), "private-project") {
+			t.Fatalf("archive entry %s leaked custom harness path %q", file.Name, privateCommand)
 		}
 	}
 }

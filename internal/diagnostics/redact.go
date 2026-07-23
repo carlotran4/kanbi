@@ -95,6 +95,20 @@ func RedactURL(raw string) string {
 	return RedactText(u.String())
 }
 
+// RedactCommandPath hides configured command paths while preserving bare command
+// names. Support bundles only need to report harness presence, so executable
+// paths and their private directory structure are never useful diagnostics.
+func RedactCommandPath(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return command
+	}
+	if filepath.IsAbs(command) || strings.HasPrefix(command, "~/") || strings.HasPrefix(command, "./") || strings.HasPrefix(command, "../") || strings.Contains(command, "/") || strings.Contains(command, "\\") {
+		return "[REDACTED PATH]"
+	}
+	return RedactText(command)
+}
+
 // RedactPath replaces the user home directory prefix with ~ when present.
 // Absolute paths outside home are left as-is except credential patterns.
 func RedactPath(path string) string {
@@ -178,6 +192,9 @@ func sanitizeConfigValue(key string, v any) any {
 	case string:
 		if secretKey {
 			return "[REDACTED]"
+		}
+		if lk == "start" || lk == "start_with_prompt" || lk == "resume" {
+			return RedactCommandPath(t)
 		}
 		if strings.Contains(lk, "url") || strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") {
 			return RedactURL(t)
