@@ -1,0 +1,3 @@
+f7ee593dd5296452c7709fb2ab28609a4e539dc32b578729d62fc8480adc070e  post-publication-smoke.log
+5ffd22021797c7a5bee80a3028535696dd8b5ffd553075d46f9e362e7042fb87  published-assets.log
+b2821fab5ca3ab779e45b740fe6a398a7d2d9dce7f7175a264fcf2e2ed8aae12  attestation.txt

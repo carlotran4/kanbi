@@ -1,0 +1,16 @@
+kanbi_0.3.0-beta.2_darwin_amd64.tar.gz: OK
+kanbi_0.3.0-beta.2_darwin_arm64.tar.gz: OK
+kanbi_0.3.0-beta.2_linux_amd64.tar.gz: OK
+kanbi_0.3.0-beta.2_linux_arm64.tar.gz: OK
+BUNDLE_MANIFEST.txt: byte-identical PASS
+kanbi_0.3.0-beta.2_darwin_amd64.tar.gz: byte-identical PASS
+kanbi_0.3.0-beta.2_darwin_arm64.tar.gz: byte-identical PASS
+kanbi_0.3.0-beta.2_linux_amd64.tar.gz: byte-identical PASS
+kanbi_0.3.0-beta.2_linux_arm64.tar.gz: byte-identical PASS
+SHA256SUMS: byte-identical PASS
+kanbi_0.3.0-beta.2_darwin_amd64.tar.gz: PASS darwin/amd64
+kanbi_0.3.0-beta.2_darwin_arm64.tar.gz: PASS darwin/arm64
+kanbi_0.3.0-beta.2_linux_amd64.tar.gz: PASS linux/amd64
+kanbi_0.3.0-beta.2_linux_arm64.tar.gz: PASS linux/arm64
+published BUILDINFO matrix: PASS
+RESULT: PASS

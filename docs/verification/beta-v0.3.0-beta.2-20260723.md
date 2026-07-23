@@ -1,7 +1,7 @@
 # v0.3.0-beta.2 Qualification Record — 2026-07-23
 
 Issue: GH-296  
-Status: **QUALIFIED — AUTHORIZED TO TAG `v0.3.0-beta.2`**
+Status: **PUBLISHED — POST-PUBLICATION ATTESTATION PASSED**
 
 This corrective beta supersedes `v0.3.0-beta.1`, which accidentally omitted two completed Herdr compatibility commits that existed only on the maintainer's local `master`. The beta.1 tag remains immutable. This record does not imply feature completeness or stable readiness.
 
@@ -15,9 +15,11 @@ This corrective beta supersedes `v0.3.0-beta.1`, which accidentally omitted two 
 | GitHub CI | [run 29979232625](https://github.com/carlotran4/kanbi/actions/runs/29979232625) — PASS |
 | Workflow-dispatch run | [run 29979397553](https://github.com/carlotran4/kanbi/actions/runs/29979397553) — PASS |
 | Combined candidate bundle | `kanbi-release-bundle` artifact from run 29979397553 |
-| Decision | **QUALIFIED — AUTHORIZED TO TAG** |
+| Tag workflow | [run 29979868971](https://github.com/carlotran4/kanbi/actions/runs/29979868971) — PASS |
+| Published release | [`v0.3.0-beta.2`](https://github.com/carlotran4/kanbi/releases/tag/v0.3.0-beta.2) |
+| Decision | **PUBLISHED — ATTESTED** |
 
-The exact candidate is on the repository default branch. At the time of this pre-publication record, no beta.2 tag or GitHub Release had been created.
+The annotated immutable beta.2 tag resolves to the exact candidate. GitHub published it as a prerelease, not latest stable.
 
 ## Corrective scope and qualification findings
 
@@ -93,10 +95,13 @@ There is no schema or package-format change from beta.1, so the conditional cros
 - [x] Exact local, CI, real-Herdr, real-harness, and four-platform dispatch gates passed.
 - [x] Candidate is on the repository default branch.
 - [x] Maintainer authorized corrective publication on 2026-07-23.
-- [ ] Create annotated immutable `v0.3.0-beta.2` at the candidate SHA.
-- [ ] Confirm tag workflow publishes a prerelease, not latest stable.
-- [ ] Verify published files against the tag workflow bundle and run downloaded-artifact smoke.
-- [ ] Mark beta.1 release notes as superseded without moving or deleting its tag.
+- [x] Created annotated immutable `v0.3.0-beta.2` at the exact candidate SHA.
+- [x] Tag workflow [29979868971](https://github.com/carlotran4/kanbi/actions/runs/29979868971) published a prerelease, not latest stable.
+- [x] Published checksums and all four `BUILDINFO.json` records passed; every asset is byte-identical to the tag workflow bundle.
+- [x] Downloaded Linux artifact passed install/version/doctor/database/attachment/backup/restore/tmux-session smoke.
+- [x] Marked beta.1 release notes as superseded without moving or deleting its tag.
+
+Post-publication evidence: [`evidence/beta-20260723-8b209c5-publication/`](./evidence/beta-20260723-8b209c5-publication/).
 
 ## Stable path preserved
 

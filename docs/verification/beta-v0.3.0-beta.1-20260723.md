@@ -1,9 +1,9 @@
 # v0.3.0-beta.1 Qualification Record — 2026-07-23
 
 Issue: GH-296  
-Status: **PUBLISHED — POST-PUBLICATION ATTESTATION PASSED**
+Status: **PUBLISHED, THEN SUPERSEDED BY `v0.3.0-beta.2`**
 
-This record retains completed evidence for Kanbi's first public beta. The maintainer accepted the explicitly documented unavailable/partial real-service checks on 2026-07-23 and authorized publication. This qualification does not imply feature completeness or stable readiness.
+Beta.1's publication attestation passed for its frozen commit, but the candidate accidentally omitted two completed Herdr compatibility commits that existed only on local `master`. Its immutable tag remains for provenance; users should install [`v0.3.0-beta.2`](https://github.com/carlotran4/kanbi/releases/tag/v0.3.0-beta.2). This record retains completed evidence for Kanbi's first public beta. The maintainer accepted the explicitly documented unavailable/partial real-service checks on 2026-07-23 and authorized publication. This qualification does not imply feature completeness or stable readiness.
 
 ## Candidate identity
 
