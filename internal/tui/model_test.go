@@ -694,6 +694,53 @@ func TestModelEditTicketUpdatesStore(t *testing.T) {
 	}
 }
 
+func TestModelInvalidEditSaveKeepsEditorAndDraft(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket := createTicket(t, ctx, store, view.Columns[0].ID, "Original", "original body", "pi")
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	model.editInputs[0].Set("Draft title")
+	model.bodyTA.SetValue("draft body")
+	model.editInputs[2].Set("pinope")
+	model.editField = 2
+
+	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if cmd != nil {
+		t.Fatal("failed save should not clear the editor")
+	}
+	if !model.editing {
+		t.Fatal("failed save closed the editor")
+	}
+	if model.editInputs[0].Value() != "Draft title" || model.bodyTA.Value() != "draft body" || model.editInputs[2].Value() != "pinope" {
+		t.Fatalf("draft was discarded: title=%q body=%q harness=%q", model.editInputs[0].Value(), model.bodyTA.Value(), model.editInputs[2].Value())
+	}
+	if !strings.Contains(model.status, `unsupported harness "pinope"`) {
+		t.Fatalf("status = %q, want unsupported harness error", model.status)
+	}
+	stored, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "Original" || stored.Body != "original body" || stored.Harness != "pi" {
+		t.Fatalf("failed save changed ticket: %+v", stored)
+	}
+
+	model.editInputs[2].Set("codex")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if model.editing {
+		t.Fatal("successful correction should close the editor")
+	}
+	stored, err = store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "Draft title" || stored.Body != "draft body" || stored.Harness != "codex" {
+		t.Fatalf("corrected save = title %q body %q harness %q", stored.Title, stored.Body, stored.Harness)
+	}
+}
+
 func TestModelEditRemainsBoundToTicketAfterRefreshArchivesIt(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)

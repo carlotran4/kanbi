@@ -246,8 +246,10 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		m.bodyTA.Blur()
 		return m, clearKittyImagesCmd()
 	case "ctrl+s":
-		m.saveEdit()
-		return m, clearKittyImagesCmd()
+		if m.saveEdit() {
+			return m, clearKittyImagesCmd()
+		}
+		return m, nil
 	case "shift+tab":
 		if m.editField == 1 {
 			m.bodyTA.Blur()
@@ -262,8 +264,10 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 	case "tab":
 		newField := m.editField + 1
 		if newField > 3 {
-			m.saveEdit()
-			return m, clearKittyImagesCmd()
+			if m.saveEdit() {
+				return m, clearKittyImagesCmd()
+			}
+			return m, nil
 		} else {
 			if m.editField == 1 {
 				m.bodyTA.Blur()
@@ -282,8 +286,10 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		newField := m.editField + 1
 		if newField > 3 {
-			m.saveEdit()
-			return m, clearKittyImagesCmd()
+			if m.saveEdit() {
+				return m, clearKittyImagesCmd()
+			}
+			return m, nil
 		} else {
 			if m.editField == 1 {
 				m.bodyTA.Blur()
@@ -373,11 +379,11 @@ func numberPromptImages(value string) string {
 	return b.String()
 }
 
-func (m *Model) saveEdit() {
+func (m *Model) saveEdit() bool {
 	t := m.editTicket
 	if t.ID == 0 {
 		m.editing = false
-		return
+		return true
 	}
 	title := stripKittyGraphicsResponseFragments(m.editInputs[0].Value())
 	body := numberPromptImages(m.bodyTA.Value())
@@ -387,12 +393,13 @@ func (m *Model) saveEdit() {
 	}
 	if err := m.actions.UpdateTicket(m.ctx, t.ID, strings.TrimSpace(title), body, strings.TrimSpace(harness)); err != nil {
 		m.status = err.Error()
-	} else {
-		m.status = "updated " + t.DisplayID
+		return false
 	}
+	m.status = "updated " + t.DisplayID
 	m.bodyTA.Blur()
 	m.editing = false
 	m.reload()
+	return true
 }
 
 func (m *Model) currentEditBuffer() *InputBuffer {
