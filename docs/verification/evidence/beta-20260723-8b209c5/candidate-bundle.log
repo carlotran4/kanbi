@@ -1,0 +1,18 @@
+kanbi_0.3.0-beta.2_darwin_amd64.tar.gz: OK
+kanbi_0.3.0-beta.2_darwin_arm64.tar.gz: OK
+kanbi_0.3.0-beta.2_linux_amd64.tar.gz: OK
+kanbi_0.3.0-beta.2_linux_arm64.tar.gz: OK
+version=0.3.0-beta.2
+commit=8b209c580281589f2afb1c02495769976e985260
+run_id=29979397553
+created_utc=2026-07-23T04:30:51Z
+kanbi_0.3.0-beta.2_darwin_amd64.tar.gz
+kanbi_0.3.0-beta.2_darwin_arm64.tar.gz
+kanbi_0.3.0-beta.2_linux_amd64.tar.gz
+kanbi_0.3.0-beta.2_linux_arm64.tar.gz
+kanbi_0.3.0-beta.2_darwin_amd64.tar.gz: PASS 8b209c580281589f2afb1c02495769976e985260 darwin/amd64 cgo=True schema=7
+kanbi_0.3.0-beta.2_darwin_arm64.tar.gz: PASS 8b209c580281589f2afb1c02495769976e985260 darwin/arm64 cgo=True schema=7
+kanbi_0.3.0-beta.2_linux_amd64.tar.gz: PASS 8b209c580281589f2afb1c02495769976e985260 linux/amd64 cgo=True schema=7
+kanbi_0.3.0-beta.2_linux_arm64.tar.gz: PASS 8b209c580281589f2afb1c02495769976e985260 linux/arm64 cgo=True schema=7
+four-platform BUILDINFO matrix: PASS
+RESULT: PASS

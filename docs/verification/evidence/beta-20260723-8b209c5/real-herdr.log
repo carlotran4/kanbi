@@ -1,0 +1,25 @@
+$ candidate doctor against real Herdr 0.7.5
+kanbi doctor
+ok build dev commit unknown built unknown linux/amd64 go1.26.5-X:nodwarf5
+ok database schema version 7
+ok multiplexer herdr
+ok herdr session default
+ok tmux tmux 3.7b
+ok sqlite /tmp/tmp.HaG6t0MQbq/kanbi.db
+ok config /tmp/tmp.HaG6t0MQbq/config.yaml
+ok shell /usr/bin/bash
+warn not inside tmux
+ok terminal xterm-256color
+warn harness claude not found: claude
+ok harness codex
+ok harness copilot
+ok harness pi
+$ disposable real Pi launch through pane-first Herdr with multiline prompt
+2	Beta2 Herdr Qualification	/tmp/tmp.HaG6t0MQbq/project	local
+T-001 Pane First Herdr Qualification With Long Name [pi]
+opened Beta2 Herdr Qualification T-001 b2-T-001-pane-first-herdr-qualification-with-long
+stored and live: multiplexer=herdr namespace=w0 normalized_agent=b2-t-001-pane-first-her-7d383be0 pane=w0:p32
+multiline pane prompt launch: PASS
+synchronous attempt-bound Pi ref capture: PASS (value not retained)
+real Herdr cleanup: PASS
+RESULT: PASS
