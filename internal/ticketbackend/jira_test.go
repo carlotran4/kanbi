@@ -108,6 +108,87 @@ func TestJiraSyncPullsIssuesColumnsAndComments(t *testing.T) {
 	}
 }
 
+func TestJiraSyncPullsDoneIssueWithActiveSessionWithoutArchiving(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Jira", Workdir: t.TempDir(), TicketBackend: KindAtlassian, BackendConfig: `{"site_url":"https://acme.atlassian.net","project_key":"AK","email":"me@example.com","api_token":"tok"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Add(-time.Hour)
+	client := &fakeJiraClient{issues: []JiraIssue{{ID: "1007", Key: "AK-7", BrowseURL: "url", Summary: "active", Description: "body", Status: "Open", UpdatedAt: base}}, comments: map[string][]JiraComment{}}
+	backend := JiraBackend{Client: client}
+	if _, err := backend.Sync(ctx, store, board); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.TicketByDisplayIDInBoard(ctx, "AK-7", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: "test", TmuxWindowName: "ticket", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+
+	remoteUpdated := time.Now().UTC()
+	client.issues = []JiraIssue{
+		{ID: "1007", Key: "AK-7", BrowseURL: "url", Summary: "active", Description: "body", Status: "Done", UpdatedAt: remoteUpdated},
+		{ID: "1008", Key: "AK-8", BrowseURL: "url", Summary: "later issue", Description: "body", Status: "Review", UpdatedAt: remoteUpdated},
+	}
+	res, err := backend.Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pulled != 2 {
+		t.Fatalf("pulled=%d, want 2", res.Pulled)
+	}
+	ticket, err = store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.ArchivedAt.Valid {
+		t.Fatalf("Done Jira ticket should remain visible, got archived_at=%v", ticket.ArchivedAt.Time)
+	}
+	view, err := store.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !columnHasTicket(view, "Done", "AK-7") || !columnHasTicket(view, "Review", "AK-8") {
+		t.Fatalf("Done ticket or later issue missing from board view: %+v", view.Columns)
+	}
+
+	active, _, err := store.ActiveSession(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkSessionClosed(ctx, active.ID, "closed", "test", "done"); err != nil {
+		t.Fatal(err)
+	}
+	doneID, err := store.ColumnIDByBoardAndName(ctx, board.ID, "Done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: doneID, ExternalID: "1007", ExternalURL: "url", ExternalUpdatedAt: remoteUpdated, DisplayID: "AK-7", DisplayNumber: 7, Title: "active", Body: "body", ArchivedAt: &remoteUpdated}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: "test", TmuxWindowName: "ticket", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err = backend.Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pulled != 1 {
+		t.Fatalf("legacy Done repair pulled=%d, want 1", res.Pulled)
+	}
+	ticket, err = store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.ArchivedAt.Valid {
+		t.Fatalf("legacy Done ticket was not restored: %+v", ticket)
+	}
+}
+
 func TestJiraSyncPushesLocalNewerTicketAndNotes(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t, ctx)

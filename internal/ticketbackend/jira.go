@@ -136,7 +136,7 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 					return res, err
 				}
 				issue = updated
-				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(cfg, board.ID, local.ColumnID, issue), local.UpdatedAt)
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(board.ID, local.ColumnID, issue), local.UpdatedAt)
 				if err != nil {
 					return res, err
 				}
@@ -145,7 +145,18 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 					res.Pushed++
 				}
 			} else if remoteNewer {
-				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(cfg, board.ID, columnID, issue), local.UpdatedAt)
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(board.ID, columnID, issue), local.UpdatedAt)
+				if err != nil {
+					return res, err
+				}
+				if applied {
+					_ = store.ClearTicketRemotePush(ctx, local.ID)
+					res.Pulled++
+				}
+			} else if local.ArchivedAt.Valid && strings.EqualFold(issue.Status, cfg.DoneColumn) {
+				// Older Jira syncs treated Done as archive, hiding the ticket. Repair
+				// that projection even when the remote issue has not changed since.
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(board.ID, columnID, issue), local.UpdatedAt)
 				if err != nil {
 					return res, err
 				}
@@ -163,7 +174,7 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 			if local, ok := byID[marker.TicketID]; ok && !local.ExternalID.Valid && !syncedLocal[local.ID] {
 				have := ticketRemotePushToken(local)
 				if have != "" && have == marker.Token {
-					rt := jiraRemoteTicket(cfg, board.ID, local.ColumnID, issue)
+					rt := jiraRemoteTicket(board.ID, local.ColumnID, issue)
 					rt.SourceTicketID = local.ID
 					if _, _, err := store.UpsertRemoteTicketIfUnchanged(ctx, rt, time.Time{}); err != nil {
 						return res, err
@@ -178,7 +189,7 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 				}
 			}
 		}
-		t, err := store.UpsertRemoteTicket(ctx, jiraRemoteTicket(cfg, board.ID, columnID, issue))
+		t, err := store.UpsertRemoteTicket(ctx, jiraRemoteTicket(board.ID, columnID, issue))
 		if err != nil {
 			return res, err
 		}
@@ -219,7 +230,7 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 		if err != nil {
 			return res, err
 		}
-		rt := jiraRemoteTicket(cfg, board.ID, local.ColumnID, created)
+		rt := jiraRemoteTicket(board.ID, local.ColumnID, created)
 		rt.SourceTicketID = local.ID
 		if _, _, err := store.UpsertRemoteTicketIfUnchanged(ctx, rt, local.UpdatedAt); err != nil {
 			return res, err
@@ -363,7 +374,7 @@ func jiraUpdateFromLocal(cfg JiraConfig, t storage.Ticket, column string) JiraIs
 	return JiraIssueUpdate{Summary: t.Title, Description: t.Body, Status: status}
 }
 
-func jiraRemoteTicket(cfg JiraConfig, boardID, columnID int64, issue JiraIssue) storage.RemoteTicket {
+func jiraRemoteTicket(boardID, columnID int64, issue JiraIssue) storage.RemoteTicket {
 	externalID := issue.ID
 	if externalID == "" {
 		externalID = issue.Key
@@ -376,11 +387,7 @@ func jiraRemoteTicket(cfg JiraConfig, boardID, columnID int64, issue JiraIssue) 
 	if idx := strings.LastIndex(display, "-"); idx >= 0 && idx+1 < len(display) {
 		number, _ = strconv.Atoi(display[idx+1:])
 	}
-	var archivedAt *time.Time
-	if strings.EqualFold(issue.Status, cfg.DoneColumn) && !issue.UpdatedAt.IsZero() {
-		archivedAt = &issue.UpdatedAt
-	}
-	return storage.RemoteTicket{BoardID: boardID, ColumnID: columnID, ExternalID: externalID, ExternalURL: issue.BrowseURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: display, DisplayNumber: number, Title: issue.Summary, Body: stripJiraPushMarker(issue.Description), ArchivedAt: archivedAt}
+	return storage.RemoteTicket{BoardID: boardID, ColumnID: columnID, ExternalID: externalID, ExternalURL: issue.BrowseURL, ExternalUpdatedAt: issue.UpdatedAt, DisplayID: display, DisplayNumber: number, Title: issue.Summary, Body: stripJiraPushMarker(issue.Description)}
 }
 
 type JiraHTTPClient struct{ HTTP *http.Client }
