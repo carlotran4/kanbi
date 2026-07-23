@@ -288,8 +288,14 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 	if existing > 0 {
 		return BoardInsertResult{}, errors.New("board name already exists")
 	}
-	if in.NextTicketNumber <= 0 {
-		in.NextTicketNumber = 1
+	nextTicketNumber := in.NextTicketNumber
+	if nextTicketNumber <= 0 {
+		nextTicketNumber = 1
+	}
+	for _, ticket := range in.Tickets {
+		if ticket.DisplayNumber >= nextTicketNumber {
+			nextTicketNumber = ticket.DisplayNumber + 1
+		}
 	}
 	for _, ses := range in.Sessions {
 		if ses.IsActive {
@@ -310,7 +316,7 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 
 	now := time.Now().UTC()
 	res, err := tx.ExecContext(ctx, `insert into boards(name,uuid,workdir,next_ticket_number,ticket_backend,backend_query,backend_config,worktree_mode,archived_at,sync_enabled,source_export_uuid,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,0,?,?,?)`,
-		name, uuid, nullableString(strings.TrimSpace(in.Workdir)), in.NextTicketNumber, backend, nullableString(strings.TrimSpace(in.BackendQuery)), nullableString(strings.TrimSpace(in.BackendConfig)), worktreeMode, now, nullableString(strings.TrimSpace(in.SourceExportUUID)), now, now)
+		name, uuid, nullableString(strings.TrimSpace(in.Workdir)), nextTicketNumber, backend, nullableString(strings.TrimSpace(in.BackendQuery)), nullableString(strings.TrimSpace(in.BackendConfig)), worktreeMode, now, nullableString(strings.TrimSpace(in.SourceExportUUID)), now, now)
 	if err != nil {
 		return BoardInsertResult{}, err
 	}

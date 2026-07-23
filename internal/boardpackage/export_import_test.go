@@ -137,6 +137,42 @@ func TestBoardPackageRoundTripPreservesTombstoneAndSession(t *testing.T) {
 	}
 }
 
+func TestBoardPackageImportNormalizesConflictingNextTicketNumber(t *testing.T) {
+	s, ctx := openStore(t)
+	dataDir := t.TempDir()
+	board, ticket := seedPackagedBoard(t, s, ctx, dataDir)
+	archivePath := filepath.Join(t.TempDir(), "counter-conflict.zip")
+	if err := boardpackage.Export(ctx, s, dataDir, board.ID, archivePath); err != nil {
+		t.Fatal(err)
+	}
+
+	conflictingPackage := filepath.Join(t.TempDir(), "counter-conflict-mutated.zip")
+	rewriteBoardJSON(t, archivePath, conflictingPackage, func(doc *boardpackage.Document) {
+		doc.Board.NextTicketNumber = ticket.DisplayNum
+	}, nil)
+
+	result, err := boardpackage.Import(ctx, s, dataDir, conflictingPackage, boardpackage.ImportOptions{NameOverride: "Imported counter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UnarchiveBoard(ctx, result.Board.ID); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.BoardViewByID(ctx, result.Board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := s.CreateTicket(ctx, view.Columns[0].ID, "Created after import", "", "pi")
+	if err != nil {
+		t.Fatalf("create ticket after importing conflicting counter: %v", err)
+	}
+	wantDisplayNumber := ticket.DisplayNum + 1
+	wantDisplayID := fmt.Sprintf("T-%03d", wantDisplayNumber)
+	if created.DisplayNum != wantDisplayNumber || created.DisplayID != wantDisplayID {
+		t.Fatalf("created ticket = %s (%d), want %s (%d)", created.DisplayID, created.DisplayNum, wantDisplayID, wantDisplayNumber)
+	}
+}
+
 func TestBoardPackageRejectsDestinationInsideAttachments(t *testing.T) {
 	s, ctx := openStore(t)
 	dataDir := t.TempDir()

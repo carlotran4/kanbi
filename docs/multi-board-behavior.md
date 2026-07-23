@@ -205,7 +205,7 @@ Current behavior:
 - `boards rename OLD NEW` renames a board.
 - `boards set-cwd NAME /path` updates a board workdir.
 - `boards archive`/`unarchive` hide or restore a board without deleting history. Archive forces `sync_enabled=0`. Unarchive clears `archived_at` only so provider boards stay paused until `enable-sync`.
-- `boards export`/`import` use versioned `kanbi-board-package` zips (not full DB backups). Export rejects active sessions. Import is create-new-only (new integer PKs, remapped FKs, always archived + sync disabled, sessions forced inactive). Name collisions require `--name`. Preview with `--preview` is non-mutating.
+- `boards export`/`import` use versioned `kanbi-board-package` zips (not full DB backups). Export rejects active sessions. Import is create-new-only (new integer PKs, remapped FKs, always archived + sync disabled, sessions forced inactive) and normalizes its next ticket number above every imported display number so the board remains creatable. Name collisions require `--name`. Preview with `--preview` is non-mutating.
 - `boards set-column-key` maps a display column onto a Master workflow key without renaming the column.
 - `add` creates tickets on the default board unless `--board NAME` is supplied.
 - `list` lists tickets across all boards and includes board context; `--board NAME` filters.
