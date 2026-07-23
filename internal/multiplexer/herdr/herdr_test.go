@@ -33,7 +33,7 @@ func TestLaunchUsesPaneFirstAgentStartWhenSupported(t *testing.T) {
 		"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
 		"pane split w1:p1 --direction right --cwd /repo --env TOKEN=secret --no-focus": `{"result":{"pane":{"pane_id":"w1:p2","workspace_id":"w1"}}}`,
 		"pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --no-focus":    `{"result":{"move_result":{"pane":{"pane_id":"w1:p2"}}}}`,
-		"agent start b1-T-001-demo --kind codex --pane w1:p2 -- hello":                 `{"result":{"agent":{"name":"agent-1","pane_id":"w1:p2","workspace_id":"w1"}}}`,
+		"agent start b1-t-001-demo --kind codex --pane w1:p2 -- hello":                 `{"result":{"agent":{"name":"agent-1","pane_id":"w1:p2","workspace_id":"w1"}}}`,
 	}}
 	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
 	adapter.Runner = r
@@ -50,14 +50,37 @@ func TestLaunchUsesPaneFirstAgentStartWhenSupported(t *testing.T) {
 	}
 	for _, call := range r.calls {
 		joined := strings.Join(call, " ")
-		if strings.Contains(joined, "agent start b1-T-001-demo --cwd") || strings.Contains(joined, "agent start b1-T-001-demo --workspace") {
+		if strings.Contains(joined, "agent start") && (strings.Contains(joined, "--cwd") || strings.Contains(joined, "--workspace")) {
 			t.Fatalf("new Herdr launch used removed options: %s", joined)
 		}
 	}
 }
 
+func TestLaunchPaneFirstNormalizesAgentNameForCurrentHerdr(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"agent start --help": `--kind <KIND> --pane <ID>`,
+		"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
+		"pane split w1:p1 --direction right --cwd /repo --no-focus":                                                         `{"result":{"pane":{"pane_id":"w1:p2"}}}`,
+		"pane move w1:p2 --new-tab --workspace w1 --label b3-GH-296-release-qualification-publish-the-next-beta --no-focus": `{}`,
+		"agent start b3-gh-296-release-qualification- --kind pi --pane w1:p2 -- --session ref-1":                            `{"result":{"agent":{"name":"b3-gh-296-release-qualification-","pane_id":"w1:p2"}}}`,
+	}}
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test"})
+	adapter.Runner = r
+
+	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{
+		Name: "b3-GH-296-release-qualification-publish-the-next-beta", CWD: "/repo", Namespace: "w1", AgentKind: "pi",
+		Command: []string{"pi", "--session", "ref-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.ID != "b3-gh-296-release-qualification-" || ref.Name != "b3-GH-296-release-qualification-publish-the-next-beta" {
+		t.Fatalf("ref = %+v, want normalized agent target and original display name", ref)
+	}
+}
+
 func TestLaunchPaneFirstCleansUpPaneWhenAgentStartFails(t *testing.T) {
-	startKey := "agent start b1-T-001-demo --kind pi --pane w1:p2 -- --session ref-1"
+	startKey := "agent start b1-t-001-demo --kind pi --pane w1:p2 -- --session ref-1"
 	r := &fakeRunner{
 		out: map[string]string{
 			"agent start --help": `--kind <KIND> --pane <ID>`,

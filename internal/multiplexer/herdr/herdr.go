@@ -155,7 +155,8 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	if err != nil {
 		return multiplexer.ContainerRef{}, cleanup(err)
 	}
-	args := []string{"agent", "start", name, "--kind", kind, "--pane", paneID, "--"}
+	agentName := paneFirstAgentName(name)
+	args := []string{"agent", "start", agentName, "--kind", kind, "--pane", paneID, "--"}
 	args = append(args, agentArgs...)
 	startOut, err := a.run(ctx, args...)
 	if err != nil {
@@ -164,7 +165,7 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	startInfo := parseObject(startOut)
 	agentTarget := firstString(startInfo, "target", "agent_target", "agentTarget", "agent.name", "name", "result.agent.name")
 	if agentTarget == "" {
-		agentTarget = name
+		agentTarget = agentName
 	}
 	info := mergeObjects(splitInfo, moveOut)
 	info = mergeObjects(info, startInfo)
@@ -363,6 +364,29 @@ func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (mul
 		return unknownDetection("Herdr returned unsupported agent state: " + state), nil
 	}
 	return multiplexer.Detection{State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative, Confidence: confidence, ObservedAt: time.Now().UTC()}, nil
+}
+
+func paneFirstAgentName(name string) string {
+	var normalized strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			normalized.WriteRune(r)
+		default:
+			normalized.WriteByte('-')
+		}
+	}
+	value := normalized.String()
+	if value == "" {
+		value = "kanbi-agent"
+	}
+	if value[0] < 'a' || value[0] > 'z' {
+		value = "a-" + value
+	}
+	if len(value) > 32 {
+		value = value[:32]
+	}
+	return value
 }
 
 func paneFirstInvocation(spec multiplexer.LaunchSpec) (kind string, env, args []string, err error) {
