@@ -412,9 +412,10 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				listArgs = listArgs[1:]
 			}
 			for _, a := range listArgs {
-				if a == "--include-archived" {
-					includeArchived = true
+				if a != "--include-archived" {
+					return fmt.Errorf("usage: kanbi boards list [--include-archived]")
 				}
+				includeArchived = true
 			}
 			boards, err := cli.store.ListBoardsFiltered(ctx, includeArchived)
 			if err != nil {

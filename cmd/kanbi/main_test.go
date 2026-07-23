@@ -1199,6 +1199,16 @@ func assertDoctorResult(t *testing.T, report doctorReport, severity doctorSeveri
 	t.Fatalf("missing result severity=%s name=%q detail=%q in %#v", severity, name, detail, report.Results)
 }
 
+func TestCLIBoardsListRejectsUnknownArguments(t *testing.T) {
+	run, _ := setupCLI(t)
+	for _, arg := range []string{"--definitely-invalid", "unexpected-positional"} {
+		err := run("boards", "list", arg)
+		if err == nil || !strings.Contains(err.Error(), "usage: kanbi boards") {
+			t.Errorf("boards list argument %q returned %v, want usage error", arg, err)
+		}
+	}
+}
+
 func TestCLIBoardsArchiveUnarchiveSyncAndColumnKeyJSON(t *testing.T) {
 	run, openStore := setupCLI(t)
 	if err := run("boards", "add", "Ops"); err != nil {
