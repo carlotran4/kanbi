@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -270,6 +271,61 @@ func TestCodexHistoryPicksMostRecentMatchingSession(t *testing.T) {
 	ref, ok := CaptureSessionRef("codex", prompt, time.Unix(1999, 0))
 	if !ok || ref != "newest" {
 		t.Errorf("ref = %q ok = %v, want newest/true", ref, ok)
+	}
+}
+
+func TestCodexHistoryCaptureKeepsConcurrentIdenticalBasePromptsAttemptBound(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	basePrompt := "# T-001: Demo\n\nBody"
+	firstPrompt := CodexPromptWithAttemptToken(basePrompt, "attempt-one")
+	secondPrompt := CodexPromptWithAttemptToken(basePrompt, "attempt-two")
+	if firstPrompt == secondPrompt || !strings.HasPrefix(firstPrompt, basePrompt) || !strings.HasPrefix(secondPrompt, basePrompt) {
+		t.Fatalf("attempt prompts must preserve the shared base and differ: %q / %q", firstPrompt, secondPrompt)
+	}
+	history := `{"session_id":"first-session","ts":2000,"text":` + quote(firstPrompt) + `}` + "\n" +
+		`{"session_id":"second-session","ts":2001,"text":` + quote(secondPrompt) + `}` + "\n"
+	if err := os.WriteFile(filepath.Join(home, ".codex", "history.jsonl"), []byte(history), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	captures := []struct {
+		prompt string
+		want   string
+	}{{firstPrompt, "first-session"}, {secondPrompt, "second-session"}}
+	start := make(chan struct{})
+	results := make(chan string, len(captures))
+	var wg sync.WaitGroup
+	for _, capture := range captures {
+		capture := capture
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			ref, ok := CaptureSessionRef("codex", capture.prompt, time.Unix(1999, 0))
+			if !ok {
+				results <- ""
+				return
+			}
+			results <- ref
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	seen := map[string]bool{}
+	for ref := range results {
+		seen[ref] = true
+	}
+	for _, capture := range captures {
+		if !seen[capture.want] {
+			t.Fatalf("concurrent capture did not retain %q: %#v", capture.want, seen)
+		}
 	}
 }
 

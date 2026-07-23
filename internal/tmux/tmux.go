@@ -332,6 +332,13 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 			return ticket, nil
 		}
 	}
+	// Codex prompt starts include a random per-attempt marker so the synchronous
+	// capture can bind its history row safely. That marker is intentionally not
+	// reconstructed here: a later prompt/timestamp-only scan could cross-assign
+	// an identical concurrent prompt.
+	if ticket.Harness == "codex" {
+		return ticket, nil
+	}
 	ref, found := harness.CaptureSessionRefInCWD(ticket.Harness, promptText, cwd, ses.StartedAt.Time)
 	if !found {
 		return ticket, nil
@@ -894,6 +901,14 @@ func readPiSessionRefFile(path, expectedToken string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(payload.SessionID), true
+}
+
+func (m *Manager) codexPromptWithAttemptToken(promptText string) (string, error) {
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("create Codex session ref attempt token: %w", err)
+	}
+	return harness.CodexPromptWithAttemptToken(promptText, hex.EncodeToString(random)), nil
 }
 
 func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText, cwd string, since time.Time, refFile, refToken string) (string, bool) {

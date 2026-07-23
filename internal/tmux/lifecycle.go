@@ -153,6 +153,12 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	launchStartedAt := time.Now().UTC()
 	if sendPrompt {
 		renderedPrompt = prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
+		if ticket.Harness == "codex" {
+			renderedPrompt, err = l.manager.codexPromptWithAttemptToken(renderedPrompt)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	if l.manager.defaultMultiplexerKind() != multiplexer.KindHerdr {
 		name, err = l.manager.availableWindowNameInSession(ctx, l.manager.Config.TmuxSession, name)

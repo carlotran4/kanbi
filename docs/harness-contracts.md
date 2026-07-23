@@ -64,12 +64,16 @@ Each entry has:
 {"session_id": "<id>", "ts": <unix_float>, "text": "<prompt>"}
 ```
 
+Kanbi appends a random per-attempt HTML comment to the prompt argument it gives Codex. Codex records that complete prompt text in history, so the marker makes simultaneous launches with otherwise identical rendered prompts uniquely matchable without changing the Codex command name or flags.
+
 Capture logic in `harness.CaptureSessionRef` scans for an entry where:
-- `entry.text == promptText`
+- `entry.text == promptText`, including that per-attempt marker
 - `entry.ts` is recent (within 2s of session start)
 - Picks the entry with the highest `ts` when multiple match
 
-**Verified:** start, ref capture, close, resume path. See `TestCaptureCodexSessionRefFromHistory`.
+If synchronous capture misses the marked history entry, Kanbi does not later retry a plain prompt/timestamp-only Codex scan: that would no longer have enough evidence to safely attach a ref. The ticket follows the normal repair/start-fresh path instead.
+
+**Verified:** start, ref capture, close, resume path, and concurrent identical-base prompt capture. See `TestCaptureCodexSessionRefFromHistory` and `TestCodexHistoryCaptureKeepsConcurrentIdenticalBasePromptsAttemptBound`.
 
 ### Exit Keys
 

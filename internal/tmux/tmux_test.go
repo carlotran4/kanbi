@@ -516,6 +516,48 @@ func TestOpenTicketResumesWithStoredRef(t *testing.T) {
 	t.Fatal("new-window not called for resume")
 }
 
+func TestRecoverMissingCodexSessionRefDoesNotUseUnmarkedHistory(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Codex no unsafe recovery", "Body", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "codex", TmuxSessionName: "test", TmuxWindowName: "codex", Status: kanban.StateRunning}); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err = store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := json.Marshal(map[string]any{
+		"session_id": "unmarked-concurrent-session",
+		"ts":         float64(time.Now().Unix()),
+		"text":       "# T-001: Codex no unsafe recovery\n\nBody",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".codex", "history.jsonl"), append(entry, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewManager(config.Defaults(config.Paths{}), store)
+	recovered, err := manager.recoverMissingSessionRef(ctx, ticket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.SessionRef.Valid {
+		t.Fatalf("unsafe Codex history recovery stored %q", recovered.SessionRef.String)
+	}
+}
+
 func TestOpenTicketRecoversMissingPiSessionRefFromHistory(t *testing.T) {
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -1483,6 +1525,9 @@ func TestCodexOpenTicketSendsPromptAsArgument(t *testing.T) {
 		if len(c.args) > 0 && c.args[0] == "new-window" {
 			joined := strings.Join(c.args, "\n")
 			if strings.Contains(joined, "codex --no-alt-screen") && strings.Contains(joined, "# T-001: Codex Demo\n\nBody") {
+				if !strings.Contains(joined, "<!-- kanbi-codex-attempt:") {
+					t.Fatalf("codex prompt missing attempt marker: %+v", runner.calls)
+				}
 				return
 			}
 		}

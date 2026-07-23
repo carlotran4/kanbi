@@ -229,6 +229,13 @@ type codexHistoryEntry struct {
 	Text      string  `json:"text"`
 }
 
+// CodexPromptWithAttemptToken adds a machine-readable, per-launch marker to a
+// Codex prompt. Codex history records the complete prompt text, so this makes
+// otherwise identical concurrent prompts uniquely matchable during ref capture.
+func CodexPromptWithAttemptToken(promptText, attemptToken string) string {
+	return promptText + "\n\n<!-- kanbi-codex-attempt:" + attemptToken + " -->"
+}
+
 func latestCodexHistorySession(promptText string, since time.Time) (string, bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {
