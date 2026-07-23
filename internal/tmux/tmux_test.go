@@ -45,6 +45,21 @@ type invalidatingLaunchRunner struct {
 
 type captureErrorRunner struct{ fakeRunner }
 
+type blockingPasteRunner struct {
+	fakeRunner
+	promptDelivered chan<- struct{}
+	replacementDone <-chan struct{}
+}
+
+func (r *blockingPasteRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	out, err := r.fakeRunner.Run(ctx, name, args...)
+	if err == nil && len(args) > 0 && args[0] == "paste-buffer" {
+		close(r.promptDelivered)
+		<-r.replacementDone
+	}
+	return out, err
+}
+
 func (r *captureErrorRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	if len(args) > 0 && args[0] == "capture-pane" {
 		return "", errors.New("temporary capture failure")
@@ -1012,6 +1027,64 @@ func TestPasteModeCapturesSessionRefFromPane(t *testing.T) {
 	}
 	if !got.SessionRef.Valid || got.SessionRef.String != "copilot-123" {
 		t.Fatalf("session ref = %+v", got.SessionRef)
+	}
+}
+
+func TestPasteModeCaptureBindsRefToClaimWhenStartFreshReplacesIt(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Concurrent paste", "Body", "copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(config.Paths{})
+	cfg.Harnesses["copilot"] = config.Harness{Start: []string{"/tmp/fake-copilot"}, PromptReady: "PROMPT_READY", PromptMode: "paste", SessionRef: "SESSION_REF="}
+
+	promptDelivered := make(chan struct{})
+	replacementDone := make(chan struct{})
+	firstID := make(chan int64, 1)
+	replacementErr := make(chan error, 1)
+	firstRunner := &blockingPasteRunner{
+		fakeRunner:      fakeRunner{pane: "PROMPT_READY\nSESSION_REF=first-attempt-ref\n"},
+		promptDelivered: promptDelivered,
+		replacementDone: replacementDone,
+	}
+	firstManager := &Manager{Config: cfg, Store: store, Runner: firstRunner}
+	secondManager := &Manager{Config: cfg, Store: store, Runner: &fakeRunner{}}
+
+	go func() {
+		<-promptDelivered
+		first, active, err := store.ActiveSession(ctx, ticket.ID)
+		if err != nil || !active {
+			replacementErr <- fmt.Errorf("first claim before replacement: active=%v err=%w", active, err)
+			close(replacementDone)
+			return
+		}
+		firstID <- first.ID
+		replacementErr <- secondManager.StartFreshTicket(ctx, ticket, false)
+		close(replacementDone)
+	}()
+
+	if err := firstManager.OpenTicket(ctx, ticket, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-replacementErr; err != nil {
+		t.Fatal(err)
+	}
+
+	original, ok, err := store.SessionByID(ctx, <-firstID)
+	if err != nil || !ok {
+		t.Fatalf("original session: ok=%v err=%v", ok, err)
+	}
+	if !original.HarnessSessionRef.Valid || original.HarnessSessionRef.String != "first-attempt-ref" {
+		t.Fatalf("original session ref = %+v", original.HarnessSessionRef)
+	}
+	latest, ok, err := store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("replacement session: ok=%v err=%v", ok, err)
+	}
+	if latest.ID == original.ID || latest.HarnessSessionRef.Valid {
+		t.Fatalf("replacement session received original ref: %+v", latest)
 	}
 }
 

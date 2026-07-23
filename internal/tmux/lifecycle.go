@@ -344,9 +344,10 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		out, _ := adapter.Read(ctx, containerRef, readOptions)
 		if l.manager.Store != nil {
 			if ref, ok := harness.ParseSessionRef(out, harness.SessionRefPattern(l.manager.Config.Harnesses, ticket.Harness)); ok {
-				if ses, active, err := l.manager.Store.ActiveSession(ctx, ticket.ID); err == nil && active {
-					_ = l.manager.Store.UpdateSessionRef(ctx, ses.ID, ref)
-				}
+				// Prompt delivery can outlive this claim if another process starts
+				// fresh. Persist against the claim created for this launch, never
+				// whichever attempt happens to be active now.
+				_ = l.manager.Store.UpdateSessionRef(ctx, claimID, ref)
 			}
 		}
 	}
