@@ -216,6 +216,46 @@ func TestBoardPickerArchiveAndSyncToggle(t *testing.T) {
 	}
 }
 
+func TestBoardPickerArchivingCurrentBoardSwitchesToMaster(t *testing.T) {
+	store, ctx := newTestStore(t)
+	board, err := store.CreateBoard(ctx, "Ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, NewService(store, nil))
+	model.firstRun = false
+
+	model, _ = mustUpdate(t, model, "b")
+	for i, candidate := range model.boards {
+		if candidate.ID == board.ID {
+			model.boardIndex = i + 1
+			break
+		}
+	}
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.masterBoard || model.boardID != board.ID || model.view.Board.ID != board.ID {
+		t.Fatalf("did not select Ops board: master=%v boardID=%d view=%+v", model.masterBoard, model.boardID, model.view.Board)
+	}
+
+	model, _ = mustUpdate(t, model, "b")
+	model, _ = mustUpdate(t, model, "a")
+	reloaded, err := store.BoardByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.ArchivedAt.Valid {
+		t.Fatalf("expected archived board: %+v", reloaded)
+	}
+	if !model.masterBoard || model.boardID != 0 || model.view.Board.Name != "Master" {
+		t.Fatalf("archiving current board must switch to Master: master=%v boardID=%d view=%+v", model.masterBoard, model.boardID, model.view.Board)
+	}
+
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if model.boardPicker || model.view.Board.Name != "Master" {
+		t.Fatalf("closing picker must retain Master after archiving current board:\n%s", model.View())
+	}
+}
+
 func TestMasterCreateUsesWorkflowKey(t *testing.T) {
 	store, ctx := newTestStore(t)
 	board, err := store.CreateBoard(ctx, "Client")

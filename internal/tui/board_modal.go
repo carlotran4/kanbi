@@ -74,6 +74,13 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 			return m
 		}
 		m.reloadBoards()
+		if !b.ArchivedAt.Valid && !m.masterBoard && m.boardID == b.ID {
+			m.masterBoard = true
+			m.boardID = 0
+			m.col, m.card, m.colOffset = 0, 0, 0
+			m.colScroll = nil
+			m.reload()
+		}
 		return m
 	case "t":
 		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {

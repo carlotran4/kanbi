@@ -79,7 +79,7 @@ stateDiagram-v2
   MasterView --> [*]: q
 ```
 
-Startup opens a board picker. While running, `b` reopens the picker and switches without restarting. Board creation explicitly chooses a shared directory or isolated Git worktrees. Inside the board picker: `c` creates a board, `r` renames, `w` updates cwd, `t` opens confirmation to enable Git worktrees on an existing board, `a` archives/unarchives, `s` toggles sync (when not archived), `e` exports a board package, `i` imports a package, `A` shows archived boards, and `d` hard-deletes with exact-name confirmation. Worktree enablement is not a casual toggle: disabling is rejected after workspace history exists. `Master` cannot be renamed or deleted. Archive hides a board and pauses sync without removing tickets, sessions, or attachments.
+Startup opens a board picker. While running, `b` reopens the picker and switches without restarting. Board creation explicitly chooses a shared directory or isolated Git worktrees. Inside the board picker: `c` creates a board, `r` renames, `w` updates cwd, `t` opens confirmation to enable Git worktrees on an existing board, `a` archives/unarchives, `s` toggles sync (when not archived), `e` exports a board package, `i` imports a package, `A` shows archived boards, and `d` hard-deletes with exact-name confirmation. Worktree enablement is not a casual toggle: disabling is rejected after workspace history exists. `Master` cannot be renamed or deleted. Archive hides a board and pauses sync without removing tickets, sessions, or attachments. Archiving the currently viewed named board switches the view to Master before the picker can close.
 
 ## Master board aggregation
 
