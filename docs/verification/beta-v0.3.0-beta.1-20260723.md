@@ -15,7 +15,7 @@ This record retains completed evidence for a provisional first-public-beta candi
 | GitHub CI | [run 29975842589](https://github.com/carlotran4/kanbi/actions/runs/29975842589) — PASS |
 | Workflow-dispatch run | [run 29975845153](https://github.com/carlotran4/kanbi/actions/runs/29975845153) — PASS |
 | Combined bundle | `kanbi-release-bundle` artifact from run 29975845153 |
-| Decision | **BLOCKED** — candidate is not on the repository default branch and P0/P1 review cannot be completed from the current issue data |
+| Decision | **BLOCKED** — candidate is not on the repository default branch |
 
 The candidate commit is pushed only to `release-qualification-publish-the-next-beta-and-preserve-the-path-to-stable`. No tag or GitHub Release was created.
 
@@ -30,16 +30,16 @@ The notes explicitly preserve the future stable gates and do not claim `v1.0.0` 
 
 ## Defect review
 
-Queried all open GitHub issues on 2026-07-23. The repository has no P0/P1 labels, so absence of a priority label is not evidence of absence. Two open issues have blank titles/bodies and cannot be safely classified without maintainer triage.
+Queried all open GitHub issues on 2026-07-23. GH-276 and GH-295 were empty `New ticket` placeholders with no labels, comments, assignees, milestones, projects, or actionable content. The maintainer confirmed they were disposable placeholders, and they were permanently deleted on 2026-07-23. The maintainer also confirmed GH-329 is a non-blocking feature request, not a defect.
 
 | Issue | Available description | Qualification disposition |
 | --- | --- | --- |
-| [GH-276](https://github.com/carlotran4/kanbi/issues/276) | `New ticket`; blank body | **UNTRIAGED — BLOCKS priority attestation** |
-| [GH-295](https://github.com/carlotran4/kanbi/issues/295) | `New ticket`; blank body | **UNTRIAGED — BLOCKS priority attestation** |
+| GH-276 | Empty `New ticket` placeholder | Deleted with maintainer authorization; not a defect |
+| GH-295 | Empty `New ticket` placeholder | Deleted with maintainer authorization; not a defect |
 | [GH-296](https://github.com/carlotran4/kanbi/issues/296) | This release qualification | Tracking issue; not a product defect |
-| [GH-329](https://github.com/carlotran4/kanbi/issues/329) | Add non-interactive session-id management | Provisional beta feature gap with safe TUI repair/start-fresh workaround; explicit maintainer severity/disposition still required |
+| [GH-329](https://github.com/carlotran4/kanbi/issues/329) | Add non-interactive session-id management | Maintainer-accepted, non-blocking feature request; the TUI repair/start-fresh flow remains available |
 
-Result: no P0 is known from the available descriptions, but **zero-open-P0 cannot be attested** until GH-276 and GH-295 are triaged. Publication remains blocked.
+Result: **PASS — zero known open P0/P1 defects** in the reviewed issue set.
 
 ## Exact-commit deterministic verification
 
@@ -109,7 +109,7 @@ Downloaded-bundle verification: [`candidate-bundle.log`](./evidence/beta-2026072
 
 ## Publication gates still open
 
-- [ ] Maintainer explicitly triages GH-276, GH-295, and GH-329 and records P0/P1 dispositions.
+- [x] Maintainer triaged GH-276, GH-295, and GH-329: the empty placeholders were deleted and GH-329 was accepted as a non-blocking feature request.
 - [ ] Candidate lands on the repository default branch without changing the qualified tree; otherwise freeze and qualify a new SHA.
 - [ ] Maintainer accepts or reruns the partial Codex/Copilot checks and records whether real Herdr/GitHub/Jira checks can be safely run in disposable resources.
 - [ ] Create the annotated immutable `v0.3.0-beta.1` tag only after the gates above close.
