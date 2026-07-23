@@ -175,6 +175,46 @@ func TestGitHubSyncPullsIssuesColumnsAndComments(t *testing.T) {
 	}
 }
 
+func TestGitHubSyncDoesNotMutatePreviouslyImportedPullRequest(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteUpdated := time.Now().UTC().Add(-time.Hour)
+	if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: view.Columns[0].ID, ExternalID: "43", ExternalURL: "https://github.com/acme/proj/pull/43", ExternalUpdatedAt: remoteUpdated, DisplayID: "GH-43", DisplayNumber: 43, Title: "pull request", Body: "body"}); err != nil {
+		t.Fatal(err)
+	}
+	pullRequest, err := store.TicketByDisplayIDInBoard(ctx, "GH-43", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateTicket(ctx, pullRequest.ID, "locally edited PR", "local body", pullRequest.Harness); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeGitHubClient{issues: []GitHubIssue{{Number: 43, HTMLURL: "https://github.com/acme/proj/pull/43", Title: "pull request", Body: "body", State: "open", PullRequest: &GitHubPullRequest{}, UpdatedAt: remoteUpdated}}, comments: map[int][]GitHubComment{}}
+
+	res, err := (GitHubBackend{Client: client}).Sync(ctx, store, board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pulled != 0 || res.Pushed != 0 || len(client.updatedIssues) != 0 {
+		t.Fatalf("pull request was synced or mutated: result=%+v updates=%+v", res, client.updatedIssues)
+	}
+	pullRequest, err = store.TicketByID(ctx, pullRequest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pullRequest.Title != "locally edited PR" {
+		t.Fatalf("previously imported pull request was unexpectedly changed: %+v", pullRequest)
+	}
+}
+
 func TestGitHubSyncPushesLocalNewerTicketAndNotes(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t, ctx)
@@ -736,6 +776,27 @@ func TestGitHubConflictNewestUpdatedAtWinsForTicketAndComment(t *testing.T) {
 	notes, _ = store.ListNotes(ctx, ticket.ID)
 	if ticket.Title != "remote title" || notes[0].Body != "remote comment" || len(client.updatedIssues) != 0 || len(client.updatedComments) != 0 {
 		t.Fatalf("newest remote did not win: ticket=%+v notes=%+v updates=%d/%d", ticket, notes, len(client.updatedIssues), len(client.updatedComments))
+	}
+}
+
+func TestGitHubHTTPClientExcludesPullRequests(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/o/r/issues" {
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+		fmt.Fprint(w, `[
+			{"number":41,"title":"pull request","state":"open","pull_request":{"url":"https://api.github.com/repos/o/r/pulls/41"},"updated_at":"2026-01-01T00:00:00Z"},
+			{"number":42,"title":"issue","state":"open","updated_at":"2026-01-01T00:00:01Z"}
+		]`)
+	}))
+	defer server.Close()
+
+	issues, err := NewGitHubHTTPClient(server.Client()).ListIssues(context.Background(), GitHubConfig{Owner: "o", Repo: "r", APIBaseURL: server.URL, States: []string{"open"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].Number != 42 {
+		t.Fatalf("pull request was not excluded: %+v", issues)
 	}
 }
 

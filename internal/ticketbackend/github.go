@@ -39,16 +39,21 @@ type GitHubConfig struct {
 }
 
 type GitHubIssue struct {
-	ID        int64         `json:"id"`
-	Number    int           `json:"number"`
-	HTMLURL   string        `json:"html_url"`
-	Title     string        `json:"title"`
-	Body      string        `json:"body"`
-	State     string        `json:"state"`
-	Labels    []GitHubLabel `json:"labels"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	ClosedAt  *time.Time    `json:"closed_at"`
+	ID          int64              `json:"id"`
+	Number      int                `json:"number"`
+	HTMLURL     string             `json:"html_url"`
+	Title       string             `json:"title"`
+	Body        string             `json:"body"`
+	State       string             `json:"state"`
+	Labels      []GitHubLabel      `json:"labels"`
+	PullRequest *GitHubPullRequest `json:"pull_request"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	ClosedAt    *time.Time         `json:"closed_at"`
 }
+
+// GitHub returns pull requests from the Issues API with this marker. Kanbi's
+// GitHub backend supports issues only, so their remaining fields are irrelevant.
+type GitHubPullRequest struct{}
 
 type GitHubLabel struct {
 	Name string `json:"name"`
@@ -94,6 +99,9 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 	if err != nil {
 		return Result{}, err
 	}
+	// GitHub's Issues API includes pull requests. Keep this defensive filter at
+	// the sync boundary for alternate clients as well as the HTTP client below.
+	issues = githubIssuesOnly(issues)
 	columns := githubColumns(cfg, issues)
 	columnIDs, err := store.SyncBoardColumns(ctx, board.ID, columns)
 	if err != nil {
@@ -271,6 +279,16 @@ func (b GitHubBackend) Sync(ctx context.Context, store SyncRepository, board sto
 		res.Conflicts += commentConflicts
 	}
 	return res, errors.Join(pendingErrs...)
+}
+
+func githubIssuesOnly(issues []GitHubIssue) []GitHubIssue {
+	filtered := make([]GitHubIssue, 0, len(issues))
+	for _, issue := range issues {
+		if issue.PullRequest == nil {
+			filtered = append(filtered, issue)
+		}
+	}
+	return filtered
 }
 
 func githubRemoteTicket(boardID, columnID int64, issue GitHubIssue, archivedAt *time.Time) storage.RemoteTicket {
@@ -583,7 +601,7 @@ func (c GitHubHTTPClient) ListIssues(ctx context.Context, cfg GitHubConfig) ([]G
 		}
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].UpdatedAt.Before(all[j].UpdatedAt) })
-	return all, nil
+	return githubIssuesOnly(all), nil
 }
 
 func (c GitHubHTTPClient) ListComments(ctx context.Context, cfg GitHubConfig, n int) ([]GitHubComment, error) {
