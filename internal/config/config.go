@@ -139,8 +139,8 @@ type Env struct {
 }
 
 type NormalizeOptions struct {
-	Env                  Env
-	LoadedNestedTimeouts bool
+	Env                         Env
+	NestedPromptReadyTimeoutSet bool
 }
 
 func Defaults(paths Paths) Config {
@@ -149,11 +149,11 @@ func Defaults(paths Paths) Config {
 
 func Load() (Config, error) {
 	paths := ResolvePaths()
-	raw, loadedNestedTimeouts, err := LoadRaw(paths.ConfigFile)
+	raw, nestedPromptReadyTimeoutSet, err := LoadRaw(paths.ConfigFile)
 	if err != nil {
 		return Config{}, err
 	}
-	return Normalize(raw, paths, NormalizeOptions{Env: readEnv(), LoadedNestedTimeouts: loadedNestedTimeouts})
+	return Normalize(raw, paths, NormalizeOptions{Env: readEnv(), NestedPromptReadyTimeoutSet: nestedPromptReadyTimeoutSet})
 }
 
 func LoadRaw(path string) (Config, bool, error) {
@@ -168,7 +168,15 @@ func LoadRaw(path string) (Config, bool, error) {
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return Config{}, false, fmt.Errorf("load config %s: %w", path, err)
 	}
-	return raw, byteContains(b, []byte("timeouts:")), nil
+	var presence struct {
+		Timeouts *struct {
+			PromptReadyTimeoutSeconds *int `yaml:"prompt_ready_timeout_seconds"`
+		} `yaml:"timeouts"`
+	}
+	if err := yaml.Unmarshal(b, &presence); err != nil {
+		return Config{}, false, fmt.Errorf("load config %s: %w", path, err)
+	}
+	return raw, presence.Timeouts != nil && presence.Timeouts.PromptReadyTimeoutSeconds != nil, nil
 }
 
 func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
@@ -195,7 +203,7 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 		return Config{}, fmt.Errorf("invalid prompt_ready_timeout %q: %w", cfg.PromptReadyRaw, err)
 	}
 	cfg.PromptReadyTimeout = timeout
-	applyTimeoutDefaults(&cfg, opts.LoadedNestedTimeouts)
+	applyTimeoutDefaults(&cfg, raw.Timeouts.PromptReadyTimeoutSeconds, opts.NestedPromptReadyTimeoutSet)
 	mergeHarnessDefaults(&cfg)
 	if cfg.StatusBar == nil {
 		statusBar := statusbar.DefaultConfig()
@@ -407,9 +415,9 @@ func mergeHarnessDefaults(cfg *Config) {
 	}
 }
 
-func applyTimeoutDefaults(cfg *Config, loadedNestedTimeouts bool) {
-	if loadedNestedTimeouts && cfg.Timeouts.PromptReadyTimeoutSeconds > 0 {
-		cfg.PromptReadyTimeout = time.Duration(cfg.Timeouts.PromptReadyTimeoutSeconds) * time.Second
+func applyTimeoutDefaults(cfg *Config, nestedPromptReadyTimeoutSeconds int, nestedPromptReadyTimeoutSet bool) {
+	if nestedPromptReadyTimeoutSet && nestedPromptReadyTimeoutSeconds > 0 {
+		cfg.PromptReadyTimeout = time.Duration(nestedPromptReadyTimeoutSeconds) * time.Second
 	}
 	if cfg.Timeouts.IdleUnknownAfterSeconds <= 0 {
 		cfg.Timeouts.IdleUnknownAfterSeconds = 120
@@ -422,22 +430,6 @@ func applyTimeoutDefaults(cfg *Config, loadedNestedTimeouts bool) {
 	}
 	cfg.IdleUnknownAfter = time.Duration(cfg.Timeouts.IdleUnknownAfterSeconds) * time.Second
 	cfg.GracefulExitTimeout = time.Duration(cfg.Timeouts.GracefulExitTimeoutSeconds) * time.Second
-}
-
-func byteContains(b, sub []byte) bool {
-	for i := 0; i+len(sub) <= len(b); i++ {
-		match := true
-		for j := range sub {
-			if b[i+j] != sub[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
 }
 
 func applyDiagnosticsDefaults(cfg *Config, env Env) {

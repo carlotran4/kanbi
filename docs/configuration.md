@@ -47,4 +47,18 @@ All three zones are optional. The left and right zones are anchored to their edg
 - Commands run in the selected board's working directory and inherit Kanbi's environment plus `KANBI_BOARD_NAME`, `KANBI_BOARD_WORKDIR`, and `KANBI_MASTER`.
 - Switching boards starts a new refresh and ignores late results from the previous board.
 
+## Timeouts
+
+```yaml
+# Legacy duration setting.
+prompt_ready_timeout: 5s
+
+timeouts:
+  idle_unknown_after_seconds: 120
+  graceful_exit_timeout_seconds: 15
+  prompt_ready_timeout_seconds: 5
+```
+
+`timeouts.prompt_ready_timeout_seconds`, when set, takes precedence over the legacy `prompt_ready_timeout`. Other nested timeout settings—and comments or text that mention `timeouts:`—do not change the legacy prompt-ready timeout.
+
 Configuration is loaded when Kanbi starts; live reload is not currently supported.

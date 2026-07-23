@@ -213,7 +213,7 @@ func TestNormalizeNestedTimeoutsAndLegacyPromptTimeout(t *testing.T) {
 			PromptReadyTimeoutSeconds:  3,
 		},
 	}
-	cfg, err := Normalize(raw, paths, NormalizeOptions{LoadedNestedTimeouts: true})
+	cfg, err := Normalize(raw, paths, NormalizeOptions{NestedPromptReadyTimeoutSet: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,6 +286,58 @@ func TestLoadInvalidYAML(t *testing.T) {
 	t.Setenv("KANBI_CONFIG", cfgFile)
 	if _, err := Load(); err == nil {
 		t.Fatal("expected invalid yaml error")
+	}
+}
+
+func TestLoadNestedTimeoutConfigPrecedence(t *testing.T) {
+	clearAgentEnv(t)
+	tests := []struct {
+		name    string
+		content string
+		want    time.Duration
+	}{
+		{
+			name: "comment mentioning timeouts does not override legacy prompt timeout",
+			content: `
+prompt_ready_timeout: 30s
+# timeouts:
+`,
+			want: 30 * time.Second,
+		},
+		{
+			name: "partial nested timeouts do not override legacy prompt timeout",
+			content: `
+prompt_ready_timeout: 30s
+timeouts:
+  idle_unknown_after_seconds: 10
+`,
+			want: 30 * time.Second,
+		},
+		{
+			name: "nested prompt timeout overrides legacy prompt timeout",
+			content: `
+prompt_ready_timeout: 30s
+timeouts:
+  prompt_ready_timeout_seconds: 3
+`,
+			want: 3 * time.Second,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgFile := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(cfgFile, []byte(tt.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("KANBI_CONFIG", cfgFile)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.PromptReadyTimeout != tt.want {
+				t.Fatalf("prompt-ready timeout = %s, want %s", cfg.PromptReadyTimeout, tt.want)
+			}
+		})
 	}
 }
 
