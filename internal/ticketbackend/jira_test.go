@@ -2,10 +2,12 @@ package ticketbackend
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -362,6 +364,90 @@ func TestJiraSyncDoesNotOverwriteMoveMadeAfterLocalSnapshot(t *testing.T) {
 	}
 	if res.Pushed < 1 || len(client.updatedIssues) < 1 || client.updatedIssues[0].Status != "Review" {
 		t.Fatalf("newer move did not converge to Jira: result=%+v updates=%+v", res, client.updatedIssues)
+	}
+}
+
+func TestJiraHTTPClientPaginatesIssuesAndComments(t *testing.T) {
+	var issuePages, commentPages int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/3/search/jql":
+			issuePages++
+			if got := r.URL.Query().Get("maxResults"); got != "100" {
+				t.Fatalf("maxResults=%q, want 100", got)
+			}
+			page := r.URL.Query().Get("nextPageToken")
+			if page != "" && page != "issues-page-2" {
+				t.Fatalf("nextPageToken=%q", page)
+			}
+			start, count := 0, 100
+			if page == "issues-page-2" {
+				start, count = 100, 1
+			}
+			issues := make([]map[string]any, count)
+			for i := range issues {
+				issues[i] = map[string]any{
+					"id":  strconvItoa(start + i + 1),
+					"key": "AK-" + strconvItoa(start+i+1),
+					"fields": map[string]any{
+						"summary": "issue",
+						"status":  map[string]any{"name": "Open"},
+						"updated": "2026-01-01T00:00:00Z",
+					},
+				}
+			}
+			response := map[string]any{"issues": issues, "isLast": page == "issues-page-2"}
+			if page == "" {
+				response["nextPageToken"] = "issues-page-2"
+			}
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				t.Fatal(err)
+			}
+		case "/rest/api/3/issue/1001/comment":
+			commentPages++
+			if got := r.URL.Query().Get("maxResults"); got != "100" {
+				t.Fatalf("maxResults=%q, want 100", got)
+			}
+			startAt, err := strconv.Atoi(r.URL.Query().Get("startAt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if startAt != 0 && startAt != 100 {
+				t.Fatalf("startAt=%d", startAt)
+			}
+			count := 100
+			if startAt == 100 {
+				count = 1
+			}
+			comments := make([]map[string]any, count)
+			for i := range comments {
+				comments[i] = map[string]any{
+					"id":      strconvItoa(startAt + i + 1),
+					"body":    "comment",
+					"updated": "2026-01-01T00:00:00Z",
+				}
+			}
+			if err := json.NewEncoder(w).Encode(map[string]any{"comments": comments, "startAt": startAt, "maxResults": 100, "total": 101}); err != nil {
+				t.Fatal(err)
+			}
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := NewJiraHTTPClient(server.Client())
+	cfg := JiraConfig{SiteURL: server.URL, ProjectKey: "AK", BearerToken: "token"}
+	issues, err := client.SearchIssues(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comments, err := client.ListComments(context.Background(), cfg, "1001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 101 || issuePages != 2 || len(comments) != 101 || commentPages != 2 {
+		t.Fatalf("issues=%d pages=%d comments=%d pages=%d", len(issues), issuePages, len(comments), commentPages)
 	}
 }
 

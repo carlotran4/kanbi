@@ -19,7 +19,10 @@ import (
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
-const defaultJiraIssueType = "Task"
+const (
+	defaultJiraIssueType = "Task"
+	jiraPageSize         = 100
+)
 
 type JiraConfig struct {
 	SiteURL     string `json:"site_url"`
@@ -406,30 +409,63 @@ func (c JiraHTTPClient) SearchIssues(ctx context.Context, cfg JiraConfig) ([]Jir
 	}
 	q := url.Values{}
 	q.Set("jql", jql)
-	q.Set("maxResults", "100")
+	q.Set("maxResults", strconv.Itoa(jiraPageSize))
 	q.Set("fields", "summary,description,status,updated")
-	var out jiraSearchResponse
-	if err := c.do(ctx, cfg, http.MethodGet, "/rest/api/3/search/jql?"+q.Encode(), nil, &out); err != nil {
-		return nil, err
-	}
-	issues := make([]JiraIssue, 0, len(out.Issues))
-	for _, raw := range out.Issues {
-		issues = append(issues, raw.toIssue(cfg))
+
+	var issues []JiraIssue
+	seenTokens := map[string]bool{}
+	for {
+		var out jiraSearchResponse
+		if err := c.do(ctx, cfg, http.MethodGet, "/rest/api/3/search/jql?"+q.Encode(), nil, &out); err != nil {
+			return nil, err
+		}
+		for _, raw := range out.Issues {
+			issues = append(issues, raw.toIssue(cfg))
+		}
+		if out.IsLast {
+			break
+		}
+		if out.NextPageToken == "" {
+			return nil, errors.New("Jira issue search response has more pages but no nextPageToken")
+		}
+		if seenTokens[out.NextPageToken] {
+			return nil, fmt.Errorf("Jira issue search repeated nextPageToken %q", out.NextPageToken)
+		}
+		seenTokens[out.NextPageToken] = true
+		q.Set("nextPageToken", out.NextPageToken)
 	}
 	sort.SliceStable(issues, func(i, j int) bool { return issues[i].UpdatedAt.Before(issues[j].UpdatedAt) })
 	return issues, nil
 }
 
 func (c JiraHTTPClient) ListComments(ctx context.Context, cfg JiraConfig, issueID string) ([]JiraComment, error) {
-	var out struct {
-		Comments []jiraCommentJSON `json:"comments"`
-	}
-	if err := c.do(ctx, cfg, http.MethodGet, "/rest/api/3/issue/"+url.PathEscape(issueID)+"/comment?maxResults=100", nil, &out); err != nil {
-		return nil, err
-	}
-	comments := make([]JiraComment, 0, len(out.Comments))
-	for _, raw := range out.Comments {
-		comments = append(comments, raw.toComment())
+	q := url.Values{}
+	q.Set("maxResults", strconv.Itoa(jiraPageSize))
+	startAt := 0
+	var comments []JiraComment
+	for {
+		q.Set("startAt", strconv.Itoa(startAt))
+		var out jiraCommentsResponse
+		if err := c.do(ctx, cfg, http.MethodGet, "/rest/api/3/issue/"+url.PathEscape(issueID)+"/comment?"+q.Encode(), nil, &out); err != nil {
+			return nil, err
+		}
+		for _, raw := range out.Comments {
+			comments = append(comments, raw.toComment())
+		}
+		if out.Total == nil {
+			if len(out.Comments) < jiraPageSize {
+				break
+			}
+			return nil, errors.New("Jira comment response omits total pagination metadata after a full page")
+		}
+		nextStartAt := startAt + len(out.Comments)
+		if nextStartAt >= *out.Total {
+			break
+		}
+		if nextStartAt == startAt {
+			return nil, fmt.Errorf("Jira comment page at startAt=%d made no progress before total=%d", startAt, *out.Total)
+		}
+		startAt = nextStartAt
 	}
 	return comments, nil
 }
@@ -574,7 +610,15 @@ func (c JiraHTTPClient) doOnce(ctx context.Context, cfg JiraConfig, method, path
 }
 
 type jiraSearchResponse struct {
-	Issues []jiraIssueJSON `json:"issues"`
+	Issues        []jiraIssueJSON `json:"issues"`
+	IsLast        bool            `json:"isLast"`
+	NextPageToken string          `json:"nextPageToken"`
+}
+
+type jiraCommentsResponse struct {
+	Comments []jiraCommentJSON `json:"comments"`
+	StartAt  int               `json:"startAt"`
+	Total    *int              `json:"total"`
 }
 
 type jiraIssueJSON struct {

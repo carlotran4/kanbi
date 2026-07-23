@@ -135,6 +135,7 @@ Jira sync behavior:
 - Inherits workflow columns from remote issue status names. Jira's configured `Done` status is a visible workflow column, not ticket archival, so remotely completed issues remain on the board and can sync while an agent session is active. Local column changes are pushed by requesting a matching Jira transition. If transition lookup fails, no matching transition is available, or the transition request fails, sync reports an error rather than treating the issue as fully updated.
 - Pulls/pushes issue summary, description, status, and comments. Notes map to Jira issue comments. Because Jira updates summary/description separately from workflow transitions, a failed transition may leave those metadata fields updated remotely; Kanbi does not advance its local sync marker or count the push as successful, so the full update remains retryable.
 - Uses newest `updated_at` wins for ticket and comment conflicts.
+- Follows Jira issue-search cursor pagination and comment offset pagination (`maxResults=100`) so every page is projected; malformed continuation metadata fails the sync rather than silently accepting a partial result.
 - Does not sync terminal containers, sessions, harness refs, runtime state, or other local session history.
 
 ## Current Non-Goals
