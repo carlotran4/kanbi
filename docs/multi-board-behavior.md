@@ -221,7 +221,7 @@ See [`docs/ticket-backends.md`](./ticket-backends.md).
 
 ## Board archive vs delete vs package export
 
-- **Board archive** is non-destructive local hide + sync pause. Tickets, notes, sessions, and attachments remain. Active ticket sessions and active integration runs block archive.
+- **Board archive** is non-destructive local hide + sync pause. Tickets, notes, sessions, and attachments remain. New local ticket creation is rejected until the board is explicitly unarchived. Active ticket sessions and active integration runs block archive.
 - **Board package export/import** (`kanbi-board-package`) is a single-board portable archive with path-safe attachments and checksum inventory. It preserves the board execution policy, but machine-local live/retained workspaces and active integration runs block export and are never presented as portable checkouts. Completed integration-run history remains available through full database backup rather than the portable board package. It is not a full database backup (`kanbi-backup`).
 - **Hard board delete** remains distinct, confirmation-gated, local-only, and cascading. Deletion is blocked with active sessions. Attachment cleanup runs only after the SQL commit. Provider-backed note tombstones and remote issues are never hard-deleted by EG-related local flows.
 

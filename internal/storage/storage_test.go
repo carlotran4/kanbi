@@ -82,6 +82,32 @@ func TestStorageRejectsUnsupportedBackendAndHarness(t *testing.T) {
 	}
 }
 
+func TestCreateTicketRejectsArchivedBoard(t *testing.T) {
+	s, ctx := newTestStore(t)
+	board, err := s.CreateBoard(ctx, "Archived")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := boardViewByID(t, ctx, s, board.ID)
+	if err := s.ArchiveBoard(ctx, board.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTicket(ctx, view.Columns[0].ID, "Not allowed", "", "pi"); !errors.Is(err, ErrBoardArchived) {
+		t.Fatalf("CreateTicket() error=%v, want %v", err, ErrBoardArchived)
+	}
+
+	var ticketCount, nextTicketNumber int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from tickets where board_id=?`, board.ID).Scan(&ticketCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, board.ID).Scan(&nextTicketNumber); err != nil {
+		t.Fatal(err)
+	}
+	if ticketCount != 0 || nextTicketNumber != 1 {
+		t.Fatalf("archived board was mutated: tickets=%d next_ticket_number=%d", ticketCount, nextTicketNumber)
+	}
+}
+
 func TestBoardAndColumnIdentityRules(t *testing.T) {
 	s, ctx := newTestStore(t)
 	if _, err := s.CreateBoard(ctx, "default"); err == nil {

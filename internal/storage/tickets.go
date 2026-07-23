@@ -82,7 +82,16 @@ func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, h
 			return Ticket{}, err
 		}
 	}
-	if err := tx.QueryRowContext(ctx, `select board_id from columns where id=?`, columnID).Scan(&boardID); err != nil {
+	var archived sql.NullTime
+	if err := tx.QueryRowContext(ctx, `select c.board_id,b.archived_at from columns c join boards b on b.id=c.board_id where c.id=?`, columnID).Scan(&boardID, &archived); err != nil {
+		return Ticket{}, err
+	}
+	if archived.Valid {
+		return Ticket{}, fmt.Errorf("cannot create a ticket on an archived board: %w", ErrBoardArchived)
+	}
+	// Serialize creation with ArchiveBoard so a ticket is either created before
+	// archiving or rejected after it, never added to an archived board.
+	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=?`, boardID); err != nil {
 		return Ticket{}, err
 	}
 	var next int

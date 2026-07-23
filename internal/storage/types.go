@@ -244,6 +244,9 @@ var ErrBoardSyncSkipped = errors.New("board sync skipped")
 // ErrBoardHasActiveSessions reports that archive/export would race live work.
 var ErrBoardHasActiveSessions = errors.New("board has active sessions")
 
+// ErrBoardArchived reports that a mutation requires an unarchived board.
+var ErrBoardArchived = errors.New("board is archived")
+
 // RemoteTicket is the ticket metadata projection written by external ticket
 // backends. It intentionally excludes local runtime/session fields.
 type RemoteTicket struct {
