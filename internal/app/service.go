@@ -231,6 +231,12 @@ func (s *Service) UpdateTicket(ctx context.Context, id int64, title, body, harne
 	if err != nil {
 		return err
 	}
+	// Runtime changes must follow validation so a rejected edit cannot rename a
+	// live terminal or its session metadata.
+	if err := s.Store.ValidateTicketUpdate(title, harness); err != nil {
+		return err
+	}
+	title = strings.TrimSpace(title)
 	if before.Title != title && before.WindowName.Valid && s.Manager != nil {
 		if err := s.Manager.RenameTicketWindow(ctx, before, title); err != nil {
 			return err

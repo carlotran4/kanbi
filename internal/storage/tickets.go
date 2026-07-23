@@ -119,7 +119,9 @@ func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, h
 	return s.TicketByID(ctx, id)
 }
 
-func (s *Store) UpdateTicket(ctx context.Context, id int64, title, body, harnessName string) error {
+// ValidateTicketUpdate checks ticket fields without changing durable state.
+// Callers that need to coordinate runtime effects must validate first.
+func (s *Store) ValidateTicketUpdate(title, harnessName string) error {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return errors.New("ticket title is required")
@@ -128,6 +130,15 @@ func (s *Store) UpdateTicket(ctx context.Context, id int64, title, body, harness
 	if !validHarness(harnessName) {
 		return fmt.Errorf("unsupported harness %q", harnessName)
 	}
+	return nil
+}
+
+func (s *Store) UpdateTicket(ctx context.Context, id int64, title, body, harnessName string) error {
+	if err := s.ValidateTicketUpdate(title, harnessName); err != nil {
+		return err
+	}
+	title = strings.TrimSpace(title)
+	harnessName = strings.ToLower(strings.TrimSpace(harnessName))
 	res, err := s.db.ExecContext(ctx, `update tickets set title=?, body=?, harness=?, updated_at=? where id=?`, title, body, harnessName, time.Now().UTC(), id)
 	return requireAffected(res, err)
 }

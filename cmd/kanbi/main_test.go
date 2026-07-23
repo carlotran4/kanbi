@@ -589,6 +589,53 @@ func TestTUIServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
 	}
 }
 
+func TestTUIServiceRejectedTicketUpdateDoesNotRenameLiveWindow(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	t.Setenv("KANBI_DB", dbPath)
+	t.Setenv("KANBI_CONFIG", filepath.Join(dir, "config.yaml"))
+
+	ctx := context.Background()
+	cfg, _ := config.Load()
+	s, _ := storage.Open(dbPath)
+	t.Cleanup(func() { _ = s.Close() })
+	_ = s.Init(ctx)
+
+	view, _ := s.BoardView(ctx)
+	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "Original", "original body", "pi")
+	_, _ = s.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:         "pi",
+		TmuxSessionName: cfg.TmuxSession,
+		TmuxWindowName:  tmux.TicketWindowName(ticket),
+		Status:          "running",
+	})
+
+	var renamedTo string
+	runner := &captureRenameRunner{onRename: func(newName string) { renamedTo = newName }}
+	manager := &tmux.Manager{Config: cfg, Store: s, Runner: runner}
+	svc := tui.NewService(s, manager)
+
+	err := svc.UpdateTicket(ctx, ticket.ID, "Renamed", "changed body", "unsupported")
+	if err == nil {
+		t.Fatal("UpdateTicket succeeded with an unsupported harness")
+	}
+	if renamedTo != "" {
+		t.Fatalf("rejected update renamed live window to %q", renamedTo)
+	}
+
+	got, _ := s.TicketByID(ctx, ticket.ID)
+	if got.Title != "Original" || got.Body != "original body" || got.Harness != "pi" {
+		t.Fatalf("rejected update changed ticket: %+v", got)
+	}
+	session, ok, err := s.ActiveSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("ActiveSession() ok=%v err=%v", ok, err)
+	}
+	if session.TmuxWindowName != tmux.TicketWindowName(ticket) {
+		t.Fatalf("rejected update changed session window name to %q", session.TmuxWindowName)
+	}
+}
+
 func TestTUIServiceUpdateTicketSkipsRenameWhenNoWindow(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
