@@ -17,6 +17,7 @@ func (m *Model) startMasterFilter() {
 	}
 	m.reloadBoards()
 	m.reloadMasterFilterOptions()
+	m.masterFilterDraft = cloneMasterFilter(m.masterFilter)
 	m.masterFilterOpen = true
 	m.masterFilterField = 0
 }
@@ -67,7 +68,7 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 		case "esc":
 			m.filterPresetMode = ""
 		case "enter":
-			durable, err := m.actions.DurableFromMasterFilter(m.ctx, m.masterFilter)
+			durable, err := m.actions.DurableFromMasterFilter(m.ctx, m.masterFilterDraft)
 			if err != nil {
 				m.status = err.Error()
 				return m
@@ -77,7 +78,6 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 				m.status = err.Error()
 				return m
 			}
-			m.activePresetName = p.Name
 			m.filterPresetMode = ""
 			m.status = "saved filter preset " + p.Name
 		case "backspace":
@@ -152,12 +152,14 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 	case "esc":
 		m.masterFilterOpen = false
 	case "enter":
+		m.masterFilter = cloneMasterFilter(m.masterFilterDraft)
 		m.masterFilterOpen = false
 		m.activePresetName = ""
 		m.status = "applied Master filters"
 		m.reload()
 	case "C":
 		m.masterFilter = storage.MasterFilter{}
+		m.masterFilterDraft = storage.MasterFilter{}
 		m.activePresetName = ""
 		m.masterFilterOpen = false
 		m.status = "cleared Master filters"
@@ -188,16 +190,13 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 		}
 	case " ":
 		m.toggleMasterFilterField()
-		m.reload()
 	case "backspace":
 		if m.masterFilterField == 0 {
-			m.masterFilter.Search = popRune(m.masterFilter.Search)
-			m.reload()
+			m.masterFilterDraft.Search = popRune(m.masterFilterDraft.Search)
 		}
 	default:
 		if m.masterFilterField == 0 && len(key.Runes) > 0 {
-			m.masterFilter.Search += string(key.Runes)
-			m.reload()
+			m.masterFilterDraft.Search += string(key.Runes)
 		}
 	}
 	return m
@@ -206,22 +205,22 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 func (m *Model) toggleMasterFilterField() {
 	idx := m.masterFilterField
 	if idx == 1 {
-		m.masterFilter.IncludeArchived = !m.masterFilter.IncludeArchived
+		m.masterFilterDraft.IncludeArchived = !m.masterFilterDraft.IncludeArchived
 		return
 	}
 	idx -= 2
 	if idx >= 0 && idx < len(m.boards) {
-		m.masterFilter.BoardIDs = toggleInt64(m.masterFilter.BoardIDs, m.boards[idx].ID)
+		m.masterFilterDraft.BoardIDs = toggleInt64(m.masterFilterDraft.BoardIDs, m.boards[idx].ID)
 		return
 	}
 	idx -= len(m.boards)
 	if idx >= 0 && idx < len(m.masterFilterRuntimes) {
-		m.masterFilter.Runtimes = toggleString(m.masterFilter.Runtimes, m.masterFilterRuntimes[idx])
+		m.masterFilterDraft.Runtimes = toggleString(m.masterFilterDraft.Runtimes, m.masterFilterRuntimes[idx])
 		return
 	}
 	idx -= len(m.masterFilterRuntimes)
 	if idx >= 0 && idx < len(m.masterFilterHarnesses) {
-		m.masterFilter.Harnesses = toggleString(m.masterFilter.Harnesses, m.masterFilterHarnesses[idx])
+		m.masterFilterDraft.Harnesses = toggleString(m.masterFilterDraft.Harnesses, m.masterFilterHarnesses[idx])
 	}
 }
 
@@ -235,9 +234,9 @@ func (m Model) masterFilterView() string {
 		}
 		return "  " + text
 	}
-	lines = append(lines, row(0, "search: "+renderWithCursor(m.masterFilter.Search, len([]rune(m.masterFilter.Search)))))
+	lines = append(lines, row(0, "search: "+renderWithCursor(m.masterFilterDraft.Search, len([]rune(m.masterFilterDraft.Search)))))
 	archived := "[ ] show archived"
-	if m.masterFilter.IncludeArchived {
+	if m.masterFilterDraft.IncludeArchived {
 		archived = "[x] show archived"
 	}
 	lines = append(lines, row(1, archived))
@@ -250,20 +249,20 @@ func (m Model) masterFilterView() string {
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Boards (none = All Boards)"))
 	for _, board := range m.boards {
-		lines = append(lines, row(idx, rowText(hasInt64(m.masterFilter.BoardIDs, board.ID), board.Name)))
+		lines = append(lines, row(idx, rowText(hasInt64(m.masterFilterDraft.BoardIDs, board.ID), board.Name)))
 		idx++
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Runtime/state"))
 	for _, runtime := range m.masterFilterRuntimes {
-		lines = append(lines, row(idx, rowText(hasString(m.masterFilter.Runtimes, runtime), runtime)))
+		lines = append(lines, row(idx, rowText(hasString(m.masterFilterDraft.Runtimes, runtime), runtime)))
 		idx++
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Harness"))
 	for _, harness := range m.masterFilterHarnesses {
-		lines = append(lines, row(idx, rowText(hasString(m.masterFilter.Harnesses, harness), harness)))
+		lines = append(lines, row(idx, rowText(hasString(m.masterFilterDraft.Harnesses, harness), harness)))
 		idx++
 	}
-	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · C clear · S save preset · P presets · Esc close"))
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · C clear · S save preset · P presets · Esc cancel"))
 	if m.filterPresetMode == "save" {
 		lines = append(lines, "", "Save preset name: "+renderWithCursor(m.filterPresetName, len([]rune(m.filterPresetName))))
 	}
@@ -280,10 +279,10 @@ func (m Model) masterFilterView() string {
 			lines = append(lines, mark+p.Name)
 		}
 	}
-	if summary := m.masterFilterSummary(); summary != "" {
-		label := "Active: " + summary
+	if summary := m.masterFilterSummaryFor(m.masterFilterDraft); summary != "" {
+		label := "Draft: " + summary
 		if m.activePresetName != "" {
-			label = "Preset " + m.activePresetName + ": " + summary
+			label = "Draft from preset " + m.activePresetName + ": " + summary
 		}
 		lines = append(lines, lipgloss.NewStyle().Foreground(palette.warning).Render(label))
 	}
@@ -297,13 +296,17 @@ func (m Model) masterFilterView() string {
 }
 
 func (m Model) masterFilterSummary() string {
-	if m.masterFilter.Empty() {
+	return m.masterFilterSummaryFor(m.masterFilter)
+}
+
+func (m Model) masterFilterSummaryFor(filter storage.MasterFilter) string {
+	if filter.Empty() {
 		return ""
 	}
 	var parts []string
-	if len(m.masterFilter.BoardIDs) > 0 {
+	if len(filter.BoardIDs) > 0 {
 		var names []string
-		for _, id := range m.masterFilter.BoardIDs {
+		for _, id := range filter.BoardIDs {
 			for _, board := range m.boards {
 				if board.ID == id {
 					names = append(names, board.Name)
@@ -312,19 +315,26 @@ func (m Model) masterFilterSummary() string {
 		}
 		parts = append(parts, "boards="+strings.Join(names, ","))
 	}
-	if len(m.masterFilter.Runtimes) > 0 {
-		parts = append(parts, "runtime="+strings.Join(m.masterFilter.Runtimes, ","))
+	if len(filter.Runtimes) > 0 {
+		parts = append(parts, "runtime="+strings.Join(filter.Runtimes, ","))
 	}
-	if len(m.masterFilter.Harnesses) > 0 {
-		parts = append(parts, "harness="+strings.Join(m.masterFilter.Harnesses, ","))
+	if len(filter.Harnesses) > 0 {
+		parts = append(parts, "harness="+strings.Join(filter.Harnesses, ","))
 	}
-	if strings.TrimSpace(m.masterFilter.Search) != "" {
-		parts = append(parts, "search="+strings.TrimSpace(m.masterFilter.Search))
+	if strings.TrimSpace(filter.Search) != "" {
+		parts = append(parts, "search="+strings.TrimSpace(filter.Search))
 	}
-	if m.masterFilter.IncludeArchived {
+	if filter.IncludeArchived {
 		parts = append(parts, "archived")
 	}
 	return strings.Join(parts, " · ")
+}
+
+func cloneMasterFilter(filter storage.MasterFilter) storage.MasterFilter {
+	filter.BoardIDs = append([]int64(nil), filter.BoardIDs...)
+	filter.Runtimes = append([]string(nil), filter.Runtimes...)
+	filter.Harnesses = append([]string(nil), filter.Harnesses...)
+	return filter
 }
 
 func hasInt64(values []int64, value int64) bool {

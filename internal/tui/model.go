@@ -28,6 +28,7 @@ type Model struct {
 	boardID                 int64
 	masterBoard             bool
 	masterFilter            storage.MasterFilter
+	masterFilterDraft       storage.MasterFilter
 	masterFilterOpen        bool
 	masterFilterField       int
 	masterFilterHarnesses   []string
