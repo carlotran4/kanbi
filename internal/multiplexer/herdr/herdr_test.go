@@ -28,12 +28,13 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 }
 
 func TestLaunchUsesPaneFirstAgentStartWhenSupported(t *testing.T) {
+	agentName := paneFirstAgentName("b1-T-001-demo", "w1:p2")
 	r := &fakeRunner{out: map[string]string{
 		"agent start --help": `Usage: herdr agent start <NAME> --kind <KIND> --pane <ID>`,
 		"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
 		"pane split w1:p1 --direction right --cwd /repo --env TOKEN=secret --no-focus": `{"result":{"pane":{"pane_id":"w1:p2","workspace_id":"w1"}}}`,
 		"pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --no-focus":    `{"result":{"move_result":{"pane":{"pane_id":"w1:p2"}}}}`,
-		"agent start b1-t-001-demo --kind codex --pane w1:p2 -- hello":                 `{"result":{"agent":{"name":"agent-1","pane_id":"w1:p2","workspace_id":"w1"}}}`,
+		"agent start " + agentName + " --kind codex --pane w1:p2 -- hello":             `{"result":{"agent":{"name":"agent-1","pane_id":"w1:p2","workspace_id":"w1"}}}`,
 	}}
 	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
 	adapter.Runner = r
@@ -57,12 +58,13 @@ func TestLaunchUsesPaneFirstAgentStartWhenSupported(t *testing.T) {
 }
 
 func TestLaunchPaneFirstNormalizesAgentNameForCurrentHerdr(t *testing.T) {
+	agentName := paneFirstAgentName("b3-GH-296-release-qualification-publish-the-next-beta", "w1:p2")
 	r := &fakeRunner{out: map[string]string{
 		"agent start --help": `--kind <KIND> --pane <ID>`,
 		"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
 		"pane split w1:p1 --direction right --cwd /repo --no-focus":                                                         `{"result":{"pane":{"pane_id":"w1:p2"}}}`,
 		"pane move w1:p2 --new-tab --workspace w1 --label b3-GH-296-release-qualification-publish-the-next-beta --no-focus": `{}`,
-		"agent start b3-gh-296-release-qualification- --kind pi --pane w1:p2 -- --session ref-1":                            `{"result":{"agent":{"name":"b3-gh-296-release-qualification-","pane_id":"w1:p2"}}}`,
+		"agent start " + agentName + " --kind pi --pane w1:p2 -- --session ref-1":                                           `{"result":{"agent":{"name":"` + agentName + `","pane_id":"w1:p2"}}}`,
 	}}
 	adapter := NewAdapter(Config{Binary: "herdr", Session: "test"})
 	adapter.Runner = r
@@ -74,13 +76,27 @@ func TestLaunchPaneFirstNormalizesAgentNameForCurrentHerdr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref.ID != "b3-gh-296-release-qualification-" || ref.Name != "b3-GH-296-release-qualification-publish-the-next-beta" {
+	if ref.ID != agentName || ref.Name != "b3-GH-296-release-qualification-publish-the-next-beta" {
 		t.Fatalf("ref = %+v, want normalized agent target and original display name", ref)
 	}
 }
 
+func TestPaneFirstAgentNameIsBoundedAndUniquePerPane(t *testing.T) {
+	label := "b3-GH-296-release-qualification-publish-the-next-beta"
+	first := paneFirstAgentName(label, "w1:p2")
+	second := paneFirstAgentName(label, "w1:p3")
+	if first == second {
+		t.Fatalf("agent names collide across panes: %q", first)
+	}
+	for _, name := range []string{first, second} {
+		if len(name) > 32 || name != strings.ToLower(name) {
+			t.Fatalf("invalid normalized agent name %q", name)
+		}
+	}
+}
+
 func TestLaunchPaneFirstCleansUpPaneWhenAgentStartFails(t *testing.T) {
-	startKey := "agent start b1-t-001-demo --kind pi --pane w1:p2 -- --session ref-1"
+	startKey := "agent start " + paneFirstAgentName("b1-T-001-demo", "w1:p2") + " --kind pi --pane w1:p2 -- --session ref-1"
 	r := &fakeRunner{
 		out: map[string]string{
 			"agent start --help": `--kind <KIND> --pane <ID>`,

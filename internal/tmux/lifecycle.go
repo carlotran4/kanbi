@@ -372,7 +372,14 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 		out, _ := adapter.Read(ctx, containerRef, readOptions)
 		if l.manager.Store != nil {
-			if ref, ok := harness.ParseSessionRef(out, harness.SessionRefPattern(l.manager.Config.Harnesses, ticket.Harness)); ok {
+			ref, captured := harness.ParseSessionRef(out, harness.SessionRefPattern(l.manager.Config.Harnesses, ticket.Harness))
+			if !captured && herdrPaneFirst {
+				// Pane-first launches deliver the prompt after the durable claim is
+				// completed. Capture synchronously so short-lived CLI commands do not
+				// cancel the only opportunity to persist the resume handle on exit.
+				ref, captured = l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchCWD, launchStartedAt, refFile, refToken)
+			}
+			if captured {
 				// Prompt delivery can outlive this claim if another process starts
 				// fresh. Persist against the claim created for this launch, never
 				// whichever attempt happens to be active now.

@@ -3,6 +3,7 @@ package herdr
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -157,7 +158,7 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	if err != nil {
 		return multiplexer.ContainerRef{}, cleanup(err)
 	}
-	agentName := paneFirstAgentName(name)
+	agentName := paneFirstAgentName(name, paneID)
 	args := []string{"agent", "start", agentName, "--kind", kind, "--pane", paneID, "--"}
 	args = append(args, agentArgs...)
 	startOut, err := a.run(ctx, args...)
@@ -368,7 +369,7 @@ func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (mul
 	return multiplexer.Detection{State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative, Confidence: confidence, ObservedAt: time.Now().UTC()}, nil
 }
 
-func paneFirstAgentName(name string) string {
+func paneFirstAgentName(name, paneID string) string {
 	var normalized strings.Builder
 	for _, r := range strings.ToLower(name) {
 		switch {
@@ -385,10 +386,16 @@ func paneFirstAgentName(name string) string {
 	if value[0] < 'a' || value[0] > 'z' {
 		value = "a-" + value
 	}
-	if len(value) > 32 {
-		value = value[:32]
+	// Herdr retains completed agent names, so retrying the same ticket label must
+	// not collide with an earlier attempt. The pane id is unique per launch;
+	// hashing it keeps the internal target shell-safe and bounded.
+	sum := sha256.Sum256([]byte(paneID))
+	suffix := fmt.Sprintf("%x", sum[:4])
+	maxBase := 32 - 1 - len(suffix)
+	if len(value) > maxBase {
+		value = value[:maxBase]
 	}
-	return value
+	return value + "-" + suffix
 }
 
 func paneFirstInvocation(spec multiplexer.LaunchSpec) (kind string, env, args []string, err error) {
