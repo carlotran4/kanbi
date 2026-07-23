@@ -66,7 +66,7 @@ Press `?` for controls. The important distinction is:
 | Runtime | tmux by default; Herdr opt-in |
 | Ticket backends | Local, GitHub Issues, Jira |
 | Platforms | Linux x86-64/ARM64; macOS Intel/Apple Silicon |
-| Automation | CLI commands with JSON output |
+| Automation | CLI commands with JSON output; optional installable [Agent Skill](./docs/agent-skill.md) |
 
 Session resume depends on Kanbi capturing a verified session reference from the agent CLI. If a session cannot be resumed safely, Kanbi offers repair or start-fresh instead of guessing.
 
@@ -91,6 +91,7 @@ Run `kanbi --help` or `kanbi COMMAND --help` for the rest.
 - [Multi-board behavior](./docs/multi-board-behavior.md)
 - [Compatibility](./docs/compatibility.md)
 - [Support](./docs/support.md)
+- [Kanbi agent skill](./docs/agent-skill.md)
 - [Contributing](./CONTRIBUTING.md)
 
 ## License
