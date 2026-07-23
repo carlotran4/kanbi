@@ -193,7 +193,7 @@ func TestSupportBundleRedactsCustomHarnessPathInAllSurfaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	privateCommand := filepath.Join(home, "private-project", "bin", "agent")
+	privateCommand := filepath.Join(home, "private-project", "token=value", "bin", "agent")
 	configPath := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(configPath, []byte("harnesses:\n  private:\n    start: ["+privateCommand+"]\n"), 0o600); err != nil {
 		t.Fatal(err)

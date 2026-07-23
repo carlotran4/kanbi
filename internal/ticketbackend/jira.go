@@ -139,7 +139,9 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 					return res, err
 				}
 				issue = updated
-				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(board.ID, local.ColumnID, issue), local.UpdatedAt)
+				remoteTicket := jiraRemoteTicket(board.ID, local.ColumnID, issue)
+				preserveJiraExplicitArchive(&remoteTicket, local)
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, remoteTicket, local.UpdatedAt)
 				if err != nil {
 					return res, err
 				}
@@ -148,7 +150,9 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 					res.Pushed++
 				}
 			} else if remoteNewer {
-				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(board.ID, columnID, issue), local.UpdatedAt)
+				remoteTicket := jiraRemoteTicket(board.ID, columnID, issue)
+				preserveJiraExplicitArchive(&remoteTicket, local)
+				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, remoteTicket, local.UpdatedAt)
 				if err != nil {
 					return res, err
 				}
@@ -156,7 +160,7 @@ func (b JiraBackend) Sync(ctx context.Context, store SyncRepository, board stora
 					_ = store.ClearTicketRemotePush(ctx, local.ID)
 					res.Pulled++
 				}
-			} else if local.ArchivedAt.Valid && strings.EqualFold(issue.Status, cfg.DoneColumn) {
+			} else if isJiraLegacyDoneArchive(local, issue.Status, cfg.DoneColumn) {
 				// Older Jira syncs treated Done as archive, hiding the ticket. Repair
 				// that projection even when the remote issue has not changed since.
 				_, applied, err := store.UpsertRemoteTicketIfUnchanged(ctx, jiraRemoteTicket(board.ID, columnID, issue), local.UpdatedAt)
@@ -375,6 +379,23 @@ func jiraUpdateFromLocal(cfg JiraConfig, t storage.Ticket, column string) JiraIs
 		status = cfg.DoneColumn
 	}
 	return JiraIssueUpdate{Summary: t.Title, Description: t.Body, Status: status}
+}
+
+func preserveJiraExplicitArchive(remote *storage.RemoteTicket, local storage.Ticket) {
+	if local.ArchivedAt.Valid && !isJiraProviderArchive(local) {
+		archivedAt := local.ArchivedAt.Time
+		remote.ArchivedAt = &archivedAt
+	}
+}
+
+func isJiraLegacyDoneArchive(local storage.Ticket, status, doneColumn string) bool {
+	return isJiraProviderArchive(local) && strings.EqualFold(status, doneColumn)
+}
+
+func isJiraProviderArchive(local storage.Ticket) bool {
+	return local.ArchivedAt.Valid &&
+		local.ExternalUpdatedAt.Valid &&
+		local.ArchivedAt.Time.Equal(local.ExternalUpdatedAt.Time)
 }
 
 func jiraRemoteTicket(boardID, columnID int64, issue JiraIssue) storage.RemoteTicket {

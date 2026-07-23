@@ -10,7 +10,7 @@ var ErrActiveSessionExists = errors.New("ticket already has an active session")
 
 var ErrTicketHasActiveSession = errors.New("cannot archive ticket with an active session; close it first")
 
-var ErrTicketArchived = errors.New("cannot start a session for an archived ticket; restore it first")
+var ErrTicketArchived = errors.New("cannot start a session for an archived ticket")
 
 var ErrBoardHasCurrentWorkspaces = errors.New("board has current ticket workspaces; integrate or repair them first")
 

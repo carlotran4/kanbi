@@ -173,6 +173,35 @@ func TestBoardPackageImportNormalizesConflictingNextTicketNumber(t *testing.T) {
 	}
 }
 
+func TestBoardPackageImportRejectsOverflowingTicketNumbers(t *testing.T) {
+	s, ctx := openStore(t)
+	dataDir := t.TempDir()
+	board, _ := seedPackagedBoard(t, s, ctx, dataDir)
+	archivePath := filepath.Join(t.TempDir(), "counter-overflow.zip")
+	if err := boardpackage.Export(ctx, s, dataDir, board.ID, archivePath); err != nil {
+		t.Fatal(err)
+	}
+
+	maxInt := int(^uint(0) >> 1)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*boardpackage.Document)
+	}{
+		{name: "board counter", mutate: func(doc *boardpackage.Document) { doc.Board.NextTicketNumber = maxInt }},
+		{name: "ticket display number", mutate: func(doc *boardpackage.Document) { doc.Tickets[0].DisplayNumber = maxInt - 1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			overflowingPackage := filepath.Join(t.TempDir(), "counter-overflow-mutated.zip")
+			rewriteBoardJSON(t, archivePath, overflowingPackage, tc.mutate, nil)
+
+			_, err := boardpackage.Import(ctx, s, dataDir, overflowingPackage, boardpackage.ImportOptions{NameOverride: "Imported overflow " + tc.name})
+			if err == nil || !strings.Contains(err.Error(), "too large") {
+				t.Fatalf("Import() error=%v, want number-too-large error", err)
+			}
+		})
+	}
+}
+
 func TestBoardPackageRejectsDestinationInsideAttachments(t *testing.T) {
 	s, ctx := openStore(t)
 	dataDir := t.TempDir()

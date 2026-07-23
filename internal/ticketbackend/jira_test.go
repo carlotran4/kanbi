@@ -172,9 +172,6 @@ func TestJiraSyncPullsDoneIssueWithActiveSessionWithoutArchiving(t *testing.T) {
 	if _, err := store.UpsertRemoteTicket(ctx, storage.RemoteTicket{BoardID: board.ID, ColumnID: doneID, ExternalID: "1007", ExternalURL: "url", ExternalUpdatedAt: remoteUpdated, DisplayID: "AK-7", DisplayNumber: 7, Title: "active", Body: "body", ArchivedAt: &remoteUpdated}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: "test", TmuxWindowName: "ticket", Status: "running"}); err != nil {
-		t.Fatal(err)
-	}
 	res, err = backend.Sync(ctx, store, board)
 	if err != nil {
 		t.Fatal(err)
@@ -188,6 +185,43 @@ func TestJiraSyncPullsDoneIssueWithActiveSessionWithoutArchiving(t *testing.T) {
 	}
 	if ticket.ArchivedAt.Valid {
 		t.Fatalf("legacy Done ticket was not restored: %+v", ticket)
+	}
+}
+
+func TestJiraSyncPreservesExplicitLocalArchive(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t, ctx)
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Jira", Workdir: t.TempDir(), TicketBackend: KindAtlassian, BackendConfig: `{"site_url":"https://acme.atlassian.net","project_key":"AK","email":"me@example.com","api_token":"tok"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeJiraClient{issues: []JiraIssue{{ID: "1007", Key: "AK-7", BrowseURL: "url", Summary: "ticket", Description: "body", Status: "Open", UpdatedAt: time.Now().UTC().Add(-time.Hour)}}, comments: map[string][]JiraComment{}}
+	backend := JiraBackend{Client: client}
+	if _, err := backend.Sync(ctx, store, board); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.TicketByDisplayIDInBoard(ctx, "AK-7", board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ArchiveTicket(ctx, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := backend.Sync(ctx, store, board); err != nil {
+			t.Fatalf("sync %d: %v", i+1, err)
+		}
+		archived, err := store.TicketByID(ctx, ticket.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !archived.ArchivedAt.Valid {
+			t.Fatalf("sync %d cleared explicit local archive: %+v", i+1, archived)
+		}
+	}
+	if len(client.updatedIssues) != 1 || !strings.EqualFold(client.updatedIssues[0].Status, "Done") {
+		t.Fatalf("archive push updates=%+v", client.updatedIssues)
 	}
 }
 

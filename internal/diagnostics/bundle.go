@@ -377,7 +377,7 @@ func collectHarnessPresence(cfg config.Config, lookPath func(string) (string, er
 		}
 		if _, err := lookPath(cmd); err != nil {
 			p.Present = false
-			p.LookupErr = strings.ReplaceAll(RedactText(err.Error()), cmd, redactedCmd)
+			p.LookupErr = RedactText(strings.ReplaceAll(err.Error(), cmd, redactedCmd))
 		} else {
 			p.Present = true
 		}

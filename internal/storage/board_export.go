@@ -288,11 +288,21 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 	if existing > 0 {
 		return BoardInsertResult{}, errors.New("board name already exists")
 	}
+	maxSafeImportedTicketNumber := int(^uint(0)>>1) / 2
 	nextTicketNumber := in.NextTicketNumber
 	if nextTicketNumber <= 0 {
 		nextTicketNumber = 1
 	}
+	if nextTicketNumber > maxSafeImportedTicketNumber {
+		return BoardInsertResult{}, errors.New("next ticket number is too large")
+	}
 	for _, ticket := range in.Tickets {
+		if ticket.DisplayNumber <= 0 {
+			return BoardInsertResult{}, fmt.Errorf("ticket %d has invalid display number %d", ticket.SourceID, ticket.DisplayNumber)
+		}
+		if ticket.DisplayNumber >= maxSafeImportedTicketNumber {
+			return BoardInsertResult{}, fmt.Errorf("ticket %d display number is too large", ticket.SourceID)
+		}
 		if ticket.DisplayNumber >= nextTicketNumber {
 			nextTicketNumber = ticket.DisplayNumber + 1
 		}

@@ -104,7 +104,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 ### `Enter`: Default Ticket Action
 
-- Archived tickets cannot open or launch an agent. Session claims reject them at the durable storage seam even if a stale CLI or runtime caller resolved the hidden ticket; restore the ticket first.
+- Archived tickets cannot open or launch an agent. Session claims reject them at the durable storage seam even if a stale CLI or runtime caller resolved the hidden ticket.
 - If the ticket has never started, send the rendered prompt and open the ticket.
 - If the latest session is active and its stored multiplexer container validates, switch/focus it. Existing tmux sessions still validate in their stored `tmux_session_name`; Herdr sessions focus their stored agent/pane target.
 - If the latest session is inactive and has a `session_ref`, resume it and create a new active session row.
