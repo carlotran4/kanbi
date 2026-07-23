@@ -384,8 +384,12 @@ echo "$*" >> "$log"
 case "$1 $2" in
   "workspace list") echo '` + responses["workspace list"] + `' ;;
   "workspace create") echo '` + responses["workspace create"] + `' ;;
-  "agent start") echo '` + responses["agent start"] + `' ;;
+  "agent start") if [ "$3" = "--help" ]; then echo '` + responses["agent start help"] + `'; else echo '` + responses["agent start"] + `'; fi ;;
   "agent focus") echo '` + responses["agent focus"] + `' ;;
+  "pane list") echo '` + responses["pane list"] + `' ;;
+  "pane split") echo '` + responses["pane split"] + `' ;;
+  "pane move") echo '` + responses["pane move"] + `' ;;
+  "pane close") echo '` + responses["pane close"] + `' ;;
   "agent get") echo '` + responses["agent get"] + `' ;;
   "agent read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"error":{"code":"agent_not_found"}}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
   "pane read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"code":"pane_not_found"}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;

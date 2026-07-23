@@ -247,7 +247,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	var containerRef multiplexer.ContainerRef
 	if muxKind == multiplexer.KindHerdr {
 		namespace := claim.MuxNamespace.String
-		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: launchCWD, Command: command, Namespace: namespace})
+		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: launchCWD, Command: command, AgentKind: ticket.Harness, Namespace: namespace})
 	} else {
 		var out string
 		out, err = l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, launchCWD), ShellCommand(command))...)

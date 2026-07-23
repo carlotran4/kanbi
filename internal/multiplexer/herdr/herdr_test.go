@@ -27,6 +27,100 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 	return f.out[key], nil
 }
 
+func TestLaunchUsesPaneFirstAgentStartWhenSupported(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"agent start --help": `Usage: herdr agent start <NAME> --kind <KIND> --pane <ID>`,
+		"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
+		"pane split w1:p1 --direction right --cwd /repo --env TOKEN=secret --no-focus": `{"result":{"pane":{"pane_id":"w1:p2","workspace_id":"w1"}}}`,
+		"pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --no-focus":    `{"result":{"move_result":{"pane":{"pane_id":"w1:p2"}}}}`,
+		"agent start b1-T-001-demo --kind codex --pane w1:p2 -- hello":                 `{"result":{"agent":{"name":"agent-1","pane_id":"w1:p2","workspace_id":"w1"}}}`,
+	}}
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
+	adapter.Runner = r
+
+	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{
+		Name: "b1-T-001-demo", CWD: "/repo", Namespace: "w1", AgentKind: "codex",
+		Command: []string{"env", "TOKEN=secret", "codex", "hello"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Namespace != "w1" || ref.ID != "agent-1" || refMeta(ref, "pane_id") != "w1:p2" {
+		t.Fatalf("unexpected ref: %+v", ref)
+	}
+	for _, call := range r.calls {
+		joined := strings.Join(call, " ")
+		if strings.Contains(joined, "agent start b1-T-001-demo --cwd") || strings.Contains(joined, "agent start b1-T-001-demo --workspace") {
+			t.Fatalf("new Herdr launch used removed options: %s", joined)
+		}
+	}
+}
+
+func TestLaunchPaneFirstCleansUpPaneWhenAgentStartFails(t *testing.T) {
+	startKey := "agent start b1-T-001-demo --kind pi --pane w1:p2 -- --session ref-1"
+	r := &fakeRunner{
+		out: map[string]string{
+			"agent start --help": `--kind <KIND> --pane <ID>`,
+			"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
+			"pane split w1:p1 --direction right --cwd /repo --no-focus":                 `{"result":{"pane":{"pane_id":"w1:p2"}}}`,
+			"pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --no-focus": `{}`,
+			startKey: `launch rejected`,
+		},
+		err: map[string]error{startKey: errors.New("exit status 2")},
+	}
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test"})
+	adapter.Runner = r
+
+	_, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{
+		Name: "b1-T-001-demo", CWD: "/repo", Namespace: "w1", AgentKind: "pi",
+		Command: []string{"pi", "--session", "ref-1"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "launch rejected") {
+		t.Fatalf("Launch error = %v, want Herdr output", err)
+	}
+	if got := strings.Join(r.calls[len(r.calls)-1], " "); got != "herdr pane close w1:p2" {
+		t.Fatalf("last call = %q, want pane cleanup", got)
+	}
+}
+
+func TestLaunchPaneFirstRejectsCustomExecutableInsteadOfSilentlyReplacingIt(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"agent start --help": `--kind <KIND> --pane <ID>`,
+	}}
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test"})
+	adapter.Runner = r
+
+	_, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{
+		Name: "b1-T-001-demo", Namespace: "w1", AgentKind: "pi", Command: []string{"/opt/wrappers/pi", "hello"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "use tmux for custom harness executables") {
+		t.Fatalf("Launch error = %v, want actionable custom executable error", err)
+	}
+	for _, call := range r.calls {
+		if len(call) > 2 && call[1] == "pane" {
+			t.Fatalf("custom executable validation should happen before pane creation: %v", call)
+		}
+	}
+}
+
+func TestLaunchFallsBackToLegacyAgentStart(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"agent start --help": `Usage: herdr agent start <NAME> --cwd <PATH> --workspace <ID>`,
+		"agent start b1-T-001-demo --cwd /repo --workspace ws-1 --no-focus -- codex hello": `{"pane_id":"w1:p2","agent":{"name":"agent-1"},"tab_id":"w1:t1"}`,
+		"pane move w1:p2 --new-tab --workspace ws-1 --label b1-T-001-demo --no-focus":      `{"tab_id":"w1:t9"}`,
+	}}
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
+	adapter.Runner = r
+
+	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{Name: "b1-T-001-demo", CWD: "/repo", Command: []string{"codex", "hello"}, AgentKind: "codex", Namespace: "ws-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.ID != "agent-1" || ref.Namespace != "ws-1" {
+		t.Fatalf("unexpected legacy ref: %+v", ref)
+	}
+}
+
 func TestLaunchCreatesWorkspaceAndAgent(t *testing.T) {
 	r := &fakeRunner{out: map[string]string{
 		"workspace list": `[]`,

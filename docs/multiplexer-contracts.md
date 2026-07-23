@@ -56,6 +56,8 @@ Kanbi launches harness commands through the Herdr CLI. Herdr concepts map as fol
 | Pane | Terminal container that runs the harness command. |
 | Agent | Herdr-detected coding agent identity/state inside the pane. |
 
+For current Herdr releases, Kanbi creates a shell pane in the selected workspace and working directory, moves it into a dedicated tab, then starts the harness with Herdr's pane-first `agent start --kind <harness> --pane <id>` contract. Integration-run environment variables are applied while creating that pane. This Herdr API selects the harness's canonical executable; custom executable paths or wrapper commands must use the tmux multiplexer instead of being silently replaced. Before each launch Kanbi checks the local `agent start --help` capability surface; older Herdr releases that do not expose both `--kind` and `--pane` continue to use the legacy `agent start --cwd ... --workspace ... -- <command>` path, including its configured command.
+
 When Herdr reports an agent state, Kanbi prefers that native state. If Herdr state is unavailable or `unknown`, Kanbi falls back to reading pane output and applying harness/pattern detection. Explicit Herdr `agent_not_found` and `pane_not_found` responses are authoritative container absence rather than generic command failures; Kanbi deactivates that attempt as exited/resumable or repair-needed according to whether a verified harness session ref exists.
 
 ## Doctor And Verification

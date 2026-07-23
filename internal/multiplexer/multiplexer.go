@@ -64,6 +64,7 @@ type LaunchSpec struct {
 	Name      string
 	CWD       string
 	Command   []string
+	AgentKind string
 	Metadata  string
 }
 

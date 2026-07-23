@@ -32,7 +32,7 @@ func (m *Manager) LaunchIntegration(ctx context.Context, spec integrationpkg.Lau
 	name := spec.Name
 	if kind == multiplexer.KindHerdr {
 		adapter := m.herdrAdapter()
-		ref, err := adapter.Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: spec.CWD, Command: command, Namespace: m.currentHerdrWorkspace(ctx)})
+		ref, err := adapter.Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: spec.CWD, Command: command, AgentKind: spec.Harness, Namespace: m.currentHerdrWorkspace(ctx)})
 		if err != nil {
 			return storage.IntegrationRun{}, err
 		}

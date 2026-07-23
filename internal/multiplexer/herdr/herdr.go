@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -94,6 +95,85 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 			return multiplexer.ContainerRef{}, err
 		}
 	}
+	if a.supportsPaneFirstAgentStart(ctx) {
+		return a.launchPaneFirst(ctx, spec, workspaceID)
+	}
+	return a.launchLegacy(ctx, spec, workspaceID)
+}
+
+func (a *Adapter) supportsPaneFirstAgentStart(ctx context.Context) bool {
+	out, err := a.run(ctx, "agent", "start", "--help")
+	return err == nil && strings.Contains(out, "--kind") && strings.Contains(out, "--pane")
+}
+
+func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSpec, workspaceID string) (multiplexer.ContainerRef, error) {
+	name := spec.Name
+	if name == "" {
+		name = "kanbi-agent"
+	}
+	kind, env, agentArgs, err := paneFirstInvocation(spec)
+	if err != nil {
+		return multiplexer.ContainerRef{}, err
+	}
+
+	out, err := a.run(ctx, "pane", "list")
+	if err != nil {
+		return multiplexer.ContainerRef{}, herdrCommandError("list panes", out, err)
+	}
+	anchorPaneID := findPaneInWorkspace(out, workspaceID)
+	if anchorPaneID == "" {
+		return multiplexer.ContainerRef{}, fmt.Errorf("herdr workspace %q has no shell pane for agent launch", workspaceID)
+	}
+	splitArgs := []string{"pane", "split", anchorPaneID, "--direction", "right"}
+	if spec.CWD != "" {
+		splitArgs = append(splitArgs, "--cwd", spec.CWD)
+	}
+	for _, assignment := range env {
+		splitArgs = append(splitArgs, "--env", assignment)
+	}
+	splitArgs = append(splitArgs, "--no-focus")
+	splitOut, err := a.run(ctx, splitArgs...)
+	if err != nil {
+		return multiplexer.ContainerRef{}, herdrCommandError("create agent pane", splitOut, err)
+	}
+	splitInfo := parseObject(splitOut)
+	paneID := firstString(splitInfo, "result.pane.pane_id", "result.pane_id", "result.paneId", "pane_id", "paneId", "pane.id")
+	if paneID == "" {
+		return multiplexer.ContainerRef{}, errors.New("herdr pane split: missing pane id")
+	}
+	cleanup := func(cause error) error {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		closeOut, closeErr := a.run(cleanupCtx, "pane", "close", paneID)
+		if closeErr != nil {
+			return errors.Join(cause, herdrCommandError("clean up agent pane", closeOut, closeErr))
+		}
+		return cause
+	}
+
+	moveOut, err := a.moveToNewTab(ctx, paneID, workspaceID, name)
+	if err != nil {
+		return multiplexer.ContainerRef{}, cleanup(err)
+	}
+	args := []string{"agent", "start", name, "--kind", kind, "--pane", paneID, "--"}
+	args = append(args, agentArgs...)
+	startOut, err := a.run(ctx, args...)
+	if err != nil {
+		return multiplexer.ContainerRef{}, cleanup(herdrCommandError("start agent", startOut, err))
+	}
+	startInfo := parseObject(startOut)
+	agentTarget := firstString(startInfo, "target", "agent_target", "agentTarget", "agent.name", "name", "result.agent.name")
+	if agentTarget == "" {
+		agentTarget = name
+	}
+	info := mergeObjects(splitInfo, moveOut)
+	info = mergeObjects(info, startInfo)
+	info["pane_id"] = paneID
+	metadata := mergeMetadata(spec.Metadata, info)
+	return multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: workspaceID, ID: agentTarget, Name: name, Metadata: metadata}, nil
+}
+
+func (a *Adapter) launchLegacy(ctx context.Context, spec multiplexer.LaunchSpec, workspaceID string) (multiplexer.ContainerRef, error) {
 	name := spec.Name
 	if name == "" {
 		name = "kanbi-agent"
@@ -105,19 +185,13 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 	if workspaceID != "" {
 		args = append(args, "--workspace", workspaceID)
 	}
-	// Always start in the background; the agent is moved into its own tab
-	// below, and focus (if requested) is applied to that tab instead.
-	args = append(args, "--no-focus")
-	args = append(args, "--")
+	args = append(args, "--no-focus", "--")
 	args = append(args, spec.Command...)
 	out, err := a.run(ctx, args...)
 	if err != nil {
-		return multiplexer.ContainerRef{}, err
+		return multiplexer.ContainerRef{}, herdrCommandError("start agent", out, err)
 	}
 	info := parseObject(out)
-	if workspaceID == "" {
-		workspaceID = firstString(info, "result.workspace.workspace_id", "result.workspace.id", "result.agent.workspace_id", "result.workspace_id", "result.workspaceId", "workspace_id", "workspaceId", "workspace.id")
-	}
 	paneID := firstString(info, "result.agent.pane_id", "result.pane_id", "result.paneId", "pane_id", "paneId", "pane.id")
 	if paneID != "" {
 		info["pane_id"] = paneID
@@ -169,7 +243,7 @@ func (a *Adapter) moveToNewTab(ctx context.Context, paneID, workspaceID, label s
 	}
 	out, err := a.run(ctx, args...)
 	if err != nil {
-		return nil, err
+		return nil, herdrCommandError("move agent pane to tab", out, err)
 	}
 	return parseObject(out), nil
 }
@@ -289,6 +363,72 @@ func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (mul
 		return unknownDetection("Herdr returned unsupported agent state: " + state), nil
 	}
 	return multiplexer.Detection{State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative, Confidence: confidence, ObservedAt: time.Now().UTC()}, nil
+}
+
+func paneFirstInvocation(spec multiplexer.LaunchSpec) (kind string, env, args []string, err error) {
+	command := append([]string(nil), spec.Command...)
+	if len(command) == 0 {
+		return "", nil, nil, errors.New("herdr agent command is empty")
+	}
+	if filepath.Base(command[0]) == "env" {
+		command = command[1:]
+		for len(command) > 0 && isEnvironmentAssignment(command[0]) {
+			env = append(env, command[0])
+			command = command[1:]
+		}
+	}
+	if len(command) == 0 {
+		return "", nil, nil, errors.New("herdr agent command has no executable")
+	}
+	kind = strings.TrimSpace(spec.AgentKind)
+	if kind == "" {
+		kind = filepath.Base(command[0])
+	}
+	if kind == "" {
+		return "", nil, nil, errors.New("herdr agent kind is empty")
+	}
+	if command[0] != kind {
+		return "", nil, nil, fmt.Errorf("pane-first Herdr requires canonical %q executable, but harness command starts with %q; use tmux for custom harness executables", kind, command[0])
+	}
+	return kind, env, command[1:], nil
+}
+
+func isEnvironmentAssignment(value string) bool {
+	key, _, ok := strings.Cut(value, "=")
+	if !ok || key == "" {
+		return false
+	}
+	for i, r := range key {
+		if !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func findPaneInWorkspace(out, workspaceID string) string {
+	obj := parseObject(out)
+	items, _ := dotted(obj, "result.panes").([]any)
+	if len(items) == 0 {
+		items, _ = dotted(obj, "panes").([]any)
+	}
+	for _, item := range items {
+		pane, ok := item.(map[string]any)
+		if !ok || firstString(pane, "workspace_id", "workspaceId") != workspaceID {
+			continue
+		}
+		if id := firstString(pane, "pane_id", "paneId", "id"); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func herdrCommandError(operation, out string, err error) error {
+	if text := strings.TrimSpace(out); text != "" {
+		return fmt.Errorf("herdr %s: %w: %s", operation, err, text)
+	}
+	return fmt.Errorf("herdr %s: %w", operation, err)
 }
 
 func (a *Adapter) workspaceForLaunch(ctx context.Context, spec multiplexer.LaunchSpec) (string, error) {
