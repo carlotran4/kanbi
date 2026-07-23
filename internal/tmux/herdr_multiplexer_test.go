@@ -23,7 +23,11 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	bin, logPath := writeFakeHerdr(t, map[string]string{
 		"workspace list":   `[]`,
 		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
-		"agent start":      `{"pane_id":"pane-123","tab_id":"tab-456","agent":{"name":"agent-789"}}`,
+		"agent start help": `--kind <KIND> --pane <ID>`,
+		"pane list":        `{"result":{"panes":[{"workspace_id":"ws-board","pane_id":"pane-anchor"}]}}`,
+		"pane split":       `{"result":{"pane":{"pane_id":"pane-123"}}}`,
+		"pane move":        `{"result":{"pane":{"tab_id":"tab-456"}}}`,
+		"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
 		"agent focus":      `{"ok":true}`,
 	})
 	cfg := config.Defaults(config.Paths{})
@@ -41,8 +45,144 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	}
 	logBytes, _ := os.ReadFile(logPath)
 	log := string(logBytes)
-	if !strings.Contains(log, "agent start") || !strings.Contains(log, "codex --no-alt-screen") {
-		t.Fatalf("fake herdr did not receive harness launch command; log=%s", log)
+	if !strings.Contains(log, "agent start b1-t-001-herdr-launch --kind codex --pane pane-123 -- --no-alt-screen") {
+		t.Fatalf("fake Herdr did not receive the open-only pane-first harness command; log=%s", log)
+	}
+	if strings.Contains(log, "agent start b1-t-001-herdr-launch --kind codex --pane pane-123 -- --no-alt-screen # T-001") {
+		t.Fatalf("pane-first Herdr must not receive the rendered prompt as an agent argument; log=%s", log)
+	}
+	if !strings.Contains(log, "pane send-text pane-123 # T-001: Herdr Launch") || !strings.Contains(log, "pane send-keys pane-123 enter") {
+		t.Fatalf("fake Herdr did not receive the prompt through pane input; log=%s", log)
+	}
+}
+
+func TestPaneFirstHerdrCapturesCopilotRefAfterPanePrompt(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Copilot Ref", "body", "copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".copilot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	refDB, err := sql.Open("sqlite3", filepath.Join(home, ".copilot", "session-store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer refDB.Close()
+	if _, err := refDB.Exec(`
+CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT, created_at TEXT);
+CREATE TABLE turns (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, turn_index INTEGER NOT NULL, user_message TEXT);
+INSERT INTO sessions(id,cwd,created_at) VALUES(?,?,?);
+INSERT INTO turns(session_id,turn_index,user_message) VALUES(?,0,?);`,
+		"copilot-herdr-ref", view.Board.Workdir, time.Now().UTC().Format(time.RFC3339Nano),
+		"copilot-herdr-ref", "# T-001: Herdr Copilot Ref\n\nbody"); err != nil {
+		t.Fatal(err)
+	}
+	if ref, ok := harness.CaptureSessionRefInCWD("copilot", "# T-001: Herdr Copilot Ref\n\nbody", view.Board.Workdir, time.Now().UTC()); !ok || ref != "copilot-herdr-ref" {
+		t.Fatalf("copilot fixture ref=%q ok=%v", ref, ok)
+	}
+	bin, _ := writeFakeHerdr(t, map[string]string{
+		"workspace list":   `[]`,
+		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
+		"agent start help": `--kind <KIND> --pane <ID>`,
+		"pane list":        `{"result":{"panes":[{"workspace_id":"ws-board","pane_id":"pane-anchor"}]}}`,
+		"pane split":       `{"result":{"pane":{"pane_id":"pane-123"}}}`,
+		"pane move":        `{"result":{"pane":{"tab_id":"tab-456"}}}`,
+		"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = bin
+	manager := NewManager(cfg, store)
+	manager.Runner = &failIfTmuxRunner{t: t}
+	manager.RefCapturePollInterval = time.Millisecond
+	t.Cleanup(manager.Close)
+
+	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
+		t.Fatal(err)
+	}
+	latest, ok, err := store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("latest session: ok=%v err=%v", ok, err)
+	}
+	waitForSessionRef(t, store, latest.ID, "copilot-herdr-ref")
+}
+
+func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Prompt Failure", "body", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, logPath := writeFakeHerdr(t, map[string]string{
+		"workspace list":   `[]`,
+		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
+		"agent start help": `--kind <KIND> --pane <ID>`,
+		"pane list":        `{"result":{"panes":[{"workspace_id":"ws-board","pane_id":"pane-anchor"}]}}`,
+		"pane split":       `{"result":{"pane":{"pane_id":"pane-123"}}}`,
+		"pane move":        `{"result":{"pane":{"tab_id":"tab-456"}}}`,
+		"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
+		"pane send-text":   "__ERROR__",
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = bin
+	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+
+	if err := manager.OpenTicket(ctx, ticket, true); err == nil {
+		t.Fatal("open unexpectedly succeeded")
+	}
+	latest, ok, err := store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("latest session: ok=%v err=%v", ok, err)
+	}
+	if latest.IsActive || latest.Status != kanban.StateError {
+		t.Fatalf("failed prompt claim=%+v, want inactive error", latest)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logBytes), "pane close pane-123") {
+		t.Fatalf("failed prompt did not close Herdr pane; log=%s", logBytes)
+	}
+}
+
+func TestOpenTicketWithLegacyHerdrKeepsPromptArgument(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Legacy Herdr", "multiline\nbody with 'quotes' and $shell", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, logPath := writeFakeHerdr(t, map[string]string{
+		"workspace list":   `[]`,
+		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
+		"agent start":      `{"pane_id":"pane-123","agent":{"name":"agent-789"}}`,
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr"
+	cfg.Multiplexer.Herdr.Binary = bin
+	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+
+	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
+		t.Fatal(err)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(logBytes)
+	if !strings.Contains(log, "agent start") || !strings.Contains(log, "# T-001: Legacy Herdr") || !strings.Contains(log, "multiline") {
+		t.Fatalf("legacy Herdr did not retain the argument-mode prompt; log=%s", log)
+	}
+	if strings.Contains(log, "pane send-text") {
+		t.Fatalf("legacy Herdr must not receive a duplicate pane prompt; log=%s", log)
 	}
 }
 
@@ -393,8 +533,8 @@ case "$1 $2" in
   "agent get") echo '` + responses["agent get"] + `' ;;
   "agent read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"error":{"code":"agent_not_found"}}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
   "pane read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"code":"pane_not_found"}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
-  "pane send-text") echo '{"ok":true}' ;;
-  "pane send-keys") echo '{"ok":true}' ;;
+  "pane send-text") if [ '` + responses["pane send-text"] + `' = '__ERROR__' ]; then echo 'send failed' >&2; exit 1; else echo '{"ok":true}'; fi ;;
+  "pane send-keys") if [ '` + responses["pane send-keys"] + `' = '__ERROR__' ]; then echo 'keys failed' >&2; exit 1; else echo '{"ok":true}'; fi ;;
   *) echo '{}' ;;
 esac
 `

@@ -23,18 +23,35 @@ func (m *Manager) LaunchIntegration(ctx context.Context, spec integrationpkg.Lau
 	if !promptSent {
 		return storage.IntegrationRun{}, fmt.Errorf("integration harness %s must support prompt arguments", spec.Harness)
 	}
+	kind := m.defaultMultiplexerKind()
+	herdrPaneFirst := kind == multiplexer.KindHerdr && m.herdrAdapter().SupportsPaneFirstAgentStart(ctx)
+	if herdrPaneFirst {
+		command, err = harness.StartCommand(m.Config.Harnesses, spec.Harness)
+		if err != nil {
+			return storage.IntegrationRun{}, err
+		}
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return storage.IntegrationRun{}, err
 	}
 	command = append([]string{"env", "KANBI_INTEGRATION_RUN_ID=" + spec.PublicID, "KANBI_INTEGRATION_TOKEN=" + spec.Token, "KANBI_INTEGRATION_KANBI_BIN=" + executable, "KANBI_DB=" + m.Config.DBPath}, command...)
-	kind := m.defaultMultiplexerKind()
 	name := spec.Name
 	if kind == multiplexer.KindHerdr {
 		adapter := m.herdrAdapter()
 		ref, err := adapter.Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: spec.CWD, Command: command, AgentKind: spec.Harness, Namespace: m.currentHerdrWorkspace(ctx)})
 		if err != nil {
 			return storage.IntegrationRun{}, err
+		}
+		if herdrPaneFirst {
+			if err := adapter.SendText(ctx, ref, spec.Prompt); err != nil {
+				_ = adapter.Close(context.Background(), ref)
+				return storage.IntegrationRun{}, err
+			}
+			if err := adapter.SendKeys(ctx, ref, "enter"); err != nil {
+				_ = adapter.Close(context.Background(), ref)
+				return storage.IntegrationRun{}, err
+			}
 		}
 		if err := adapter.Focus(ctx, ref); err != nil {
 			_ = adapter.Close(context.Background(), ref)

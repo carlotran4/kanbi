@@ -15,6 +15,7 @@ Corrective beta superseding `v0.3.0-beta.1`, which accidentally omitted two comp
 - Launch agents against current Herdr releases through the pane-first `agent start --kind <harness> --pane <id>` contract while preserving a capability-detected legacy fallback.
 - Normalize internal Herdr agent names to the required lowercase 32-character format without shortening ticket tab/container labels.
 - Preserve integration environment variables during Herdr pane creation and reject unsupported custom pane-first harness executables instead of silently substituting another command.
+- Deliver multiline ticket and integration prompts through literal Herdr pane input after readiness instead of unsafe `agent start` argument encoding.
 
 There is no schema change from beta.1. See the reviewed [beta.2 release notes](./docs/releases/v0.3.0-beta.2.md) for compatibility, migration, rollback, support, and security guidance.
 

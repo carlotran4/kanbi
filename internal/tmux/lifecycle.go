@@ -167,6 +167,8 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 	}
 	launchedNew := true
+	muxKind := l.manager.defaultMultiplexerKind()
+	herdrPaneFirst := muxKind == multiplexer.KindHerdr && l.manager.herdrAdapter().SupportsPaneFirstAgentStart(ctx)
 	command, err := harness.StartCommand(l.manager.Config.Harnesses, ticket.Harness)
 	if err != nil {
 		return err
@@ -177,20 +179,19 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		if err != nil {
 			return err
 		}
-	} else {
+	} else if !herdrPaneFirst || !sendPrompt {
 		command, promptAlreadySent, err = harness.StartCommandWithPrompt(l.manager.Config.Harnesses, ticket.Harness, renderedPrompt, sendPrompt)
 		if err != nil {
 			return err
 		}
 	}
-	if ticket.Harness == "pi" && promptAlreadySent {
+	if ticket.Harness == "pi" && sendPrompt {
 		command, refFile, refToken, err = l.manager.commandWithPiSessionRefCapture(ticket, command)
 		if err != nil {
 			return err
 		}
 	}
 
-	muxKind := l.manager.defaultMultiplexerKind()
 	launchCWD := ticket.BoardWorkdir
 	var launchWorkspace storage.Workspace
 	if ticket.BoardWorktreeMode == storage.WorktreeModeGit {
@@ -313,15 +314,27 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		insertedSessionID := claimID
 		// If we didn't capture the ref before upserting (e.g. Pi extension fires slowly),
 		// keep polling and update exactly the session row created by this launch.
-		if !ses.HarnessSessionRef.Valid && promptAlreadySent && refFile != "" {
+		if !ses.HarnessSessionRef.Valid && sendPrompt && refFile != "" {
 			l.manager.startSessionRefCapture(insertedSessionID, ticket.Harness, defaultPiRefCaptureTimeout, func() (string, bool) {
-				return readPiSessionRefFile(refFile, refToken)
+				if ref, ok := readPiSessionRefFile(refFile, refToken); ok {
+					return ref, true
+				}
+				return harness.CaptureSessionRefInCWD(ticket.Harness, renderedPrompt, launchCWD, launchStartedAt)
+			})
+		}
+		if !ses.HarnessSessionRef.Valid && sendPrompt && !promptAlreadySent && (ticket.Harness == "codex" || ticket.Harness == "copilot") {
+			harnessName := ticket.Harness
+			cwd := launchCWD
+			promptText := renderedPrompt
+			since := launchStartedAt
+			l.manager.startSessionRefCapture(insertedSessionID, harnessName, defaultPiRefCaptureTimeout, func() (string, bool) {
+				return harness.CaptureSessionRefInCWD(harnessName, promptText, cwd, since)
 			})
 		}
 		// Claude Code can sit on the workspace-trust dialog for an unbounded
 		// amount of time, so keep polling its projects dir well past the
 		// synchronous capture deadline.
-		if !ses.HarnessSessionRef.Valid && promptAlreadySent && ticket.Harness == "claude" {
+		if !ses.HarnessSessionRef.Valid && sendPrompt && ticket.Harness == "claude" {
 			harnessName := ticket.Harness
 			cwd := launchCWD
 			promptText := renderedPrompt
@@ -341,11 +354,21 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		if containerRef.Kind == multiplexer.KindHerdr {
 			readOptions.Lines = 200
 		}
-		if err := l.manager.WaitAndSendPrompt(ctx, adapter, containerRef, readOptions, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout); err != nil {
-			if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
-				err = errors.Join(err, fmt.Errorf("cleanup failed container: %w", cleanupErr))
+		var promptErr error
+		if herdrPaneFirst {
+			// Pane-first Herdr reports success only after the canonical harness is
+			// detected and ready, so multiline prompts can be sent literally now.
+			if promptErr = adapter.SendText(ctx, containerRef, renderedPrompt); promptErr == nil {
+				promptErr = adapter.SendKeys(ctx, containerRef, "enter")
 			}
-			return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: failClaim(err)}
+		} else {
+			promptErr = l.manager.WaitAndSendPrompt(ctx, adapter, containerRef, readOptions, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout)
+		}
+		if promptErr != nil {
+			if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
+				promptErr = errors.Join(promptErr, fmt.Errorf("cleanup failed container: %w", cleanupErr))
+			}
+			return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: failClaim(promptErr)}
 		}
 		out, _ := adapter.Read(ctx, containerRef, readOptions)
 		if l.manager.Store != nil {

@@ -45,7 +45,8 @@ func TestLaunchIntegrationWithHerdrUsesPaneFirstAgentStart(t *testing.T) {
 		"--env KANBI_INTEGRATION_RUN_ID=run-123",
 		"--env KANBI_INTEGRATION_TOKEN=secret-token",
 		"agent start integration-run --kind pi --pane ws-board:p2 --",
-		"integrate exact commits",
+		"pane send-text ws-board:p2 integrate exact commits",
+		"pane send-keys ws-board:p2 enter",
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("Herdr log %q missing %q", log, want)
@@ -53,6 +54,9 @@ func TestLaunchIntegrationWithHerdrUsesPaneFirstAgentStart(t *testing.T) {
 	}
 	if strings.Contains(log, "agent start integration-run --cwd") || strings.Contains(log, "agent start integration-run --workspace") {
 		t.Fatalf("Herdr launch used legacy flags despite pane-first support: %s", log)
+	}
+	if strings.Contains(log, "agent start integration-run --kind pi --pane ws-board:p2 -- integrate exact commits") {
+		t.Fatalf("pane-first Herdr must receive the integration prompt through pane input, not agent arguments: %s", log)
 	}
 }
 

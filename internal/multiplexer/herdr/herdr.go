@@ -95,13 +95,15 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 			return multiplexer.ContainerRef{}, err
 		}
 	}
-	if a.supportsPaneFirstAgentStart(ctx) {
+	if a.SupportsPaneFirstAgentStart(ctx) {
 		return a.launchPaneFirst(ctx, spec, workspaceID)
 	}
 	return a.launchLegacy(ctx, spec, workspaceID)
 }
 
-func (a *Adapter) supportsPaneFirstAgentStart(ctx context.Context) bool {
+// SupportsPaneFirstAgentStart reports whether the installed Herdr exposes the
+// current pane-first agent launch contract.
+func (a *Adapter) SupportsPaneFirstAgentStart(ctx context.Context) bool {
 	out, err := a.run(ctx, "agent", "start", "--help")
 	return err == nil && strings.Contains(out, "--kind") && strings.Contains(out, "--pane")
 }
