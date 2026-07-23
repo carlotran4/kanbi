@@ -1,9 +1,9 @@
 # v0.3.0-beta.1 Qualification Record — 2026-07-23
 
 Issue: GH-296  
-Status: **QUALIFIED — AUTHORIZED TO TAG `v0.3.0-beta.1`**
+Status: **PUBLISHED — POST-PUBLICATION ATTESTATION PASSED**
 
-This record retains completed evidence for the first-public-beta candidate. The maintainer accepted the explicitly documented unavailable/partial real-service checks on 2026-07-23 and authorized publication. This qualification does not imply feature completeness or stable readiness.
+This record retains completed evidence for Kanbi's first public beta. The maintainer accepted the explicitly documented unavailable/partial real-service checks on 2026-07-23 and authorized publication. This qualification does not imply feature completeness or stable readiness.
 
 ## Candidate identity
 
@@ -14,10 +14,12 @@ This record retains completed evidence for the first-public-beta candidate. The 
 | Qualification date UTC | `2026-07-23` |
 | GitHub CI | [run 29976823338](https://github.com/carlotran4/kanbi/actions/runs/29976823338) — PASS |
 | Workflow-dispatch run | [run 29976938673](https://github.com/carlotran4/kanbi/actions/runs/29976938673) — PASS |
-| Combined bundle | `kanbi-release-bundle` artifact from run 29976938673 |
-| Decision | **QUALIFIED — AUTHORIZED TO TAG** |
+| Combined candidate bundle | `kanbi-release-bundle` artifact from run 29976938673 |
+| Tag workflow | [run 29977458307](https://github.com/carlotran4/kanbi/actions/runs/29977458307) — PASS |
+| Published release | [`v0.3.0-beta.1`](https://github.com/carlotran4/kanbi/releases/tag/v0.3.0-beta.1) |
+| Decision | **PUBLISHED — ATTESTED** |
 
-The exact candidate is on the repository default branch. At the time of this pre-publication record, no tag or GitHub Release had yet been created.
+The annotated immutable tag resolves to the exact candidate commit. GitHub published it as a prerelease, and the stable `/releases/latest` endpoint remains unset.
 
 ## Beta scope and limitations
 
@@ -107,17 +109,19 @@ Downloaded-bundle verification: [`candidate-bundle.log`](./evidence/beta-2026072
 - This is the first published Kanbi artifact if approved; there is no previous distributed release artifact. The conditional prior-distributed-artifact upgrade/rollback comparison is therefore **not applicable** to this beta. Historical schema 3→5 drill evidence remains in [`disaster-recovery-20260717.md`](./disaster-recovery-20260717.md), but it is not claimed as exact-candidate evidence.
 - Existing development databases migrate forward to schema 7. Release notes require a pre-upgrade backup and explain that rollback restores that backup and loses post-backup changes.
 
-## Publication authorization and remaining attestation
+## Publication authorization and attestation
 
 - [x] Maintainer triaged GH-276, GH-295, and GH-329: the empty placeholders were deleted and GH-329 was accepted as a non-blocking feature request.
 - [x] Candidate landed on the repository default branch and exact-commit local/CI/release-dispatch verification passed.
 - [x] Maintainer accepted the documented Copilot partial result and unavailable Claude/Herdr/GitHub/Jira checks for this beta.
 - [x] Maintainer authorized publication on 2026-07-23.
-- [ ] Create the annotated immutable `v0.3.0-beta.1` tag at the exact candidate SHA.
-- [ ] Confirm the tag workflow republishes the four-platform content as a GitHub prerelease, not latest stable.
-- [ ] Download a published asset and complete checksum/install/version/doctor/disposable-session/backup smoke.
+- [x] Created annotated immutable `v0.3.0-beta.1` at `c263b19a4d4af8bb57d5df295bf1227a756e8082`.
+- [x] Tag workflow [29977458307](https://github.com/carlotran4/kanbi/actions/runs/29977458307) passed and published a GitHub prerelease, not latest stable.
+- [x] Downloaded every published asset; checksums, manifest, and all four `BUILDINFO.json` records passed.
+- [x] Confirmed every published file is byte-identical to the tag workflow's `kanbi-release-bundle`.
+- [x] Installed the published Linux amd64 binary to a throwaway path and passed `version`, `doctor`, database/attachment/backup/restore, and disposable tmux session smoke.
 
-The remaining items are post-authorization publication/attestation steps. Any mismatch requires yanking the release; the tag must never move.
+Post-publication evidence: [`evidence/beta-20260723-c263b19-publication/`](./evidence/beta-20260723-c263b19-publication/). No mismatch requiring a yank was found; the tag must never move.
 
 ## Stable path preserved
 

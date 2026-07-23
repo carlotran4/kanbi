@@ -1,0 +1,19 @@
+$ verify published checksums
+kanbi_0.3.0-beta.1_darwin_amd64.tar.gz: OK
+kanbi_0.3.0-beta.1_darwin_arm64.tar.gz: OK
+kanbi_0.3.0-beta.1_linux_amd64.tar.gz: OK
+kanbi_0.3.0-beta.1_linux_arm64.tar.gz: OK
+$ compare published files to tag-workflow bundle
+BUNDLE_MANIFEST.txt: byte-identical PASS
+kanbi_0.3.0-beta.1_darwin_amd64.tar.gz: byte-identical PASS
+kanbi_0.3.0-beta.1_darwin_arm64.tar.gz: byte-identical PASS
+kanbi_0.3.0-beta.1_linux_amd64.tar.gz: byte-identical PASS
+kanbi_0.3.0-beta.1_linux_arm64.tar.gz: byte-identical PASS
+SHA256SUMS: byte-identical PASS
+$ inspect published BUILDINFO matrix
+kanbi_0.3.0-beta.1_darwin_amd64.tar.gz: PASS c263b19a4d4af8bb57d5df295bf1227a756e8082 darwin/amd64 cgo=True schema=7
+kanbi_0.3.0-beta.1_darwin_arm64.tar.gz: PASS c263b19a4d4af8bb57d5df295bf1227a756e8082 darwin/arm64 cgo=True schema=7
+kanbi_0.3.0-beta.1_linux_amd64.tar.gz: PASS c263b19a4d4af8bb57d5df295bf1227a756e8082 linux/amd64 cgo=True schema=7
+kanbi_0.3.0-beta.1_linux_arm64.tar.gz: PASS c263b19a4d4af8bb57d5df295bf1227a756e8082 linux/arm64 cgo=True schema=7
+published four-platform BUILDINFO matrix: PASS
+RESULT: PASS
