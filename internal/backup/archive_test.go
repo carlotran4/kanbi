@@ -88,6 +88,30 @@ func TestExportRejectsDestinationInsideAttachments(t *testing.T) {
 	}
 }
 
+func TestExportRejectsDestinationUnderSymlinkAliasOfAttachments(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	s, err := storage.Open(filepath.Join(root, "kanbi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	attachmentRoot := filepath.Join(root, "data", "attachments")
+	if err := os.MkdirAll(attachmentRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "attachments-alias")
+	if err := os.Symlink(attachmentRoot, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := Export(ctx, s, filepath.Join(root, "data"), filepath.Join(alias, "backup.kanbi")); err == nil {
+		t.Fatal("destination under symlink alias of attachments accepted")
+	}
+}
+
 func TestRestoreRejectsUnsafeArchivePath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.zip")
 	f, _ := os.Create(path)

@@ -94,20 +94,54 @@ func Export(ctx context.Context, store *storage.Store, dataDir, destination stri
 	})
 }
 
+// pathWithin reports whether candidate is inside root after resolving absolute
+// paths and existing symlink ancestors. A candidate that does not exist yet is
+// checked via its nearest existing ancestor so destinations under symlink
+// aliases of the attachments tree are rejected before creating the archive.
 func pathWithin(root, candidate string) (bool, error) {
-	rootAbs, err := filepath.Abs(root)
+	rootResolved, err := resolveExistingPath(root)
 	if err != nil {
 		return false, err
 	}
-	candidateAbs, err := filepath.Abs(candidate)
+	candidateResolved, err := resolveExistingPath(candidate)
 	if err != nil {
 		return false, err
 	}
-	rel, err := filepath.Rel(rootAbs, candidateAbs)
+	rel, err := filepath.Rel(rootResolved, candidateResolved)
 	if err != nil {
 		return false, err
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))), nil
+}
+
+func resolveExistingPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	// Walk parents until an existing prefix can be evaluated, then rejoin the
+	// missing suffix so destinations under symlink-aliased roots still match.
+	cur := abs
+	suffix := ""
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return abs, nil
+		}
+		base := filepath.Base(cur)
+		if suffix == "" {
+			suffix = base
+		} else {
+			suffix = filepath.Join(base, suffix)
+		}
+		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+			return filepath.Join(resolved, suffix), nil
+		}
+		cur = parent
+	}
 }
 
 func writeBytes(zw *zip.Writer, name string, data []byte, mode os.FileMode) error {
