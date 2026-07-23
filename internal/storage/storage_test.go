@@ -1202,6 +1202,36 @@ func TestSyncBoardColumnsRollsBackPartialWrites(t *testing.T) {
 	}
 }
 
+func TestSyncBoardColumnsReusesRenamedColumnByWorkflowKey(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	open := view.Columns[0]
+	if open.Name != "Open" {
+		t.Fatalf("first default column = %q, want Open", open.Name)
+	}
+	if err := s.RenameColumn(ctx, open.ID, "Inbox"); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 2; i++ {
+		columnIDs, err := s.SyncBoardColumns(ctx, view.Board.ID, []string{"Open"})
+		if err != nil {
+			t.Fatalf("sync %d: %v", i+1, err)
+		}
+		if got := columnIDs["Open"]; got != open.ID {
+			t.Fatalf("sync %d resolved Open to column %d, want renamed column %d", i+1, got, open.ID)
+		}
+	}
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from columns where board_id=? and workflow_key='Open'`, view.Board.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("columns with workflow key Open = %d, want 1", count)
+	}
+}
+
 func TestUpsertRemoteTicketRollsBackTicketAndNumberTogether(t *testing.T) {
 	s, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, s)

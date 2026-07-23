@@ -4,16 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 )
 
 // SyncBoardColumns mirrors an external backend's workflow columns for a board
-// and returns the local column ID by name. Existing columns are reused by exact
-// name; missing columns are created; absent columns are left in place to avoid
-// destructive ticket/session history changes.
+// and returns the local column ID by provider name. Existing columns are reused
+// by exact display name or workflow key; missing columns are created; absent
+// columns are left in place to avoid destructive ticket/session history changes.
 func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []string) (map[string]int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -29,9 +29,19 @@ func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []str
 			continue
 		}
 		seen[name] = true
+		var displayID, workflowKeyID int64
+		displayErr := tx.QueryRowContext(ctx, `select id from columns where board_id=? and name=? order by position limit 1`, boardID, name).Scan(&displayID)
+		if displayErr != nil && !errors.Is(displayErr, sql.ErrNoRows) {
+			return nil, displayErr
+		}
+		workflowKeyErr := tx.QueryRowContext(ctx, `select id from columns where board_id=? and workflow_key=? order by position limit 1`, boardID, name).Scan(&workflowKeyID)
+		if workflowKeyErr != nil && !errors.Is(workflowKeyErr, sql.ErrNoRows) {
+			return nil, workflowKeyErr
+		}
+
 		var id int64
-		err := tx.QueryRowContext(ctx, `select id from columns where board_id=? and name=? order by position limit 1`, boardID, name).Scan(&id)
-		if errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case errors.Is(displayErr, sql.ErrNoRows) && errors.Is(workflowKeyErr, sql.ErrNoRows):
 			now := time.Now().UTC()
 			insertPos, err := columnOrder.nextPosition(ctx, tx, boardID)
 			if err != nil {
@@ -43,8 +53,14 @@ func (s *Store) SyncBoardColumns(ctx context.Context, boardID int64, names []str
 				return nil, err
 			}
 			id, _ = res.LastInsertId()
-		} else if err != nil {
-			return nil, err
+		case errors.Is(displayErr, sql.ErrNoRows):
+			id = workflowKeyID
+		case errors.Is(workflowKeyErr, sql.ErrNoRows):
+			id = displayID
+		case displayID == workflowKeyID:
+			id = displayID
+		default:
+			return nil, fmt.Errorf("provider column %q matches display column %d and workflow key column %d; resolve the column mapping conflict", name, displayID, workflowKeyID)
 		}
 		result[name] = id
 	}
