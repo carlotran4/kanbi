@@ -54,6 +54,12 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	if !strings.Contains(log, "pane send-text pane-123 # T-001: Herdr Launch") || !strings.Contains(log, "pane send-keys pane-123 enter") {
 		t.Fatalf("fake Herdr did not receive the prompt through pane input; log=%s", log)
 	}
+	moveAt := strings.Index(log, "pane move pane-123 --new-tab --workspace ws-board --label b1-T-001-herdr-launch --no-focus")
+	startAt := strings.Index(log, "agent start b1-t-001-herdr-launch-")
+	focusAt := strings.Index(log, "agent focus agent-789")
+	if moveAt < 0 || startAt < moveAt || focusAt < startAt || strings.Contains(log, "pane move pane-123 --new-tab --workspace ws-board --label b1-T-001-herdr-launch --focus") {
+		t.Fatalf("Herdr focus must happen only after the new agent starts; log=%s", log)
+	}
 }
 
 func TestPaneFirstHerdrCapturesCopilotRefAfterPanePrompt(t *testing.T) {
@@ -132,6 +138,7 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = bin
+	cfg.Multiplexer.Herdr.FocusOnOpen = true
 	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
 
 	if err := manager.OpenTicket(ctx, ticket, true); err == nil {
@@ -148,8 +155,12 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(logBytes), "pane close pane-123") {
+	log := string(logBytes)
+	if !strings.Contains(log, "pane close pane-123") {
 		t.Fatalf("failed prompt did not close Herdr pane; log=%s", logBytes)
+	}
+	if strings.Contains(log, "agent focus") || strings.Contains(log, "pane move pane-123 --new-tab --workspace ws-board --label b1-T-001-herdr-prompt-failure --focus") {
+		t.Fatalf("failed prompt focused a container before cleanup; log=%s", logBytes)
 	}
 }
 

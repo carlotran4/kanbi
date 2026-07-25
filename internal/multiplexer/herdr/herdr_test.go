@@ -17,6 +17,25 @@ type fakeRunner struct {
 	err   map[string]error
 }
 
+type busyThenReadyRunner struct {
+	fakeRunner
+	startKey     string
+	busyAttempts int
+	starts       int
+}
+
+func (r *busyThenReadyRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if key := strings.Join(args, " "); key == r.startKey {
+		r.calls = append(r.calls, append([]string{name}, args...))
+		r.starts++
+		if r.starts <= r.busyAttempts {
+			return `{"error":{"code":"agent_pane_busy","message":"agent target pane w1:p2 is not an available shell"}}`, errors.New("exit status 1")
+		}
+		return `{"result":{"agent":{"name":"agent-1","pane_id":"w1:p2"}}}`, nil
+	}
+	return r.fakeRunner.Run(ctx, name, args...)
+}
+
 func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	call := append([]string{name}, args...)
 	f.calls = append(f.calls, call)
@@ -95,6 +114,43 @@ func TestPaneFirstAgentNameIsBoundedAndUniquePerPane(t *testing.T) {
 	}
 }
 
+func TestLaunchPaneFirstRetriesNewPaneUntilHerdrReportsShellReady(t *testing.T) {
+	startKey := "agent start " + paneFirstAgentName("b1-T-001-demo", "w1:p2") + " --kind pi --pane w1:p2 --"
+	r := &busyThenReadyRunner{
+		fakeRunner: fakeRunner{out: map[string]string{
+			"agent start --help": `--kind <KIND> --pane <ID>`,
+			"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
+			"pane split w1:p1 --direction right --cwd /repo --no-focus":                 `{"result":{"pane":{"pane_id":"w1:p2"}}}`,
+			"pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --no-focus": `{}`,
+		}},
+		startKey: startKey, busyAttempts: 2,
+	}
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: true})
+	adapter.Runner = r
+
+	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{
+		Name: "b1-T-001-demo", CWD: "/repo", Namespace: "w1", AgentKind: "pi", Command: []string{"pi"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.starts != 3 || ref.ID != "agent-1" {
+		t.Fatalf("starts=%d ref=%+v, want two busy retries and a new agent", r.starts, ref)
+	}
+	for _, call := range r.calls {
+		if strings.Join(call, " ") == "herdr pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --focus" {
+			t.Fatalf("launch focused the new pane before the agent was ready: calls=%v", r.calls)
+		}
+	}
+}
+
+func TestFindPaneInWorkspacePrefersShellPaneOverExistingAgent(t *testing.T) {
+	out := `{"result":{"panes":[{"pane_id":"w1:p9","workspace_id":"w1","agent":"pi"},{"pane_id":"w1:p1","workspace_id":"w1"}]}}`
+	if got := findPaneInWorkspace(out, "w1"); got != "w1:p1" {
+		t.Fatalf("findPaneInWorkspace()=%q, want shell pane w1:p1", got)
+	}
+}
+
 func TestLaunchPaneFirstCleansUpPaneWhenAgentStartFails(t *testing.T) {
 	startKey := "agent start " + paneFirstAgentName("b1-T-001-demo", "w1:p2") + " --kind pi --pane w1:p2 -- --session ref-1"
 	r := &fakeRunner{
@@ -119,6 +175,15 @@ func TestLaunchPaneFirstCleansUpPaneWhenAgentStartFails(t *testing.T) {
 	}
 	if got := strings.Join(r.calls[len(r.calls)-1], " "); got != "herdr pane close w1:p2" {
 		t.Fatalf("last call = %q, want pane cleanup", got)
+	}
+	starts := 0
+	for _, call := range r.calls {
+		if strings.Join(call[1:], " ") == startKey {
+			starts++
+		}
+	}
+	if starts != 1 {
+		t.Fatalf("non-transient launch error retried %d times; calls=%v", starts, r.calls)
 	}
 }
 
@@ -160,13 +225,13 @@ func TestLaunchFallsBackToLegacyAgentStart(t *testing.T) {
 	}
 }
 
-func TestLaunchCreatesWorkspaceAndAgent(t *testing.T) {
+func TestLaunchCreatesWorkspaceWithoutFocusingBeforeAgentIsReady(t *testing.T) {
 	r := &fakeRunner{out: map[string]string{
 		"workspace list": `[]`,
 		"workspace create --cwd /repo --label repo --no-focus":                             `{"id":"ws-1","cwd":"/repo"}`,
 		"agent start b1-T-001-demo --cwd /repo --workspace ws-1 --no-focus -- codex hello": `{"pane_id":"pane-1","agent":{"name":"agent-1"},"tab_id":"tab-1"}`,
 	}}
-	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
+	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: true})
 	adapter.Runner = r
 
 	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{Name: "b1-T-001-demo", CWD: "/repo", Command: []string{"codex", "hello"}})

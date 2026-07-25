@@ -4,7 +4,9 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ## Unreleased
 
-No changes yet.
+### Fixed
+
+- Retry Herdr's transient `agent_pane_busy` response while a newly split shell initializes, prefer a non-agent pane as the split anchor, and defer focus until agent launch succeeds so opening a new ticket cannot appear to switch to an existing agent after failed cleanup.
 
 ## [0.3.0-beta.2] - 2026-07-23
 

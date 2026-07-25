@@ -161,7 +161,7 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	agentName := paneFirstAgentName(name, paneID)
 	args := []string{"agent", "start", agentName, "--kind", kind, "--pane", paneID, "--"}
 	args = append(args, agentArgs...)
-	startOut, err := a.run(ctx, args...)
+	startOut, err := a.startAgentWhenPaneReady(ctx, args)
 	if err != nil {
 		return multiplexer.ContainerRef{}, cleanup(herdrCommandError("start agent", startOut, err))
 	}
@@ -229,9 +229,10 @@ func (a *Adapter) Validate(ctx context.Context, ref multiplexer.ContainerRef) (b
 	return true, nil
 }
 
-// moveToNewTab relocates a freshly started agent pane into its own new tab
-// within the same workspace, so opening a ticket behaves like a new tmux
-// window rather than splitting the pane the user was already looking at.
+// moveToNewTab relocates a fresh pane into its own tab without focusing it.
+// The lifecycle caller focuses only after the agent has started and prompt
+// delivery has succeeded, so a failed launch cannot bounce the user back to a
+// previously focused agent when the temporary pane is cleaned up.
 func (a *Adapter) moveToNewTab(ctx context.Context, paneID, workspaceID, label string) (map[string]any, error) {
 	args := []string{"pane", "move", paneID, "--new-tab"}
 	if workspaceID != "" {
@@ -240,11 +241,7 @@ func (a *Adapter) moveToNewTab(ctx context.Context, paneID, workspaceID, label s
 	if label != "" {
 		args = append(args, "--label", label)
 	}
-	if a.Config.FocusOnOpen {
-		args = append(args, "--focus")
-	} else {
-		args = append(args, "--no-focus")
-	}
+	args = append(args, "--no-focus")
 	out, err := a.run(ctx, args...)
 	if err != nil {
 		return nil, herdrCommandError("move agent pane to tab", out, err)
@@ -445,16 +442,51 @@ func findPaneInWorkspace(out, workspaceID string) string {
 	if len(items) == 0 {
 		items, _ = dotted(obj, "panes").([]any)
 	}
+	fallback := ""
 	for _, item := range items {
 		pane, ok := item.(map[string]any)
 		if !ok || firstString(pane, "workspace_id", "workspaceId") != workspaceID {
 			continue
 		}
-		if id := firstString(pane, "pane_id", "paneId", "id"); id != "" {
+		id := firstString(pane, "pane_id", "paneId", "id")
+		if id == "" {
+			continue
+		}
+		if fallback == "" {
+			fallback = id
+		}
+		if firstString(pane, "agent", "agent.name") == "" {
 			return id
 		}
 	}
-	return ""
+	return fallback
+}
+
+func (a *Adapter) startAgentWhenPaneReady(ctx context.Context, args []string) (string, error) {
+	const (
+		maxAttempts = 40
+		retryDelay  = 50 * time.Millisecond
+	)
+	var out string
+	var err error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		out, err = a.run(ctx, args...)
+		if err == nil || !isAgentPaneBusy(out) {
+			return out, err
+		}
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return out, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return out, err
+}
+
+func isAgentPaneBusy(out string) bool {
+	return strings.Contains(strings.ToLower(out), "agent_pane_busy")
 }
 
 func herdrCommandError(operation, out string, err error) error {
@@ -479,11 +511,9 @@ func (a *Adapter) workspaceForLaunch(ctx context.Context, spec multiplexer.Launc
 	if label != "" {
 		args = append(args, "--label", label)
 	}
-	if a.Config.FocusOnOpen {
-		args = append(args, "--focus")
-	} else {
-		args = append(args, "--no-focus")
-	}
+	// Runtime creation is intentionally non-focusing. The lifecycle caller
+	// focuses the finished agent only after launch and prompt delivery succeed.
+	args = append(args, "--no-focus")
 	out, err = a.run(ctx, args...)
 	if err != nil {
 		return "", err
