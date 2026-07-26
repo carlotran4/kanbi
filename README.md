@@ -54,7 +54,7 @@ kanbi boards add "My Project" --cwd "$PWD"
 kanbi
 ```
 
-Select the board, press `n` to create a ticket, save it with `Ctrl+S`, then press `Enter` to start the agent. While editing a ticket body, `Ctrl+V` attaches PNG, JPEG, GIF, or WebP clipboard images and pastes text normally; pasted image file paths are copied into Kanbi's attachment storage. In the agent prompt, pasted images are labeled `[image 1]`, `[image 2]`, and so on in prompt order.
+Select the board, press `n` to create a ticket, save it with `Ctrl+S`, then press `Enter` to start the agent. While editing a ticket body, `Ctrl+V` attaches PNG, JPEG, GIF, or WebP clipboard images and pastes text normally; pasted image file paths are copied into Kanbi's attachment storage. In the agent prompt, pasted images are labeled `[image 1]`, `[image 2]`, and so on in prompt order. In ticket bodies and notes, type `@` to find a project file, use Up/Down and Enter or Tab to select it, and Kanbi inserts a textual relative path such as `@internal/tui/model.go`; it does not expand or attach file contents. Search uses the existing ticket worktree when available, otherwise the board working directory, and skips common generated dependency/build directories.
 
 Choose `shared board directory` or `isolated Git worktrees` when creating a board. Existing boards can migrate with `b`, select the board, then `t` and confirm **Enable worktrees**. This is a durable board policy: once workspace history exists it cannot be switched back; create a separate shared-directory board instead. First ticket start asks for an editable branch name and records the currently checked-out branch as its source.
 

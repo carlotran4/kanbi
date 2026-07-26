@@ -191,10 +191,12 @@ func (m Model) applyBodyClipboardPaste(msg bodyClipboardPasteMsg) Model {
 			return m
 		}
 		m.insertBodyImageReference(ref)
+		m.clearFileCompletion()
 		m.status = "attached " + filepath.Base(path)
 		return m
 	}
 	m.bodyTA.InsertString(msg.text)
+	m.clearFileCompletion()
 	if msg.text == "" {
 		m.status = "clipboard is empty"
 	} else {
@@ -236,6 +238,26 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		m.bodyPastePending = false
 		m.status = ""
 	}
+	if m.editField == 1 {
+		switch key.String() {
+		case "esc":
+			if m.dismissFileCompletion(fileCompletionBody) {
+				return m, nil
+			}
+		case "up":
+			if m.moveFileCompletion(fileCompletionBody, -1) {
+				return m, nil
+			}
+		case "down":
+			if m.moveFileCompletion(fileCompletionBody, 1) {
+				return m, nil
+			}
+		case "enter", "tab":
+			if m.selectFileCompletion(fileCompletionBody) {
+				return m, nil
+			}
+		}
+	}
 	// Notes tab (editField == 3) has its own key handling.
 	if m.editField == 3 {
 		return m.updateNotesTab(key)
@@ -244,6 +266,7 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 	case "esc":
 		m.editing = false
 		m.bodyTA.Blur()
+		m.clearFileCompletion()
 		return m, clearKittyImagesCmd()
 	case "ctrl+s":
 		if m.saveEdit() {
@@ -253,6 +276,7 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 	case "shift+tab":
 		if m.editField == 1 {
 			m.bodyTA.Blur()
+			m.clearFileCompletion()
 		}
 		m.editField--
 		if m.editField < 0 {
@@ -271,6 +295,7 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		} else {
 			if m.editField == 1 {
 				m.bodyTA.Blur()
+				m.clearFileCompletion()
 			}
 			m.editField = newField
 			if newField == 1 {
@@ -282,7 +307,7 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 			// Let textarea handle it (inserts newline).
 			var cmd tea.Cmd
 			m.bodyTA, cmd = m.bodyTA.Update(key)
-			return m, cmd
+			return m, tea.Batch(cmd, m.refreshFileCompletion(fileCompletionBody))
 		}
 		newField := m.editField + 1
 		if newField > 3 {
@@ -293,23 +318,26 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		} else {
 			if m.editField == 1 {
 				m.bodyTA.Blur()
+				m.clearFileCompletion()
 			}
 			m.editField = newField
 			if newField == 1 {
 				return m, m.bodyTA.Focus()
 			}
 		}
-	case "ctrl+E":
+	case "ctrl+e":
 		if m.editField == 1 {
 			// sync textarea value back before opening editor
 			m.editInputs[1] = NewInputBuffer(m.bodyTA.Value())
+			m.clearFileCompletion()
+			return m, m.openBodyEditor()
 		}
-		return m, m.openBodyEditor()
+		m.currentEditBuffer().HandleKey(key.String(), key.Runes)
 	default:
 		if m.editField == 1 {
 			var cmd tea.Cmd
 			m.bodyTA, cmd = m.bodyTA.Update(key)
-			return m, cmd
+			return m, tea.Batch(cmd, m.refreshFileCompletion(fileCompletionBody))
 		}
 		m.currentEditBuffer().HandleKey(key.String(), key.Runes)
 	}
@@ -331,9 +359,11 @@ func (m Model) handleBodyPaste(key tea.KeyMsg) Model {
 		var cmd tea.Cmd
 		m.bodyTA, cmd = m.bodyTA.Update(key)
 		_ = cmd
+		m.clearFileCompletion()
 		return m
 	}
 	m.insertBodyImageReference(ref)
+	m.clearFileCompletion()
 	m.status = "attached " + filepath.Base(path)
 	return m
 }
@@ -437,6 +467,12 @@ func (m Model) editView() string {
 		contentW = 30
 	}
 	descriptionLines := inspectorDescriptionLines(m.height)
+	if m.editField == 1 {
+		descriptionLines -= m.fileCompletionRenderRows(fileCompletionBody)
+		if descriptionLines < 3 {
+			descriptionLines = 3
+		}
+	}
 	t := m.editTicket
 
 	muted := lipgloss.NewStyle().Foreground(palette.muted)
@@ -493,6 +529,9 @@ func (m Model) editView() string {
 		m.bodyTA.SetWidth(contentW)
 		m.bodyTA.SetHeight(descriptionLines)
 		lines = append(lines, m.bodyTA.View())
+		if completion := m.fileCompletionView(fileCompletionBody, contentW); completion != "" {
+			lines = append(lines, completion)
+		}
 	} else {
 		body := strings.TrimSpace(m.bodyTA.Value())
 		if body == "" {
@@ -860,14 +899,40 @@ func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 	if m.noteEditing {
 		switch key.String() {
 		case "esc":
+			if m.dismissFileCompletion(fileCompletionNote) {
+				return m, nil
+			}
 			m.noteEditing = false
 			m.noteIsNew = false
+			m.clearFileCompletion()
+		case "up":
+			if m.moveFileCompletion(fileCompletionNote, -1) {
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.noteTA, cmd = m.noteTA.Update(key)
+			return m, tea.Batch(cmd, m.refreshFileCompletion(fileCompletionNote))
+		case "down":
+			if m.moveFileCompletion(fileCompletionNote, 1) {
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.noteTA, cmd = m.noteTA.Update(key)
+			return m, tea.Batch(cmd, m.refreshFileCompletion(fileCompletionNote))
+		case "enter", "tab":
+			if m.selectFileCompletion(fileCompletionNote) {
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.noteTA, cmd = m.noteTA.Update(key)
+			return m, tea.Batch(cmd, m.refreshFileCompletion(fileCompletionNote))
 		case "ctrl+s":
 			m.saveNote()
+			m.clearFileCompletion()
 		default:
 			var cmd tea.Cmd
 			m.noteTA, cmd = m.noteTA.Update(key)
-			return m, cmd
+			return m, tea.Batch(cmd, m.refreshFileCompletion(fileCompletionNote))
 		}
 		return m, nil
 	}
@@ -892,6 +957,7 @@ func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 		m.noteIsNew = true
 		m.noteEditID = 0
 		m.noteTA = newNoteTextarea("", m.width)
+		m.clearFileCompletion()
 		return m, m.noteTA.Focus()
 	case "e":
 		if len(m.notes) > 0 && m.noteIndex < len(m.notes) {
@@ -900,6 +966,7 @@ func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 			m.noteIsNew = false
 			m.noteEditID = n.ID
 			m.noteTA = newNoteTextarea(n.Body, m.width)
+			m.clearFileCompletion()
 			return m, m.noteTA.Focus()
 		}
 	case "d":
@@ -978,9 +1045,11 @@ func (m Model) notesThreadView(innerWidth int) string {
 		lines := []string{
 			lipgloss.NewStyle().Foreground(palette.accent).Render(action),
 			m.noteTA.View(),
-			"",
-			lipgloss.NewStyle().Faint(true).Render("Ctrl+S save · Esc cancel"),
 		}
+		if completion := m.fileCompletionView(fileCompletionNote, innerWidth); completion != "" {
+			lines = append(lines, completion)
+		}
+		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Ctrl+S save · Esc cancel"))
 		return strings.Join(lines, "\n")
 	}
 
