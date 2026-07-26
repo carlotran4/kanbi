@@ -67,9 +67,9 @@ KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi,codex ./scripts/real-harness-
 
 Report verification commands and results in your final response.
 
-## Commit Expectations
+## Commit And Push Expectations
 
-After completing a requested change and passing the appropriate verification, commit your own work before handing back unless the user explicitly asks not to commit. Keep commits focused: include only files you intentionally changed for the task, do not sweep in unrelated working-tree changes, and mention the commit hash in your final response.
+After completing a requested change and passing the appropriate verification, commit your own work and push the current branch to its configured upstream before handing back unless the user explicitly asks not to commit or push. Never force-push. Keep commits focused: include only files you intentionally changed for the task, do not sweep in unrelated working-tree changes, and mention the commit hash and push result in your final response. If the branch has no upstream, authentication fails, branch protection rejects the push, or the remote has diverged, stop and report the failure instead of rewriting history or claiming completion.
 
 ## Stop Conditions
 
