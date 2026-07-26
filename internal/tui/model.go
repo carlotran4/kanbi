@@ -127,6 +127,14 @@ type Model struct {
 	statusBarCtx            context.Context
 	statusBarCancel         context.CancelFunc
 
+	fileCompletion            fileCompletionState
+	fileCompletionRequest     uint64
+	fileCompletionIndexRoot   string
+	fileCompletionIndexPaths  []string
+	fileCompletionIndexLoaded bool
+	fileCompletionIndexBusy   bool
+	fileCompletionIndexReq    uint64
+
 	// Notes state (used within the edit modal, editField==3)
 	notes       []storage.Note
 	noteIndex   int
@@ -274,6 +282,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 	case bodyClipboardPasteMsg:
 		return m.applyBodyClipboardPaste(msg), nil
+	case fileCompletionResultMsg:
+		m.applyFileCompletionResult(msg)
+		return m, nil
 	case openExternalTicketMsg:
 		if msg.err != nil {
 			m.setActionError("open GitHub issue", msg.err, "Check the ticket URL and your browser configuration, then press g to retry.")
@@ -755,6 +766,8 @@ func (m *Model) startEdit() {
 	m.editField = 0
 	m.bodyPasteRequest++
 	m.bodyPastePending = false
+	m.clearFileCompletion()
+	m.resetFileCompletionIndex()
 	m.editInputs = [3]InputBuffer{
 		NewInputBuffer(t.Title),
 		NewInputBuffer(t.Body),
