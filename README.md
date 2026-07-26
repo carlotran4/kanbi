@@ -2,6 +2,15 @@
 
 **A keyboard-first command center for coding agents.**
 
+<p align="center">
+  <a href="#what-it-supports"><img alt="Linux" src="https://img.shields.io/badge/Linux-supported-blue.svg" /></a>
+  <a href="#what-it-supports"><img alt="macOS" src="https://img.shields.io/badge/macOS-supported-blue.svg" /></a>
+  <a href="#what-it-supports"><img alt="Pi" src="https://img.shields.io/badge/Pi-supported-blueviolet.svg" /></a>
+  <a href="#what-it-supports"><img alt="Codex" src="https://img.shields.io/badge/Codex-supported-blueviolet.svg" /></a>
+  <a href="#what-it-supports"><img alt="GitHub Copilot CLI" src="https://img.shields.io/badge/GitHub_Copilot_CLI-supported-blueviolet.svg" /></a>
+  <a href="#what-it-supports"><img alt="Claude Code" src="https://img.shields.io/badge/Claude_Code-supported-blueviolet.svg" /></a>
+</p>
+
 Kanbi puts Pi, Codex, Copilot, and Claude sessions on a Kanban board. Each ticket opens in its own terminal session, keeps its project context, and shows whether the agent is running, waiting for input, asking permission, or ready to resume.
 
 Use separate boards for separate projects, or supervise everything from one Master view.
