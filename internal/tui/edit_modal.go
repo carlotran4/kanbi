@@ -439,12 +439,6 @@ func (m *Model) currentEditBuffer() *InputBuffer {
 	return &m.editInputs[m.editField]
 }
 
-func renderWithCursor(value string, cursor int) string {
-	buf := NewInputBuffer(value)
-	buf.SetCursor(cursor)
-	return buf.Render()
-}
-
 func newBodyTextarea(value string, termWidth int) textarea.Model {
 	ta := textarea.New()
 	ta.SetValue(value)

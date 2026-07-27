@@ -39,7 +39,7 @@ func TestMasterFilterModalAppliesSearchAndClear(t *testing.T) {
 	}
 
 	model, _ = mustUpdate(t, model, "f")
-	model, _ = mustUpdate(t, model, "C")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlL})
 	if model.masterFilterOpen || !model.masterFilter.Empty() {
 		t.Fatalf("clear should close modal and reset filters")
 	}
@@ -148,7 +148,7 @@ func TestMasterFilterPresetSaveApplyDelete(t *testing.T) {
 	model.reload()
 	model, _ = mustUpdate(t, model, "f")
 	model.masterFilterDraft.Search = "codex"
-	model, _ = mustUpdate(t, model, "S")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlS})
 	if model.filterPresetMode != "save" {
 		t.Fatalf("expected filter preset save mode, got %q status=%s", model.filterPresetMode, model.status)
 	}
@@ -164,7 +164,7 @@ func TestMasterFilterPresetSaveApplyDelete(t *testing.T) {
 	// Clear and re-apply.
 	model, _ = mustUpdate(t, model, "C")
 	model, _ = mustUpdate(t, model, "f")
-	model, _ = mustUpdate(t, model, "P")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlP})
 	if model.filterPresetMode != "list" {
 		t.Fatalf("expected preset list mode status=%s mode=%q", model.status, model.filterPresetMode)
 	}

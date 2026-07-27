@@ -1023,6 +1023,110 @@ func TestModelEditTicketUsesCursorAwareBuffer(t *testing.T) {
 	}
 }
 
+func TestModelBranchNameUsesCursorAwareBuffer(t *testing.T) {
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
+	model.branchNaming = true
+	model.branchName = NewInputBuffer("abcd")
+
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	model, _ = mustUpdate(t, model, "X")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyDelete})
+
+	if got, want := model.branchName.Value(), "abXd"; got != want {
+		t.Fatalf("branch name = %q, want %q", got, want)
+	}
+}
+
+func TestSingleLineModalInputsShareCursorEditing(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(Model) Model
+		value func(Model) string
+	}{
+		{name: "board rename", setup: func(m Model) Model { m.boardRenaming = true; m.boardRenameName = NewInputBuffer("abcd"); return m }, value: func(m Model) string { return m.boardRenameName.Value() }},
+		{name: "board name", setup: func(m Model) Model {
+			m.boardEditing = true
+			m.boardEditAction = "create"
+			m.boardEditField = 0
+			m.boardEditName = NewInputBuffer("abcd")
+			return m
+		}, value: func(m Model) string { return m.boardEditName.Value() }},
+		{name: "board cwd", setup: func(m Model) Model {
+			m.boardEditing = true
+			m.boardEditAction = "cwd"
+			m.boardEditField = 1
+			m.boardEditCWD = NewInputBuffer("abcd")
+			return m
+		}, value: func(m Model) string { return m.boardEditCWD.Value() }},
+		{name: "export path", setup: func(m Model) Model { m.boardExporting = true; m.boardExportPath = NewInputBuffer("abcd"); return m }, value: func(m Model) string { return m.boardExportPath.Value() }},
+		{name: "import path", setup: func(m Model) Model { m.boardImporting = true; m.boardImportPath = NewInputBuffer("abcd"); return m }, value: func(m Model) string { return m.boardImportPath.Value() }},
+		{name: "import rename", setup: func(m Model) Model {
+			m.boardImporting = true
+			m.boardImportField = 1
+			m.boardImportName = NewInputBuffer("abcd")
+			return m
+		}, value: func(m Model) string { return m.boardImportName.Value() }},
+		{name: "filter preset", setup: func(m Model) Model {
+			m.masterFilterOpen = true
+			m.filterPresetMode = "save"
+			m.filterPresetName = NewInputBuffer("abcd")
+			return m
+		}, value: func(m Model) string { return m.filterPresetName.Value() }},
+		{name: "session ref", setup: func(m Model) Model {
+			m.repairing = true
+			m.repairEditingRef = true
+			m.repairRef = NewInputBuffer("abcd")
+			return m
+		}, value: func(m Model) string { return m.repairRef.Value() }},
+		{name: "Master search", setup: func(m Model) Model {
+			m.masterFilterOpen = true
+			m.masterFilterField = 0
+			m.masterFilterSearch = NewInputBuffer("abcd")
+			m.masterFilterDraft.Search = "abcd"
+			return m
+		}, value: func(m Model) string { return m.masterFilterDraft.Search }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, ctx := newTestStore(t)
+			model := tt.setup(New(ctx, NewService(store, nil)))
+			model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+			model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+			model, _ = mustUpdate(t, model, "X")
+			model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyDelete})
+			if got, want := tt.value(model), "abXd"; got != want {
+				t.Fatalf("value = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestBoardNameAndMasterSearchAcceptSpacesAndShortcutLetters(t *testing.T) {
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
+	model.boardEditing = true
+	model.boardEditAction = "create"
+	model.boardEditField = 0
+	model.boardEditName = NewInputBuffer("Alpha")
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = mustUpdate(t, model, "Beta")
+	if got, want := model.boardEditName.Value(), "Alpha Beta"; got != want {
+		t.Fatalf("board name = %q, want %q", got, want)
+	}
+
+	model.boardEditing = false
+	model.masterFilterOpen = true
+	model.masterFilterField = 0
+	model.masterFilterSearch = NewInputBuffer("")
+	model, _ = mustUpdate(t, model, "C S P search")
+	if got, want := model.masterFilterDraft.Search, "C S P search"; got != want {
+		t.Fatalf("Master search = %q, want %q", got, want)
+	}
+}
+
 func TestModelColumnEditUsesCursorAwareBuffer(t *testing.T) {
 	store, ctx := newTestStore(t)
 
@@ -1746,7 +1850,7 @@ func TestRenameBoardFromTUIBoardPicker(t *testing.T) {
 	if !model.boardRenaming || !model.boardRenameReturnPicker {
 		t.Fatalf("picker rename modal not shown")
 	}
-	model.boardRenameName = "Again"
+	model.boardRenameName = NewInputBuffer("Again")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	if !model.boardPicker || !strings.Contains(model.View(), "Again") {
 		t.Fatalf("should return to picker with renamed board:\n%s", model.View())
@@ -1758,8 +1862,8 @@ func TestBoardCreateShowsWorkdirErrorInModal(t *testing.T) {
 	model := New(ctx, NewService(store, nil))
 	model, _ = mustUpdate(t, model, "b")
 	model, _ = mustUpdate(t, model, "c")
-	model.boardEditName = "Client"
-	model.boardEditCWD = t.TempDir() + "/missing"
+	model.boardEditName = NewInputBuffer("Client")
+	model.boardEditCWD = NewInputBuffer(t.TempDir() + "/missing")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	if !model.boardEditing {
 		t.Fatalf("modal should stay open after invalid cwd")
@@ -1778,8 +1882,8 @@ func TestBoardPickerCreateSetCWDAndDeleteBoard(t *testing.T) {
 	if !model.boardEditing || model.boardEditAction != "create" {
 		t.Fatalf("create modal not shown")
 	}
-	model.boardEditName = "Client"
-	model.boardEditCWD = cwd
+	model.boardEditName = NewInputBuffer("Client")
+	model.boardEditCWD = NewInputBuffer(cwd)
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	if !model.boardPicker || !strings.Contains(model.View(), "Client") {
 		t.Fatalf("created board missing from picker:\n%s", model.View())
@@ -1794,7 +1898,7 @@ func TestBoardPickerCreateSetCWDAndDeleteBoard(t *testing.T) {
 	if !model.boardEditing || model.boardEditAction != "cwd" {
 		t.Fatalf("cwd modal not shown")
 	}
-	model.boardEditCWD = newCWD
+	model.boardEditCWD = NewInputBuffer(newCWD)
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	b, _ = store.BoardByName(ctx, "Client")
 	if b.Workdir != newCWD {

@@ -29,6 +29,7 @@ type Model struct {
 	masterBoard             bool
 	masterFilter            storage.MasterFilter
 	masterFilterDraft       storage.MasterFilter
+	masterFilterSearch      InputBuffer
 	masterFilterOpen        bool
 	masterFilterField       int
 	masterFilterHarnesses   []string
@@ -39,12 +40,12 @@ type Model struct {
 	boardRenaming           bool
 	boardRenameReturnPicker bool
 	boardRenameID           int64
-	boardRenameName         string
+	boardRenameName         InputBuffer
 	boardEditing            bool
 	boardEditAction         string // create or cwd
 	boardEditID             int64
-	boardEditName           string
-	boardEditCWD            string
+	boardEditName           InputBuffer
+	boardEditCWD            InputBuffer
 	boardEditMode           string
 	boardEditField          int
 	boardWorktreeEnabling   bool
@@ -59,13 +60,13 @@ type Model struct {
 	filterPresets           []storage.MasterFilterPreset
 	filterPresetIndex       int
 	filterPresetMode        string // "", "list", "save"
-	filterPresetName        string
+	filterPresetName        InputBuffer
 	boardShowArchived       bool
 	boardExporting          bool
-	boardExportPath         string
+	boardExportPath         InputBuffer
 	boardImporting          bool
-	boardImportPath         string
-	boardImportName         string
+	boardImportPath         InputBuffer
+	boardImportName         InputBuffer
 	boardImportField        int
 	boardImportPreviewed    bool
 	col                     int
@@ -94,7 +95,7 @@ type Model struct {
 	promptTicket            storage.Ticket
 	repairing               bool
 	repairEditingRef        bool
-	repairRef               string
+	repairRef               InputBuffer
 	repairTicket            storage.Ticket
 	repairReason            string
 	showHelp                bool
@@ -107,7 +108,7 @@ type Model struct {
 	reconcileWarning        string
 	branchNaming            bool
 	branchTicket            storage.Ticket
-	branchName              string
+	branchName              InputBuffer
 	branchPreflight         storage.WorkspacePreflight
 	branchConfirmed         bool
 	branchSendPrompt        bool
@@ -807,7 +808,7 @@ func (m *Model) defaultTicketCmd() tea.Cmd {
 		}
 		m.branchNaming = true
 		m.branchTicket = t
-		m.branchName = branch
+		m.branchName = NewInputBuffer(branch)
 		m.branchPreflight = preflight
 		m.branchConfirmed = false
 		m.branchSendPrompt = sendPrompt
@@ -865,12 +866,8 @@ func (m Model) updateBranchName(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.branchNaming = false
 		m.status = "workspace creation cancelled"
 		return m, nil
-	case "backspace":
-		m.branchName = popRune(m.branchName)
-		m.branchConfirmed = false
-		return m, nil
 	case "enter":
-		preflight, err := m.actions.PreflightTicketWorkspace(m.ctx, m.branchTicket, strings.TrimSpace(m.branchName))
+		preflight, err := m.actions.PreflightTicketWorkspace(m.ctx, m.branchTicket, strings.TrimSpace(m.branchName.Value()))
 		if err != nil {
 			m.status = err.Error()
 			m.branchConfirmed = false
@@ -900,8 +897,9 @@ func (m Model) updateBranchName(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.openTicketCmd(m.branchTicket, m.branchSendPrompt)
 	default:
-		if len(key.Runes) > 0 {
-			m.branchName += string(key.Runes)
+		before := m.branchName.Value()
+		m.branchName.HandleKey(key.String(), key.Runes)
+		if m.branchName.Value() != before {
 			m.branchConfirmed = false
 		}
 		return m, nil

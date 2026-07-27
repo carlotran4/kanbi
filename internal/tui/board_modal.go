@@ -34,7 +34,7 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 		m.boardRenaming = true
 		m.boardRenameReturnPicker = true
 		m.boardRenameID = b.ID
-		m.boardRenameName = b.Name
+		m.boardRenameName = NewInputBuffer(b.Name)
 	case "w":
 		if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
 			m.status = "choose a real board to set cwd"
@@ -122,12 +122,12 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 			return m
 		}
 		m.boardExporting = true
-		m.boardExportPath = ""
+		m.boardExportPath = NewInputBuffer("")
 		return m
 	case "i":
 		m.boardImporting = true
-		m.boardImportPath = ""
-		m.boardImportName = ""
+		m.boardImportPath = NewInputBuffer("")
+		m.boardImportName = NewInputBuffer("")
 		m.boardImportField = 0
 		m.boardImportPreviewed = false
 		return m
@@ -298,7 +298,7 @@ func (m *Model) startCurrentBoardRename(returnPicker bool) {
 	m.boardRenaming = true
 	m.boardRenameReturnPicker = returnPicker
 	m.boardRenameID = m.view.Board.ID
-	m.boardRenameName = m.view.Board.Name
+	m.boardRenameName = NewInputBuffer(m.view.Board.Name)
 }
 
 func (m Model) updateBoardRename(key tea.KeyMsg) Model {
@@ -306,7 +306,7 @@ func (m Model) updateBoardRename(key tea.KeyMsg) Model {
 	case "esc":
 		m.boardRenaming = false
 	case "enter":
-		name := strings.TrimSpace(m.boardRenameName)
+		name := strings.TrimSpace(m.boardRenameName.Value())
 		if err := m.actions.RenameBoard(m.ctx, m.boardRenameID, name); err != nil {
 			m.status = err.Error()
 			return m
@@ -320,12 +320,8 @@ func (m Model) updateBoardRename(key tea.KeyMsg) Model {
 		if m.boardRenameReturnPicker {
 			m.boardPicker = true
 		}
-	case "backspace":
-		m.boardRenameName = popRune(m.boardRenameName)
 	default:
-		if len(key.Runes) > 0 {
-			m.boardRenameName += string(key.Runes)
-		}
+		m.boardRenameName.HandleKey(key.String(), key.Runes)
 	}
 	return m
 }
@@ -333,7 +329,7 @@ func (m Model) updateBoardRename(key tea.KeyMsg) Model {
 func (m Model) boardRenameView() string {
 	content := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Rename board") +
 		"\n\n" +
-		fmt.Sprintf("%s name: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), renderWithCursor(m.boardRenameName, len([]rune(m.boardRenameName)))) +
+		fmt.Sprintf("%s name: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), m.boardRenameName.Render()) +
 		"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel")
 	popupW := popupWidth(m.width)
 	return lipgloss.NewStyle().
@@ -349,8 +345,8 @@ func (m *Model) startBoardCreate() {
 	m.boardEditing = true
 	m.boardEditAction = "create"
 	m.boardEditID = 0
-	m.boardEditName = ""
-	m.boardEditCWD = cwd
+	m.boardEditName = NewInputBuffer("")
+	m.boardEditCWD = NewInputBuffer(cwd)
 	m.boardEditMode = storage.WorktreeModeOff
 	m.boardEditField = 0
 }
@@ -359,8 +355,8 @@ func (m *Model) startBoardCWD(board storage.Board) {
 	m.boardEditing = true
 	m.boardEditAction = "cwd"
 	m.boardEditID = board.ID
-	m.boardEditName = board.Name
-	m.boardEditCWD = board.Workdir
+	m.boardEditName = NewInputBuffer(board.Name)
+	m.boardEditCWD = NewInputBuffer(board.Workdir)
 	m.boardEditField = 1
 }
 
@@ -379,42 +375,45 @@ func (m Model) updateBoardEdit(key tea.KeyMsg) Model {
 			} else {
 				m.boardEditMode = storage.WorktreeModeGit
 			}
+		} else if input := m.currentBoardEditInput(); input != nil {
+			input.HandleKey(key.String(), key.Runes)
 		}
 	case "enter":
 		switch m.boardEditAction {
 		case "create":
-			created, err := m.actions.CreateBoardWithWorkdirMode(m.ctx, strings.TrimSpace(m.boardEditName), strings.TrimSpace(m.boardEditCWD), m.boardEditMode)
+			created, err := m.actions.CreateBoardWithWorkdirMode(m.ctx, strings.TrimSpace(m.boardEditName.Value()), strings.TrimSpace(m.boardEditCWD.Value()), m.boardEditMode)
 			if err != nil {
 				m.status = err.Error()
 				return m
 			}
 			m.status = "created board " + created.Name
 		case "cwd":
-			if err := m.actions.SetBoardWorkdir(m.ctx, m.boardEditID, strings.TrimSpace(m.boardEditCWD)); err != nil {
+			if err := m.actions.SetBoardWorkdir(m.ctx, m.boardEditID, strings.TrimSpace(m.boardEditCWD.Value())); err != nil {
 				m.status = err.Error()
 				return m
 			}
-			m.status = "updated cwd " + m.boardEditName
+			m.status = "updated cwd " + m.boardEditName.Value()
 		}
 		m.boardEditing = false
 		m.reloadBoards()
 		m.boardPicker = true
-	case "backspace":
-		if m.boardEditField == 0 {
-			m.boardEditName = popRune(m.boardEditName)
-		} else if m.boardEditField == 1 {
-			m.boardEditCWD = popRune(m.boardEditCWD)
-		}
 	default:
-		if len(key.Runes) > 0 {
-			if m.boardEditField == 0 {
-				m.boardEditName += string(key.Runes)
-			} else if m.boardEditField == 1 {
-				m.boardEditCWD += string(key.Runes)
-			}
+		if input := m.currentBoardEditInput(); input != nil {
+			input.HandleKey(key.String(), key.Runes)
 		}
 	}
 	return m
+}
+
+func (m *Model) currentBoardEditInput() *InputBuffer {
+	switch m.boardEditField {
+	case 0:
+		return &m.boardEditName
+	case 1:
+		return &m.boardEditCWD
+	default:
+		return nil
+	}
 }
 
 func (m Model) boardEditView() string {
@@ -426,14 +425,14 @@ func (m Model) boardEditView() string {
 		}
 		return " "
 	}
-	render := func(field int, value string) string {
+	render := func(field int, input InputBuffer) string {
 		if m.boardEditField == field {
-			return renderWithCursor(value, len([]rune(value)))
+			return input.Render()
 		}
-		return value
+		return input.Value()
 	}
 	if m.boardEditAction == "cwd" {
-		header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Set board cwd for " + m.boardEditName)
+		header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Set board cwd for " + m.boardEditName.Value())
 		lines = append(lines, header, "")
 		if m.status != "" {
 			lines = append(lines, statusStyle.Render(m.status), "")
@@ -495,7 +494,7 @@ func (m Model) updateBoardExport(key tea.KeyMsg) Model {
 	case "esc":
 		m.boardExporting = false
 	case "enter":
-		path := strings.TrimSpace(m.boardExportPath)
+		path := strings.TrimSpace(m.boardExportPath.Value())
 		if path == "" {
 			m.status = "export path is required"
 			return m
@@ -512,12 +511,8 @@ func (m Model) updateBoardExport(key tea.KeyMsg) Model {
 		}
 		m.status = "exported " + b.Name + " to " + path
 		m.boardExporting = false
-	case "backspace":
-		m.boardExportPath = popRune(m.boardExportPath)
 	default:
-		if len(key.Runes) > 0 {
-			m.boardExportPath += string(key.Runes)
-		}
+		m.boardExportPath.HandleKey(key.String(), key.Runes)
 	}
 	return m
 }
@@ -526,7 +521,7 @@ func (m Model) boardExportView() string {
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Export board package"),
 		"",
-		"path: " + renderWithCursor(m.boardExportPath, len([]rune(m.boardExportPath))),
+		"path: " + m.boardExportPath.Render(),
 		"",
 		lipgloss.NewStyle().Faint(true).Render("Writes a kanbi-board-package zip. Active sessions block export. Enter export · Esc cancel"),
 	}
@@ -546,7 +541,7 @@ func (m Model) updateBoardImport(key tea.KeyMsg) Model {
 	case "tab":
 		m.boardImportField = (m.boardImportField + 1) % 2
 	case "enter":
-		path := strings.TrimSpace(m.boardImportPath)
+		path := strings.TrimSpace(m.boardImportPath.Value())
 		if path == "" {
 			m.status = "import path is required"
 			return m
@@ -559,12 +554,12 @@ func (m Model) updateBoardImport(key tea.KeyMsg) Model {
 			}
 			m.boardImportPreviewed = true
 			m.status = fmt.Sprintf("preview %s tickets=%d notes=%d attachments=%d collision=%v · Enter to import", report.BoardName, report.TicketCount, report.NoteCount, report.AttachmentCount, report.NameCollision)
-			if report.NameCollision && strings.TrimSpace(m.boardImportName) == "" {
+			if report.NameCollision && strings.TrimSpace(m.boardImportName.Value()) == "" {
 				m.status += " (set rename first)"
 			}
 			return m
 		}
-		result, err := m.actions.ImportBoardPackage(m.ctx, path, boardpackage.ImportOptions{NameOverride: strings.TrimSpace(m.boardImportName)})
+		result, err := m.actions.ImportBoardPackage(m.ctx, path, boardpackage.ImportOptions{NameOverride: strings.TrimSpace(m.boardImportName.Value())})
 		if err != nil {
 			m.status = err.Error()
 			return m
@@ -573,20 +568,14 @@ func (m Model) updateBoardImport(key tea.KeyMsg) Model {
 		m.boardImporting = false
 		m.reloadBoards()
 		m.boardPicker = true
-	case "backspace":
-		if m.boardImportField == 0 {
-			m.boardImportPath = popRune(m.boardImportPath)
-		} else {
-			m.boardImportName = popRune(m.boardImportName)
-		}
-		m.boardImportPreviewed = false
 	default:
-		if len(key.Runes) > 0 {
-			if m.boardImportField == 0 {
-				m.boardImportPath += string(key.Runes)
-			} else {
-				m.boardImportName += string(key.Runes)
-			}
+		input := &m.boardImportPath
+		if m.boardImportField == 1 {
+			input = &m.boardImportName
+		}
+		before := input.Value()
+		input.HandleKey(key.String(), key.Runes)
+		if input.Value() != before {
 			m.boardImportPreviewed = false
 		}
 	}
@@ -594,14 +583,14 @@ func (m Model) updateBoardImport(key tea.KeyMsg) Model {
 }
 
 func (m Model) boardImportView() string {
-	pathLine := "path: " + m.boardImportPath
-	nameLine := "rename: " + m.boardImportName
+	pathLine := "path: " + m.boardImportPath.Value()
+	nameLine := "rename: " + m.boardImportName.Value()
 	if m.boardImportField == 0 {
-		pathLine = "> path: " + renderWithCursor(m.boardImportPath, len([]rune(m.boardImportPath)))
-		nameLine = "  rename: " + m.boardImportName
+		pathLine = "> path: " + m.boardImportPath.Render()
+		nameLine = "  rename: " + m.boardImportName.Value()
 	} else {
-		pathLine = "  path: " + m.boardImportPath
-		nameLine = "> rename: " + renderWithCursor(m.boardImportName, len([]rune(m.boardImportName)))
+		pathLine = "  path: " + m.boardImportPath.Value()
+		nameLine = "> rename: " + m.boardImportName.Render()
 	}
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Import board package"),
