@@ -570,7 +570,7 @@ func (m Model) branchNameView() string {
 		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Branch name"),
 		"",
 		"Source: " + p.SourceBranch,
-		"> " + renderWithCursor(m.branchName, len([]rune(m.branchName))),
+		"> " + m.branchName.Render(),
 	}
 	if p.SourceDirty {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(palette.warning).Render("Source has uncommitted changes; they are not included."))

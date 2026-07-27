@@ -83,6 +83,8 @@ func (b *InputBuffer) HandleKey(name string, runes []rune) bool {
 		b.Home()
 	case "end", "ctrl+e":
 		b.End()
+	case " ":
+		b.Insert(" ")
 	default:
 		if len(runes) == 0 {
 			return false
@@ -135,12 +137,4 @@ func (b *InputBuffer) clampCursor() {
 	if max := len([]rune(b.value)); b.cursor > max {
 		b.cursor = max
 	}
-}
-
-func popRune(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	return string(r[:len(r)-1])
 }

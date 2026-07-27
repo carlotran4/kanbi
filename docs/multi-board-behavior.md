@@ -107,7 +107,7 @@ Available filters:
 - Search: case-insensitive text search over ticket display id, title, body, board name, and harness.
 - Archived: off by default; toggle `show archived` to include archived tickets in Master queries.
 
-Active filters are shown in the Master header as `filter: ...`. Filter-panel edits remain a draft until `Enter` applies them; `Esc` cancels the draft without changing the active filter or Master results. Press `C` in the filter panel to clear all filters. Runtime filters are not auto-applied on process startup. Named presets can be saved (`S`) and applied (`P`) from the filter panel; preset board selection is stored by stable board UUID. Unresolved UUIDs surface as missing boards instead of being silently dropped. Named-board filters remain out of scope.
+Active filters are shown in the Master header as `filter: ...`. Filter-panel edits remain a draft until `Enter` applies them; `Esc` cancels the draft without changing the active filter or Master results. Press `Ctrl+L` in the filter panel to clear all filters. Runtime filters are not auto-applied on process startup. Named presets can be saved (`Ctrl+S`) and applied (`Ctrl+P`) from the filter panel; preset board selection is stored by stable board UUID. Unresolved UUIDs surface as missing boards instead of being silently dropped. Named-board filters remain out of scope.
 
 Master cards include board context:
 

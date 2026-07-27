@@ -18,6 +18,7 @@ func (m *Model) startMasterFilter() {
 	m.reloadBoards()
 	m.reloadMasterFilterOptions()
 	m.masterFilterDraft = cloneMasterFilter(m.masterFilter)
+	m.masterFilterSearch = NewInputBuffer(m.masterFilterDraft.Search)
 	m.masterFilterOpen = true
 	m.masterFilterField = 0
 }
@@ -73,19 +74,15 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 				m.status = err.Error()
 				return m
 			}
-			p, err := m.actions.SaveFilterPreset(m.ctx, strings.TrimSpace(m.filterPresetName), durable)
+			p, err := m.actions.SaveFilterPreset(m.ctx, strings.TrimSpace(m.filterPresetName.Value()), durable)
 			if err != nil {
 				m.status = err.Error()
 				return m
 			}
 			m.filterPresetMode = ""
 			m.status = "saved filter preset " + p.Name
-		case "backspace":
-			m.filterPresetName = popRune(m.filterPresetName)
 		default:
-			if len(key.Runes) > 0 {
-				m.filterPresetName += string(key.Runes)
-			}
+			m.filterPresetName.HandleKey(key.String(), key.Runes)
 		}
 		return m
 	}
@@ -144,6 +141,16 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 		}
 		return m
 	}
+	if m.masterFilterField == 0 {
+		switch key.String() {
+		case "esc", "enter", "up", "down", "ctrl+l", "ctrl+s", "ctrl+p":
+			// Modal controls remain available while search is focused.
+		default:
+			m.masterFilterSearch.HandleKey(key.String(), key.Runes)
+			m.masterFilterDraft.Search = m.masterFilterSearch.Value()
+			return m
+		}
+	}
 	max := 2 + len(m.boards) + len(m.masterFilterRuntimes) + len(m.masterFilterHarnesses) - 1
 	if max < 1 {
 		max = 1
@@ -157,18 +164,19 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 		m.activePresetName = ""
 		m.status = "applied Master filters"
 		m.reload()
-	case "C":
+	case "C", "ctrl+l":
 		m.masterFilter = storage.MasterFilter{}
 		m.masterFilterDraft = storage.MasterFilter{}
+		m.masterFilterSearch = NewInputBuffer("")
 		m.activePresetName = ""
 		m.masterFilterOpen = false
 		m.status = "cleared Master filters"
 		m.reload()
-	case "S":
+	case "S", "ctrl+s":
 		m.filterPresetMode = "save"
-		m.filterPresetName = ""
+		m.filterPresetName = NewInputBuffer("")
 		return m
-	case "P":
+	case "P", "ctrl+p":
 		presets, err := m.actions.ListFilterPresets(m.ctx)
 		if err != nil {
 			m.status = err.Error()
@@ -190,14 +198,6 @@ func (m Model) updateMasterFilter(key tea.KeyMsg) Model {
 		}
 	case " ":
 		m.toggleMasterFilterField()
-	case "backspace":
-		if m.masterFilterField == 0 {
-			m.masterFilterDraft.Search = popRune(m.masterFilterDraft.Search)
-		}
-	default:
-		if m.masterFilterField == 0 && len(key.Runes) > 0 {
-			m.masterFilterDraft.Search += string(key.Runes)
-		}
 	}
 	return m
 }
@@ -234,7 +234,11 @@ func (m Model) masterFilterView() string {
 		}
 		return "  " + text
 	}
-	lines = append(lines, row(0, "search: "+renderWithCursor(m.masterFilterDraft.Search, len([]rune(m.masterFilterDraft.Search)))))
+	search := m.masterFilterDraft.Search
+	if m.masterFilterField == 0 {
+		search = m.masterFilterSearch.Render()
+	}
+	lines = append(lines, row(0, "search: "+search))
 	archived := "[ ] show archived"
 	if m.masterFilterDraft.IncludeArchived {
 		archived = "[x] show archived"
@@ -262,9 +266,9 @@ func (m Model) masterFilterView() string {
 		lines = append(lines, row(idx, rowText(hasString(m.masterFilterDraft.Harnesses, harness), harness)))
 		idx++
 	}
-	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · C clear · S save preset · P presets · Esc cancel"))
+	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · Ctrl+L clear · Ctrl+S save preset · Ctrl+P presets · Esc cancel"))
 	if m.filterPresetMode == "save" {
-		lines = append(lines, "", "Save preset name: "+renderWithCursor(m.filterPresetName, len([]rune(m.filterPresetName))))
+		lines = append(lines, "", "Save preset name: "+m.filterPresetName.Render())
 	}
 	if m.filterPresetMode == "list" {
 		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Presets (Enter apply · d delete · Esc back)"))

@@ -39,7 +39,7 @@ func (m *Model) startRepair(ticket storage.Ticket, err error) {
 	m.repairing = true
 	m.repairEditingRef = false
 	m.repairTicket = ticket
-	m.repairRef = ""
+	m.repairRef = NewInputBuffer("")
 	m.repairReason = err.Error()
 	m.status = err.Error()
 }
@@ -50,13 +50,13 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 		case "esc":
 			m.repairEditingRef = false
 		case "enter":
-			if err := m.actions.UpdateSessionRef(m.ctx, m.repairTicket, strings.TrimSpace(m.repairRef)); err != nil {
+			if err := m.actions.UpdateSessionRef(m.ctx, m.repairTicket, strings.TrimSpace(m.repairRef.Value())); err != nil {
 				m.status = err.Error()
 				return m
 			}
 			updated := m.repairTicket
-			updated.SessionRef.Valid = strings.TrimSpace(m.repairRef) != ""
-			updated.SessionRef.String = strings.TrimSpace(m.repairRef)
+			updated.SessionRef.Valid = strings.TrimSpace(m.repairRef.Value()) != ""
+			updated.SessionRef.String = strings.TrimSpace(m.repairRef.Value())
 			if updated.SessionRef.Valid {
 				if err := m.actions.OpenTicket(m.ctx, updated, false); err != nil {
 					m.status = err.Error()
@@ -66,12 +66,8 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 			m.repairing = false
 			m.status = "updated session ref " + m.repairTicket.DisplayID
 			m.reload()
-		case "backspace":
-			m.repairRef = popRune(m.repairRef)
 		default:
-			if len(key.Runes) > 0 {
-				m.repairRef += string(key.Runes)
-			}
+			m.repairRef.HandleKey(key.String(), key.Runes)
 		}
 		return m
 	}
@@ -81,7 +77,7 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 		m.status = "cancelled repair"
 	case "e":
 		m.repairEditingRef = true
-		m.repairRef = ""
+		m.repairRef = NewInputBuffer("")
 	case "f":
 		if err := m.actions.StartFreshTicket(m.ctx, m.repairTicket, true); err != nil {
 			m.status = err.Error()
@@ -125,7 +121,7 @@ func (m Model) repairView() string {
 	if m.repairEditingRef {
 		content := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Edit session ref for "+m.repairTicket.DisplayID) +
 			"\n\n" +
-			fmt.Sprintf("%s ref: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), renderWithCursor(m.repairRef, len([]rune(m.repairRef)))) +
+			fmt.Sprintf("%s ref: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), m.repairRef.Render()) +
 			"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc back")
 		return lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
