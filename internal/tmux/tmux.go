@@ -638,6 +638,26 @@ func (m *Manager) WaitAndSendPrompt(ctx context.Context, adapter multiplexer.Int
 	return adapter.SendKeys(ctx, ref, "Enter")
 }
 
+// SendTicketMessage sends literal text to the ticket's durable container. It is
+// used for an explicit paused-work handoff after the normal resume succeeds.
+func (m *Manager) SendTicketMessage(ctx context.Context, ticket storage.Ticket, text string) error {
+	ref := ContainerRefFromTicket(ticket)
+	if ref.Target() == "" {
+		return ErrWindowMissing
+	}
+	if ref.Kind == multiplexer.KindHerdr {
+		if err := m.herdrAdapter().SendText(ctx, ref, text); err != nil {
+			return err
+		}
+		return m.herdrAdapter().SendKeys(ctx, ref, "Enter")
+	}
+	adapter := NewMultiplexerAdapter(m)
+	if err := adapter.SendText(ctx, ref, text); err != nil {
+		return err
+	}
+	return adapter.SendKeys(ctx, ref, "Enter")
+}
+
 func (m *Manager) PastePromptNow(ctx context.Context, windowName, text string) error {
 	if _, err := m.run(ctx, "set-buffer", "--", text); err != nil {
 		return err

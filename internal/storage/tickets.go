@@ -94,6 +94,14 @@ func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, h
 	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=?`, boardID); err != nil {
 		return Ticket{}, err
 	}
+	policy := s.FocusPolicy()
+	if isFocus, err := focusColumnTx(ctx, tx, columnID, policy); err != nil {
+		return Ticket{}, err
+	} else if isFocus {
+		if err := requireFocusCapacity(ctx, tx, policy); err != nil {
+			return Ticket{}, err
+		}
+	}
 	var next int
 	if err := tx.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&next); err != nil {
 		return Ticket{}, err
@@ -193,6 +201,9 @@ func (s *Store) MoveTicket(ctx context.Context, ticketID, toColumnID int64) erro
 	}
 	if ticketBoardID != columnBoardID {
 		return errors.New("cannot move a ticket to a column on another board")
+	}
+	if err := s.pauseStateForColumnMove(ctx, tx, ticketID, toColumnID, s.FocusPolicy()); err != nil {
+		return err
 	}
 	if err := visibleTicketOrder.moveToFront(ctx, tx, ticketID, toColumnID); err != nil {
 		return err

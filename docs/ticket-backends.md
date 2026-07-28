@@ -138,6 +138,10 @@ Jira sync behavior:
 - Follows Jira issue-search cursor pagination and comment offset pagination (`maxResults=100`) so every page is projected; malformed continuation metadata fails the sync rather than silently accepting a partial result.
 - Does not sync terminal containers, sessions, harness refs, runtime state, or other local session history.
 
+## Focus Mode Metadata
+
+Paused state and append-only pause checkpoints are local Kanbi metadata. They never map to GitHub issue state, workflow labels, or comments, nor to Jira status or comments. Provider-owned workflow transitions remain authoritative: sync may move an unpaused ticket into a configured focus column even when the limit is full. Kanbi preserves that transition, projects an explicit over-capacity state, and waits for a user checkpoint/pause rather than rejecting or rewriting remote metadata. A provider move outside configured focus columns clears the local open paused state while preserving checkpoint history.
+
 ## Current Non-Goals
 
 - No Asana API calls are implemented yet.

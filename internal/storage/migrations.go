@@ -25,6 +25,7 @@ var migrations = []migration{
 	{version: 5, name: "board archive, workflow keys, filter presets", apply: migrateBoardArchiveAndWorkflow},
 	{version: 6, name: "ticket workspaces and session launch cwd", apply: migrateTicketWorkspaces},
 	{version: 7, name: "repository integration runs", apply: migrateIntegrationRuns},
+	{version: 8, name: "global focus checkpoints", apply: migrateGlobalFocus},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.
@@ -329,6 +330,37 @@ func migrateBoardArchiveAndWorkflow(ctx context.Context, tx *sql.Tx) error {
 	}
 	if _, err := tx.ExecContext(ctx, `create unique index if not exists master_filter_presets_name_nocase_uq on master_filter_presets(name collate nocase)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateGlobalFocus(ctx context.Context, tx *sql.Tx) error {
+	cols, err := tableColumns(ctx, tx, "tickets")
+	if err != nil {
+		return err
+	}
+	if !cols["focus_paused"] {
+		if _, err := tx.ExecContext(ctx, `alter table tickets add column focus_paused integer not null default 0`); err != nil {
+			return err
+		}
+	}
+	for _, statement := range []string{
+		`create table if not exists pause_checkpoints (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  why text not null,
+  completed text not null,
+  next_action text not null,
+  paused_at datetime not null,
+  resumed_at datetime
+)`,
+		`create unique index if not exists pause_checkpoints_one_open_per_ticket on pause_checkpoints(ticket_id) where resumed_at is null`,
+		`create index if not exists idx_pause_checkpoints_ticket_paused on pause_checkpoints(ticket_id, paused_at desc)`,
+		`create index if not exists idx_tickets_focus_paused on tickets(focus_paused)`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
 	}
 	return nil
 }

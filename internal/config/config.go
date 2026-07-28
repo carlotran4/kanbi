@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/carlotran4/kanbi/internal/harness"
@@ -60,6 +61,14 @@ type Integration struct {
 	ValidationCommand string `yaml:"validation_command"`
 }
 
+// Focus is a global, cross-board commitment policy. WorkflowKeys use stable
+// column workflow_key values rather than display names.
+type Focus struct {
+	Enabled      bool     `yaml:"enabled"`
+	Limit        int      `yaml:"limit"`
+	WorkflowKeys []string `yaml:"workflow_keys"`
+}
+
 type Diagnostics struct {
 	// Level is off|error|warn|info|debug. Default off.
 	Level string `yaml:"level"`
@@ -78,6 +87,7 @@ type Config struct {
 	Multiplexer         Multiplexer        `yaml:"multiplexer"`
 	Diagnostics         Diagnostics        `yaml:"diagnostics"`
 	Integration         Integration        `yaml:"integration"`
+	Focus               Focus              `yaml:"focus"`
 	StatusBar           *statusbar.Config  `yaml:"status_bar"`
 	PromptReadyTimeout  time.Duration      `yaml:"-"`
 	PromptReadyRaw      string             `yaml:"prompt_ready_timeout"`
@@ -205,6 +215,19 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 	cfg.PromptReadyTimeout = timeout
 	applyTimeoutDefaults(&cfg, raw.Timeouts.PromptReadyTimeoutSeconds, opts.NestedPromptReadyTimeoutSet)
 	mergeHarnessDefaults(&cfg)
+	if cfg.Focus.Limit <= 0 {
+		cfg.Focus.Limit = 3
+	}
+	seenFocusKeys := make(map[string]bool)
+	focusKeys := make([]string, 0, len(cfg.Focus.WorkflowKeys))
+	for _, key := range cfg.Focus.WorkflowKeys {
+		key = strings.TrimSpace(key)
+		if key != "" && !seenFocusKeys[key] {
+			seenFocusKeys[key] = true
+			focusKeys = append(focusKeys, key)
+		}
+	}
+	cfg.Focus.WorkflowKeys = focusKeys
 	if cfg.StatusBar == nil {
 		statusBar := statusbar.DefaultConfig()
 		cfg.StatusBar = &statusBar
@@ -254,6 +277,7 @@ func defaultConfig(paths Paths, env Env) Config {
 		Multiplexer:         Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
 		Diagnostics:         Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
 		Integration:         Integration{Harness: "pi"},
+		Focus:               Focus{Enabled: false, Limit: 3},
 		StatusBar:           &statusBar,
 		PromptReadyTimeout:  5 * time.Second,
 		PromptReadyRaw:      "5s",
@@ -333,6 +357,15 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.Integration.ValidationCommand != "" {
 		cfg.Integration.ValidationCommand = raw.Integration.ValidationCommand
+	}
+	if raw.Focus.Enabled {
+		cfg.Focus.Enabled = true
+	}
+	if raw.Focus.Limit > 0 {
+		cfg.Focus.Limit = raw.Focus.Limit
+	}
+	if raw.Focus.WorkflowKeys != nil {
+		cfg.Focus.WorkflowKeys = append([]string(nil), raw.Focus.WorkflowKeys...)
 	}
 	if raw.Diagnostics.Level != "" {
 		cfg.Diagnostics.Level = raw.Diagnostics.Level

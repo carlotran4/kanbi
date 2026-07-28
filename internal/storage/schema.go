@@ -58,6 +58,7 @@ create table if not exists tickets (
   harness text not null default 'pi',
   position integer not null,
   archived_at datetime,
+  focus_paused integer not null default 0,
   remote_push_state text,
   remote_push_token text,
   remote_push_attempted_at datetime,
@@ -180,6 +181,16 @@ create table if not exists ticket_notes (
   deleted_at datetime,
   created_at datetime not null,
   updated_at datetime not null
+);
+
+create table if not exists pause_checkpoints (
+  id integer primary key autoincrement,
+  ticket_id integer not null references tickets(id) on delete cascade,
+  why text not null,
+  completed text not null,
+  next_action text not null,
+  paused_at datetime not null,
+  resumed_at datetime
 );
 
 create table if not exists runtime_diagnostics (

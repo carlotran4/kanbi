@@ -131,6 +131,12 @@ A repository integration run is not a synthetic ticket. It snapshots one source 
 
 Reports are token-authenticated through the launched environment. Kanbi independently verifies report cwd, cleanliness, source and item ancestry, and candidate commit. Promotion revalidates the source checkout/branch/head, every selected branch head, active ticket sessions, and configured validation under the shared repository flock. Only then does it fast-forward source once, mark selected workspaces integrated, retire their checkouts, preserve their branches/session continuity, and remove the temporary integration checkout/branch. Changed heads or failed checks never promote.
 
+### Pause / Resume In Focus Mode
+
+Pausing is a local handoff lifecycle. Kanbi validates the required reason, completed work, and exact next action before touching the runtime. If an active session exists it warns before closing an attempt without a verified resume ref, gracefully closes the configured multiplexer container, confirms the session is inactive, then writes the append-only checkpoint and paused state atomically. A close failure leaves the completed form available and does not mark the ticket paused.
+
+Opening a paused ticket first shows its current description and latest checkpoint. Plain resume claims capacity and uses the normal resume/repair lifecycle without sending a message. Resume-and-send-handoff sends one structured checkpoint message only after the session opens. At capacity, pausing the selected replacement and moving/unpausing the incoming ticket occur in one SQLite transaction. A missing usable session ref follows the existing repair/start-fresh path; Kanbi never guesses one.
+
 ### Close / Archive
 
 - Runtime detection never closes a session automatically. Waiting and permission classifications are advisory; the terminal container remains active until an explicit close or archive action.

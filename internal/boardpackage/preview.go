@@ -27,6 +27,7 @@ func Preview(ctx context.Context, store *storage.Store, archivePath string) (Rep
 		TicketCount:      len(doc.Tickets),
 		NoteCount:        len(doc.Notes),
 		SessionCount:     len(doc.Sessions),
+		CheckpointCount:  len(doc.Checkpoints),
 		AttachmentCount:  len(doc.Attachments),
 		SchemaCompatible: manifest.SchemaVersion >= MinSupportedSchemaVersion && manifest.SchemaVersion <= storage.CurrentSchemaVersion(),
 	}

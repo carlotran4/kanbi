@@ -142,7 +142,7 @@ func Import(ctx context.Context, store *storage.Store, dataDir, archivePath stri
 			ExternalID: ptrToNullString(t.ExternalID), ExternalURL: ptrToNullString(t.ExternalURL),
 			ExternalUpdatedAt: ptrToNullTime(t.ExternalUpdatedAt), SyncVersion: ptrToNullString(t.SyncVersion),
 			DisplayID: t.DisplayID, DisplayNumber: t.DisplayNumber, Title: t.Title, Body: t.Body,
-			Harness: t.Harness, Position: t.Position, ArchivedAt: ptrToNullTime(t.ArchivedAt),
+			Harness: t.Harness, Position: t.Position, ArchivedAt: ptrToNullTime(t.ArchivedAt), FocusPaused: t.FocusPaused,
 			RemotePushState: ptrToNullString(t.RemotePushState), RemotePushToken: ptrToNullString(t.RemotePushToken),
 			RemotePushAttemptedAt: ptrToNullTime(t.RemotePushAttemptedAt), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 		})
@@ -153,6 +153,13 @@ func Import(ctx context.Context, store *storage.Store, dataDir, archivePath stri
 			ExternalID: ptrToNullString(n.ExternalID), ExternalUpdatedAt: ptrToNullTime(n.ExternalUpdatedAt),
 			SyncVersion: ptrToNullString(n.SyncVersion), Body: n.Body, DeletedAt: ptrToNullTime(n.DeletedAt),
 			CreatedAt: n.CreatedAt, UpdatedAt: n.UpdatedAt,
+		})
+	}
+	for _, checkpoint := range doc.Checkpoints {
+		insert.PauseCheckpoints = append(insert.PauseCheckpoints, storage.AggregatePauseCheckpoint{
+			SourceID: checkpoint.SourceID, TicketSourceID: checkpoint.TicketSourceID,
+			Why: checkpoint.Why, Completed: checkpoint.Completed, NextAction: checkpoint.NextAction,
+			PausedAt: checkpoint.PausedAt, ResumedAt: ptrToNullTime(checkpoint.ResumedAt),
 		})
 	}
 	for _, ses := range doc.Sessions {

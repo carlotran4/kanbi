@@ -47,6 +47,19 @@ All three zones are optional. The left and right zones are anchored to their edg
 - Commands run in the selected board's working directory and inherit Kanbi's environment plus `KANBI_BOARD_NAME`, `KANBI_BOARD_WORKDIR`, and `KANBI_MASTER`.
 - Switching boards starts a new refresh and ignores late results from the previous board.
 
+## Global Focus Mode
+
+Focus Mode is opt-in and applies across every unarchived board opened by Kanbi. Configure stable column `workflow_key` values, not display names:
+
+```yaml
+focus:
+  enabled: true
+  limit: 3 # default when omitted
+  workflow_keys: ["In Progress", "Review"]
+```
+
+A focused ticket is unarchived, in one of these workflow keys, and not paused. Disabling Focus Mode leaves checkpoint history intact and hides focus-specific board UI; it does not change provider workflow metadata.
+
 ## Timeouts
 
 ```yaml

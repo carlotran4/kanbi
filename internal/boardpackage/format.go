@@ -24,17 +24,19 @@ type Manifest struct {
 	TicketCount     int       `json:"ticket_count"`
 	NoteCount       int       `json:"note_count"`
 	SessionCount    int       `json:"session_count"`
+	CheckpointCount int       `json:"checkpoint_count,omitempty"`
 	AttachmentCount int       `json:"attachment_count"`
 }
 
 // Document is the logical board aggregate payload in board.json.
 type Document struct {
-	Board       BoardPayload      `json:"board"`
-	Columns     []ColumnPayload   `json:"columns"`
-	Tickets     []TicketPayload   `json:"tickets"`
-	Notes       []NotePayload     `json:"notes"`
-	Sessions    []SessionPayload  `json:"sessions"`
-	Attachments []AttachmentEntry `json:"attachments"`
+	Board       BoardPayload        `json:"board"`
+	Columns     []ColumnPayload     `json:"columns"`
+	Tickets     []TicketPayload     `json:"tickets"`
+	Notes       []NotePayload       `json:"notes"`
+	Sessions    []SessionPayload    `json:"sessions"`
+	Checkpoints []CheckpointPayload `json:"pause_checkpoints,omitempty"`
+	Attachments []AttachmentEntry   `json:"attachments"`
 }
 
 type BoardPayload struct {
@@ -73,6 +75,7 @@ type TicketPayload struct {
 	Harness               string     `json:"harness"`
 	Position              int        `json:"position"`
 	ArchivedAt            *time.Time `json:"archived_at,omitempty"`
+	FocusPaused           bool       `json:"focus_paused,omitempty"`
 	RemotePushState       *string    `json:"remote_push_state,omitempty"`
 	RemotePushToken       *string    `json:"remote_push_token,omitempty"`
 	RemotePushAttemptedAt *time.Time `json:"remote_push_attempted_at,omitempty"`
@@ -90,6 +93,16 @@ type NotePayload struct {
 	DeletedAt         *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+type CheckpointPayload struct {
+	SourceID       int64      `json:"source_id"`
+	TicketSourceID int64      `json:"ticket_source_id"`
+	Why            string     `json:"why"`
+	Completed      string     `json:"completed"`
+	NextAction     string     `json:"next_action"`
+	PausedAt       time.Time  `json:"paused_at"`
+	ResumedAt      *time.Time `json:"resumed_at,omitempty"`
 }
 
 type SessionPayload struct {
@@ -137,6 +150,7 @@ type Report struct {
 	TicketCount         int      `json:"ticket_count"`
 	NoteCount           int      `json:"note_count"`
 	SessionCount        int      `json:"session_count"`
+	CheckpointCount     int      `json:"checkpoint_count"`
 	AttachmentCount     int      `json:"attachment_count"`
 	ActiveSessionCount  int      `json:"active_session_count"`
 	NameCollision       bool     `json:"name_collision"`

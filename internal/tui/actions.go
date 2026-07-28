@@ -18,6 +18,8 @@ type BoardQueries interface {
 	MasterBoardViewWithFilter(context.Context, storage.MasterFilter) (storage.BoardView, error)
 	ListTickets(context.Context, bool) ([]storage.Ticket, error)
 	ListFilterPresets(context.Context) ([]storage.MasterFilterPreset, error)
+	FocusStatus(context.Context) (storage.FocusStatus, error)
+	FocusedTickets(context.Context) ([]storage.Ticket, error)
 }
 
 type BoardCommands interface {
@@ -49,6 +51,10 @@ type TicketCommands interface {
 	MoveTicket(context.Context, int64, int64) error
 	ReorderTicket(context.Context, int64, int) error
 	MarkTicketState(context.Context, int64, string) error
+	PauseTicket(context.Context, int64, string, string, string) error
+	PauseAndMove(context.Context, int64, int64, int64, string, string, string) error
+	PauseAndResume(context.Context, int64, int64, string, string, string, bool) error
+	ResumePausedTicket(context.Context, int64, bool) error
 }
 
 type ColumnCommands interface {

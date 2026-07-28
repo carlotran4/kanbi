@@ -184,6 +184,7 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		defer stopSync()
 		defer manager.Close()
 		svc := tui.NewServiceWithSyncer(cli.store, manager, syncer)
+		svc.SetFocusPolicy(storage.FocusPolicy{Enabled: cfg.Focus.Enabled, Limit: cfg.Focus.Limit, WorkflowKeys: cfg.Focus.WorkflowKeys})
 		svc.DataDir = cfg.Paths.DataDir
 		svc.Integration = &integrationpkg.Service{Store: cli.store, StateDir: cfg.Paths.StateDir, Launcher: manager, Workspace: manager.WorkspaceService, DefaultHarness: cfg.Integration.Harness, ValidationCommand: cfg.Integration.ValidationCommand}
 		_, err := tea.NewProgram(tui.NewWithPickerStatusBarOptions(ctx, svc, reconcileWarning, *cfg.StatusBar)).Run()
@@ -815,6 +816,9 @@ func runOpen(ctx context.Context, cfg config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
+		if ticket.FocusPaused {
+			return fmt.Errorf("%s is paused; open Kanbi to review its checkpoint and resume it", ticket.DisplayID)
+		}
 		if err := cli.Manager().OpenTicket(ctx, ticket, sendPrompt); err != nil {
 			return err
 		}
@@ -1250,6 +1254,7 @@ func newCLIContext(ctx context.Context, cfg config.Config) (*cliContext, error) 
 	if err != nil {
 		return nil, err
 	}
+	store.SetFocusPolicy(storage.FocusPolicy{Enabled: cfg.Focus.Enabled, Limit: cfg.Focus.Limit, WorkflowKeys: cfg.Focus.WorkflowKeys})
 	return &cliContext{ctx: ctx, cfg: cfg, store: store, manager: tmux.NewManagerWithContext(ctx, cfg, store)}, nil
 }
 

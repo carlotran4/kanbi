@@ -4,6 +4,10 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ## Unreleased
 
+### Added
+
+- Opt-in Global Focus Mode (GH-334): a configurable cross-board commitment limit, SQLite-serialized admission/replacement, provider-overflow visibility, required pause handoffs, resume briefs and structured handoff delivery, focus/paused card sections, and portable append-only checkpoint history.
+
 ### Fixed
 
 - Retry Herdr's transient `agent_pane_busy` response while a newly split shell initializes, prefer a non-agent pane as the split anchor, and defer focus until agent launch succeeds so opening a new ticket cannot appear to switch to an existing agent after failed cleanup.

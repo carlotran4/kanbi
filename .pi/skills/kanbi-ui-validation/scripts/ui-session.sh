@@ -80,6 +80,19 @@ select t.id, t.harness, 'fixture-ref-' || t.id, 'kanbi-ui-fixture',
   join columns c on c.id = t.column_id
  where c.name = 'Done';
 
+insert into pause_checkpoints(ticket_id, why, completed, next_action, paused_at)
+select t.id, 'Fixture focus handoff', 'Fixture work completed',
+       'Verify the next focused UI action at 80x24.', datetime('now', '-2 hours')
+  from tickets t join columns c on c.id=t.column_id
+ where c.workflow_key in ('In Progress','Review')
+   and t.id not in (
+     select t2.id from tickets t2 join columns c2 on c2.id=t2.column_id
+      where c2.workflow_key in ('In Progress','Review')
+      order by t2.id limit 4
+   );
+update tickets set focus_paused=1
+ where id in (select ticket_id from pause_checkpoints where resumed_at is null);
+
 update boards set sync_enabled = 0, backend_query = null, backend_config = null;
 SQL
 }
@@ -111,6 +124,14 @@ tmux_session: "$SESSION"
 EOF
 
   seed_fixture
+  cat >"$CONFIG" <<EOF
+db_path: "$DB"
+tmux_session: "$SESSION"
+focus:
+  enabled: true
+  limit: 3
+  workflow_keys: ["In Progress", "Review"]
+EOF
   assert_safe_fixture
 
   local command

@@ -24,6 +24,15 @@ func (m Model) View() string {
 	if m.integrationOpen {
 		return overlayModal(base, fitModal(m.integrationView(), m.height, 0, true), m.width, m.height)
 	}
+	if m.focusReplaceOpen {
+		return overlayModal(base, fitModal(m.focusReplaceView(), m.height, 0, true), m.width, m.height)
+	}
+	if m.pauseOpen {
+		return overlayModal(base, fitModal(m.pauseView(), m.height, 0, true), m.width, m.height)
+	}
+	if m.resumeOpen {
+		return overlayModal(base, fitModal(m.resumeView(), m.height, 0, true), m.width, m.height)
+	}
 	if m.firstRun {
 		return overlayModal(base, fitModal(m.onboardingView(), m.height, 0, false), m.width, m.height)
 	}
@@ -89,6 +98,19 @@ func (m Model) baseView() string {
 		right += " "
 	}
 	headerLine := statusbar.Layout(left, center, right, maxInt(1, m.width))
+	boardName := m.view.Board.Name
+	if boardName == "" {
+		boardName = "Board"
+	}
+	if m.focus.Enabled {
+		focusText := fmt.Sprintf("Focus %d/%d", m.focus.Used, m.focus.Limit)
+		if m.focus.OverCapacity {
+			focusText = fmt.Sprintf("FOCUS %d/%d · pause %d to continue", m.focus.Used, m.focus.Limit, m.focus.Used-m.focus.Limit)
+		} else if keys := strings.Join(m.focus.WorkflowKeys, ", "); keys != "" {
+			focusText += " · " + keys
+		}
+		headerLine = spaceBetween(" Kanbi · "+boardName, focusText+" ", maxInt(1, m.width))
+	}
 	header := statusBarStyle.Render(headerLine) + "\n\n"
 	board := m.boardView()
 	hint := m.hScrollHint()
@@ -112,7 +134,8 @@ func (m Model) baseView() string {
 		}
 	}
 
-	usedRows := 2 + lipgloss.Height(board) + len(footer)
+	headerRows := 2
+	usedRows := headerRows + lipgloss.Height(board) + len(footer)
 	if hint != "" {
 		usedRows++
 	}
@@ -245,6 +268,25 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 		borderStyle.Render(strings.Repeat("─", columnWidth)),
 	}
 
+	isFocusColumn := m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey)
+	focusedCount, pausedCount := 0, 0
+	if isFocusColumn {
+		for _, ticket := range col.Tickets {
+			if ticket.FocusPaused {
+				pausedCount++
+			} else {
+				focusedCount++
+			}
+		}
+		lines = append(lines, padLine(fmt.Sprintf("FOCUSED · %d", focusedCount), columnWidth))
+		if focusedCount == 0 {
+			lines = append(lines, mutedBorder.Render(padLine("No focused tickets", columnWidth)))
+		}
+	}
+	if isFocusColumn && len(col.Tickets) == 0 {
+		lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
+	}
+
 	if len(col.Tickets) == 0 {
 		empty := "No tickets. Press n to create one."
 		if m.masterBoard {
@@ -277,7 +319,13 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 		lines = append(lines, mutedBorder.Render(padLine(hint, columnWidth)))
 	}
 	for ti := scrollTop; ti <= visibleEnd; ti++ {
+		if isFocusColumn && col.Tickets[ti].FocusPaused && (ti == 0 || !col.Tickets[ti-1].FocusPaused) {
+			lines = append(lines, padLine(fmt.Sprintf("PAUSED · %d", pausedCount), columnWidth))
+		}
 		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], columnWidth, m.masterBoard)...)
+	}
+	if isFocusColumn && pausedCount == 0 && !showBelow {
+		lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
 	}
 	if showBelow {
 		hint := fmt.Sprintf("(+%d more ▼)", hiddenBelow)
@@ -285,6 +333,15 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 	}
 
 	return lipgloss.NewStyle().MarginRight(boardColumnGap).Render(strings.Join(lines, "\n"))
+}
+
+func hasFocusKey(status storage.FocusStatus, key string) bool {
+	for _, configured := range status.WorkflowKeys {
+		if configured == key {
+			return true
+		}
+	}
+	return false
 }
 
 func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []string {
@@ -325,7 +382,11 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 		if previewWidth < 10 {
 			previewWidth = 10
 		}
-		preview := renderBodyPreview(ticket.Body, previewWidth)
+		previewBody := ticket.Body
+		if ticket.FocusPaused && ticket.LatestCheckpoint != nil {
+			previewBody = "Next: " + ticket.LatestCheckpoint.NextAction
+		}
+		preview := renderBodyPreview(previewBody, previewWidth)
 		for _, pl := range strings.Split(preview, "\n") {
 			if strings.TrimSpace(pl) == "" {
 				continue
@@ -378,7 +439,15 @@ func cardStatusLine(ticket storage.Ticket, width int) string {
 	if maxHarnessWidth := width - fixedWidth; lipgloss.Width(harness) > maxHarnessWidth {
 		harness = trimToWidth(harness, maxInt(1, maxHarnessWidth))
 	}
-	line := fmt.Sprintf("%s %s  %s", indicator, harness, label)
+	prefix := ""
+	if ticket.FocusMember {
+		if ticket.FocusPaused {
+			prefix = "⏸ paused · "
+		} else {
+			prefix = "◆ focus · "
+		}
+	}
+	line := fmt.Sprintf("%s%s %s  %s", prefix, indicator, harness, label)
 	if elapsed := elapsedLabel(ticket); elapsed != "" {
 		withElapsed := line + " · " + elapsed
 		if lipgloss.Width(withElapsed) <= width {

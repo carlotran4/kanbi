@@ -44,6 +44,15 @@ func (m *Model) boardContentHeight() int {
 // rendering. The vertical overflow hints consume rows from the card viewport.
 func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWidth int) (end int, showAbove, showBelow bool) {
 	avail := m.boardContentHeight()
+	if m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey) {
+		// Focus columns add section labels/empty-state rows outside cardView.
+		// Reserve the maximum compact overhead so one column cannot make the
+		// entire Bubble Tea frame scroll at 80x24.
+		avail -= 3
+	}
+	if avail < 1 {
+		avail = 1
+	}
 	showAbove = scrollTop > 0
 	if showAbove {
 		avail--
@@ -94,7 +103,11 @@ func cardHeightEx(ticket storage.Ticket, width int, focused, showBoard bool) int
 		if previewWidth < 10 {
 			previewWidth = 10
 		}
-		preview := renderBodyPreview(ticket.Body, previewWidth)
+		previewBody := ticket.Body
+		if ticket.FocusPaused && ticket.LatestCheckpoint != nil {
+			previewBody = "Next: " + ticket.LatestCheckpoint.NextAction
+		}
+		preview := renderBodyPreview(previewBody, previewWidth)
 		for _, pl := range strings.Split(preview, "\n") {
 			if strings.TrimSpace(pl) != "" {
 				previewLines++

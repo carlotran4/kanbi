@@ -32,6 +32,20 @@ type IntegrationRuntimeManager interface {
 	FocusIntegration(context.Context, storage.IntegrationRun) error
 }
 
+// TicketMessageSender is optional because only configured multiplexers that can
+// address a durable session container support handoff injection.
+type TicketMessageSender interface {
+	SendTicketMessage(context.Context, storage.Ticket, string) error
+}
+
+// ResumeRuntimeError means the focus slot was durably claimed, but the normal
+// runtime resume/repair step failed. Callers must not retry the checkpoint
+// transaction or silently re-pause the ticket.
+type ResumeRuntimeError struct{ Err error }
+
+func (e ResumeRuntimeError) Error() string { return e.Err.Error() }
+func (e ResumeRuntimeError) Unwrap() error { return e.Err }
+
 type WorkspaceManager interface {
 	PreflightTicketWorkspace(context.Context, storage.Ticket, string) (storage.WorkspacePreflight, error)
 	PrepareTicketWorkspace(context.Context, storage.Ticket, string, bool) error
@@ -62,6 +76,14 @@ func NewService(store *storage.Store, manager SessionManager) *Service {
 
 func NewServiceWithSyncer(store *storage.Store, manager SessionManager, syncer TicketSyncer) *Service {
 	return &Service{Store: store, Manager: manager, Syncer: syncer}
+}
+
+func (s *Service) SetFocusPolicy(policy storage.FocusPolicy) { s.Store.SetFocusPolicy(policy) }
+func (s *Service) FocusStatus(ctx context.Context) (storage.FocusStatus, error) {
+	return s.Store.FocusStatus(ctx)
+}
+func (s *Service) FocusedTickets(ctx context.Context) ([]storage.Ticket, error) {
+	return s.Store.FocusedTickets(ctx)
 }
 
 func (s *Service) IntegrationCandidates(ctx context.Context, boardID int64) ([]integrationpkg.Candidate, error) {
@@ -259,6 +281,146 @@ func (s *Service) ArchiveTicket(ctx context.Context, id int64) error {
 	}
 	s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
 	return nil
+}
+
+// PauseTicket closes a live session before writing the handoff checkpoint. A
+// failed close leaves both the ticket and the append-only checkpoint history
+// unchanged.
+func (s *Service) PauseTicket(ctx context.Context, id int64, why, completed, next string) error {
+	if err := storage.ValidatePauseCheckpoint(why, completed, next); err != nil {
+		return err
+	}
+	ticket, err := s.Store.TicketByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ticket.SessionActive {
+		if s.Manager == nil {
+			return fmt.Errorf("session close unavailable")
+		}
+		if err := s.Manager.CloseSession(ctx, ticket); err != nil {
+			return err
+		}
+		refreshed, err := s.Store.TicketByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if refreshed.SessionActive {
+			return fmt.Errorf("session is still active after close")
+		}
+	}
+	return s.Store.PauseTicket(ctx, id, why, completed, next)
+}
+
+func (s *Service) closeFocusReplacement(ctx context.Context, id int64) (storage.Ticket, error) {
+	ticket, err := s.Store.TicketByID(ctx, id)
+	if err != nil {
+		return storage.Ticket{}, err
+	}
+	if ticket.SessionActive {
+		if s.Manager == nil {
+			return storage.Ticket{}, fmt.Errorf("session close unavailable")
+		}
+		if err := s.Manager.CloseSession(ctx, ticket); err != nil {
+			return storage.Ticket{}, err
+		}
+		refreshed, err := s.Store.TicketByID(ctx, id)
+		if err != nil {
+			return storage.Ticket{}, err
+		}
+		if refreshed.SessionActive {
+			return storage.Ticket{}, fmt.Errorf("session is still active after close")
+		}
+		ticket = refreshed
+	}
+	return ticket, nil
+}
+
+// PauseAndMove closes the selected replacement first, then atomically records
+// its checkpoint and admits the incoming ticket in SQLite.
+func (s *Service) PauseAndMove(ctx context.Context, replacementID, targetID, destinationID int64, why, completed, next string) error {
+	if err := storage.ValidatePauseCheckpoint(why, completed, next); err != nil {
+		return err
+	}
+	if _, err := s.closeFocusReplacement(ctx, replacementID); err != nil {
+		return err
+	}
+	if err := s.Store.PauseAndMove(ctx, replacementID, targetID, destinationID, why, completed, next); err != nil {
+		return err
+	}
+	target, err := s.Store.TicketByID(ctx, targetID)
+	if err == nil {
+		s.syncBoardAfterTicketChange(ctx, target.BoardID)
+	}
+	return err
+}
+
+// PauseAndResume closes the replacement and atomically transfers its focus
+// slot to target before using the ordinary resume/repair lifecycle.
+func (s *Service) PauseAndResume(ctx context.Context, replacementID, targetID int64, why, completed, next string, sendHandoff bool) error {
+	if err := storage.ValidatePauseCheckpoint(why, completed, next); err != nil {
+		return err
+	}
+	target, err := s.Store.TicketByID(ctx, targetID)
+	if err != nil {
+		return err
+	}
+	checkpoint := target.LatestCheckpoint
+	if !target.FocusPaused || checkpoint == nil {
+		return fmt.Errorf("ticket is not paused")
+	}
+	if _, err := s.closeFocusReplacement(ctx, replacementID); err != nil {
+		return err
+	}
+	if err := s.Store.PauseAndResume(ctx, replacementID, targetID, why, completed, next); err != nil {
+		return err
+	}
+	if err := s.openResumedTicket(ctx, target, checkpoint, sendHandoff); err != nil {
+		return ResumeRuntimeError{Err: err}
+	}
+	return nil
+}
+
+// ResumePausedTicket uses normal lifecycle handling. Plain resume never sends
+// a message; sendHandoff injects the saved checkpoint only after resume works.
+func (s *Service) ResumePausedTicket(ctx context.Context, id int64, sendHandoff bool) error {
+	ticket, err := s.Store.TicketByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	checkpoint := ticket.LatestCheckpoint
+	if !ticket.FocusPaused || checkpoint == nil {
+		return fmt.Errorf("ticket is not paused")
+	}
+	if err := s.Store.ResumeTicket(ctx, id); err != nil {
+		return err
+	}
+	if err := s.openResumedTicket(ctx, ticket, checkpoint, sendHandoff); err != nil {
+		return ResumeRuntimeError{Err: err}
+	}
+	return nil
+}
+
+func (s *Service) openResumedTicket(ctx context.Context, ticket storage.Ticket, checkpoint *storage.PauseCheckpoint, sendHandoff bool) error {
+	if s.Manager == nil {
+		return fmt.Errorf("open unavailable")
+	}
+	if err := s.Manager.OpenTicket(ctx, ticket, false); err != nil {
+		return err
+	}
+	if !sendHandoff {
+		return nil
+	}
+	sender, ok := s.Manager.(TicketMessageSender)
+	if !ok {
+		return fmt.Errorf("handoff message unavailable for this runtime")
+	}
+	refreshed, err := s.Store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		return err
+	}
+	message := fmt.Sprintf("## Resuming paused work\n\n**Why this was paused**\n%s\n\n**Already completed**\n%s\n\n**Next action**\n%s", checkpoint.Why, checkpoint.Completed, checkpoint.NextAction)
+	return sender.SendTicketMessage(ctx, refreshed, message)
 }
 
 func (s *Service) MoveTicket(ctx context.Context, id, columnID int64) error {

@@ -86,7 +86,17 @@ func TestBoardPackageRoundTripPreservesTombstoneAndSession(t *testing.T) {
 	dataDir := t.TempDir()
 
 	board, ticket := seedPackagedBoard(t, s, ctx, dataDir)
-	_ = ticket
+	view, err := s.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetColumnWorkflowKey(ctx, view.Columns[0].ID, "focus"); err != nil {
+		t.Fatal(err)
+	}
+	s.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 3, WorkflowKeys: []string{"focus"}})
+	if err := s.PauseTicket(ctx, ticket.ID, "waiting", "package implemented", "verify round trip"); err != nil {
+		t.Fatal(err)
+	}
 
 	dest := filepath.Join(t.TempDir(), "board.zip")
 	if err := boardpackage.Export(ctx, s, dataDir, board.ID, dest); err != nil {
@@ -96,7 +106,7 @@ func TestBoardPackageRoundTripPreservesTombstoneAndSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TicketCount != 1 || report.AttachmentCount != 1 || !report.NameCollision {
+	if report.TicketCount != 1 || report.CheckpointCount != 1 || report.AttachmentCount != 1 || !report.NameCollision {
 		t.Fatalf("preview unexpected: %+v", report)
 	}
 	if len(report.MissingAttachments) != 0 || len(report.UnlistedAttachments) != 0 || len(report.InvalidAttachments) != 0 {
@@ -124,6 +134,9 @@ func TestBoardPackageRoundTripPreservesTombstoneAndSession(t *testing.T) {
 	}
 	if len(agg.Sessions) != 1 || agg.Sessions[0].IsActive {
 		t.Fatalf("sessions should import inactive: %+v", agg.Sessions)
+	}
+	if len(agg.PauseCheckpoints) != 1 || agg.PauseCheckpoints[0].NextAction != "verify round trip" || !agg.Tickets[0].FocusPaused {
+		t.Fatalf("pause history should round-trip: tickets=%+v checkpoints=%+v", agg.Tickets, agg.PauseCheckpoints)
 	}
 	if len(result.TicketIDRemap) != 1 {
 		t.Fatalf("ticket remap=%v", result.TicketIDRemap)

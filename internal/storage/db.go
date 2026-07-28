@@ -11,12 +11,44 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"time"
 )
 
 type Store struct {
-	db *sql.DB
+	db      *sql.DB
+	focusMu sync.RWMutex
+	focus   FocusPolicy
+}
+
+// SetFocusPolicy configures the process's global focus policy. The durable
+// admission transaction serializes against other Kanbi processes using the
+// same global configuration.
+func (s *Store) SetFocusPolicy(policy FocusPolicy) {
+	keys := make([]string, 0, len(policy.WorkflowKeys))
+	seen := make(map[string]bool)
+	for _, key := range policy.WorkflowKeys {
+		if key != "" && !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	if policy.Limit <= 0 {
+		policy.Limit = 3
+	}
+	policy.WorkflowKeys = keys
+	s.focusMu.Lock()
+	s.focus = policy
+	s.focusMu.Unlock()
+}
+
+func (s *Store) FocusPolicy() FocusPolicy {
+	s.focusMu.RLock()
+	defer s.focusMu.RUnlock()
+	p := s.focus
+	p.WorkflowKeys = append([]string(nil), p.WorkflowKeys...)
+	return p
 }
 
 const sqliteBusyTimeout = 5 * time.Second
@@ -56,7 +88,7 @@ func OpenMemory() (*Store, error) {
 
 func sqliteDSN(path string, memory bool) string {
 	if memory {
-		return fmt.Sprintf(":memory:?_foreign_keys=on&_busy_timeout=%d", sqliteBusyTimeout.Milliseconds())
+		return fmt.Sprintf(":memory:?_foreign_keys=on&_busy_timeout=%d&_txlock=immediate", sqliteBusyTimeout.Milliseconds())
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
@@ -68,6 +100,10 @@ func sqliteDSN(path string, memory bool) string {
 	query.Set("_busy_timeout", strconv.FormatInt(sqliteBusyTimeout.Milliseconds(), 10))
 	query.Set("_journal_mode", "WAL")
 	query.Set("_synchronous", "NORMAL")
+	// All explicit transactions begin with a reserved write lock. Focus
+	// admission must count then write without a deferred-transaction upgrade
+	// race; the existing busy timeout lets concurrent Kanbi processes queue.
+	query.Set("_txlock", "immediate")
 	u.RawQuery = query.Encode()
 	return u.String()
 }

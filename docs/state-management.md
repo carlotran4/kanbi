@@ -60,6 +60,12 @@ stateDiagram-v2
 - A multiplexer command failure alone is only an observation failure. When Herdr returns its explicit `agent_not_found` or `pane_not_found` code, however, that is authoritative container absence and follows the exited/repair rule above.
 - Terminal transcript text such as `error:`, `failed`, a panic, or a traceback describes the agent's work and must not classify the harness session as `error`. Runtime observation/read failures preserve the last known lifecycle state and record the observation reason separately.
 
+## Global Focus And Pause Checkpoints
+
+Focus Mode is a process-global configuration policy (`focus.enabled`, `focus.limit` default 3, and stable `focus.workflow_keys`) evaluated across unarchived boards. A ticket consumes capacity when its real column workflow key is configured, it is unarchived, and `focus_paused=0`; runtime state does not affect membership. SQLite serializes local focus admissions before counting commitments, so concurrent Kanbi processes cannot both claim the final slot. Provider sync deliberately bypasses local admission and may leave an over-capacity projection requiring a user pause.
+
+`pause_checkpoints` is append-only local metadata with `why`, `completed`, `next_action`, `paused_at`, and nullable `resumed_at`; a partial unique index permits at most one open checkpoint per ticket. Pausing closes any active session first. Only a successful close is followed by the transaction that writes the checkpoint and paused state. Leaving focus columns clears paused state and closes its open checkpoint. Backups and board packages preserve checkpoint history.
+
 ## Ticket Projection Data Flow
 
 ```mermaid

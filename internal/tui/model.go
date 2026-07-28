@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/session"
@@ -24,6 +26,7 @@ type Model struct {
 	actions                 Actions
 	ctx                     context.Context
 	view                    storage.BoardView
+	focus                   storage.FocusStatus
 	boards                  []storage.Board
 	boardID                 int64
 	masterBoard             bool
@@ -143,6 +146,22 @@ type Model struct {
 	noteIsNew   bool
 	noteEditID  int64
 	noteTA      textarea.Model
+
+	pauseOpen                bool
+	pauseTicket              storage.Ticket
+	pauseField               int
+	pauseInputs              [3]textarea.Model
+	pauseWarnNoRef           bool
+	resumeOpen               bool
+	resumeTicket             storage.Ticket
+	resumeSending            bool
+	focusReplaceOpen         bool
+	focusReplaceTickets      []storage.Ticket
+	focusReplaceIndex        int
+	focusReplaceMoveTicket   storage.Ticket
+	focusReplaceMoveColumn   int64
+	focusReplaceResumeTicket storage.Ticket
+	focusReplaceResumeSend   bool
 }
 
 // defaultTermSize is used before a WindowSizeMsg arrives.
@@ -213,6 +232,17 @@ type openTicketMsg struct {
 type closeSessionMsg struct {
 	displayID string
 	err       error
+}
+
+type pauseTicketMsg struct {
+	displayID string
+	err       error
+}
+type resumeTicketMsg struct {
+	ticket      storage.Ticket
+	displayID   string
+	sendHandoff bool
+	err         error
 }
 
 type moveMultiplexerMsg struct {
@@ -317,6 +347,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setActionError("open ticket session", msg.err, "Run `kanbi doctor`; fix the reported prerequisite, then press Enter to retry.")
 		}
 		return m, nil
+	case pauseTicketMsg:
+		if msg.err != nil {
+			m.setActionError("pause ticket", msg.err, "Keep the completed handoff fields, resolve the session close issue, then press Ctrl+S to retry.")
+			return m, nil
+		}
+		m.pauseOpen = false
+		m.resumeOpen = false
+		m.clearFocusReplacement()
+		m.status = "paused " + msg.displayID
+		m.reload()
+		return m, nil
+	case resumeTicketMsg:
+		if msg.err != nil {
+			var runtimeErr app.ResumeRuntimeError
+			switch {
+			case errors.Is(msg.err, storage.ErrFocusCapacity):
+				m.startFocusReplacement(storage.Ticket{}, 0, msg.ticket, msg.sendHandoff)
+			case errors.As(msg.err, &runtimeErr):
+				m.pauseOpen = false
+				m.resumeOpen = false
+				m.clearFocusReplacement()
+				m.reload()
+				if isRepairError(runtimeErr.Err) {
+					m.startRepair(msg.ticket, runtimeErr.Err)
+				} else {
+					m.setActionError("resume paused ticket", runtimeErr.Err, "The focus slot is claimed; fix the runtime issue, then press Enter to retry the normal open path.")
+				}
+			case isRepairError(msg.err):
+				m.resumeOpen = false
+				m.startRepair(msg.ticket, msg.err)
+			default:
+				m.setActionError("resume paused ticket", msg.err, "Keep the handoff form and choose another focused ticket if the policy changed, then retry.")
+			}
+		} else {
+			m.resumeOpen = false
+			m.clearFocusReplacement()
+			m.status = "resumed " + msg.displayID
+			m.reload()
+		}
+		return m, nil
 	case closeSessionMsg:
 		if msg.err != nil {
 			m.setActionError("close ticket session", msg.err, "Open the session to inspect it, then press x to retry. Kanbi did not discard session history.")
@@ -376,13 +446,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOnboarding(key), nil
 	}
 	// Clear stale status on any keypress (unless a modal is consuming input).
-	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.integrationOpen && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen {
+	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.integrationOpen && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen && !m.pauseOpen && !m.resumeOpen {
 		m.status = ""
 		m.errOperation = ""
 		m.errNext = ""
 	}
 	if m.integrationOpen {
 		return m.updateIntegration(key)
+	}
+	if m.pauseOpen {
+		return m.updatePause(key)
+	}
+	if m.resumeOpen {
+		return m.updateResume(key)
+	}
+	if m.focusReplaceOpen {
+		return m.updateFocusReplace(key)
 	}
 	if m.masterFilterOpen {
 		return m.updateMasterFilter(key), nil
@@ -530,9 +609,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "I":
 		return m, m.openIntegration()
 	case "enter":
+		if t, ok := m.selectedTicket(); ok && m.focus.Enabled && t.FocusPaused {
+			m.startResume(t)
+			return m, nil
+		}
 		return m, withClearKittyImages(m.defaultTicketCmd())
 	case "x":
 		return m, m.closeSessionCmd()
+	case "p":
+		if t, ok := m.selectedTicket(); ok && m.focus.Enabled && t.FocusMember && !t.FocusPaused {
+			m.startPause(t)
+		}
 	}
 	return m, nil
 }
@@ -561,6 +648,29 @@ func (m *Model) reload() {
 	}
 	m.view = view
 	m.err = err
+	if focus, focusErr := m.actions.FocusStatus(m.ctx); focusErr == nil {
+		m.focus = focus
+		if focus.Enabled {
+			keys := make(map[string]bool, len(focus.WorkflowKeys))
+			for _, key := range focus.WorkflowKeys {
+				keys[key] = true
+			}
+			for ci := range m.view.Columns {
+				for ti := range m.view.Columns[ci].Tickets {
+					m.view.Columns[ci].Tickets[ti].FocusMember = keys[m.view.Columns[ci].WorkflowKey]
+					if m.masterBoard {
+						// Master synthetic columns retain the workflow key.
+						m.view.Columns[ci].Tickets[ti].FocusMember = keys[m.view.Columns[ci].WorkflowKey]
+					}
+				}
+				if keys[m.view.Columns[ci].WorkflowKey] {
+					sort.SliceStable(m.view.Columns[ci].Tickets, func(i, j int) bool {
+						return !m.view.Columns[ci].Tickets[i].FocusPaused && m.view.Columns[ci].Tickets[j].FocusPaused
+					})
+				}
+			}
+		}
+	}
 	m.clamp()
 	m.syncScrollDimensions()
 	m.hScrollFollow()
@@ -728,6 +838,10 @@ func (m *Model) moveTicketColumn(delta int) {
 		}
 	}
 	if err := m.actions.MoveTicket(m.ctx, t.ID, toColumnID); err != nil {
+		if errors.Is(err, storage.ErrFocusCapacity) {
+			m.startFocusReplacement(t, toColumnID, storage.Ticket{}, false)
+			return
+		}
 		m.status = err.Error()
 		return
 	}

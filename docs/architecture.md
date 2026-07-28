@@ -125,7 +125,7 @@ erDiagram
 
 - A **board** owns columns, display numbering, a working directory, and exactly one implemented ticket metadata backend. Board names are unique without regard to case.
 - The **Master board** is a synthetic all-boards view; it is not a stored board row.
-- A **ticket** is durable work metadata: non-blank title, body, supported harness preference, workflow column, archive status. A ticket may move only between columns owned by its board.
+- A **ticket** is durable work metadata: non-blank title, body, supported harness preference, workflow column, archive status, and local Focus Mode pause state. A ticket may move only between columns owned by its board. Append-only pause checkpoints preserve every pause/resume handoff independently of provider metadata and runtime state.
 - Column names are unique by exact spelling within a board. Master aggregation matches column `workflow_key` values (defaulted to each column's display name at creation; rename does not change the key). At most one column per workflow key is allowed on a board.
 - External ticket and note identities are unique within their owning board/ticket so sync never has to choose an ambiguous local row.
 - A **workspace** is a durable ticket-owned execution checkout. Git-worktree boards retain workspace intent/history independently of terminal sessions; at most one workspace is current per ticket. Integration retires only the linked checkout while retaining its branch, stable path, and session continuity; reopening rehydrates the exact path.
@@ -150,6 +150,8 @@ These are core architecture rules, not optional implementation details:
 6. `send prompt` is allowed only for never-started tickets.
 7. Repair/start-fresh flows must preserve history and avoid silently attaching a ticket to the wrong live window.
 8. Real harness session refs must come from verified local evidence, not assumptions.
+9. Global Focus Mode admissions serialize in SQLite across boards/processes; provider sync may exceed capacity but must preserve its authoritative workflow transition.
+10. Pausing an active ticket validates the checkpoint and closes/confirms the runtime session before atomically recording paused state; checkpoint history is never flattened.
 
 For the full state model, read [`docs/state-management.md`](./state-management.md) and [`docs/ticket-session-lifecycle.md`](./ticket-session-lifecycle.md).
 

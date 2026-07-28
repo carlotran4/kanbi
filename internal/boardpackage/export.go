@@ -103,6 +103,7 @@ func Export(ctx context.Context, store *storage.Store, dataDir string, boardID i
 		TicketCount:     len(doc.Tickets),
 		NoteCount:       len(doc.Notes),
 		SessionCount:    len(doc.Sessions),
+		CheckpointCount: len(doc.Checkpoints),
 		AttachmentCount: len(doc.Attachments),
 	}
 
@@ -215,6 +216,7 @@ func documentFromAggregate(agg storage.BoardAggregate) Document {
 			Harness:               t.Harness,
 			Position:              t.Position,
 			ArchivedAt:            nullTimePtr(t.ArchivedAt),
+			FocusPaused:           t.FocusPaused,
 			RemotePushState:       nullStringPtr(t.RemotePushState),
 			RemotePushToken:       nullStringPtr(t.RemotePushToken),
 			RemotePushAttemptedAt: nullTimePtr(t.RemotePushAttemptedAt),
@@ -233,6 +235,13 @@ func documentFromAggregate(agg storage.BoardAggregate) Document {
 			DeletedAt:         nullTimePtr(n.DeletedAt),
 			CreatedAt:         n.CreatedAt,
 			UpdatedAt:         n.UpdatedAt,
+		})
+	}
+	for _, checkpoint := range agg.PauseCheckpoints {
+		doc.Checkpoints = append(doc.Checkpoints, CheckpointPayload{
+			SourceID: checkpoint.SourceID, TicketSourceID: checkpoint.TicketSourceID,
+			Why: checkpoint.Why, Completed: checkpoint.Completed, NextAction: checkpoint.NextAction,
+			PausedAt: checkpoint.PausedAt, ResumedAt: nullTimePtr(checkpoint.ResumedAt),
 		})
 	}
 	for _, ses := range agg.Sessions {

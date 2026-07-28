@@ -151,6 +151,11 @@ func (s *Store) UpsertRemoteTicketIfUnchanged(ctx context.Context, rt RemoteTick
 			return Ticket{}, false, err
 		}
 		applied = affected == 1
+		if applied {
+			if err := clearPausedForRemoteDestination(ctx, tx, id, rt.ColumnID, s.FocusPolicy()); err != nil {
+				return Ticket{}, false, err
+			}
+		}
 	}
 
 	if !applied {
@@ -271,6 +276,9 @@ func (s *Store) UpsertRemoteTicket(ctx context.Context, rt RemoteTicket) (Ticket
 		if err != nil {
 			return Ticket{}, err
 		}
+	}
+	if err := clearPausedForRemoteDestination(ctx, tx, id, rt.ColumnID, s.FocusPolicy()); err != nil {
+		return Ticket{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `update boards set next_ticket_number=max(next_ticket_number, ?) where id=?`, displayNumber+1, rt.BoardID); err != nil {
 		return Ticket{}, err

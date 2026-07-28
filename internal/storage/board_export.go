@@ -18,6 +18,7 @@ type BoardAggregate struct {
 	Tickets          []AggregateTicket
 	Notes            []AggregateNote
 	Sessions         []AggregateSession
+	PauseCheckpoints []AggregatePauseCheckpoint
 }
 
 type AggregateColumn struct {
@@ -41,6 +42,7 @@ type AggregateTicket struct {
 	Harness               string
 	Position              int
 	ArchivedAt            sql.NullTime
+	FocusPaused           bool
 	RemotePushState       sql.NullString
 	RemotePushToken       sql.NullString
 	RemotePushAttemptedAt sql.NullTime
@@ -58,6 +60,16 @@ type AggregateNote struct {
 	DeletedAt         sql.NullTime
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+}
+
+type AggregatePauseCheckpoint struct {
+	SourceID       int64
+	TicketSourceID int64
+	Why            string
+	Completed      string
+	NextAction     string
+	PausedAt       time.Time
+	ResumedAt      sql.NullTime
 }
 
 type AggregateSession struct {
@@ -103,6 +115,7 @@ type BoardAggregateInsert struct {
 	Tickets          []AggregateTicket
 	Notes            []AggregateNote
 	Sessions         []AggregateSession
+	PauseCheckpoints []AggregatePauseCheckpoint
 }
 
 // BoardInsertResult carries remaps needed to place attachment bodies.
@@ -180,17 +193,19 @@ func (s *Store) LoadBoardAggregate(ctx context.Context, boardID int64) (BoardAgg
 	}
 	colRows.Close()
 
-	ticketRows, err := tx.QueryContext(ctx, `select id, column_id, external_id, external_url, external_updated_at, sync_version, display_id, display_number, title, body, harness, position, archived_at, remote_push_state, remote_push_token, remote_push_attempted_at, created_at, updated_at from tickets where board_id=? order by id`, boardID)
+	ticketRows, err := tx.QueryContext(ctx, `select id, column_id, external_id, external_url, external_updated_at, sync_version, display_id, display_number, title, body, harness, position, archived_at, coalesce(focus_paused,0), remote_push_state, remote_push_token, remote_push_attempted_at, created_at, updated_at from tickets where board_id=? order by id`, boardID)
 	if err != nil {
 		return BoardAggregate{}, err
 	}
 	var ticketIDs []int64
 	for ticketRows.Next() {
 		var t AggregateTicket
-		if err := ticketRows.Scan(&t.SourceID, &t.ColumnSourceID, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNumber, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &t.RemotePushState, &t.RemotePushToken, &t.RemotePushAttemptedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var focusPaused int
+		if err := ticketRows.Scan(&t.SourceID, &t.ColumnSourceID, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNumber, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &focusPaused, &t.RemotePushState, &t.RemotePushToken, &t.RemotePushAttemptedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			ticketRows.Close()
 			return BoardAggregate{}, err
 		}
+		t.FocusPaused = focusPaused != 0
 		agg.Tickets = append(agg.Tickets, t)
 		ticketIDs = append(ticketIDs, t.SourceID)
 	}
@@ -218,6 +233,24 @@ func (s *Store) LoadBoardAggregate(ctx context.Context, boardID int64) (BoardAgg
 		if err != nil {
 			return BoardAggregate{}, err
 		}
+
+		checkpointRows, err := tx.QueryContext(ctx, `select id,ticket_id,why,completed,next_action,paused_at,resumed_at from pause_checkpoints where ticket_id=? order by id`, ticketID)
+		if err != nil {
+			return BoardAggregate{}, err
+		}
+		for checkpointRows.Next() {
+			var checkpoint AggregatePauseCheckpoint
+			if err := checkpointRows.Scan(&checkpoint.SourceID, &checkpoint.TicketSourceID, &checkpoint.Why, &checkpoint.Completed, &checkpoint.NextAction, &checkpoint.PausedAt, &checkpoint.ResumedAt); err != nil {
+				checkpointRows.Close()
+				return BoardAggregate{}, err
+			}
+			agg.PauseCheckpoints = append(agg.PauseCheckpoints, checkpoint)
+		}
+		if err := checkpointRows.Err(); err != nil {
+			checkpointRows.Close()
+			return BoardAggregate{}, err
+		}
+		checkpointRows.Close()
 
 		sessionRows, err := tx.QueryContext(ctx, `select id, ticket_id, harness, harness_session_ref, harness_session_name, tmux_session_name, tmux_window_id, tmux_window_name, coalesce(multiplexer,'tmux'), mux_namespace, mux_container_id, mux_container_name, mux_metadata, status, is_active, started_at, closed_at, last_seen_tmux_at, last_output_at, last_state_change_at, last_detected_state, last_attention_reason, last_detection_source, last_observed_excerpt, created_at, updated_at from sessions where ticket_id=? order by id`, ticketID)
 		if err != nil {
@@ -356,8 +389,12 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 		if harness == "" {
 			harness = "pi"
 		}
-		tres, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,remote_push_state,remote_push_token,remote_push_attempted_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			boardID, colID, nullStringValue(t.ExternalID), nullStringValue(t.ExternalURL), nullTimeValue(t.ExternalUpdatedAt), nullStringValue(t.SyncVersion), t.DisplayID, t.DisplayNumber, t.Title, t.Body, harness, t.Position, nullTimeValue(t.ArchivedAt), nullStringValue(t.RemotePushState), nullStringValue(t.RemotePushToken), nullTimeValue(t.RemotePushAttemptedAt), t.CreatedAt, t.UpdatedAt)
+		focusPaused := 0
+		if t.FocusPaused {
+			focusPaused = 1
+		}
+		tres, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,focus_paused,remote_push_state,remote_push_token,remote_push_attempted_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			boardID, colID, nullStringValue(t.ExternalID), nullStringValue(t.ExternalURL), nullTimeValue(t.ExternalUpdatedAt), nullStringValue(t.SyncVersion), t.DisplayID, t.DisplayNumber, t.Title, t.Body, harness, t.Position, nullTimeValue(t.ArchivedAt), focusPaused, nullStringValue(t.RemotePushState), nullStringValue(t.RemotePushToken), nullTimeValue(t.RemotePushAttemptedAt), t.CreatedAt, t.UpdatedAt)
 		if err != nil {
 			return BoardInsertResult{}, err
 		}
@@ -378,6 +415,16 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 		}
 		id, _ := nres.LastInsertId()
 		noteRemap[n.SourceID] = id
+	}
+
+	for _, checkpoint := range in.PauseCheckpoints {
+		ticketID, ok := ticketRemap[checkpoint.TicketSourceID]
+		if !ok {
+			return BoardInsertResult{}, fmt.Errorf("pause checkpoint %d references missing ticket %d", checkpoint.SourceID, checkpoint.TicketSourceID)
+		}
+		if _, err := tx.ExecContext(ctx, `insert into pause_checkpoints(ticket_id,why,completed,next_action,paused_at,resumed_at) values(?,?,?,?,?,?)`, ticketID, checkpoint.Why, checkpoint.Completed, checkpoint.NextAction, checkpoint.PausedAt, nullTimeValue(checkpoint.ResumedAt)); err != nil {
+			return BoardInsertResult{}, err
+		}
 	}
 
 	sessionRemap := map[int64]int64{}

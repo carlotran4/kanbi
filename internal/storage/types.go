@@ -16,6 +16,33 @@ var ErrBoardHasCurrentWorkspaces = errors.New("board has current ticket workspac
 
 var ErrBoardHasActiveIntegrationRuns = errors.New("board has an active integration run; finish or cancel it first")
 
+// ErrFocusCapacity means a local focus admission needs a replacement pause.
+var ErrFocusCapacity = errors.New("global focus limit reached")
+
+type FocusPolicy struct {
+	Enabled      bool
+	Limit        int
+	WorkflowKeys []string
+}
+
+type FocusStatus struct {
+	Enabled      bool
+	Limit        int
+	Used         int
+	WorkflowKeys []string
+	OverCapacity bool
+}
+
+type PauseCheckpoint struct {
+	ID         int64
+	TicketID   int64
+	Why        string
+	Completed  string
+	NextAction string
+	PausedAt   time.Time
+	ResumedAt  sql.NullTime
+}
+
 const (
 	// WorktreeModeOff keeps launches in the shared board working directory.
 	WorktreeModeOff = "off"
@@ -70,24 +97,29 @@ type Column = ColumnView
 //
 // It is intentionally not a direct representation of a tickets table row.
 type TicketProjection struct {
-	ID                    int64
-	BoardID               int64
-	BoardName             string
-	BoardUUID             string
-	BoardWorkdir          string
-	BoardWorktreeMode     string
-	ColumnID              int64
-	ExternalID            sql.NullString
-	ExternalURL           sql.NullString
-	ExternalUpdatedAt     sql.NullTime
-	SyncVersion           sql.NullString
-	DisplayID             string
-	DisplayNum            int
-	Title                 string
-	Body                  string
-	Harness               string
-	Position              int
-	ArchivedAt            sql.NullTime
+	ID                int64
+	BoardID           int64
+	BoardName         string
+	BoardUUID         string
+	BoardWorkdir      string
+	BoardWorktreeMode string
+	ColumnID          int64
+	ExternalID        sql.NullString
+	ExternalURL       sql.NullString
+	ExternalUpdatedAt sql.NullTime
+	SyncVersion       sql.NullString
+	DisplayID         string
+	DisplayNum        int
+	Title             string
+	Body              string
+	Harness           string
+	Position          int
+	ArchivedAt        sql.NullTime
+	FocusPaused       bool
+	// FocusMember is a transient presentation annotation set by the app/TUI
+	// from global config; it is not durable ticket metadata.
+	FocusMember           bool
+	LatestCheckpoint      *PauseCheckpoint
 	RemotePushState       sql.NullString
 	RemotePushToken       sql.NullString
 	RemotePushAttemptedAt sql.NullTime
