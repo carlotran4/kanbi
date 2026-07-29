@@ -141,12 +141,15 @@ func (m *Model) updateResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.resumeSubmitting {
 		return m, nil
 	}
+	m.clampResumeScroll()
 	switch key.String() {
 	case "esc":
 		m.resumeOpen = false
 		return m, nil
 	case "j", "down":
-		m.modalScroll++
+		if limit := m.resumeScrollLimit(); m.modalScroll < limit {
+			m.modalScroll++
+		}
 		return m, nil
 	case "k", "up":
 		if m.modalScroll > 0 {
@@ -273,13 +276,28 @@ func (m Model) focusReplaceView() string {
 	}
 	return modalFrame(lines, width, palette.warning)
 }
-func (m Model) resumeView() string {
-	checkpoint := m.resumeTicket.LatestCheckpoint
-	width := focusModalWidth(m.width)
-	contentWidth := modalContentWidth(width)
-	if checkpoint == nil {
-		return modalFrame([]string{"Resume unavailable: no pause checkpoint"}, width, palette.warning)
+func (m *Model) clampResumeScroll() {
+	if !m.resumeOpen {
+		return
 	}
+	m.modalScroll = minInt(maxInt(0, m.modalScroll), m.resumeScrollLimit())
+}
+
+func (m Model) resumeScrollLimit() int {
+	return maxInt(0, len(m.resumeBody())-m.resumeBodyRows())
+}
+
+func (m Model) resumeBodyRows() int {
+	// Reserve frame, padding, fixed title, and actions before selecting body.
+	return maxInt(1, m.height-6-2)
+}
+
+func (m Model) resumeBody() []string {
+	checkpoint := m.resumeTicket.LatestCheckpoint
+	if checkpoint == nil {
+		return nil
+	}
+	contentWidth := modalContentWidth(focusModalWidth(m.width))
 	body := []string{"Description"}
 	appendWrapped := func(prefix, value string) {
 		wrapped := wrapText(prefix+strings.TrimSpace(value), contentWidth, 1000)
@@ -293,13 +311,22 @@ func (m Model) resumeView() string {
 	appendWrapped("Why: ", checkpoint.Why)
 	appendWrapped("Completed: ", checkpoint.Completed)
 	appendWrapped("Next: ", checkpoint.NextAction)
+	return body
+}
+
+func (m Model) resumeView() string {
+	checkpoint := m.resumeTicket.LatestCheckpoint
+	width := focusModalWidth(m.width)
+	contentWidth := modalContentWidth(width)
+	if checkpoint == nil {
+		return modalFrame([]string{"Resume unavailable: no pause checkpoint"}, width, palette.warning)
+	}
+	body := m.resumeBody()
 	title := trimToWidth(fmt.Sprintf("Resume %s: %s", m.resumeTicket.DisplayID, m.resumeTicket.Title), contentWidth)
 	controls := "r resume   s resume + send handoff   Esc cancel"
-	// Reserve frame, padding, fixed title, and actions before selecting body.
-	bodyRows := maxInt(1, m.height-6-2)
-	maxScroll := maxInt(0, len(body)-bodyRows)
+	maxScroll := m.resumeScrollLimit()
 	scroll := minInt(maxInt(0, m.modalScroll), maxScroll)
-	end := minInt(len(body), scroll+bodyRows)
+	end := minInt(len(body), scroll+m.resumeBodyRows())
 	visible := append([]string(nil), body[scroll:end]...)
 	if scroll > 0 && len(visible) > 0 {
 		visible[0] = "↑ " + trimToWidth(visible[0], maxInt(1, contentWidth-2))

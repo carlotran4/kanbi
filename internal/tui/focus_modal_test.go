@@ -341,6 +341,73 @@ func TestPausedSectionHeadingRemainsVisibleWhenScrolledInsideSection(t *testing.
 	}
 }
 
+func TestResumeScrollClampsAtBottom(t *testing.T) {
+	long := strings.Repeat("long checkpoint content ", 20)
+	m := Model{width: 80, height: 24}
+	m.startResume(storage.Ticket{
+		DisplayID: "GH-340", Title: "resume scroll", Body: long,
+		LatestCheckpoint: &storage.PauseCheckpoint{Why: long, Completed: long, NextAction: long, PausedAt: time.Now()},
+	})
+	limit := m.resumeScrollLimit()
+	if limit == 0 {
+		t.Fatal("test fixture must require scrolling")
+	}
+	for range limit + 3 {
+		next, _ := m.updateResume(tea.KeyMsg{Type: tea.KeyDown})
+		m = focusTestModel(t, next)
+	}
+	if m.modalScroll != limit {
+		t.Fatalf("scroll=%d, want bottom limit %d", m.modalScroll, limit)
+	}
+	next, _ := m.updateResume(tea.KeyMsg{Type: tea.KeyDown})
+	m = focusTestModel(t, next)
+	if m.modalScroll != limit {
+		t.Fatalf("down at bottom changed scroll to %d, want %d", m.modalScroll, limit)
+	}
+	next, _ = m.updateResume(tea.KeyMsg{Type: tea.KeyUp})
+	m = focusTestModel(t, next)
+	if m.modalScroll != limit-1 {
+		t.Fatalf("up from bottom=%d, want %d", m.modalScroll, limit-1)
+	}
+	view := m.resumeView()
+	if !strings.Contains(view, "Resume GH-340") || !strings.Contains(view, "r resume   s resume + send handoff   Esc cancel") {
+		t.Fatalf("scrolling hid fixed title/actions:\n%s", view)
+	}
+}
+
+func TestResumeScrollClampsAfterResize(t *testing.T) {
+	long := strings.Repeat("long checkpoint content ", 20)
+	m := Model{width: 80, height: 24}
+	m.startResume(storage.Ticket{
+		DisplayID: "GH-340", Title: "resume resize", Body: long,
+		LatestCheckpoint: &storage.PauseCheckpoint{Why: long, Completed: long, NextAction: long, PausedAt: time.Now()},
+	})
+	m.modalScroll = m.resumeScrollLimit()
+	if m.modalScroll == 0 {
+		t.Fatal("test fixture must require scrolling")
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 45})
+	m = focusTestModel(t, next)
+	limit := m.resumeScrollLimit()
+	if m.modalScroll != limit {
+		t.Fatalf("resize retained stale scroll=%d, want new limit %d", m.modalScroll, limit)
+	}
+	next, _ = m.updateResume(tea.KeyMsg{Type: tea.KeyDown})
+	m = focusTestModel(t, next)
+	if m.modalScroll != limit {
+		t.Fatalf("down after resize changed scroll to %d, want %d", m.modalScroll, limit)
+	}
+	next, _ = m.updateResume(tea.KeyMsg{Type: tea.KeyUp})
+	m = focusTestModel(t, next)
+	if m.modalScroll != maxInt(0, limit-1) {
+		t.Fatalf("up after resize=%d, want %d", m.modalScroll, maxInt(0, limit-1))
+	}
+	view := m.resumeView()
+	if !strings.Contains(view, "Resume GH-340") || !strings.Contains(view, "r resume   s resume + send handoff   Esc cancel") {
+		t.Fatalf("resize hid fixed title/actions:\n%s", view)
+	}
+}
+
 func TestResumeViewWrapsLongContentAndKeepsControlsAt80x24(t *testing.T) {
 	long := strings.Repeat("long checkpoint content ", 20)
 	m := Model{
