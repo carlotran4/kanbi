@@ -1,0 +1,39 @@
+$ herdr --version
+herdr 0.7.5
+$ exact beta.3 candidate doctor against real Herdr
+kanbi 0.3.0-beta.3
+commit: a711aceedb758598974700aa39deeb7d168d2ee5
+built: 2026-07-29T03:52:06Z
+go: go1.26.5-X:nodwarf5
+platform: linux/amd64
+database schema: 8
+kanbi doctor
+ok build 0.3.0-beta.3 commit a711aceedb758598974700aa39deeb7d168d2ee5 built 2026-07-29T03:52:06Z linux/amd64 go1.26.5-X:nodwarf5
+ok database schema version 8
+ok multiplexer herdr
+ok herdr session default
+ok tmux tmux 3.7b
+ok sqlite /tmp/tmp.4ZuA4nSz0m/data/kanbi.db
+ok config /tmp/tmp.4ZuA4nSz0m/config.yaml
+ok shell /usr/bin/bash
+warn not inside tmux
+ok terminal xterm-256color
+warn harness claude not found: claude
+ok harness codex
+ok harness copilot
+ok harness pi
+$ create disposable board and Pi ticket
+2	Beta3 Herdr Qualification	/tmp/tmp.4ZuA4nSz0m/project	local
+T-001 Herdr Pane Initialization Qualification [pi]
+opened Beta3 Herdr Qualification T-001 b2-T-001-herdr-pane-initialization-qualification
+stored live container: multiplexer=herdr pane=w0:p42 agent=b2-t-001-herdr-pane-ini-00dd4aaf
+{"id":"cli:pane:get","result":{"pane":{"agent":"pi","agent_status":"working","cwd":"/tmp/tmp.4ZuA4nSz0m/project","focused":false,"foreground_cwd":"/tmp/tmp.4ZuA4nSz0m/project","pane_id":"w0:p42","revision":2,"scroll":{"max_offset_from_bottom":21,"offset_from_bottom":0,"viewport_rows":45},"tab_id":"w0:t2W","terminal_id":"term_657b81ea69b3111","terminal_title":"π - project","terminal_title_stripped":"π - project","workspace_id":"w0"},"type":"pane_info"}}
+pane transcript excerpt (startup metadata and unrelated agent output omitted):
+ T-001: Herdr Pane Initialization Qualification
+ Real Herdr beta.3 qualification prompt line one
+ line two: transient pane initialization and literal prompt transport
+multiline literal prompt transport: PASS
+verified Pi ref capture: PASS ref=[REDACTED]
+{"id":"cli:pane:close","result":{"type":"ok"}}
+real Herdr pane cleanup: PASS
+RESULT: PASS
