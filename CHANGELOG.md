@@ -4,16 +4,30 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ## Unreleased
 
+## [0.3.0-beta.3] - 2026-07-29
+
+Beta release adding global Focus Mode, project-file completion, and safer session repair while consolidating runtime, storage, CLI, and modal behavior behind shared application seams.
+
 ### Added
 
 - A global `F` settings flow for enabling/disabling Focus Mode and editing its limit/workflow keys without manually changing YAML.
 - Opt-in Global Focus Mode (GH-334): a configurable cross-board commitment limit, SQLite-serialized admission/replacement, provider-overflow visibility, required pause handoffs, resume briefs and structured handoff delivery, focus/paused card sections, and portable append-only checkpoint history.
+- Project-file completion in ticket bodies and notes: type `@` to search the ticket worktree or board directory and insert a textual relative path.
+- A tab-accessible harness session-ref field in the ticket editor when a verified ref already exists, allowing repair without flattening session history.
 
 ### Fixed
 
+- Submit Pi's initial positional prompt explicitly so supported Pi versions start the requested turn instead of leaving it in the editor.
+- Standardize single-line editing behavior and preserve bounded cursor/view state across ticket, board, filter, integration, focus, and session-repair modals.
 - Keep Focus Mode replacement, pause, and resume modals responsive and bounded through 80-column layouts and live resize; preserve ticket selection and paused-section labels while grouped cards reorder or scroll.
 - Preserve overflow warnings with long board names, separate archived history from focus commitments, progressively resolve provider overflow, and carry resume-and-send handoffs through repair/start-fresh.
 - Retry Herdr's transient `agent_pane_busy` response while a newly split shell initializes, prefer a non-agent pane as the split anchor, and defer focus until agent launch succeeds so opening a new ticket cannot appear to switch to an existing agent after failed cleanup.
+- Schedule and drain owning-board provider sync after CLI ticket creation, update, movement, and note addition, matching TUI mutation behavior and preventing pending remote updates from being abandoned at command exit.
+- Reject non-regular, traversing, oversized, backslash-path, symlinked, or invalid imported data at shared backup and board-package archive boundaries.
+- Keep repository integration readiness/completion bound to authenticated reports; native and transcript runtime observation can project attention states only.
+- Centralize archive validation, CLI ticket mutations, runtime-state semantics, and runtime/workspace boundaries so TUI and CLI paths enforce the same lifecycle and storage rules.
+
+This release migrates databases from schema 7 to schema 8 to store append-only Focus Mode pause checkpoints. See the reviewed [beta.3 release notes](./docs/releases/v0.3.0-beta.3.md) for compatibility, migration, rollback, support, and security guidance.
 
 ## [0.3.0-beta.2] - 2026-07-23
 
