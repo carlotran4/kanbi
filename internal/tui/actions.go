@@ -40,6 +40,7 @@ type BoardCommands interface {
 	SetColumnWorkflowKey(context.Context, int64, string) error
 	SaveFilterPreset(context.Context, string, storage.DurableMasterFilter) (storage.MasterFilterPreset, error)
 	DeleteFilterPreset(context.Context, int64) error
+	SaveFocusPolicy(context.Context, storage.FocusPolicy) error
 	ResolveMasterFilter(context.Context, storage.DurableMasterFilter) (storage.MasterFilter, []string, error)
 	DurableFromMasterFilter(context.Context, storage.MasterFilter) (storage.DurableMasterFilter, error)
 }

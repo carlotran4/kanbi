@@ -25,6 +25,9 @@ func (m Model) View() string {
 	if m.integrationOpen {
 		return overlayModal(base, fitModal(m.integrationView(), m.height, 0, true), m.width, m.height)
 	}
+	if m.focusSettingsOpen {
+		return overlayModal(base, fitModal(m.focusSettingsView(), m.height, 0, true), m.width, m.height)
+	}
 	if m.focusReplaceOpen {
 		return overlayModal(base, fitModal(m.focusReplaceView(), m.height, 0, true), m.width, m.height)
 	}
@@ -171,13 +174,13 @@ func focusHeaderLine(left, focusText string, width int) string {
 }
 
 func (m Model) contextBar() string {
-	items := []string{"Enter:send/open", "n:new", "e:ticket", "I:integrate", "b:boards"}
+	items := []string{"Enter:send/open", "n:new", "e:ticket", "I:integrate", "b:boards", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
 	items = append(items, "!:attention", "q:quit", "?:help+legend")
 	if m.width <= 80 {
-		items = []string{"Enter:open", "n:new", "b:boards"}
+		items = []string{"Enter:open", "n:new", "b:boards", "F:focus"}
 		if m.masterBoard {
 			items = append(items, "f:filters")
 		}
@@ -1089,6 +1092,7 @@ func (m Model) helpView() string {
 
 	section("Boards and columns")
 	row("b / f", "board picker / Master filters")
+	row("F", "global Focus Mode settings")
 	row("c / r / D", "add / rename / delete column")
 	row("Ctrl+Shift+←/→", "reorder column")
 	row("picker c/r/w/d", "create / rename / set cwd / delete board")

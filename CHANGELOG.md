@@ -6,6 +6,7 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Added
 
+- A global `F` settings flow for enabling/disabling Focus Mode and editing its limit/workflow keys without manually changing YAML.
 - Opt-in Global Focus Mode (GH-334): a configurable cross-board commitment limit, SQLite-serialized admission/replacement, provider-overflow visibility, required pause handoffs, resume briefs and structured handoff delivery, focus/paused card sections, and portable append-only checkpoint history.
 
 ### Fixed

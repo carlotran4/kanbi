@@ -73,8 +73,9 @@ type Service struct {
 	Manager SessionManager
 	Syncer  TicketSyncer
 	// DataDir is the Kanbi data root (parent of attachments/). Used by board package ops.
-	DataDir     string
-	Integration *integrationpkg.Service
+	DataDir          string
+	Integration      *integrationpkg.Service
+	FocusPolicySaver func(context.Context, storage.FocusPolicy) error
 }
 
 func NewService(store *storage.Store, manager SessionManager) *Service {
@@ -86,6 +87,16 @@ func NewServiceWithSyncer(store *storage.Store, manager SessionManager, syncer T
 }
 
 func (s *Service) SetFocusPolicy(policy storage.FocusPolicy) { s.Store.SetFocusPolicy(policy) }
+func (s *Service) SaveFocusPolicy(ctx context.Context, policy storage.FocusPolicy) error {
+	if s.FocusPolicySaver == nil {
+		return fmt.Errorf("focus settings persistence unavailable")
+	}
+	if err := s.FocusPolicySaver(ctx, policy); err != nil {
+		return err
+	}
+	s.Store.SetFocusPolicy(policy)
+	return nil
+}
 func (s *Service) FocusStatus(ctx context.Context) (storage.FocusStatus, error) {
 	return s.Store.FocusStatus(ctx)
 }

@@ -83,7 +83,7 @@ Startup opens a board picker. While running, `b` reopens the picker and switches
 
 ## Global Focus Mode
 
-When `focus.enabled` is configured, Master and named boards show the same global usage because it counts all unarchived boards, not only the current view. Configured stable workflow keys visually group each participating column into focused and paused tickets; paused tickets remain in their provider-owned real column and Master grouping. Archived boards and tickets do not consume focus capacity. When archived tickets are explicitly shown in Master, they appear in a separate textual `ARCHIVED` section rather than as focused commitments. Provider-driven overflow is resolved through one or more committed checkpoint pauses before a new admission proceeds.
+Press `F` from Master or any named board to edit the same durable global Focus Mode policy. When `focus.enabled` is configured, Master and named boards show the same global usage because it counts all unarchived boards, not only the current view. Configured stable workflow keys visually group each participating column into focused and paused tickets; paused tickets remain in their provider-owned real column and Master grouping. Archived boards and tickets do not consume focus capacity. When archived tickets are explicitly shown in Master, they appear in a separate textual `ARCHIVED` section rather than as focused commitments. Provider-driven overflow is resolved through one or more committed checkpoint pauses before a new admission proceeds.
 
 ## Master board aggregation
 

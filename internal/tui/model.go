@@ -168,6 +168,12 @@ type Model struct {
 	focusReplaceMoveColumn   int64
 	focusReplaceResumeTicket storage.Ticket
 	focusReplaceResumeSend   bool
+	focusSettingsOpen        bool
+	focusSettingsEnabled     bool
+	focusSettingsLimit       InputBuffer
+	focusSettingsKeys        InputBuffer
+	focusSettingsField       int
+	focusSettingsSubmitting  bool
 }
 
 // defaultTermSize is used before a WindowSizeMsg arrives.
@@ -255,6 +261,11 @@ type focusMoveTicketMsg struct {
 	ticket   storage.Ticket
 	columnID int64
 	err      error
+}
+
+type focusSettingsSavedMsg struct {
+	policy storage.FocusPolicy
+	err    error
 }
 
 type moveMultiplexerMsg struct {
@@ -370,6 +381,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resumeOpen = false
 		m.clearFocusReplacement()
 		m.status = "paused " + msg.displayID
+		m.reload()
+		return m, nil
+	case focusSettingsSavedMsg:
+		m.focusSettingsSubmitting = false
+		if msg.err != nil {
+			m.setActionError("save focus settings", msg.err, "Check the active config path and permissions, then press Ctrl+S to retry.")
+			return m, nil
+		}
+		m.focusSettingsOpen = false
+		if msg.policy.Enabled {
+			m.status = fmt.Sprintf("Focus Mode enabled · limit %d", msg.policy.Limit)
+		} else {
+			m.status = "Focus Mode disabled"
+		}
 		m.reload()
 		return m, nil
 	case focusMoveTicketMsg:
@@ -488,13 +513,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOnboarding(key), nil
 	}
 	// Clear stale status on any keypress (unless a modal is consuming input).
-	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.integrationOpen && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen && !m.focusReplaceOpen && !m.pauseOpen && !m.resumeOpen {
+	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.integrationOpen && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen && !m.focusSettingsOpen && !m.focusReplaceOpen && !m.pauseOpen && !m.resumeOpen {
 		m.status = ""
 		m.errOperation = ""
 		m.errNext = ""
 	}
 	if m.integrationOpen {
 		return m.updateIntegration(key)
+	}
+	if m.focusSettingsOpen {
+		return m.updateFocusSettings(key)
 	}
 	// Input routing must follow View's modal stacking order. A replacement
 	// chooser can be displayed over an open resume brief.
@@ -587,6 +615,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "?":
 		m.showHelp = true
+		m.modalScroll = 0
+	case "F":
+		m.startFocusSettings()
 		m.modalScroll = 0
 	case "b":
 		m.reloadBoards()

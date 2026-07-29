@@ -24,7 +24,7 @@ Use separate boards for separate projects, or supervise everything from one Mast
 - **Leave agents running** — exiting Kanbi and runtime attention detection do not terminate active sessions.
 - **Keep projects isolated** — every board has its own working directory, with opt-in per-ticket Git worktrees for concurrent implementations.
 - **Work across projects** — Master combines and filters all your boards.
-- **Protect attention** — opt-in Global Focus Mode limits active commitments across every unarchived board and records a required handoff checkpoint before pausing work.
+- **Protect attention** — opt-in Global Focus Mode limits active commitments across every unarchived board and records a required handoff checkpoint before pausing work. Press `F` on the board to enable, disable, or configure it.
 - **Use your own tickets** — work locally or sync with GitHub Issues and Jira.
 
 ## Install

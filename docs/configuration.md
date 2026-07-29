@@ -58,7 +58,7 @@ focus:
   workflow_keys: ["In Progress", "Review"]
 ```
 
-A focused ticket is unarchived, in one of these workflow keys, and not paused. Disabling Focus Mode leaves checkpoint history intact and hides focus-specific board UI; it does not change provider workflow metadata.
+A focused ticket is unarchived, in one of these workflow keys, and not paused. Press `F` from Master or a named board to open the global Focus Mode settings form. The form toggles Focus Mode, edits the positive limit, and accepts comma-separated stable workflow keys; `Ctrl+S` atomically updates the active config file and applies the policy immediately in the current Kanbi process. Other already-running Kanbi processes pick up the saved policy when restarted. Disabling Focus Mode leaves checkpoint history intact and hides focus-specific board UI; it does not change provider workflow metadata.
 
 ## Timeouts
 

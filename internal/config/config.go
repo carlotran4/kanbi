@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -164,6 +165,129 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return Normalize(raw, paths, NormalizeOptions{Env: readEnv(), NestedPromptReadyTimeoutSet: nestedPromptReadyTimeoutSet})
+}
+
+func SaveFocus(path string, focus Focus) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("config path is required")
+	}
+	if focus.Limit <= 0 {
+		focus.Limit = 3
+	}
+	seen := make(map[string]bool)
+	keys := make([]string, 0, len(focus.WorkflowKeys))
+	for _, key := range focus.WorkflowKeys {
+		key = strings.TrimSpace(key)
+		if key != "" && !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	focus.WorkflowKeys = keys
+
+	var document yaml.Node
+	contents, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read config %s: %w", path, err)
+	}
+	if len(bytes.TrimSpace(contents)) == 0 {
+		document = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
+	} else if err := yaml.Unmarshal(contents, &document); err != nil {
+		return fmt.Errorf("load config %s: %w", path, err)
+	}
+	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("load config %s: root must be a YAML mapping", path)
+	}
+	root := document.Content[0]
+	var encodedFocus yaml.Node
+	if err := encodedFocus.Encode(focus); err != nil {
+		return fmt.Errorf("encode focus config: %w", err)
+	}
+	focusNode := mappingValue(root, "focus")
+	if focusNode == nil {
+		focusNode = &yaml.Node{Kind: yaml.MappingNode}
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "focus"}, focusNode)
+	}
+	if focusNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("load config %s: focus must be a YAML mapping", path)
+	}
+	// Update only Kanbi-owned fields. Unknown extension keys and comments under
+	// focus remain intact.
+	for i := 0; i+1 < len(encodedFocus.Content); i += 2 {
+		setMappingValue(focusNode, encodedFocus.Content[i].Value, encodedFocus.Content[i+1])
+	}
+
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&document); err != nil {
+		return fmt.Errorf("encode config %s: %w", path, err)
+	}
+	if err := encoder.Close(); err != nil {
+		return fmt.Errorf("encode config %s: %w", path, err)
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create config directory %s: %w", dir, err)
+	}
+	tmp, err := os.CreateTemp(dir, ".kanbi-config-*")
+	if err != nil {
+		return fmt.Errorf("create temporary config: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(output.Bytes()); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temporary config: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync temporary config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temporary config: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("replace config %s: %w", path, err)
+	}
+	directory, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("open config directory for sync: %w", err)
+	}
+	if err := directory.Sync(); err != nil {
+		directory.Close()
+		return fmt.Errorf("sync config directory: %w", err)
+	}
+	return directory.Close()
+}
+
+func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func setMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value != key {
+			continue
+		}
+		old := mapping.Content[i+1]
+		value.HeadComment = old.HeadComment
+		value.LineComment = old.LineComment
+		value.FootComment = old.FootComment
+		mapping.Content[i+1] = value
+		return
+	}
+	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
 }
 
 func LoadRaw(path string) (Config, bool, error) {

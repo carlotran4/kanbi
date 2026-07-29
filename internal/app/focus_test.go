@@ -72,6 +72,34 @@ func focusTestService(t *testing.T) (*Service, *focusTestManager, storage.Ticket
 	return NewService(store, manager), manager, ticket
 }
 
+func TestSaveFocusPolicyPersistsBeforeApplyingRuntime(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, nil)
+	service.FocusPolicySaver = func(context.Context, storage.FocusPolicy) error { return errors.New("save failed") }
+	policy := storage.FocusPolicy{Enabled: true, Limit: 2, WorkflowKeys: []string{"Review"}}
+	if err := service.SaveFocusPolicy(ctx, policy); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	if store.FocusPolicy().Enabled {
+		t.Fatal("runtime policy changed before persistence succeeded")
+	}
+	service.FocusPolicySaver = func(context.Context, storage.FocusPolicy) error { return nil }
+	if err := service.SaveFocusPolicy(ctx, policy); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.FocusPolicy(); !got.Enabled || got.Limit != 2 {
+		t.Fatalf("runtime policy not applied after save: %+v", got)
+	}
+}
+
 func TestPauseValidatesBeforeClosingSession(t *testing.T) {
 	svc, manager, ticket := focusTestService(t)
 	if err := svc.PauseTicket(context.Background(), ticket.ID, "", "done", "next"); err == nil {

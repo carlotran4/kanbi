@@ -185,6 +185,9 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		defer manager.Close()
 		svc := tui.NewServiceWithSyncer(cli.store, manager, syncer)
 		svc.SetFocusPolicy(storage.FocusPolicy{Enabled: cfg.Focus.Enabled, Limit: cfg.Focus.Limit, WorkflowKeys: cfg.Focus.WorkflowKeys})
+		svc.FocusPolicySaver = func(_ context.Context, policy storage.FocusPolicy) error {
+			return config.SaveFocus(cfg.Paths.ConfigFile, config.Focus{Enabled: policy.Enabled, Limit: policy.Limit, WorkflowKeys: policy.WorkflowKeys})
+		}
 		svc.DataDir = cfg.Paths.DataDir
 		svc.Integration = &integrationpkg.Service{Store: cli.store, StateDir: cfg.Paths.StateDir, Launcher: manager, Workspace: manager.WorkspaceService, DefaultHarness: cfg.Integration.Harness, ValidationCommand: cfg.Integration.ValidationCommand}
 		_, err := tea.NewProgram(tui.NewWithPickerStatusBarOptions(ctx, svc, reconcileWarning, *cfg.StatusBar)).Run()
