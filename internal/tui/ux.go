@@ -23,6 +23,13 @@ func modalInput(input InputBuffer, active bool, width int) string {
 	return trimToWidth(input.Value(), width)
 }
 
+// modalLabeledInput budgets the editable value from the full rendered row, so
+// the frame never truncates an active cursor after the label is added.
+func modalLabeledInput(prefix string, input InputBuffer, active bool, contentWidth int) string {
+	available := maxInt(1, contentWidth-lipgloss.Width(prefix))
+	return prefix + modalInput(input, active, available)
+}
+
 func modalFrame(lines []string, outerWidth int, borderColor lipgloss.TerminalColor) string {
 	outerWidth = maxInt(2, outerWidth)
 	contentWidth := modalContentWidth(outerWidth)
@@ -31,7 +38,10 @@ func modalFrame(lines []string, outerWidth int, borderColor lipgloss.TerminalCol
 	out = append(out, border.Render("╭"+strings.Repeat("─", outerWidth-2)+"╮"))
 	out = append(out, border.Render("│")+"  "+strings.Repeat(" ", contentWidth)+"  "+border.Render("│"))
 	for _, line := range lines {
-		out = append(out, border.Render("│")+"  "+padLine(trimToWidth(line, contentWidth), contentWidth)+"  "+border.Render("│"))
+		if lipgloss.Width(line) > contentWidth {
+			line = trimToWidth(line, contentWidth)
+		}
+		out = append(out, border.Render("│")+"  "+padLine(line, contentWidth)+"  "+border.Render("│"))
 	}
 	out = append(out, border.Render("│")+"  "+strings.Repeat(" ", contentWidth)+"  "+border.Render("│"))
 	out = append(out, border.Render("╰"+strings.Repeat("─", outerWidth-2)+"╯"))

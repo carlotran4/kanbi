@@ -228,17 +228,20 @@ func (m Model) masterFilterView() string {
 	var lines []string
 	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Master filters")
 	lines = append(lines, header, "")
-	row := func(i int, text string) string {
+	rowPrefix := func(i int) string {
 		if i == m.masterFilterField {
-			return lipgloss.NewStyle().Foreground(palette.accent).Render(">") + " " + text
+			return lipgloss.NewStyle().Foreground(palette.accent).Render(">") + " "
 		}
-		return "  " + text
+		return "  "
 	}
+	row := func(i int, text string) string { return rowPrefix(i) + text }
 	search := m.masterFilterDraft.Search
 	if m.masterFilterField == 0 {
-		search = modalInput(m.masterFilterSearch, true, maxInt(1, modalContentWidth(popupWidth(m.width))-8))
+		search = modalLabeledInput(rowPrefix(0)+"search: ", m.masterFilterSearch, true, modalContentWidth(popupWidth(m.width)))
+		lines = append(lines, search)
+	} else {
+		lines = append(lines, row(0, "search: "+search))
 	}
-	lines = append(lines, row(0, "search: "+search))
 	archived := "[ ] show archived"
 	if m.masterFilterDraft.IncludeArchived {
 		archived = "[x] show archived"

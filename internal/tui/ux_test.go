@@ -11,6 +11,97 @@ import (
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
+func TestModalLabeledInputsKeepCursorVisibleAt80Columns(t *testing.T) {
+	long := "long-single-line-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-abcdefghijklmnopqrstuvwxyz-END"
+	atEndLeft := func(value string) InputBuffer {
+		input := NewInputBuffer(value)
+		input.Left()
+		return input
+	}
+	cases := []struct {
+		name string
+		view func(InputBuffer) string
+	}{
+		{
+			name: "board create name",
+			view: func(input InputBuffer) string {
+				m := Model{width: 80, boardEditing: true, boardEditAction: "create", boardEditName: input}
+				return m.boardEditView()
+			},
+		},
+		{
+			name: "board rename name",
+			view: func(input InputBuffer) string {
+				m := Model{width: 80, boardRenaming: true, boardRenameName: input}
+				return m.boardRenameView()
+			},
+		},
+		{
+			name: "master filter search",
+			view: func(input InputBuffer) string {
+				m := Model{width: 80, masterFilterField: 0, masterFilterSearch: input}
+				return m.masterFilterView()
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			view := tc.view(atEndLeft(long))
+			// Lip Gloss suppresses ANSI styling under go test, so assert the
+			// bounded focused viewport survives framing; real-terminal coverage
+			// verifies its reverse-video cursor.
+			if !strings.Contains(ansiStrip(view), "abcdefghijklmnopqrstuvwxyz-END") {
+				t.Fatalf("focused viewport was clipped: %q", view)
+			}
+			for _, line := range strings.Split(view, "\n") {
+				if got := displayWidth(line); got != popupWidth(80) {
+					t.Fatalf("line width=%d, want %d: %q", got, popupWidth(80), line)
+				}
+			}
+		})
+	}
+}
+
+func TestTicketInspectorMetadataBoundsFocusedHarnessAfterResize(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Inspector", "body", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, NewService(store, nil))
+	model.startEdit()
+	model.editing = true
+	model.editField = 2
+	model.editInputs[2] = NewInputBuffer("harness-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-abcdefghijklmnopqrstuvwxyz-END")
+	model.editInputs[2].Left()
+
+	for _, size := range []struct{ width, height int }{{80, 24}, {160, 45}, {80, 24}} {
+		next, _ := model.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+		model = next.(Model)
+		rendered := model.editView()
+		if !strings.Contains(ansiStrip(rendered), "abcdefghijklmnopqrstuvwxyz-END") {
+			t.Fatalf("%dx%d focused harness viewport was clipped: %q", size.width, size.height, rendered)
+		}
+		wantWidth := inspectorPopupWidth(size.width)
+		foundHarness := false
+		for _, line := range strings.Split(rendered, "\n") {
+			plain := ansiStrip(line)
+			if got := displayWidth(line); got != wantWidth {
+				t.Fatalf("%dx%d inspector line width=%d, want %d: %q", size.width, size.height, got, wantWidth, plain)
+			}
+			if strings.Contains(plain, "harness") {
+				foundHarness = true
+				if !strings.HasSuffix(plain, "│") {
+					t.Fatalf("%dx%d harness metadata lost right border: %q", size.width, size.height, plain)
+				}
+			}
+		}
+		if !foundHarness {
+			t.Fatalf("%dx%d inspector omitted harness metadata", size.width, size.height)
+		}
+	}
+}
+
 func TestModalFrameHasRoundedExactWidth(t *testing.T) {
 	for _, width := range []int{160, 80, 20} {
 		view := modalFrame([]string{"> focused control", "a long line that is safely bounded"}, width, palette.warning)

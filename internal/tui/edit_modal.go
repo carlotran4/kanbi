@@ -499,9 +499,10 @@ func (m Model) editView() string {
 		harnessValue = "pi"
 	}
 	if m.editField == 2 {
-		meta = append(meta, focusChip.Render("harness")+" "+m.editInputs[2].Viewport(maxInt(1, contentW-10)))
+		label := focusChip.Render("harness") + " "
+		meta = append(meta, label+m.editInputs[2].Viewport(maxInt(1, contentW-lipgloss.Width(label))))
 	} else {
-		meta = append(meta, chip.Render(harnessValue))
+		meta = append(meta, chip.Render(trimToWidth(harnessValue, contentW)))
 	}
 	if !t.UpdatedAt.IsZero() {
 		meta = append(meta, metaText.Render("updated "+relativeTime(t.UpdatedAt)))
@@ -510,7 +511,7 @@ func (m Model) editView() string {
 		meta = append(meta, lipgloss.NewStyle().Foreground(palette.warning).Bold(true).Render("unsaved"))
 	}
 	if len(meta) > 0 {
-		lines = append(lines, strings.Join(meta, metaText.Render("  ·  ")))
+		lines = append(lines, inspectorMetadataLines(contentW, metaText.Render("  ·  "), meta...)...)
 	}
 	if t.WorkspaceID.Valid && strings.TrimSpace(t.WorkspaceBranch.String) != "" {
 		for _, line := range inspectorBranchLines(t.WorkspaceBranch.String, contentW) {
@@ -557,6 +558,37 @@ func (m Model) editView() string {
 	}
 	title := ticketInspectorTitle(t.DisplayID, m.editInputs[0], m.editField == 0, dirty, titleWidth)
 	return ticketInspectorBox(content, title, boxW)
+}
+
+// inspectorMetadataLines packs complete metadata chips into bounded rows. This
+// preserves semantic chips (and an active input cursor) instead of truncating a
+// joined line after it has already overflowed the inspector frame.
+func inspectorMetadataLines(width int, separator string, entries ...string) []string {
+	width = maxInt(1, width)
+	var lines []string
+	current := ""
+	for _, entry := range entries {
+		if lipgloss.Width(entry) > width {
+			entry = trimToWidth(entry, width)
+		}
+		if entry == "" {
+			continue
+		}
+		if current == "" {
+			current = entry
+			continue
+		}
+		if lipgloss.Width(current)+lipgloss.Width(separator)+lipgloss.Width(entry) <= width {
+			current += separator + entry
+			continue
+		}
+		lines = append(lines, current)
+		current = entry
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
 }
 
 func inspectorBranchLines(branch string, width int) []string {
@@ -701,6 +733,9 @@ func ticketInspectorBox(content, title string, width int) string {
 	lines = append(lines, top)
 	lines = append(lines, border.Render("│")+"  "+strings.Repeat(" ", bodyWidth)+"  "+border.Render("│"))
 	for _, line := range strings.Split(content, "\n") {
+		if lipgloss.Width(line) > bodyWidth {
+			line = trimToWidth(line, bodyWidth)
+		}
 		lines = append(lines, border.Render("│")+"  "+padLine(line, bodyWidth)+"  "+border.Render("│"))
 	}
 	lines = append(lines, border.Render("│")+"  "+strings.Repeat(" ", bodyWidth)+"  "+border.Render("│"))

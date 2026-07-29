@@ -326,7 +326,7 @@ func (m Model) boardRenameView() string {
 	contentWidth := modalContentWidth(popupW)
 	return modalFrame([]string{
 		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Rename board"), "",
-		fmt.Sprintf("> name: %s", modalInput(m.boardRenameName, true, maxInt(1, contentWidth-7))), "",
+		modalLabeledInput("> name: ", m.boardRenameName, true, contentWidth), "",
 		lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel"),
 	}, popupW, palette.accent)
 }
@@ -416,11 +416,8 @@ func (m Model) boardEditView() string {
 		}
 		return " "
 	}
-	render := func(field int, input InputBuffer) string {
-		if m.boardEditField == field {
-			return modalInput(input, true, maxInt(1, modalContentWidth(popupW)-7))
-		}
-		return modalInput(input, false, maxInt(1, modalContentWidth(popupW)-7))
+	render := func(field int, prefix string, input InputBuffer) string {
+		return modalLabeledInput(prefix, input, m.boardEditField == field, modalContentWidth(popupW))
 	}
 	if m.boardEditAction == "cwd" {
 		header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Set board cwd for " + m.boardEditName.Value())
@@ -428,15 +425,15 @@ func (m Model) boardEditView() string {
 		if m.status != "" {
 			lines = append(lines, statusStyle.Render(m.status), "")
 		}
-		lines = append(lines, fmt.Sprintf("%s cwd: %s", cursor(1), render(1, m.boardEditCWD)))
+		lines = append(lines, render(1, cursor(1)+" cwd: ", m.boardEditCWD))
 	} else {
 		header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Create board")
 		lines = append(lines, header, "")
 		if m.status != "" {
 			lines = append(lines, statusStyle.Render(m.status), "")
 		}
-		lines = append(lines, fmt.Sprintf("%s name: %s", cursor(0), render(0, m.boardEditName)))
-		lines = append(lines, fmt.Sprintf("%s cwd:  %s", cursor(1), render(1, m.boardEditCWD)))
+		lines = append(lines, render(0, cursor(0)+" name: ", m.boardEditName))
+		lines = append(lines, render(1, cursor(1)+" cwd:  ", m.boardEditCWD))
 		modeLabel := "shared board directory"
 		if m.boardEditMode == storage.WorktreeModeGit {
 			modeLabel = "isolated Git worktrees"

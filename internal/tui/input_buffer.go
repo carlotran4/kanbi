@@ -235,7 +235,11 @@ func (b InputBuffer) Viewport(width int) string {
 	if right {
 		out.WriteString("…")
 	}
-	return trimToWidth(out.String(), width)
+	view := out.String()
+	if lipgloss.Width(view) > width {
+		return trimToWidth(view, width)
+	}
+	return view
 }
 
 func boolWidth(value bool) int {
