@@ -720,6 +720,92 @@ func TestModelTicketInspectorShowsResumableStatus(t *testing.T) {
 	}
 }
 
+func TestModelTicketEditorEditsExistingSessionRef(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Repoint session", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	olderID, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:           "pi",
+		HarnessSessionRef: sqlNullStr("historical-ref"),
+		TmuxSessionName:   "kanbi-test",
+		TmuxWindowName:    "b1-T-001-repoint-session-old",
+		Status:            "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkSessionClosed(ctx, olderID, "closed", "tmux", "older attempt"); err != nil {
+		t.Fatal(err)
+	}
+	latestID, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness:           "pi",
+		HarnessSessionRef: sqlNullStr("wrong-ref"),
+		TmuxSessionName:   "kanbi-test",
+		TmuxWindowName:    "b1-T-001-repoint-session-latest",
+		Status:            "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkSessionClosed(ctx, latestID, "closed", "tmux", "latest attempt"); err != nil {
+		t.Fatal(err)
+	}
+
+	model := New(ctx, NewService(store, nil))
+	model, _ = mustUpdate(t, model, "e")
+	if !model.editSessionRefVisible {
+		t.Fatal("existing session ref should be visible in the ticket editor")
+	}
+	if rendered := ansiStrip(model.View()); !strings.Contains(rendered, "Session ref: wrong-ref") {
+		t.Fatalf("ticket editor does not show the existing session ref:\n%s", model.View())
+	}
+
+	for range 3 {
+		model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	}
+	if model.editField != 3 {
+		t.Fatalf("field after title, body, and harness = %d, want session ref field 3", model.editField)
+	}
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyHome})
+	for range "wrong-ref" {
+		model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyDelete})
+	}
+	model, _ = mustUpdate(t, model, "replacement-ref")
+	if !model.editDirty(model.editTicket) {
+		t.Fatal("changed session ref should mark the editor dirty")
+	}
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	if model.editField != 4 {
+		t.Fatalf("field after session ref = %d, want notes field 4", model.editField)
+	}
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if model.editField != 3 {
+		t.Fatalf("Shift+Tab from notes = %d, want session ref field 3", model.editField)
+	}
+	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlS})
+	if model.editing {
+		t.Fatal("successful session ref save should close the editor")
+	}
+
+	latest, ok, err := store.SessionByID(ctx, latestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !latest.HarnessSessionRef.Valid || latest.HarnessSessionRef.String != "replacement-ref" {
+		t.Fatalf("latest session ref = %+v, want replacement-ref", latest.HarnessSessionRef)
+	}
+	older, ok, err := store.SessionByID(ctx, olderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !older.HarnessSessionRef.Valid || older.HarnessSessionRef.String != "historical-ref" {
+		t.Fatalf("historical session was changed or removed: %+v", older.HarnessSessionRef)
+	}
+}
+
 func TestModelEditTicketUpdatesStore(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -730,6 +816,9 @@ func TestModelEditTicketUpdatesStore(t *testing.T) {
 	model, _ = mustUpdate(t, model, "e")
 	if !model.editing {
 		t.Fatal("should be editing")
+	}
+	if model.editSessionRefVisible || strings.Contains(ansiStrip(model.View()), "Session ref:") {
+		t.Fatal("ticket editor should omit the session ref field when no ref exists")
 	}
 	// Clear title and type new one
 	for range "Original" {
