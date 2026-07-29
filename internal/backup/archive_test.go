@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -124,5 +125,71 @@ func TestRestoreRejectsUnsafeArchivePath(t *testing.T) {
 	_ = f.Close()
 	if err := Restore(context.Background(), path, filepath.Join(t.TempDir(), "db"), t.TempDir(), false); err == nil {
 		t.Fatal("unsafe path accepted")
+	}
+}
+
+func TestRestoreRejectsNonRegularAndOversizedMembersBeforeReplacement(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode os.FileMode
+		data []byte
+	}{
+		{"symlink database", os.ModeSymlink | 0o777, []byte("target")},
+		{"directory database", os.ModeDir | 0o755, nil},
+		{"oversized manifest", 0o600, []byte("ignored")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			archivePath := filepath.Join(root, "bad.zip")
+			f, err := os.Create(archivePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			zw := zip.NewWriter(f)
+			if tc.name == "oversized manifest" {
+				w, err := zw.Create("manifest.json")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := w.Write([]byte(strings.Repeat("x", 1<<20+1))); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				w, err := zw.Create("manifest.json")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := w.Write([]byte(`{"format":"kanbi-backup","version":1}`)); err != nil {
+					t.Fatal(err)
+				}
+				h := &zip.FileHeader{Name: "database/kanbi.db", Method: zip.Deflate}
+				h.SetMode(tc.mode)
+				w, err = zw.CreateHeader(h)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := w.Write(tc.data); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := zw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			dbPath := filepath.Join(root, "target.db")
+			if err := os.WriteFile(dbPath, []byte("original"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := Restore(context.Background(), archivePath, dbPath, filepath.Join(root, "data"), true); err == nil {
+				t.Fatal("unsafe archive accepted")
+			}
+			data, err := os.ReadFile(dbPath)
+			if err != nil || string(data) != "original" {
+				t.Fatalf("database was replaced: %q, %v", data, err)
+			}
+		})
 	}
 }

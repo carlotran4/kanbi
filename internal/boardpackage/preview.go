@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/carlotran4/kanbi/internal/archiveutil"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -138,9 +140,15 @@ func readPackage(archivePath string) (Manifest, Document, map[string]bool, error
 
 	for _, zf := range zr.File {
 		name := filepath.ToSlash(zf.Name)
+		if name != "" && !strings.HasSuffix(name, "/") {
+			mode := zf.FileInfo().Mode()
+			if mode&os.ModeSymlink != 0 || !mode.IsRegular() {
+				return Manifest{}, Document{}, nil, fmt.Errorf("non-regular package entry rejected: %s", name)
+			}
+		}
 		switch {
 		case name == "manifest.json":
-			data, err := readLimited(zf, 1<<20)
+			data, err := archiveutil.ReadLimited(zf, 1<<20)
 			if err != nil {
 				return Manifest{}, Document{}, nil, err
 			}
@@ -149,7 +157,7 @@ func readPackage(archivePath string) (Manifest, Document, map[string]bool, error
 			}
 			haveManifest = true
 		case name == "board.json":
-			data, err := readLimited(zf, 64<<20)
+			data, err := archiveutil.ReadLimited(zf, 64<<20)
 			if err != nil {
 				return Manifest{}, Document{}, nil, err
 			}

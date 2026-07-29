@@ -296,23 +296,17 @@ func (s *Store) CountActiveSessionsOnBoard(ctx context.Context, boardID int64) (
 // All sessions are forced inactive so no live container claims go active.
 // Imported boards are always archived with sync disabled.
 func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInsert) (BoardInsertResult, error) {
-	name := strings.TrimSpace(in.Name)
-	if name == "" {
-		return BoardInsertResult{}, errors.New("board name is required")
+	name, err := normalizeBoardName(in.Name)
+	if err != nil {
+		return BoardInsertResult{}, err
 	}
-	backend := strings.ToLower(strings.TrimSpace(in.TicketBackend))
-	if backend == "" {
-		backend = "local"
+	backend, err := normalizeTicketBackend(in.TicketBackend, true)
+	if err != nil {
+		return BoardInsertResult{}, err
 	}
-	if !validTicketBackend(backend) {
-		return BoardInsertResult{}, fmt.Errorf("unsupported ticket backend %q", backend)
-	}
-	worktreeMode := strings.ToLower(strings.TrimSpace(in.WorktreeMode))
-	if worktreeMode == "" {
-		worktreeMode = WorktreeModeOff
-	}
-	if worktreeMode != WorktreeModeOff && worktreeMode != WorktreeModeGit {
-		return BoardInsertResult{}, fmt.Errorf("unsupported worktree mode %q", worktreeMode)
+	worktreeMode, err := normalizeWorktreeMode(in.WorktreeMode, true)
+	if err != nil {
+		return BoardInsertResult{}, err
 	}
 	var existing int
 	if err := s.db.QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?)`, name).Scan(&existing); err != nil {
@@ -329,7 +323,13 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 	if nextTicketNumber > maxSafeImportedTicketNumber {
 		return BoardInsertResult{}, errors.New("next ticket number is too large")
 	}
-	for _, ticket := range in.Tickets {
+	normalizedTickets := make([]ticketWrite, len(in.Tickets))
+	for i, ticket := range in.Tickets {
+		write, err := normalizeTicketWrite(ticket.Title, ticket.Body, ticket.Harness, true)
+		if err != nil {
+			return BoardInsertResult{}, fmt.Errorf("ticket %d: %w", ticket.SourceID, err)
+		}
+		normalizedTickets[i] = write
 		if ticket.DisplayNumber <= 0 {
 			return BoardInsertResult{}, fmt.Errorf("ticket %d has invalid display number %d", ticket.SourceID, ticket.DisplayNumber)
 		}
@@ -380,21 +380,17 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 	}
 
 	ticketRemap := map[int64]int64{}
-	for _, t := range in.Tickets {
+	for i, t := range in.Tickets {
 		colID, ok := columnRemap[t.ColumnSourceID]
 		if !ok {
 			return BoardInsertResult{}, fmt.Errorf("ticket %d references missing column %d", t.SourceID, t.ColumnSourceID)
-		}
-		harness := strings.ToLower(strings.TrimSpace(t.Harness))
-		if harness == "" {
-			harness = "pi"
 		}
 		focusPaused := 0
 		if t.FocusPaused {
 			focusPaused = 1
 		}
 		tres, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,external_id,external_url,external_updated_at,sync_version,display_id,display_number,title,body,harness,position,archived_at,focus_paused,remote_push_state,remote_push_token,remote_push_attempted_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			boardID, colID, nullStringValue(t.ExternalID), nullStringValue(t.ExternalURL), nullTimeValue(t.ExternalUpdatedAt), nullStringValue(t.SyncVersion), t.DisplayID, t.DisplayNumber, t.Title, t.Body, harness, t.Position, nullTimeValue(t.ArchivedAt), focusPaused, nullStringValue(t.RemotePushState), nullStringValue(t.RemotePushToken), nullTimeValue(t.RemotePushAttemptedAt), t.CreatedAt, t.UpdatedAt)
+			boardID, colID, nullStringValue(t.ExternalID), nullStringValue(t.ExternalURL), nullTimeValue(t.ExternalUpdatedAt), nullStringValue(t.SyncVersion), t.DisplayID, t.DisplayNumber, normalizedTickets[i].Title, normalizedTickets[i].Body, normalizedTickets[i].Harness, t.Position, nullTimeValue(t.ArchivedAt), focusPaused, nullStringValue(t.RemotePushState), nullStringValue(t.RemotePushToken), nullTimeValue(t.RemotePushAttemptedAt), t.CreatedAt, t.UpdatedAt)
 		if err != nil {
 			return BoardInsertResult{}, err
 		}

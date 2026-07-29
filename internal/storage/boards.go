@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"os"
@@ -61,9 +60,10 @@ func (s *Store) BoardByName(ctx context.Context, name string) (Board, error) {
 }
 
 func (s *Store) RenameBoard(ctx context.Context, boardID int64, name string) error {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return errors.New("board name is required")
+	var err error
+	name, err = normalizeBoardName(name)
+	if err != nil {
+		return err
 	}
 	var existing int
 	if err := s.db.QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?) and id<>?`, name, boardID).Scan(&existing); err != nil {
@@ -99,11 +99,10 @@ func (s *Store) countCurrentWorkspaces(ctx context.Context, boardID int64) (int,
 // SetBoardWorktreeMode migrates a board's durable execution policy. The board
 // row serializes this change against lifecycle claims in other processes.
 func (s *Store) SetBoardWorktreeMode(ctx context.Context, boardID int64, mode string) error {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	switch mode {
-	case WorktreeModeOff, WorktreeModeGit:
-	default:
-		return fmt.Errorf("unsupported worktree mode %q", mode)
+	var err error
+	mode, err = normalizeWorktreeMode(mode, false)
+	if err != nil {
+		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -361,25 +360,19 @@ func (s *Store) CreateBoardWithWorkdir(ctx context.Context, name, workdir string
 }
 
 func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOptions) (Board, error) {
-	name := strings.TrimSpace(opts.Name)
-	if name == "" {
-		return Board{}, errors.New("board name is required")
+	name, err := normalizeBoardName(opts.Name)
+	if err != nil {
+		return Board{}, err
 	}
-	backend := strings.ToLower(strings.TrimSpace(opts.TicketBackend))
-	if backend == "" {
-		backend = "local"
-	}
-	if !validTicketBackend(backend) {
-		return Board{}, fmt.Errorf("unsupported ticket backend %q", backend)
+	backend, err := normalizeTicketBackend(opts.TicketBackend, true)
+	if err != nil {
+		return Board{}, err
 	}
 	query := strings.TrimSpace(opts.BackendQuery)
 	backendConfig := strings.TrimSpace(opts.BackendConfig)
-	worktreeMode := strings.ToLower(strings.TrimSpace(opts.WorktreeMode))
-	if worktreeMode == "" {
-		worktreeMode = WorktreeModeOff
-	}
-	if worktreeMode != WorktreeModeOff && worktreeMode != WorktreeModeGit {
-		return Board{}, fmt.Errorf("unsupported worktree mode %q", worktreeMode)
+	worktreeMode, err := normalizeWorktreeMode(opts.WorktreeMode, true)
+	if err != nil {
+		return Board{}, err
 	}
 	var existing int
 	if err := s.db.QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?)`, name).Scan(&existing); err != nil {

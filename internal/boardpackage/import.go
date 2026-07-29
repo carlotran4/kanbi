@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/archiveutil"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -104,10 +105,11 @@ func Import(ctx context.Context, store *storage.Store, dataDir, archivePath stri
 		if !ok {
 			return Result{}, fmt.Errorf("board package missing attachments: %s", zipPath)
 		}
-		target := filepath.Join(stage, strconv.FormatInt(entry.SourceTicketID, 10), entry.RelativePath)
-		if err := extractRegular(zf, target); err != nil {
+		rel := filepath.ToSlash(filepath.Join(strconv.FormatInt(entry.SourceTicketID, 10), entry.RelativePath))
+		if err := archiveutil.ExtractRegular(stage, zf, rel, maxAttachmentBytes); err != nil {
 			return Result{}, err
 		}
+		target := filepath.Join(stage, filepath.FromSlash(rel))
 		sum, size, err := hashFile(target)
 		if err != nil {
 			return Result{}, err

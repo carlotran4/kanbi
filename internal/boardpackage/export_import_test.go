@@ -586,3 +586,132 @@ func mustReadAll(t *testing.T, r interface{ Read([]byte) (int, error) }) []byte 
 	}
 	return buf
 }
+
+func TestBoardPackagePreviewAndImportRejectHostileZipMembers(t *testing.T) {
+	s, ctx := openStore(t)
+	exportDir := t.TempDir()
+	board, ticket := seedPackagedBoard(t, s, ctx, exportDir)
+	good := filepath.Join(t.TempDir(), "good.zip")
+	if err := boardpackage.Export(ctx, s, exportDir, board.ID, good); err != nil {
+		t.Fatal(err)
+	}
+	boardsBefore, err := s.ListBoardsFiltered(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("traversal member", func(t *testing.T) {
+		bad := filepath.Join(t.TempDir(), "traversal.zip")
+		rewriteBoardJSON(t, good, bad, nil, map[string][]byte{
+			fmt.Sprintf("attachments/%d/../escape", ticket.ID): []byte("bad"),
+		})
+		if _, err := boardpackage.Preview(ctx, s, bad); err == nil {
+			t.Fatal("preview accepted traversal ZIP member")
+		}
+		if _, err := boardpackage.Import(ctx, s, t.TempDir(), bad, boardpackage.ImportOptions{NameOverride: "Traversal"}); err == nil {
+			t.Fatal("import accepted traversal ZIP member")
+		}
+	})
+
+	t.Run("symlink attachment", func(t *testing.T) {
+		bad := filepath.Join(t.TempDir(), "symlink.zip")
+		rewriteAttachmentMode(t, good, bad, os.ModeSymlink|0o777)
+		if _, err := boardpackage.Preview(ctx, s, bad); err == nil {
+			t.Fatal("preview accepted symlink attachment")
+		}
+		importDir := t.TempDir()
+		if _, err := boardpackage.Import(ctx, s, importDir, bad, boardpackage.ImportOptions{NameOverride: "Symlink"}); err == nil {
+			t.Fatal("import accepted symlink attachment")
+		}
+		if entries, err := os.ReadDir(filepath.Join(importDir, "attachments")); err == nil && len(entries) != 0 {
+			t.Fatalf("failed import left attachment trees: %v", entries)
+		}
+	})
+
+	after, err := s.ListBoardsFiltered(ctx, true)
+	if err != nil || len(after) != len(boardsBefore) {
+		t.Fatalf("hostile package mutated boards: before=%d after=%d err=%v", len(boardsBefore), len(after), err)
+	}
+}
+
+func TestBoardPackageImportUsesStorageTicketValidation(t *testing.T) {
+	s, ctx := openStore(t)
+	exportDir := t.TempDir()
+	board, _ := seedPackagedBoard(t, s, ctx, exportDir)
+	good := filepath.Join(t.TempDir(), "good.zip")
+	if err := boardpackage.Export(ctx, s, exportDir, board.ID, good); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*boardpackage.Document)
+		want   string
+	}{
+		{"blank title", func(doc *boardpackage.Document) { doc.Tickets[0].Title = " \t" }, "ticket title is required"},
+		{"bad harness", func(doc *boardpackage.Document) { doc.Tickets[0].Harness = "unsupported" }, "unsupported harness"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bad := filepath.Join(t.TempDir(), "invalid.zip")
+			rewriteBoardJSON(t, good, bad, tc.mutate, nil)
+			if _, err := boardpackage.Import(ctx, s, t.TempDir(), bad, boardpackage.ImportOptions{NameOverride: "Invalid " + tc.name}); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Import() error=%v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	canonical := filepath.Join(t.TempDir(), "canonical.zip")
+	rewriteBoardJSON(t, good, canonical, func(doc *boardpackage.Document) {
+		doc.Tickets[0].Title = " Canonical "
+		doc.Tickets[0].Harness = " CODEX "
+	}, nil)
+	result, err := boardpackage.Import(ctx, s, t.TempDir(), canonical, boardpackage.ImportOptions{NameOverride: "Canonical"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agg, err := s.LoadBoardAggregate(ctx, result.Board.ID)
+	if err != nil || len(agg.Tickets) != 1 || agg.Tickets[0].Title != "Canonical" || agg.Tickets[0].Harness != "codex" {
+		t.Fatalf("canonical import = %+v, %v", agg.Tickets, err)
+	}
+}
+
+func rewriteAttachmentMode(t *testing.T, src, dest string, mode os.FileMode) {
+	t.Helper()
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	out, err := os.Create(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(out)
+	for _, zf := range r.File {
+		data, err := zf.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload := mustReadAll(t, data)
+		_ = data.Close()
+		h := &zip.FileHeader{Name: zf.Name, Method: zip.Deflate}
+		if strings.HasPrefix(zf.Name, "attachments/") && !strings.HasSuffix(zf.Name, "/") {
+			h.SetMode(mode)
+		} else {
+			h.SetMode(0o600)
+		}
+		w, err := zw.CreateHeader(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
