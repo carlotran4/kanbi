@@ -267,6 +267,25 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if containerRef.Kind == multiplexer.KindTmux {
 		windowID = containerRef.ID
 	}
+	// Pi accepts an initial prompt argument, but some interactive versions only
+	// populate the editor with it. Explicitly submit once after the container is
+	// live. On versions that auto-submit positional prompts, Enter on the now-empty
+	// editor is a no-op.
+	if ticket.Harness == "pi" && sendPrompt && promptAlreadySent {
+		adapter, adapterErr := l.manager.multiplexerAdapter(containerRef.Kind)
+		if adapterErr != nil {
+			if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
+				adapterErr = errors.Join(adapterErr, fmt.Errorf("cleanup failed container: %w", cleanupErr))
+			}
+			return failClaim(adapterErr)
+		}
+		if submitErr := adapter.SendKeys(ctx, containerRef, "Enter"); submitErr != nil {
+			if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
+				submitErr = errors.Join(submitErr, fmt.Errorf("cleanup failed container: %w", cleanupErr))
+			}
+			return fmt.Errorf("submit Pi initial prompt: %w", failClaim(submitErr))
+		}
+	}
 	if resuming {
 		checkAfter := l.manager.ResumeCheckAfter
 		if checkAfter <= 0 {
