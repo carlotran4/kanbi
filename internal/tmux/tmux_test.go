@@ -45,6 +45,16 @@ type invalidatingLaunchRunner struct {
 
 type captureErrorRunner struct{ fakeRunner }
 
+type piSubmitErrorRunner struct{ fakeRunner }
+
+func (r *piSubmitErrorRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	out, err := r.fakeRunner.Run(ctx, name, args...)
+	if err == nil && len(args) > 0 && args[0] == "send-keys" && args[len(args)-1] == "Enter" {
+		return "", errors.New("simulated Enter failure")
+	}
+	return out, err
+}
+
 type blockingPasteRunner struct {
 	fakeRunner
 	promptDelivered chan<- struct{}
@@ -1508,6 +1518,64 @@ func TestSwitchToTicketRejectsStaleWindowIDWithWrongName(t *testing.T) {
 			t.Fatalf("should not switch to stale id: %+v", runner.calls)
 		}
 	}
+}
+
+func TestPiOpenTicketSubmitsInitialPrompt(t *testing.T) {
+	cfg := config.Defaults(config.Paths{StateDir: t.TempDir()})
+	runner := &fakeRunner{}
+	manager := &Manager{Config: cfg, Runner: runner}
+	ticket := storage.Ticket{ID: 1, DisplayID: "T-001", Title: "Pi Demo", Body: "Body", Harness: "pi"}
+
+	if err := manager.OpenTicket(context.Background(), ticket, true); err != nil {
+		t.Fatal(err)
+	}
+
+	newWindowIndex, enterIndex := -1, -1
+	for i, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" {
+			joined := strings.Join(c.args, "\n")
+			if strings.Contains(joined, "pi") && strings.Contains(joined, "# T-001: Pi Demo\n\nBody") {
+				newWindowIndex = i
+			}
+		}
+		if len(c.args) > 3 && c.args[0] == "send-keys" && c.args[len(c.args)-1] == "Enter" {
+			if c.args[1] != "-t" || c.args[2] != "kanbi:@7" {
+				t.Fatalf("Pi submit targeted %v, want launched window kanbi:@7", c.args)
+			}
+			enterIndex = i
+		}
+	}
+	if newWindowIndex < 0 || enterIndex <= newWindowIndex {
+		t.Fatalf("Pi initial prompt must be populated, then explicitly submitted: new-window=%d enter=%d calls=%+v", newWindowIndex, enterIndex, runner.calls)
+	}
+}
+
+func TestPiInitialPromptSubmitFailureCleansUpAttempt(t *testing.T) {
+	store, ctx := newTmuxTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Pi Demo", "Body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(config.Paths{StateDir: t.TempDir()})
+	runner := &piSubmitErrorRunner{}
+	manager := &Manager{Config: cfg, Store: store, Runner: runner}
+
+	err = manager.OpenTicket(ctx, ticket, true)
+	if err == nil || !strings.Contains(err.Error(), "submit Pi initial prompt") {
+		t.Fatalf("error = %v, want Pi submit failure", err)
+	}
+	if _, active, err := store.ActiveSession(ctx, ticket.ID); err != nil {
+		t.Fatal(err)
+	} else if active {
+		t.Fatal("failed Pi prompt submission left an active session")
+	}
+	for _, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "kill-window" {
+			return
+		}
+	}
+	t.Fatalf("failed Pi prompt submission did not clean up its window: %+v", runner.calls)
 }
 
 func TestCodexOpenTicketSendsPromptAsArgument(t *testing.T) {

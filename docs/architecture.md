@@ -203,7 +203,7 @@ Built-in harness contracts are localized in `internal/harness`: command defaults
 
 | Harness | Start with prompt | Resume | Ref source |
 | --- | --- | --- | --- |
-| Pi | `pi <prompt>` plus bundled ref extension | `pi --session <ref>` | extension handoff, fallback session JSONL scan |
+| Pi | `pi <prompt>` plus bundled ref extension and explicit `Enter` | `pi --session <ref>` | extension handoff, fallback session JSONL scan |
 | Codex | `codex --no-alt-screen <prompt>` | `codex resume --no-alt-screen <ref>` | `~/.codex/history.jsonl` |
 | Copilot | `copilot -i <prompt>` | `copilot --resume=<ref>` | `~/.copilot/session-store.db` |
 | Claude | `claude <prompt>` | `claude --resume <ref>` | `~/.claude/projects/**/*.jsonl` |
