@@ -84,6 +84,8 @@ type Model struct {
 	editTicket              storage.Ticket
 	editField               int
 	editInputs              [3]InputBuffer
+	editSessionRef          InputBuffer
+	editSessionRefVisible   bool
 	bodyTA                  textarea.Model
 	bodyPasteRequest        uint64
 	bodyPastePending        bool
@@ -142,7 +144,7 @@ type Model struct {
 	fileCompletionIndexBusy   bool
 	fileCompletionIndexReq    uint64
 
-	// Notes state (used within the edit modal, editField==3)
+	// Notes state (the field follows the optional session-ref field).
 	notes       []storage.Note
 	noteIndex   int
 	noteEditing bool
@@ -976,6 +978,8 @@ func (m *Model) startEdit() {
 		NewInputBuffer(t.Body),
 		NewInputBuffer(t.Harness),
 	}
+	m.editSessionRefVisible = t.SessionID.Valid && t.SessionRef.Valid && strings.TrimSpace(t.SessionRef.String) != ""
+	m.editSessionRef = NewInputBuffer(t.SessionRef.String)
 	m.bodyTA = newBodyTextarea(t.Body, m.width)
 	m.loadNotes(t.ID)
 }

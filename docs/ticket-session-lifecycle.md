@@ -111,7 +111,9 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - If the latest session is inactive and has no `session_ref`, show repair/start-fresh.
 - Opening an already-active valid terminal container must not create a new session row.
 
-### Repair
+### Session Ref Editing And Repair
+
+When the latest session already has a non-blank harness session ref, the normal ticket editor shows it after the harness field. Tab or Shift+Tab can focus it, and saving the editor updates that same latest session attempt. Tickets without a stored ref omit the field; use the repair flow to supply a missing ref. Editing a ref never creates, deletes, or flattens session history.
 
 - `r` retries the open path.
 - `e` edits the session ref, saves it, then tries to open/resume.

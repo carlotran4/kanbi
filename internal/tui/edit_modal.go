@@ -212,6 +212,10 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 			m.editInputs[i].Set(clean)
 		}
 	}
+	cleanRef := stripKittyGraphicsResponseFragments(m.editSessionRef.Value())
+	if cleanRef != m.editSessionRef.Value() {
+		m.editSessionRef.Set(cleanRef)
+	}
 	if m.editField == 1 && key.Paste {
 		m.bodyPasteRequest++
 		m.bodyPastePending = false
@@ -258,8 +262,8 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 			}
 		}
 	}
-	// Notes tab (editField == 3) has its own key handling.
-	if m.editField == 3 {
+	// The notes tab follows the optional session-ref field and has its own key handling.
+	if m.editField == m.editNotesField() {
 		return m.updateNotesTab(key)
 	}
 	switch key.String() {
@@ -280,27 +284,26 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		m.editField--
 		if m.editField < 0 {
-			m.editField = 3
+			m.editField = m.editNotesField()
 		}
 		if m.editField == 1 {
 			return m, m.bodyTA.Focus()
 		}
 	case "tab":
 		newField := m.editField + 1
-		if newField > 3 {
+		if newField > m.editNotesField() {
 			if m.saveEdit() {
 				return m, clearKittyImagesCmd()
 			}
 			return m, nil
-		} else {
-			if m.editField == 1 {
-				m.bodyTA.Blur()
-				m.clearFileCompletion()
-			}
-			m.editField = newField
-			if newField == 1 {
-				return m, m.bodyTA.Focus()
-			}
+		}
+		if m.editField == 1 {
+			m.bodyTA.Blur()
+			m.clearFileCompletion()
+		}
+		m.editField = newField
+		if newField == 1 {
+			return m, m.bodyTA.Focus()
 		}
 	case "enter":
 		if m.editField == 1 {
@@ -310,20 +313,15 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 			return m, tea.Batch(cmd, m.refreshFileCompletion(fileCompletionBody))
 		}
 		newField := m.editField + 1
-		if newField > 3 {
+		if newField > m.editNotesField() {
 			if m.saveEdit() {
 				return m, clearKittyImagesCmd()
 			}
 			return m, nil
-		} else {
-			if m.editField == 1 {
-				m.bodyTA.Blur()
-				m.clearFileCompletion()
-			}
-			m.editField = newField
-			if newField == 1 {
-				return m, m.bodyTA.Focus()
-			}
+		}
+		m.editField = newField
+		if newField == 1 {
+			return m, m.bodyTA.Focus()
 		}
 	case "ctrl+e":
 		if m.editField == 1 {
@@ -425,6 +423,16 @@ func (m *Model) saveEdit() bool {
 		m.status = err.Error()
 		return false
 	}
+	if m.editSessionRefVisible {
+		ref := strings.TrimSpace(stripKittyGraphicsResponseFragments(m.editSessionRef.Value()))
+		originalRef := strings.TrimSpace(t.SessionRef.String)
+		if ref != originalRef {
+			if err := m.actions.UpdateSessionRef(m.ctx, t, ref); err != nil {
+				m.status = err.Error()
+				return false
+			}
+		}
+	}
 	m.status = "updated " + t.DisplayID
 	m.bodyTA.Blur()
 	m.editing = false
@@ -433,10 +441,20 @@ func (m *Model) saveEdit() bool {
 }
 
 func (m *Model) currentEditBuffer() *InputBuffer {
+	if m.editSessionRefVisible && m.editField == 3 {
+		return &m.editSessionRef
+	}
 	if m.editField < 0 || m.editField >= len(m.editInputs) {
 		m.editField = 0
 	}
 	return &m.editInputs[m.editField]
+}
+
+func (m Model) editNotesField() int {
+	if m.editSessionRefVisible {
+		return 4
+	}
+	return 3
 }
 
 func newBodyTextarea(value string, termWidth int) textarea.Model {
@@ -461,6 +479,9 @@ func (m Model) editView() string {
 		contentW = 30
 	}
 	descriptionLines := inspectorDescriptionLines(m.height)
+	if m.editSessionRefVisible {
+		descriptionLines--
+	}
 	if m.editField == 1 {
 		descriptionLines -= m.fileCompletionRenderRows(fileCompletionBody)
 		if descriptionLines < 3 {
@@ -517,6 +538,18 @@ func (m Model) editView() string {
 			lines = append(lines, metaText.Render(line))
 		}
 	}
+	if m.editSessionRefVisible {
+		label := "Session ref: "
+		available := contentW - lipgloss.Width(label)
+		if available < 1 {
+			available = 1
+		}
+		if m.editField == 3 {
+			lines = append(lines, accent.Bold(true).Render("▸ Session ref: ")+renderInputWindow(m.editSessionRef, available))
+		} else {
+			lines = append(lines, metaText.Render(label+trimToWidth(m.editSessionRef.Value(), available)))
+		}
+	}
 
 	lines = append(lines, "")
 	if m.editField == 1 {
@@ -536,11 +569,11 @@ func (m Model) editView() string {
 	}
 
 	notesHeading := metaText.Render("Notes")
-	if m.editField == 3 {
+	if m.editField == m.editNotesField() {
 		notesHeading = accent.Bold(true).Render("▸ Notes")
 	}
 	lines = append(lines, "", notesHeading)
-	if m.editField == 3 {
+	if m.editField == m.editNotesField() {
 		lines = append(lines, m.notesThreadView(contentW))
 	} else {
 		lines = append(lines, m.notesCompactView())
@@ -605,7 +638,8 @@ func (m Model) editDirty(t storage.Ticket) bool {
 	if harness == "" {
 		harness = "pi"
 	}
-	return m.editInputs[0].Value() != t.Title || m.bodyTA.Value() != t.Body || harness != strings.TrimSpace(t.Harness)
+	refChanged := m.editSessionRefVisible && strings.TrimSpace(m.editSessionRef.Value()) != strings.TrimSpace(t.SessionRef.String)
+	return m.editInputs[0].Value() != t.Title || m.bodyTA.Value() != t.Body || harness != strings.TrimSpace(t.Harness) || refChanged
 }
 
 func (m Model) editFooter(dirty bool) string {
@@ -622,8 +656,16 @@ func (m Model) editFooter(dirty bool) string {
 		}
 		return "body · Ctrl+V paste/attach · Ctrl+E editor · Ctrl+S save"
 	case 2:
+		if m.editSessionRefVisible {
+			return prefix + "editing harness · Tab session ref · Ctrl+S save · Esc cancel"
+		}
 		return prefix + "editing harness · Tab notes · Ctrl+S save · Esc cancel"
 	case 3:
+		if m.editSessionRefVisible {
+			return prefix + "editing session ref · Tab notes · Ctrl+S save · Esc cancel"
+		}
+		return prefix + "notes · a add · e edit · d delete · Ctrl+S save"
+	case 4:
 		return prefix + "notes · a add · e edit · d delete · Ctrl+S save"
 	default:
 		return prefix + "Tab/Shift+Tab focus · Ctrl+S save · Esc cancel"
@@ -888,7 +930,7 @@ func renderDelimitedInline(s string, delim string, style lipgloss.Style) string 
 	}
 }
 
-// updateNotesTab handles keystrokes when the notes section (editField==3) is active.
+// updateNotesTab handles keystrokes when the notes section is active.
 func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 	if m.noteEditing {
 		switch key.String() {
@@ -931,13 +973,17 @@ func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 
+	previousField := 2
+	if m.editSessionRefVisible {
+		previousField = 3
+	}
 	switch key.String() {
 	case "esc":
-		m.editField = 2
+		m.editField = previousField
 	case "ctrl+s", "tab":
 		m.saveEdit()
 	case "shift+tab":
-		m.editField = 2
+		m.editField = previousField
 	case "j", "down":
 		if m.noteIndex < len(m.notes)-1 {
 			m.noteIndex++
