@@ -44,11 +44,22 @@ func (m *Model) boardContentHeight() int {
 // rendering. The vertical overflow hints consume rows from the card viewport.
 func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWidth int) (end int, showAbove, showBelow bool) {
 	avail := m.boardContentHeight()
-	if m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey) {
-		// Focus columns add section labels/empty-state rows outside cardView.
-		// Reserve the maximum compact overhead so one column cannot make the
-		// entire Bubble Tea frame scroll at 80x24.
-		avail -= 3
+	isFocusColumn := m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey)
+	focusedCount, pausedCount := 0, 0
+	if isFocusColumn {
+		for _, ticket := range col.Tickets {
+			if ticket.FocusPaused {
+				pausedCount++
+			} else {
+				focusedCount++
+			}
+		}
+		// FOCUSED is always visible. Empty focused and paused sections add
+		// their compact messages outside cardView.
+		avail--
+		if focusedCount == 0 {
+			avail--
+		}
 	}
 	if avail < 1 {
 		avail = 1
@@ -65,6 +76,16 @@ func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWi
 	end = scrollTop - 1
 	for ti := scrollTop; ti < len(col.Tickets); ti++ {
 		h := cardHeightEx(col.Tickets[ti], columnWidth, ci == m.col && ti == m.card, m.masterBoard)
+		if isFocusColumn && pausedCount > 0 && col.Tickets[ti].FocusPaused && (ti == scrollTop || !col.Tickets[ti-1].FocusPaused) {
+			// Keep PAUSED authoritative even when scrolling begins inside the
+			// paused partition.
+			h++
+		}
+		if isFocusColumn && pausedCount == 0 && ti == len(col.Tickets)-1 {
+			// Reserve the empty PAUSED label/message only when the final focused
+			// card and that compact section can both fit.
+			h += 2
+		}
 		reserveBelowHint := 0
 		if ti < len(col.Tickets)-1 {
 			reserveBelowHint = 1
@@ -152,6 +173,16 @@ func (m *Model) vScrollFollow() {
 			break
 		}
 		m.colScroll[m.col]++
+	}
+	// Backfill newly available height after a resize while keeping the selected
+	// card visible. This prevents stale (+N more ▲) hints after widening.
+	for m.colScroll[m.col] > 0 {
+		candidate := m.colScroll[m.col] - 1
+		visibleEnd, _, _ := m.visibleCardRange(m.col, col, candidate, columnWidth)
+		if m.card > visibleEnd {
+			break
+		}
+		m.colScroll[m.col] = candidate
 	}
 	// Scroll up: retreat offset if focused card is above visible window.
 	for m.card < m.colScroll[m.col] {

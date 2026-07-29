@@ -9,6 +9,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func focusModalWidth(termWidth int) int {
+	if termWidth <= 80 {
+		return maxInt(30, termWidth)
+	}
+	return 76
+}
+
 func focusTextarea(value string, width, height int) textarea.Model {
 	ta := textarea.New()
 	ta.SetValue(value)
@@ -19,28 +26,50 @@ func focusTextarea(value string, width, height int) textarea.Model {
 	return ta
 }
 
+func (m *Model) resizePauseInputs() {
+	if !m.pauseOpen {
+		return
+	}
+	width := focusModalWidth(m.width)
+	for i := range m.pauseInputs {
+		m.pauseInputs[i].SetWidth(maxInt(20, width-12))
+	}
+}
+
 func (m *Model) startPause(ticket storage.Ticket) {
 	m.pauseOpen = true
+	m.pauseSubmitting = false
 	m.pauseTicket = ticket
 	m.pauseField = 0
+	m.status = ""
+	m.errOperation = ""
+	m.errNext = ""
 	m.pauseWarnNoRef = ticket.SessionActive && (!ticket.SessionRef.Valid || strings.TrimSpace(ticket.SessionRef.String) == "")
 	for i := range m.pauseInputs {
-		m.pauseInputs[i] = focusTextarea("", m.width, 3)
+		m.pauseInputs[i] = focusTextarea("", focusModalWidth(m.width), 3)
 	}
 	m.pauseInputs[0].Focus()
 }
 
 func (m *Model) updatePause(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.pauseSubmitting {
+		return m, nil
+	}
 	switch key.String() {
 	case "esc":
 		m.pauseOpen = false
+		m.status = ""
+		m.errOperation = ""
+		m.errNext = ""
 		m.clearFocusReplacement()
 		return m, nil
 	case "tab", "down":
+		m.status = ""
 		m.pauseInputs[m.pauseField].Blur()
 		m.pauseField = (m.pauseField + 1) % 3
 		return m, m.pauseInputs[m.pauseField].Focus()
 	case "shift+tab", "up":
+		m.status = ""
 		m.pauseInputs[m.pauseField].Blur()
 		m.pauseField = (m.pauseField + 2) % 3
 		return m, m.pauseInputs[m.pauseField].Focus()
@@ -59,6 +88,8 @@ func (m *Model) updatePause(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "No verified resume reference: Ctrl+S again confirms close may require repair/start-fresh"
 			return m, nil
 		}
+		m.pauseSubmitting = true
+		m.status = "Pausing…"
 		replacement := m.pauseTicket
 		moveTarget, moveColumn := m.focusReplaceMoveTicket, m.focusReplaceMoveColumn
 		resumeTarget, resumeSend := m.focusReplaceResumeTicket, m.focusReplaceResumeSend
@@ -76,6 +107,9 @@ func (m *Model) updatePause(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	m.status = ""
+	m.errOperation = ""
+	m.errNext = ""
 	var cmd tea.Cmd
 	m.pauseInputs[m.pauseField], cmd = m.pauseInputs[m.pauseField].Update(key)
 	return m, cmd
@@ -85,9 +119,13 @@ func (m *Model) startResume(ticket storage.Ticket) {
 	m.resumeOpen = true
 	m.resumeTicket = ticket
 	m.resumeSending = false
+	m.resumeSubmitting = false
 	m.modalScroll = 0
 }
 func (m *Model) updateResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.resumeSubmitting {
+		return m, nil
+	}
 	switch key.String() {
 	case "esc":
 		m.resumeOpen = false
@@ -102,6 +140,8 @@ func (m *Model) updateResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r", "s":
 		m.resumeSending = key.String() == "s"
+		m.resumeSubmitting = true
+		m.status = "Resuming…"
 		ticket := m.resumeTicket
 		send := m.resumeSending
 		return m, func() tea.Msg {
@@ -115,7 +155,14 @@ func (m Model) pauseView() string {
 	lines := []string{"Pause " + m.pauseTicket.DisplayID}
 	labels := []string{"Why is this being paused?", "What has already been completed?", "Exact next action"}
 	for i, label := range labels {
-		lines = append(lines, label, m.pauseInputs[i].View())
+		prefix := "  "
+		if i == m.pauseField {
+			prefix = "> "
+		}
+		// textarea.View includes terminal clear-to-end sequences which corrupt
+		// an overlaid board to the popup's right. The textual focus marker keeps
+		// the active field authoritative after stripping those sequences.
+		lines = append(lines, prefix+label, ansiStrip(m.pauseInputs[i].View()))
 	}
 	if m.pauseWarnNoRef {
 		lines = append(lines, "WARNING: no verified resume reference; closing may require repair/start-fresh.")
@@ -123,8 +170,12 @@ func (m Model) pauseView() string {
 	if m.status != "" {
 		lines = append(lines, "Status: "+m.status)
 	}
-	lines = append(lines, "Ctrl+S pause   Esc cancel")
-	return boxLines(strings.Split(strings.Join(lines, "\n"), "\n"), maxInt(30, minInt(m.width-2, 76)))
+	controls := "Ctrl+S pause   Esc cancel"
+	if m.pauseSubmitting {
+		controls = "Pausing…"
+	}
+	lines = append(lines, controls)
+	return boxLines(strings.Split(strings.Join(lines, "\n"), "\n"), focusModalWidth(m.width))
 }
 
 func (m *Model) startFocusReplacement(moveTicket storage.Ticket, columnID int64, resumeTicket storage.Ticket, send bool) {
@@ -140,6 +191,7 @@ func (m *Model) startFocusReplacement(moveTicket storage.Ticket, columnID int64,
 	m.focusReplaceMoveColumn = columnID
 	m.focusReplaceResumeTicket = resumeTicket
 	m.focusReplaceResumeSend = send
+	m.status = "Choose focused work to pause or Esc to cancel"
 }
 
 func (m *Model) clearFocusReplacement() {
@@ -184,12 +236,12 @@ func (m Model) focusReplaceView() string {
 		}
 		lines = append(lines, fmt.Sprintf("%s %s [%s] %s", prefix, t.DisplayID, t.BoardName, t.Title))
 	}
-	return boxLines(lines, maxInt(30, minInt(m.width-2, 76)))
+	return boxLines(lines, focusModalWidth(m.width))
 }
 
 func (m Model) resumeView() string {
 	checkpoint := m.resumeTicket.LatestCheckpoint
-	width := maxInt(30, minInt(m.width-2, 76))
+	width := focusModalWidth(m.width)
 	if checkpoint == nil {
 		return boxLines([]string{"Resume unavailable: no pause checkpoint"}, width)
 	}

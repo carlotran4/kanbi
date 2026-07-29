@@ -152,9 +152,11 @@ type Model struct {
 	pauseField               int
 	pauseInputs              [3]textarea.Model
 	pauseWarnNoRef           bool
+	pauseSubmitting          bool
 	resumeOpen               bool
 	resumeTicket             storage.Ticket
 	resumeSending            bool
+	resumeSubmitting         bool
 	focusReplaceOpen         bool
 	focusReplaceTickets      []storage.Ticket
 	focusReplaceIndex        int
@@ -287,10 +289,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.resizePauseInputs()
 		m.syncScrollDimensions()
 		m.hScrollFollow()
 		m.vScrollFollow()
-		return m, nil
+		return m, tea.ClearScreen
 	case statusBarResultMsg:
 		if !m.applyStatusBarResult(msg) {
 			return m, nil
@@ -348,6 +351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case pauseTicketMsg:
+		m.pauseSubmitting = false
 		if msg.err != nil {
 			m.setActionError("pause ticket", msg.err, "Keep the completed handoff fields, resolve the session close issue, then press Ctrl+S to retry.")
 			return m, nil
@@ -359,6 +363,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reload()
 		return m, nil
 	case resumeTicketMsg:
+		m.pauseSubmitting = false
+		m.resumeSubmitting = false
 		if msg.err != nil {
 			var runtimeErr app.ResumeRuntimeError
 			switch {
@@ -454,14 +460,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.integrationOpen {
 		return m.updateIntegration(key)
 	}
+	// Input routing must follow View's modal stacking order. A replacement
+	// chooser can be displayed over an open resume brief.
+	if m.focusReplaceOpen {
+		return m.updateFocusReplace(key)
+	}
 	if m.pauseOpen {
 		return m.updatePause(key)
 	}
 	if m.resumeOpen {
 		return m.updateResume(key)
-	}
-	if m.focusReplaceOpen {
-		return m.updateFocusReplace(key)
 	}
 	if m.masterFilterOpen {
 		return m.updateMasterFilter(key), nil
@@ -637,6 +645,10 @@ func (m *Model) reloadBoards() {
 }
 
 func (m *Model) reload() {
+	selectedID := int64(0)
+	if selected, ok := m.selectedTicket(); ok {
+		selectedID = selected.ID
+	}
 	var view storage.BoardView
 	var err error
 	if m.masterBoard {
@@ -667,6 +679,16 @@ func (m *Model) reload() {
 					sort.SliceStable(m.view.Columns[ci].Tickets, func(i, j int) bool {
 						return !m.view.Columns[ci].Tickets[i].FocusPaused && m.view.Columns[ci].Tickets[j].FocusPaused
 					})
+				}
+			}
+		}
+	}
+	if selectedID != 0 {
+		for ci := range m.view.Columns {
+			for ti := range m.view.Columns[ci].Tickets {
+				if m.view.Columns[ci].Tickets[ti].ID == selectedID {
+					m.col = ci
+					m.card = ti
 				}
 			}
 		}

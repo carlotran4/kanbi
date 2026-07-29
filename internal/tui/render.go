@@ -161,8 +161,12 @@ func (m Model) contextBar() string {
 		items = append(items, "f:filters")
 	}
 	items = append(items, "!:attention", "q:quit", "?:help+legend")
-	if m.width < 60 {
-		items = []string{"Enter:open", "n:new", "q:quit", "?:help"}
+	if m.width <= 80 {
+		items = []string{"Enter:open", "n:new", "b:boards"}
+		if m.masterBoard {
+			items = append(items, "f:filters")
+		}
+		items = append(items, "q:quit", "?:help")
 	}
 	return trimToWidth(strings.Join(items, "  "), maxInt(1, m.width))
 }
@@ -318,9 +322,15 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 		hint := fmt.Sprintf("(+%d more ▲)", hiddenAbove)
 		lines = append(lines, mutedBorder.Render(padLine(hint, columnWidth)))
 	}
+	pausedHeadingShown := false
+	if isFocusColumn && pausedCount > 0 && col.Tickets[scrollTop].FocusPaused {
+		lines = append(lines, padLine(fmt.Sprintf("PAUSED · %d", pausedCount), columnWidth))
+		pausedHeadingShown = true
+	}
 	for ti := scrollTop; ti <= visibleEnd; ti++ {
-		if isFocusColumn && col.Tickets[ti].FocusPaused && (ti == 0 || !col.Tickets[ti-1].FocusPaused) {
+		if isFocusColumn && col.Tickets[ti].FocusPaused && !pausedHeadingShown {
 			lines = append(lines, padLine(fmt.Sprintf("PAUSED · %d", pausedCount), columnWidth))
+			pausedHeadingShown = true
 		}
 		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], columnWidth, m.masterBoard)...)
 	}

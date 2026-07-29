@@ -1,12 +1,161 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/carlotran4/kanbi/internal/storage"
 )
+
+func focusTestModel(t *testing.T, model tea.Model) Model {
+	t.Helper()
+	switch value := model.(type) {
+	case Model:
+		return value
+	case *Model:
+		return *value
+	default:
+		t.Fatalf("unexpected model type %T", model)
+		return Model{}
+	}
+}
+
+func TestReplacementChooserReceivesInputBeforeHiddenResumeModal(t *testing.T) {
+	m := Model{
+		resumeOpen:          true,
+		focusReplaceOpen:    true,
+		focusReplaceTickets: []storage.Ticket{{ID: 1}, {ID: 2}},
+		statusBarCancel:     func() {},
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	got := focusTestModel(t, next)
+	if got.focusReplaceIndex != 1 {
+		t.Fatalf("visible replacement chooser did not receive input: index=%d", got.focusReplaceIndex)
+	}
+}
+
+func TestPauseModalStaysBoundedAndResizesInputs(t *testing.T) {
+	m := Model{width: 160, height: 45}
+	m.startPause(storage.Ticket{ID: 1, DisplayID: "GH-334"})
+	for i, line := range strings.Split(m.pauseView(), "\n") {
+		if displayWidth(line) > 76 {
+			t.Fatalf("initial pause line %d width=%d", i, displayWidth(line))
+		}
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
+	m = focusTestModel(t, next)
+	for i, line := range strings.Split(m.pauseView(), "\n") {
+		if displayWidth(line) > 60 {
+			t.Fatalf("resized pause line %d width=%d", i, displayWidth(line))
+		}
+	}
+}
+
+func TestPauseAndResumeSubmissionCommandsAreSingleFlight(t *testing.T) {
+	store, ctx := newTestStore(t)
+	model := New(ctx, NewService(store, nil))
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "focus", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.startPause(ticket)
+	for i, value := range []string{"why", "done", "next"} {
+		model.pauseInputs[i].SetValue(value)
+	}
+	first, cmd := model.updatePause(tea.KeyMsg{Type: tea.KeyCtrlS})
+	model = focusTestModel(t, first)
+	if cmd == nil {
+		t.Fatal("first pause submit did not create a command")
+	}
+	_, duplicate := model.updatePause(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if duplicate != nil {
+		t.Fatal("duplicate pause submit created another command")
+	}
+
+	model.pauseOpen = false
+	model.startResume(storage.Ticket{ID: ticket.ID, DisplayID: ticket.DisplayID})
+	first, cmd = model.updateResume(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	model = focusTestModel(t, first)
+	if cmd == nil {
+		t.Fatal("first resume submit did not create a command")
+	}
+	_, duplicate = model.updateResume(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if duplicate != nil {
+		t.Fatal("duplicate resume submit created another command")
+	}
+}
+
+func TestReloadPreservesSelectedTicketAcrossFocusResort(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	if err := store.SetColumnWorkflowKey(ctx, view.Columns[0].ID, "focus"); err != nil {
+		t.Fatal(err)
+	}
+	store.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 2, WorkflowKeys: []string{"focus"}})
+	first, err := store.CreateTicket(ctx, view.Columns[0].ID, "first", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "second", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PauseTicket(ctx, first.ID, "why", "done", "next"); err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, NewService(store, nil))
+	for i, ticket := range model.view.Columns[0].Tickets {
+		if ticket.ID == first.ID {
+			model.card = i
+		}
+	}
+	if err := store.ResumeTicket(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	model.reload()
+	selected, ok := model.selectedTicket()
+	if !ok || selected.ID != first.ID {
+		t.Fatalf("focus resort changed selection: selected=%+v", selected)
+	}
+}
+
+func TestWideningBackfillsVerticalFocusViewport(t *testing.T) {
+	tickets := make([]storage.Ticket, 5)
+	for i := range tickets {
+		tickets[i] = storage.Ticket{ID: int64(i + 1), DisplayID: fmt.Sprintf("T-%03d", i+1), Title: "short", FocusMember: true}
+	}
+	m := Model{
+		width: 160, height: 45, col: 0, card: 4,
+		focus:     storage.FocusStatus{Enabled: true, WorkflowKeys: []string{"focus"}},
+		view:      storage.BoardView{Columns: []storage.Column{{WorkflowKey: "focus", Tickets: tickets}}},
+		colScroll: []int{3},
+	}
+	m.vScrollFollow()
+	if m.colScroll[0] != 0 {
+		t.Fatalf("widened viewport retained stale hidden-above offset %d", m.colScroll[0])
+	}
+}
+
+func TestPausedSectionHeadingRemainsVisibleWhenScrolledInsideSection(t *testing.T) {
+	m := Model{
+		width: 80, height: 24, col: 0, card: 2,
+		focus:     storage.FocusStatus{Enabled: true, WorkflowKeys: []string{"focus"}},
+		colScroll: []int{2},
+	}
+	col := storage.Column{WorkflowKey: "focus", Tickets: []storage.Ticket{
+		{ID: 1, DisplayID: "T-001", Title: "focused", FocusMember: true},
+		{ID: 2, DisplayID: "T-002", Title: "paused one", FocusMember: true, FocusPaused: true},
+		{ID: 3, DisplayID: "T-003", Title: "paused two", FocusMember: true, FocusPaused: true},
+	}}
+	view := ansiStrip(m.columnView(0, col, 39))
+	if !strings.Contains(view, "PAUSED · 2") {
+		t.Fatalf("paused heading disappeared after scrolling into section:\n%s", view)
+	}
+}
 
 func TestResumeViewWrapsLongContentAndKeepsControlsAt80x24(t *testing.T) {
 	long := strings.Repeat("long checkpoint content ", 20)
@@ -30,7 +179,7 @@ func TestResumeViewWrapsLongContentAndKeepsControlsAt80x24(t *testing.T) {
 			t.Fatalf("scroll=%d rendered %d rows", scroll, len(lines))
 		}
 		for i, line := range lines {
-			if displayWidth(line) > 78 {
+			if displayWidth(line) > 80 {
 				t.Fatalf("scroll=%d line %d width=%d: %q", scroll, i, displayWidth(line), line)
 			}
 		}
