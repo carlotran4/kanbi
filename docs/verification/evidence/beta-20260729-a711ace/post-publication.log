@@ -1,0 +1,105 @@
+$ gh release view v0.3.0-beta.3
+{"assets":[{"apiUrl":"https://api.github.com/repos/carlotran4/kanbi/releases/assets/493595871","contentType":"text/plain; charset=utf-8","createdAt":"2026-07-29T04:31:20Z","digest":"sha256:971f5b21cef3dd636453695bf7693dec56702885488504e8e6215b3b0e9a81f1","downloadCount":0,"id":"RA_kwDOSgeF-s4da6zf","label":"","name":"BUNDLE_MANIFEST.txt","size":275,"state":"uploaded","updatedAt":"2026-07-29T04:31:20Z","url":"https://github.com/carlotran4/kanbi/releases/download/v0.3.0-beta.3/BUNDLE_MANIFEST.txt"},{"apiUrl":"https://api.github.com/repos/carlotran4/kanbi/releases/assets/493595868","contentType":"application/x-gtar","createdAt":"2026-07-29T04:31:20Z","digest":"sha256:f79fec293d5bd4c48765eb0bb91cb06b04ce0b12cbf136f8fc89f565052b507f","downloadCount":0,"id":"RA_kwDOSgeF-s4da6zc","label":"","name":"kanbi_0.3.0-beta.3_darwin_amd64.tar.gz","size":7358723,"state":"uploaded","updatedAt":"2026-07-29T04:31:21Z","url":"https://github.com/carlotran4/kanbi/releases/download/v0.3.0-beta.3/kanbi_0.3.0-beta.3_darwin_amd64.tar.gz"},{"apiUrl":"https://api.github.com/repos/carlotran4/kanbi/releases/assets/493595870","contentType":"application/x-gtar","createdAt":"2026-07-29T04:31:20Z","digest":"sha256:2c417a1520dbb4e1871cc7810c531757df1e66f085e81244fbca679c093c7eeb","downloadCount":0,"id":"RA_kwDOSgeF-s4da6ze","label":"","name":"kanbi_0.3.0-beta.3_darwin_arm64.tar.gz","size":6829059,"state":"uploaded","updatedAt":"2026-07-29T04:31:20Z","url":"https://github.com/carlotran4/kanbi/releases/download/v0.3.0-beta.3/kanbi_0.3.0-beta.3_darwin_arm64.tar.gz"},{"apiUrl":"https://api.github.com/repos/carlotran4/kanbi/releases/assets/493595869","contentType":"application/x-gtar","createdAt":"2026-07-29T04:31:20Z","digest":"sha256:8942d5d5cdf18b083afb1cd77424934ced62787635d16a7a9fd32f111a223ba3","downloadCount":0,"id":"RA_kwDOSgeF-s4da6zd","label":"","name":"kanbi_0.3.0-beta.3_linux_amd64.tar.gz","size":7303219,"state":"uploaded","updatedAt":"2026-07-29T04:31:21Z","url":"https://github.com/carlotran4/kanbi/releases/download/v0.3.0-beta.3/kanbi_0.3.0-beta.3_linux_amd64.tar.gz"},{"apiUrl":"https://api.github.com/repos/carlotran4/kanbi/releases/assets/493595884","contentType":"application/x-gtar","createdAt":"2026-07-29T04:31:20Z","digest":"sha256:6b1ded7efae57522d80a0f3964f2a7873ae03b9281d71dc66ec811b276feeb92","downloadCount":0,"id":"RA_kwDOSgeF-s4da6zs","label":"","name":"kanbi_0.3.0-beta.3_linux_arm64.tar.gz","size":6682693,"state":"uploaded","updatedAt":"2026-07-29T04:31:21Z","url":"https://github.com/carlotran4/kanbi/releases/download/v0.3.0-beta.3/kanbi_0.3.0-beta.3_linux_arm64.tar.gz"},{"apiUrl":"https://api.github.com/repos/carlotran4/kanbi/releases/assets/493595867","contentType":"application/octet-stream","createdAt":"2026-07-29T04:31:20Z","digest":"sha256:38187b39af98cbfaa507cf3f3fa7c96be9d6d95dc03e6176e5cc903d29e5c97b","downloadCount":0,"id":"RA_kwDOSgeF-s4da6zb","label":"","name":"SHA256SUMS","size":418,"state":"uploaded","updatedAt":"2026-07-29T04:31:20Z","url":"https://github.com/carlotran4/kanbi/releases/download/v0.3.0-beta.3/SHA256SUMS"}],"isDraft":false,"isPrerelease":true,"name":"Kanbi v0.3.0-beta.3","publishedAt":"2026-07-29T04:31:21Z","tagName":"v0.3.0-beta.3","url":"https://github.com/carlotran4/kanbi/releases/tag/v0.3.0-beta.3"}
+$ gh release download v0.3.0-beta.3
+$ sha256sum -c SHA256SUMS
+kanbi_0.3.0-beta.3_darwin_amd64.tar.gz: OK
+kanbi_0.3.0-beta.3_darwin_arm64.tar.gz: OK
+kanbi_0.3.0-beta.3_linux_amd64.tar.gz: OK
+kanbi_0.3.0-beta.3_linux_arm64.tar.gz: OK
+$ cat BUNDLE_MANIFEST.txt
+version=0.3.0-beta.3
+commit=a711aceedb758598974700aa39deeb7d168d2ee5
+run_id=30422055022
+created_utc=2026-07-29T04:31:05Z
+kanbi_0.3.0-beta.3_darwin_amd64.tar.gz
+kanbi_0.3.0-beta.3_darwin_arm64.tar.gz
+kanbi_0.3.0-beta.3_linux_amd64.tar.gz
+kanbi_0.3.0-beta.3_linux_arm64.tar.gz
+$ inspect BUILDINFO matrix
+== kanbi_0.3.0-beta.3_darwin_amd64.tar.gz ==
+{
+  "format": "kanbi-buildinfo",
+  "format_version": 1,
+  "version": "0.3.0-beta.3",
+  "commit": "a711aceedb758598974700aa39deeb7d168d2ee5",
+  "build_date": "2026-07-29T04:28:21Z",
+  "go_version": "go1.26.5",
+  "os": "darwin",
+  "arch": "amd64",
+  "cgo_enabled": true,
+  "schema_version": 8,
+  "module": "github.com/carlotran4/kanbi",
+  "github_run_id": "30422055022",
+  "github_sha": "a711aceedb758598974700aa39deeb7d168d2ee5"
+}
+== kanbi_0.3.0-beta.3_darwin_arm64.tar.gz ==
+{
+  "format": "kanbi-buildinfo",
+  "format_version": 1,
+  "version": "0.3.0-beta.3",
+  "commit": "a711aceedb758598974700aa39deeb7d168d2ee5",
+  "build_date": "2026-07-29T04:28:06Z",
+  "go_version": "go1.26.5",
+  "os": "darwin",
+  "arch": "arm64",
+  "cgo_enabled": true,
+  "schema_version": 8,
+  "module": "github.com/carlotran4/kanbi",
+  "github_run_id": "30422055022",
+  "github_sha": "a711aceedb758598974700aa39deeb7d168d2ee5"
+}
+== kanbi_0.3.0-beta.3_linux_amd64.tar.gz ==
+{
+  "format": "kanbi-buildinfo",
+  "format_version": 1,
+  "version": "0.3.0-beta.3",
+  "commit": "a711aceedb758598974700aa39deeb7d168d2ee5",
+  "build_date": "2026-07-29T04:28:07Z",
+  "go_version": "go1.26.5",
+  "os": "linux",
+  "arch": "amd64",
+  "cgo_enabled": true,
+  "schema_version": 8,
+  "module": "github.com/carlotran4/kanbi",
+  "github_run_id": "30422055022",
+  "github_sha": "a711aceedb758598974700aa39deeb7d168d2ee5"
+}
+== kanbi_0.3.0-beta.3_linux_arm64.tar.gz ==
+{
+  "format": "kanbi-buildinfo",
+  "format_version": 1,
+  "version": "0.3.0-beta.3",
+  "commit": "a711aceedb758598974700aa39deeb7d168d2ee5",
+  "build_date": "2026-07-29T04:28:07Z",
+  "go_version": "go1.26.5",
+  "os": "linux",
+  "arch": "arm64",
+  "cgo_enabled": true,
+  "schema_version": 8,
+  "module": "github.com/carlotran4/kanbi",
+  "github_run_id": "30422055022",
+  "github_sha": "a711aceedb758598974700aa39deeb7d168d2ee5"
+}
+$ release-artifact-smoke downloaded linux/amd64
+metadata ok: version=0.3.0-beta.3 commit=a711aceedb758598974700aa39deeb7d168d2ee5 schema=8 linux/amd64
+database initialization and backup/restore integrity ok
+release artifact smoke: PASS
+$ downloaded artifact doctor/boards/list in clean dirs
+kanbi doctor
+ok build 0.3.0-beta.3 commit a711aceedb758598974700aa39deeb7d168d2ee5 built 2026-07-29T04:28:07Z linux/amd64 go1.26.5
+ok database schema version 8
+ok multiplexer tmux
+ok tmux tmux 3.7b
+ok sqlite /tmp/tmp.aimDCd7Bod/smoke/data/kanbi.db
+ok config /tmp/tmp.aimDCd7Bod/smoke/config.yaml
+ok shell /usr/bin/bash
+warn not inside tmux
+ok terminal xterm-256color
+ok tmux session kanbi
+warn harness claude not found: claude
+ok harness codex
+ok harness copilot
+ok harness pi
+Master	(all boards)
+1	Default	[QUALIFICATION_REPO]	local	worktree_mode=off	ok
+POST_PUBLICATION_RESULT: PASS

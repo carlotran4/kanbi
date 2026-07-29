@@ -1,7 +1,7 @@
 # v0.3.0-beta.3 Qualification Record — 2026-07-29
 
 Issue: GH-342  
-Status: **QUALIFIED FOR TAGGING — NOT PUBLISHED**
+Status: **PUBLISHED — POST-PUBLICATION ATTESTATION PASSED**
 
 This beta adds global Focus Mode, project-file completion, safer session repair, and shared lifecycle/storage enforcement. It remains beta software and does not imply stable readiness.
 
@@ -15,9 +15,11 @@ This beta adds global Focus Mode, project-file completion, safer session repair,
 | GitHub CI | [run 30420704202](https://github.com/carlotran4/kanbi/actions/runs/30420704202) — PASS |
 | Workflow-dispatch run | [run 30420765221](https://github.com/carlotran4/kanbi/actions/runs/30420765221) — PASS |
 | Combined candidate bundle | `kanbi-release-bundle` artifact from run 30420765221 |
-| Decision | **QUALIFIED FOR TAGGING — NOT PUBLISHED** |
+| Tag workflow | [run 30422055022](https://github.com/carlotran4/kanbi/actions/runs/30422055022) — PASS |
+| Published release | [`v0.3.0-beta.3`](https://github.com/carlotran4/kanbi/releases/tag/v0.3.0-beta.3) |
+| Decision | **PUBLISHED — ATTESTED** |
 
-The workflow-dispatch run intentionally did not publish. Publication requires an annotated immutable `v0.3.0-beta.3` tag at the exact candidate SHA.
+The annotated immutable `v0.3.0-beta.3` tag resolves to the exact candidate. GitHub published it as a prerelease, not a stable/latest release. The repository is currently private, so release access is limited to authenticated collaborators; anonymous release and asset requests return 404 until repository visibility changes.
 
 ## Scope and defect review
 
@@ -84,17 +86,18 @@ Beta.3 advances the database from schema 7 to schema 8 for Focus Mode pause stat
 
 The reviewed release notes document the backup-before-upgrade requirement and the expected loss of post-backup changes during rollback.
 
-## Tagging handoff
+## Publication attestation
 
 - [x] Release content and reviewed notes are present on the exact candidate.
 - [x] Candidate is reachable from the repository default branch.
 - [x] Local, CI, race, vulnerability, smoke, soak, UI, artifact, recovery, and four-platform dispatch gates passed.
 - [x] Candidate bundle checksums and provenance match the exact candidate.
-- [ ] Maintainer creates annotated immutable tag `v0.3.0-beta.3` at `a711aceedb758598974700aa39deeb7d168d2ee5` and pushes it.
-- [ ] Tag workflow publishes the GitHub prerelease and all assets verify.
-- [ ] A downloaded published artifact passes post-publication `version`, `doctor`, and disposable board/session smoke.
+- [x] Annotated immutable tag `v0.3.0-beta.3` resolves to `a711aceedb758598974700aa39deeb7d168d2ee5`.
+- [x] Tag workflow [30422055022](https://github.com/carlotran4/kanbi/actions/runs/30422055022) passed and published the GitHub prerelease.
+- [x] Published assets contain four native archives, `SHA256SUMS`, and `BUNDLE_MANIFEST.txt`; every checksum and `BUILDINFO.json` matches the tag target.
+- [x] The downloaded Linux amd64 artifact passed metadata, database initialization, attachment mutation, backup/restore, integrity, `doctor`, `boards`, and `list` smoke in clean directories.
 
-Do not tag the qualification-record commit in place of the exact candidate above. Do not move the tag after publication.
+Post-publication evidence: [`post-publication.log`](./evidence/beta-20260729-a711ace/post-publication.log). The tag remains immutable.
 
 ## Stable path preserved
 
