@@ -86,7 +86,6 @@ func NewServiceWithSyncer(store *storage.Store, manager SessionManager, syncer T
 	return &Service{Store: store, Manager: manager, Syncer: syncer}
 }
 
-func (s *Service) SetFocusPolicy(policy storage.FocusPolicy) { s.Store.SetFocusPolicy(policy) }
 func (s *Service) SaveFocusPolicy(ctx context.Context, policy storage.FocusPolicy) error {
 	if s.FocusPolicySaver == nil {
 		return fmt.Errorf("focus settings persistence unavailable")
