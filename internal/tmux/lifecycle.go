@@ -246,16 +246,15 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	}
 
 	var containerRef multiplexer.ContainerRef
+	namespace := l.manager.Config.TmuxSession
 	if muxKind == multiplexer.KindHerdr {
-		namespace := claim.MuxNamespace.String
-		containerRef, err = l.manager.herdrAdapter().Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: launchCWD, Command: command, AgentKind: ticket.Harness, Namespace: namespace})
+		namespace = claim.MuxNamespace.String
+	}
+	adapter, adapterErr := l.manager.multiplexerAdapter(muxKind)
+	if adapterErr != nil {
+		err = adapterErr
 	} else {
-		var out string
-		out, err = l.manager.run(ctx, append(newWindowArgs(l.manager.Config.TmuxSession, name, launchCWD), ShellCommand(command))...)
-		if err == nil {
-			windowID = strings.TrimSpace(out)
-			containerRef = multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: l.manager.Config.TmuxSession, ID: windowID, Name: name}
-		}
+		containerRef, err = adapter.Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: launchCWD, Command: command, AgentKind: ticket.Harness, Namespace: namespace})
 	}
 	if err != nil {
 		err = failClaim(err)

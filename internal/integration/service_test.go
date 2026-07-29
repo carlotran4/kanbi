@@ -238,6 +238,99 @@ func TestCreateRejectsSecondActiveRunForRepositorySource(t *testing.T) {
 	}
 }
 
+func TestReportRejectsDirtyCandidate(t *testing.T) {
+	ctx, s, _, b, ws := setup(t)
+	svc := Service{Store: s, StateDir: t.TempDir()}
+	result, err := svc.Create(ctx, CreateOptions{BoardID: b.ID, WorkspaceIDs: []int64{ws[0].ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := s.IntegrationRunByPublicID(ctx, result.Run.PublicID)
+	git(t, run.WorktreePath, "merge", "--no-edit", run.Items[0].HeadSHA)
+	if err := os.WriteFile(filepath.Join(run.WorktreePath, "untracked"), []byte("dirty"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(git(t, run.WorktreePath, "rev-parse", "HEAD"))
+	if err := svc.Report(ctx, run.PublicID, storage.IntegrationStateReady, head, result.Token, run.WorktreePath, ""); err == nil || !strings.Contains(err.Error(), "clean") {
+		t.Fatalf("dirty report error=%v", err)
+	}
+}
+
+func TestPromoteRejectsDirtySourceAndCandidate(t *testing.T) {
+	for _, dirty := range []string{"source", "candidate"} {
+		t.Run(dirty, func(t *testing.T) {
+			ctx, s, repo, b, ws := setup(t)
+			svc := Service{Store: s, StateDir: t.TempDir()}
+			result, err := svc.Create(ctx, CreateOptions{BoardID: b.ID, WorkspaceIDs: []int64{ws[0].ID}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, _ := s.IntegrationRunByPublicID(ctx, result.Run.PublicID)
+			git(t, run.WorktreePath, "merge", "--no-edit", run.Items[0].HeadSHA)
+			head := strings.TrimSpace(git(t, run.WorktreePath, "rev-parse", "HEAD"))
+			if err := svc.Report(ctx, run.PublicID, storage.IntegrationStateReady, head, result.Token, run.WorktreePath, ""); err != nil {
+				t.Fatal(err)
+			}
+			path := repo
+			if dirty == "candidate" {
+				path = run.WorktreePath
+			}
+			if err := os.WriteFile(filepath.Join(path, "late-dirty"), []byte("dirty"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.Promote(ctx, run.PublicID, PromoteOptions{}); err == nil || !strings.Contains(err.Error(), "clean") {
+				t.Fatalf("dirty %s promotion error=%v", dirty, err)
+			}
+			if got := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD")); got != run.SourceSHA {
+				t.Fatalf("source mutated to %s", got)
+			}
+		})
+	}
+}
+
+func TestPromoteValidationUsesCandidateCWDAndFailureLeavesRunUnpromoted(t *testing.T) {
+	ctx, s, repo, b, ws := setup(t)
+	output := filepath.Join(t.TempDir(), "validation-cwd")
+	svc := Service{Store: s, StateDir: t.TempDir()}
+	result, err := svc.Create(ctx, CreateOptions{BoardID: b.ID, WorkspaceIDs: []int64{ws[0].ID}, ValidationCommand: "pwd > " + output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := s.IntegrationRunByPublicID(ctx, result.Run.PublicID)
+	git(t, run.WorktreePath, "merge", "--no-edit", run.Items[0].HeadSHA)
+	head := strings.TrimSpace(git(t, run.WorktreePath, "rev-parse", "HEAD"))
+	if err := svc.Report(ctx, run.PublicID, storage.IntegrationStateReady, head, result.Token, run.WorktreePath, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Promote(ctx, run.PublicID, PromoteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.ReadFile(output)
+	if err != nil || strings.TrimSpace(string(cwd)) != run.WorktreePath {
+		t.Fatalf("validation cwd=%q err=%v, want %s", cwd, err, run.WorktreePath)
+	}
+	// A failed validation happens before promoting intent or source mutation.
+	ctx, s, repo, b, ws = setup(t)
+	svc = Service{Store: s, StateDir: t.TempDir()}
+	result, err = svc.Create(ctx, CreateOptions{BoardID: b.ID, WorkspaceIDs: []int64{ws[0].ID}, ValidationCommand: "echo validation failed; exit 7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ = s.IntegrationRunByPublicID(ctx, result.Run.PublicID)
+	git(t, run.WorktreePath, "merge", "--no-edit", run.Items[0].HeadSHA)
+	head = strings.TrimSpace(git(t, run.WorktreePath, "rev-parse", "HEAD"))
+	if err := svc.Report(ctx, run.PublicID, storage.IntegrationStateReady, head, result.Token, run.WorktreePath, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Promote(ctx, run.PublicID, PromoteOptions{}); err == nil || !strings.Contains(err.Error(), "validation failed") {
+		t.Fatalf("validation promotion error=%v", err)
+	}
+	got, _ := s.IntegrationRunByPublicID(ctx, run.PublicID)
+	if got.State != storage.IntegrationStateReady || strings.TrimSpace(git(t, repo, "rev-parse", "HEAD")) != run.SourceSHA {
+		t.Fatalf("failed validation promoted run=%+v", got)
+	}
+}
+
 func TestReportRejectsWrongTokenAndMissingTicketCommit(t *testing.T) {
 	ctx, s, _, b, ws := setup(t)
 	svc := Service{Store: s, StateDir: t.TempDir()}

@@ -2,10 +2,8 @@ package tmux
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/carlotran4/kanbi/internal/harness"
 	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
@@ -37,51 +35,49 @@ func (m *Manager) LaunchIntegration(ctx context.Context, spec integrationpkg.Lau
 	}
 	command = append([]string{"env", "KANBI_INTEGRATION_RUN_ID=" + spec.PublicID, "KANBI_INTEGRATION_TOKEN=" + spec.Token, "KANBI_INTEGRATION_KANBI_BIN=" + executable, "KANBI_DB=" + m.Config.DBPath}, command...)
 	name := spec.Name
+	namespace := ""
 	if kind == multiplexer.KindHerdr {
-		adapter := m.herdrAdapter()
-		ref, err := adapter.Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: spec.CWD, Command: command, AgentKind: spec.Harness, Namespace: m.currentHerdrWorkspace(ctx)})
+		namespace = m.currentHerdrWorkspace(ctx)
+	} else {
+		if err := m.EnsureSession(ctx); err != nil {
+			return storage.IntegrationRun{}, err
+		}
+		name, err = m.availableWindowNameInSession(ctx, m.Config.TmuxSession, name)
 		if err != nil {
 			return storage.IntegrationRun{}, err
 		}
-		if herdrPaneFirst {
-			if err := adapter.SendText(ctx, ref, spec.Prompt); err != nil {
-				_ = adapter.Close(context.Background(), ref)
-				return storage.IntegrationRun{}, err
-			}
-			if err := adapter.SendKeys(ctx, ref, "enter"); err != nil {
-				_ = adapter.Close(context.Background(), ref)
-				return storage.IntegrationRun{}, err
-			}
-		}
-		if err := adapter.Focus(ctx, ref); err != nil {
+		namespace = m.Config.TmuxSession
+	}
+	adapter, err := m.multiplexerAdapter(kind)
+	if err != nil {
+		return storage.IntegrationRun{}, err
+	}
+	ref, err := adapter.Launch(ctx, multiplexer.LaunchSpec{Name: name, CWD: spec.CWD, Command: command, AgentKind: spec.Harness, Namespace: namespace})
+	if err != nil {
+		return storage.IntegrationRun{}, err
+	}
+	if herdrPaneFirst {
+		if err := adapter.SendText(ctx, ref, spec.Prompt); err != nil {
 			_ = adapter.Close(context.Background(), ref)
 			return storage.IntegrationRun{}, err
 		}
-		return storage.IntegrationRun{Multiplexer: sql.NullString{String: string(kind), Valid: true}, MuxNamespace: sql.NullString{String: ref.Namespace, Valid: ref.Namespace != ""}, MuxContainerID: sql.NullString{String: ref.ID, Valid: ref.ID != ""}, MuxContainerName: sql.NullString{String: ref.Name, Valid: ref.Name != ""}, MuxMetadata: sql.NullString{String: ref.Metadata, Valid: ref.Metadata != ""}}, nil
+		if err := adapter.SendKeys(ctx, ref, "enter"); err != nil {
+			_ = adapter.Close(context.Background(), ref)
+			return storage.IntegrationRun{}, err
+		}
 	}
-	if err := m.EnsureSession(ctx); err != nil {
+	if err := adapter.Focus(ctx, ref); err != nil {
+		_ = adapter.Close(context.Background(), ref)
 		return storage.IntegrationRun{}, err
 	}
-	name, err = m.availableWindowNameInSession(ctx, m.Config.TmuxSession, name)
-	if err != nil {
-		return storage.IntegrationRun{}, err
-	}
-	out, err := m.run(ctx, append(newWindowArgs(m.Config.TmuxSession, name, spec.CWD), ShellCommand(command))...)
-	if err != nil {
-		return storage.IntegrationRun{}, err
-	}
-	id := strings.TrimSpace(out)
-	if err := m.switchWindow(ctx, m.Config.TmuxSession, id); err != nil {
-		_ = NewMultiplexerAdapter(m).Close(context.Background(), multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: m.Config.TmuxSession, ID: id, Name: name})
-		return storage.IntegrationRun{}, err
-	}
-	return storage.IntegrationRun{Multiplexer: sql.NullString{String: "tmux", Valid: true}, MuxNamespace: sql.NullString{String: m.Config.TmuxSession, Valid: true}, MuxContainerID: sql.NullString{String: id, Valid: id != ""}, MuxContainerName: sql.NullString{String: name, Valid: true}}, nil
+	runtime := storage.IntegrationRun{}
+	ApplyContainerRefToIntegrationRun(&runtime, ref)
+	return runtime, nil
 }
 
 func (m *Manager) CloseIntegration(ctx context.Context, run storage.IntegrationRun) error {
-	kind := multiplexer.Kind(run.Multiplexer.String)
-	ref := multiplexer.ContainerRef{Kind: kind, Namespace: run.MuxNamespace.String, ID: run.MuxContainerID.String, Name: run.MuxContainerName.String, Metadata: run.MuxMetadata.String}
-	adapter, err := m.multiplexerAdapter(kind)
+	ref := ContainerRefFromIntegrationRun(run)
+	adapter, err := m.multiplexerAdapter(ref.Kind)
 	if err != nil {
 		return err
 	}
@@ -109,12 +105,35 @@ func (m *Manager) RefreshIntegrationRuns(ctx context.Context) error {
 		default:
 			continue
 		}
-		kind := multiplexer.Kind(run.Multiplexer.String)
-		ref := multiplexer.ContainerRef{Kind: kind, Namespace: run.MuxNamespace.String, ID: run.MuxContainerID.String, Name: run.MuxContainerName.String, Metadata: run.MuxMetadata.String}
-		adapter, err := m.multiplexerAdapter(kind)
+		ref := ContainerRefFromIntegrationRun(run)
+		adapter, err := m.multiplexerAdapter(ref.Kind)
 		if err != nil {
 			continue
 		}
+
+		// Native state is authoritative only when the provider gives a concrete
+		// native result. Integration runs intentionally have no idle_unknown;
+		// all other live native states remain running.
+		detection, err := adapter.Detect(ctx, ref)
+		if err != nil {
+			continue
+		}
+		if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
+			next := storage.IntegrationStateRunning
+			switch detection.State {
+			case storage.IntegrationStateWaitingForUser:
+				next = storage.IntegrationStateWaitingForUser
+			case storage.IntegrationStateNeedsPermission:
+				next = storage.IntegrationStateNeedsPermission
+			}
+			if next != run.State {
+				if err := m.Store.UpdateIntegrationRuntime(ctx, run.PublicID, next, run); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
 		out, err := adapter.Read(ctx, ref, multiplexer.ReadOptions{Lines: 200})
 		if err != nil {
 			continue
@@ -122,9 +141,9 @@ func (m *Manager) RefreshIntegrationRuns(ctx context.Context) error {
 		state, _, _, _, _ := harness.DetectState(out, "", 0)
 		next := storage.IntegrationStateRunning
 		switch state {
-		case "waiting_for_user":
+		case storage.IntegrationStateWaitingForUser:
 			next = storage.IntegrationStateWaitingForUser
-		case "needs_permission":
+		case storage.IntegrationStateNeedsPermission:
 			next = storage.IntegrationStateNeedsPermission
 		}
 		if next != run.State {
@@ -137,10 +156,10 @@ func (m *Manager) RefreshIntegrationRuns(ctx context.Context) error {
 }
 
 func (m *Manager) FocusIntegration(ctx context.Context, run storage.IntegrationRun) error {
-	kind := multiplexer.Kind(run.Multiplexer.String)
-	ref := multiplexer.ContainerRef{Kind: kind, Namespace: run.MuxNamespace.String, ID: run.MuxContainerID.String, Name: run.MuxContainerName.String, Metadata: run.MuxMetadata.String}
-	if kind == multiplexer.KindHerdr {
-		return m.herdrAdapter().Focus(ctx, ref)
+	ref := ContainerRefFromIntegrationRun(run)
+	adapter, err := m.multiplexerAdapter(ref.Kind)
+	if err != nil {
+		return err
 	}
-	return m.switchWindow(ctx, run.MuxNamespace.String, ref.Target())
+	return adapter.Focus(ctx, ref)
 }

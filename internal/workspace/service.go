@@ -21,6 +21,23 @@ import (
 
 var stableComponentRE = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
+const maxValidationOutput = 8 * 1024
+
+// RunValidationCommand runs a configured shell command in its explicit
+// checkout and returns bounded, trimmed combined output with its exit error.
+func RunValidationCommand(ctx context.Context, cwd, command string) (string, error) {
+	if strings.TrimSpace(command) == "" {
+		return "", nil
+	}
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	cmd.Dir = cwd
+	out, err := cmd.CombinedOutput()
+	if len(out) > maxValidationOutput {
+		out = append([]byte("... output truncated ...\n"), out[len(out)-maxValidationOutput:]...)
+	}
+	return strings.TrimSpace(string(out)), err
+}
+
 // Service coordinates durable workspace records with observed Git/filesystem
 // state. Git mutations are serialized per common directory across processes.
 type Service struct {
@@ -411,12 +428,8 @@ func (s *Service) Integrate(ctx context.Context, w storage.Workspace, opts Integ
 		if _, err := s.Git.run(ctx, w.RepositoryRoot, "merge", "--no-edit", w.BranchName); err != nil {
 			return rollback(fmt.Errorf("merge ticket branch: %w", err))
 		}
-		if command := strings.TrimSpace(opts.ValidationCommand); command != "" {
-			cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
-			cmd.Dir = w.RepositoryRoot
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return rollback(fmt.Errorf("integration validation failed: %s: %w", strings.TrimSpace(string(out)), err))
-			}
+		if out, err := RunValidationCommand(ctx, w.RepositoryRoot, opts.ValidationCommand); err != nil {
+			return rollback(fmt.Errorf("integration validation failed: %s: %w", out, err))
 		}
 		if err := s.Store.MarkWorkspaceIntegrated(ctx, w.ID); err != nil {
 			return fmt.Errorf("record successful integration before cleanup: %w", err)
