@@ -24,11 +24,12 @@ func TestMultiplexerAdapterLaunchMapsTmuxWindowToContainerRef(t *testing.T) {
 		Name:      "b1-T-001-test",
 		CWD:       "/tmp",
 		Command:   []string{"echo", "hello world"},
+		Metadata:  `{"launch":"test"}`,
 	})
 	if err != nil {
 		t.Fatalf("Launch returned error: %v", err)
 	}
-	if ref.Kind != multiplexer.KindTmux || ref.Namespace != "kanbi-test" || ref.ID != "@7" || ref.Name != "b1-T-001-test" {
+	if ref.Kind != multiplexer.KindTmux || ref.Namespace != "kanbi-test" || ref.ID != "@7" || ref.Name != "b1-T-001-test" || ref.Metadata != `{"launch":"test"}` {
 		t.Fatalf("unexpected container ref: %+v", ref)
 	}
 	last := runner.calls[len(runner.calls)-1]
@@ -153,6 +154,32 @@ func TestApplyContainerRefToTmuxSessionRecordsLegacyAndGenericFields(t *testing.
 	}
 	if !session.MuxNamespace.Valid || session.MuxNamespace.String != "runtime" || !session.MuxContainerID.Valid || session.MuxContainerID.String != "@42" || !session.MuxContainerName.Valid || session.MuxContainerName.String != "ticket" {
 		t.Fatalf("generic mux fields not populated: %+v", session)
+	}
+}
+
+func TestIntegrationRunContainerRefCodecRoundTripsAllFields(t *testing.T) {
+	for _, ref := range []multiplexer.ContainerRef{
+		{Kind: multiplexer.KindTmux, Namespace: "runtime", ID: "@42", Name: "integration", Metadata: `{"tmux":true}`},
+		{Kind: multiplexer.KindHerdr, Namespace: "workspace", ID: "agent-42", Name: "integration", Metadata: `{"pane_id":"pane-42"}`},
+	} {
+		run := storage.IntegrationRun{}
+		ApplyContainerRefToIntegrationRun(&run, ref)
+		if got := ContainerRefFromIntegrationRun(run); !reflect.DeepEqual(got, ref) {
+			t.Fatalf("round trip = %+v, want %+v", got, ref)
+		}
+	}
+}
+
+func TestIntegrationRunContainerRefCodecHandlesOptionalAndLegacyFields(t *testing.T) {
+	run := storage.IntegrationRun{}
+	ApplyContainerRefToIntegrationRun(&run, multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: "workspace"})
+	if !run.Multiplexer.Valid || !run.MuxNamespace.Valid || run.MuxContainerID.Valid || run.MuxContainerName.Valid || run.MuxMetadata.Valid {
+		t.Fatalf("optional fields encoded incorrectly: %+v", run)
+	}
+	legacy := storage.IntegrationRun{MuxNamespace: sql.NullString{String: "runtime", Valid: true}, MuxContainerID: sql.NullString{String: "@7", Valid: true}, MuxContainerName: sql.NullString{String: "integration", Valid: true}}
+	ref := ContainerRefFromIntegrationRun(legacy)
+	if ref.Kind != multiplexer.KindTmux || ref.Namespace != "runtime" || ref.ID != "@7" || ref.Name != "integration" {
+		t.Fatalf("legacy blank kind ref = %+v", ref)
 	}
 }
 

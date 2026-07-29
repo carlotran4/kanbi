@@ -69,6 +69,47 @@ func (g Git) run(ctx context.Context, dir string, args ...string) (string, error
 	return stdout.String(), nil
 }
 
+// ResolveRevision resolves a revision in an explicit Git checkout.
+func (g Git) ResolveRevision(ctx context.Context, dir, revision string) (string, error) {
+	out, err := g.run(ctx, dir, "rev-parse", revision)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// CurrentBranch returns the checked-out branch and rejects detached HEAD.
+func (g Git) CurrentBranch(ctx context.Context, dir string) (string, error) {
+	out, err := g.run(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// IsClean reports whether porcelain-v1 status has no tracked or normal
+// untracked changes.
+func (g Git) IsClean(ctx context.Context, dir string) (bool, error) {
+	out, err := g.run(ctx, dir, "status", "--porcelain=v1", "--untracked-files=normal")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) == "", nil
+}
+
+// IsAncestor reports whether ancestor is reachable from descendant. Git's
+// ordinary non-ancestor exit code is a false result, not an execution error.
+func (g Git) IsAncestor(ctx context.Context, dir, ancestor, descendant string) (bool, error) {
+	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	if isExitCode(err, 1) {
+		return false, nil
+	}
+	return false, err
+}
+
 // InspectSource resolves repository identity and the launch subdirectory while
 // preserving the board checkout's exact branch and commit as integration data.
 func (g Git) InspectSource(ctx context.Context, boardCWD string) (Source, error) {
@@ -95,15 +136,15 @@ func (g Git) InspectSource(ctx context.Context, boardCWD string) (Source, error)
 	if err != nil {
 		return Source{}, err
 	}
-	branchOut, err := g.run(ctx, cwd, "symbolic-ref", "--quiet", "--short", "HEAD")
+	branch, err := g.CurrentBranch(ctx, cwd)
 	if err != nil {
 		return Source{}, errors.New("board Git checkout must be on a branch (detached HEAD is unsupported)")
 	}
-	shaOut, err := g.run(ctx, cwd, "rev-parse", "HEAD")
+	sha, err := g.ResolveRevision(ctx, cwd, "HEAD")
 	if err != nil {
 		return Source{}, err
 	}
-	status, err := g.run(ctx, cwd, "status", "--porcelain=v1", "--untracked-files=normal")
+	clean, err := g.IsClean(ctx, cwd)
 	if err != nil {
 		return Source{}, err
 	}
@@ -118,9 +159,9 @@ func (g Git) InspectSource(ctx context.Context, boardCWD string) (Source, error)
 		RepositoryRoot:  filepath.Clean(root),
 		CommonDir:       filepath.Clean(common),
 		LaunchSubdir:    subdir,
-		SourceBranch:    strings.TrimSpace(branchOut),
-		SourceCommitSHA: strings.TrimSpace(shaOut),
-		Dirty:           strings.TrimSpace(status) != "",
+		SourceBranch:    branch,
+		SourceCommitSHA: sha,
+		Dirty:           !clean,
 	}, nil
 }
 

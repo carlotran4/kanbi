@@ -8,6 +8,46 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// modalContentWidth is the usable line width inside a standard modal frame.
+// Standard frames use one border cell and two horizontal padding cells per side.
+func modalContentWidth(outerWidth int) int {
+	return maxInt(1, outerWidth-6)
+}
+
+// modalFrame renders a deliberately small, exact-width rounded popup frame.
+// Callers own their content and behavior; this only centralizes modal chrome.
+func modalInput(input InputBuffer, active bool, width int) string {
+	if active {
+		return input.Viewport(width)
+	}
+	return trimToWidth(input.Value(), width)
+}
+
+// modalLabeledInput budgets the editable value from the full rendered row, so
+// the frame never truncates an active cursor after the label is added.
+func modalLabeledInput(prefix string, input InputBuffer, active bool, contentWidth int) string {
+	available := maxInt(1, contentWidth-lipgloss.Width(prefix))
+	return prefix + modalInput(input, active, available)
+}
+
+func modalFrame(lines []string, outerWidth int, borderColor lipgloss.TerminalColor) string {
+	outerWidth = maxInt(2, outerWidth)
+	contentWidth := modalContentWidth(outerWidth)
+	border := lipgloss.NewStyle().Foreground(borderColor)
+	out := make([]string, 0, len(lines)+4)
+	out = append(out, border.Render("╭"+strings.Repeat("─", outerWidth-2)+"╮"))
+	out = append(out, border.Render("│")+"  "+strings.Repeat(" ", contentWidth)+"  "+border.Render("│"))
+	for _, line := range lines {
+		if lipgloss.Width(line) > contentWidth {
+			line = trimToWidth(line, contentWidth)
+		}
+		out = append(out, border.Render("│")+"  "+padLine(line, contentWidth)+"  "+border.Render("│"))
+	}
+	out = append(out, border.Render("│")+"  "+strings.Repeat(" ", contentWidth)+"  "+border.Render("│"))
+	out = append(out, border.Render("╰"+strings.Repeat("─", outerWidth-2)+"╯"))
+	return strings.Join(out, "\n")
+}
+
 func (m *Model) setActionError(operation string, cause error, next string) {
 	m.errOperation = operation
 	m.errNext = next
@@ -81,12 +121,7 @@ func (m Model) onboardingView() string {
 			wrapped = append(wrapped, parts...)
 		}
 	}
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(maxInt(1, width-4)).
-		Render(strings.Join(wrapped, "\n"))
+	return modalFrame(wrapped, width, palette.accent)
 }
 
 // fitModal keeps modal content inside short terminals. For list-like modals it

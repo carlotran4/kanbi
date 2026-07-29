@@ -15,6 +15,7 @@ import (
 
 	"github.com/carlotran4/kanbi/internal/config"
 	"github.com/carlotran4/kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/ticketbackend"
 	"github.com/carlotran4/kanbi/internal/tmux"
 	"github.com/carlotran4/kanbi/internal/tui"
 )
@@ -358,6 +359,141 @@ func TestCLIJSONShowUpdateMoveNotesAndState(t *testing.T) {
 	}
 }
 
+func TestCLIUpdateRenamesLiveTmuxWindow(t *testing.T) {
+	run, openStore := setupCLI(t)
+	if err := run("add", "Original"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	store := openStore()
+	ticket, err := store.TicketByDisplayID(ctx, "T-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldName := tmux.TicketWindowName(ticket)
+	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: cfg.TmuxSession, TmuxWindowName: oldName, Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "tmux.log")
+	fakeTmux := filepath.Join(binDir, "tmux")
+	if err := os.WriteFile(fakeTmux, []byte("#!/bin/sh\n"+
+		"if [ \"$1\" = list-windows ]; then printf '%s\\n' \"$KANBI_TEST_TMUX_WINDOW\"; exit 0; fi\n"+
+		"if [ \"$1\" = rename-window ]; then printf '%s\\n' \"$@\" >> \"$KANBI_TEST_TMUX_LOG\"; exit 0; fi\n"+
+		"exit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("KANBI_TEST_TMUX_WINDOW", oldName)
+	t.Setenv("KANBI_TEST_TMUX_LOG", logPath)
+	if err := run("update", "T-001", "--title", "Updated Title"); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantName := tmux.TicketWindowName(updated)
+	if updated.Title != "Updated Title" {
+		t.Fatalf("stored title=%q", updated.Title)
+	}
+	session, ok, err := store.ActiveSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("active session ok=%v err=%v", ok, err)
+	}
+	if session.TmuxWindowName != wantName {
+		t.Fatalf("stored window name=%q, want %q", session.TmuxWindowName, wantName)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "rename-window\n") || !strings.Contains(string(log), cfg.TmuxSession+":"+oldName+"\n") || !strings.Contains(string(log), wantName+"\n") {
+		t.Fatalf("rename invocation=%q, want target %q and name %q", log, cfg.TmuxSession+":"+oldName, wantName)
+	}
+}
+
+type cliGatedBackend struct {
+	started chan int64
+	release chan struct{}
+}
+
+func (b *cliGatedBackend) Kind() string { return ticketbackend.KindGitHub }
+func (b *cliGatedBackend) Sync(ctx context.Context, _ ticketbackend.SyncRepository, board storage.Board) (ticketbackend.Result, error) {
+	select {
+	case b.started <- board.ID:
+	case <-ctx.Done():
+		return ticketbackend.Result{}, ctx.Err()
+	}
+	select {
+	case <-b.release:
+		return ticketbackend.Result{}, nil
+	case <-ctx.Done():
+		return ticketbackend.Result{}, ctx.Err()
+	}
+}
+
+func TestCLIContextCloseDrainsScheduledMutationSync(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Remote", Workdir: t.TempDir(), TicketBackend: ticketbackend.KindGitHub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.BoardViewByID(ctx, board.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli := &cliContext{ctx: ctx, cfg: config.Defaults(config.Paths{}), store: store}
+	backend := &cliGatedBackend{started: make(chan int64, 1), release: make(chan struct{})}
+	cli.Syncer().Registry = ticketbackend.NewRegistry(ticketbackend.LocalBackend{}, backend)
+	if _, err := cli.Service().CreateTicket(ctx, view.Columns[0].ID, "Scheduled", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-backend.started:
+		if got != board.ID {
+			t.Fatalf("scheduled board=%d, want %d", got, board.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scheduled sync did not start")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- cli.Close() }()
+	select {
+	case err := <-closed:
+		t.Fatalf("Close returned before scheduled sync drained: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(backend.release)
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close failed after sync drain: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not finish after scheduled sync drained")
+	}
+	cli.Syncer().ScheduleBoardSync(board.ID)
+	select {
+	case got := <-backend.started:
+		t.Fatalf("ScheduleBoardSync after Close started board %d", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestRunUnknownCommandReturnsError(t *testing.T) {
 	run, _ := setupCLI(t)
 	err := run("notacommand")
@@ -542,128 +678,6 @@ func TestRunBoardTUIIntegrationSwitchesBoards(t *testing.T) {
 }
 
 // ---- TUI service wiring ----
-
-func TestTUIServiceUpdateTicketRenamesWindowWhenTitleChanges(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	t.Setenv("KANBI_DB", dbPath)
-	t.Setenv("KANBI_CONFIG", filepath.Join(dir, "config.yaml"))
-
-	ctx := context.Background()
-	cfg, _ := config.Load()
-	s, _ := storage.Open(dbPath)
-	t.Cleanup(func() { _ = s.Close() })
-	_ = s.Init(ctx)
-
-	view, _ := s.BoardView(ctx)
-	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "Original", "", "pi")
-
-	// Give the ticket an active session with a window name
-	sessionID, _ := s.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness:         "pi",
-		TmuxSessionName: cfg.TmuxSession,
-		TmuxWindowName:  tmux.TicketWindowName(ticket),
-		Status:          "running",
-	})
-	_ = sessionID
-
-	var renamedTo string
-	runner := &captureRenameRunner{onRename: func(newName string) { renamedTo = newName }}
-	manager := &tmux.Manager{Config: cfg, Store: s, Runner: runner}
-	svc := tui.NewService(s, manager)
-
-	ticket, _ = s.TicketByID(ctx, ticket.ID)
-	if err := svc.UpdateTicket(ctx, ticket.ID, "Updated Title", "", "pi"); err != nil {
-		t.Fatalf("UpdateTicket failed: %v", err)
-	}
-
-	updated := ticket
-	updated.Title = "Updated Title"
-	if renamedTo != tmux.TicketWindowName(updated) {
-		t.Fatalf("tmux window renamed to %q, want %q", renamedTo, tmux.TicketWindowName(updated))
-	}
-
-	got, _ := s.TicketByID(ctx, ticket.ID)
-	if got.Title != "Updated Title" {
-		t.Fatalf("DB title = %q, want Updated Title", got.Title)
-	}
-}
-
-func TestTUIServiceRejectedTicketUpdateDoesNotRenameLiveWindow(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	t.Setenv("KANBI_DB", dbPath)
-	t.Setenv("KANBI_CONFIG", filepath.Join(dir, "config.yaml"))
-
-	ctx := context.Background()
-	cfg, _ := config.Load()
-	s, _ := storage.Open(dbPath)
-	t.Cleanup(func() { _ = s.Close() })
-	_ = s.Init(ctx)
-
-	view, _ := s.BoardView(ctx)
-	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "Original", "original body", "pi")
-	_, _ = s.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness:         "pi",
-		TmuxSessionName: cfg.TmuxSession,
-		TmuxWindowName:  tmux.TicketWindowName(ticket),
-		Status:          "running",
-	})
-
-	var renamedTo string
-	runner := &captureRenameRunner{onRename: func(newName string) { renamedTo = newName }}
-	manager := &tmux.Manager{Config: cfg, Store: s, Runner: runner}
-	svc := tui.NewService(s, manager)
-
-	err := svc.UpdateTicket(ctx, ticket.ID, "Renamed", "changed body", "unsupported")
-	if err == nil {
-		t.Fatal("UpdateTicket succeeded with an unsupported harness")
-	}
-	if renamedTo != "" {
-		t.Fatalf("rejected update renamed live window to %q", renamedTo)
-	}
-
-	got, _ := s.TicketByID(ctx, ticket.ID)
-	if got.Title != "Original" || got.Body != "original body" || got.Harness != "pi" {
-		t.Fatalf("rejected update changed ticket: %+v", got)
-	}
-	session, ok, err := s.ActiveSession(ctx, ticket.ID)
-	if err != nil || !ok {
-		t.Fatalf("ActiveSession() ok=%v err=%v", ok, err)
-	}
-	if session.TmuxWindowName != tmux.TicketWindowName(ticket) {
-		t.Fatalf("rejected update changed session window name to %q", session.TmuxWindowName)
-	}
-}
-
-func TestTUIServiceUpdateTicketSkipsRenameWhenNoWindow(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	t.Setenv("KANBI_DB", dbPath)
-	t.Setenv("KANBI_CONFIG", filepath.Join(dir, "config.yaml"))
-
-	ctx := context.Background()
-	cfg, _ := config.Load()
-	s, _ := storage.Open(dbPath)
-	t.Cleanup(func() { _ = s.Close() })
-	_ = s.Init(ctx)
-
-	view, _ := s.BoardView(ctx)
-	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "Original", "", "pi")
-	// No session, no window
-
-	var renamed bool
-	runner := &captureRenameRunner{onRename: func(_ string) { renamed = true }}
-	manager := &tmux.Manager{Config: cfg, Store: s, Runner: runner}
-	svc := tui.NewService(s, manager)
-
-	if err := svc.UpdateTicket(ctx, ticket.ID, "New Title", "", "pi"); err != nil {
-		t.Fatalf("UpdateTicket failed: %v", err)
-	}
-	if renamed {
-		t.Fatal("should not attempt rename when ticket has no window")
-	}
-}
 
 func TestTUIServiceOpenTicketRoutesSendPromptVsSwitch(t *testing.T) {
 	dir := t.TempDir()
@@ -901,32 +915,6 @@ func newMainTestStore(t *testing.T) (*storage.Store, context.Context) {
 
 // ---- fake runners for TUI service tests ----
 
-type captureRenameRunner struct {
-	onRename func(string)
-}
-
-func (r *captureRenameRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
-	for i, a := range args {
-		if a == "rename-window" || (i > 0 && args[i-1] == "rename-window") {
-			// last arg is the new name
-		}
-	}
-	if len(args) > 0 && args[0] == "rename-window" {
-		if r.onRename != nil {
-			r.onRename(args[len(args)-1])
-		}
-		return "", nil
-	}
-	// Simulate a window existing for the original name so ticketWindowRef finds it
-	if len(args) > 0 && args[0] == "list-windows" {
-		return "board\nb1-T-001-original\n", nil
-	}
-	if len(args) > 0 && args[0] == "display-message" {
-		return "@7\n", nil
-	}
-	return "", nil
-}
-
 type routingRunner struct {
 	onNew    func()
 	onSwitch func()
@@ -1001,10 +989,6 @@ func (r *routingRunner) Run(ctx context.Context, name string, args ...string) (s
 
 // Satisfy the tmux.Runner interface for the test runners above.
 // (Runner is defined in tmux package, these structs implement it.)
-var _ interface {
-	Run(ctx context.Context, name string, args ...string) (string, error)
-} = (*captureRenameRunner)(nil)
-
 var _ interface {
 	Run(ctx context.Context, name string, args ...string) (string, error)
 } = (*routingRunner)(nil)
@@ -1407,5 +1391,25 @@ func TestCLISupportBundleCreatesArchive(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "sekrit") {
 		t.Fatal("bundle archive raw bytes contain secret")
+	}
+}
+
+func TestCLIBoardPackageCommandsUseConfiguredDataDirectory(t *testing.T) {
+	run, _ := setupCLI(t)
+	if err := run("add", "portable ticket"); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(t.TempDir(), "default.kanbi-board.zip")
+	if err := run("boards", "export", "Default", archivePath); err != nil {
+		t.Fatalf("export board package: %v", err)
+	}
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Fatalf("board package was not written: %v", err)
+	}
+	if err := run("boards", "import", archivePath, "--preview"); err != nil {
+		t.Fatalf("preview board package: %v", err)
+	}
+	if err := run("boards", "import", archivePath, "--name", "Imported Default"); err != nil {
+		t.Fatalf("import board package: %v", err)
 	}
 }

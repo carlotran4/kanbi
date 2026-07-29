@@ -23,22 +23,12 @@ func (m *Model) startMasterFilter() {
 	m.masterFilterField = 0
 }
 
-var masterRuntimeOptions = []string{
-	kanban.StateNotStarted,
-	kanban.StateStarting,
-	kanban.StateRunning,
-	kanban.StateWaitingForUser,
-	kanban.StateNeedsPermission,
-	kanban.StateIdleUnknown,
-	kanban.StateClosing,
-	kanban.StateClosed,
-	kanban.StateExited,
-	kanban.StateRepairNeeded,
-	kanban.StateError,
+func masterRuntimeOptions() []string {
+	return kanban.FilterableRuntimeStates()
 }
 
 func (m *Model) reloadMasterFilterOptions() {
-	m.masterFilterRuntimes = append([]string(nil), masterRuntimeOptions...)
+	m.masterFilterRuntimes = masterRuntimeOptions()
 	m.masterFilterHarnesses = nil
 	harnessSet := map[string]bool{}
 	tickets, err := m.actions.ListTickets(m.ctx, true)
@@ -228,17 +218,20 @@ func (m Model) masterFilterView() string {
 	var lines []string
 	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Master filters")
 	lines = append(lines, header, "")
-	row := func(i int, text string) string {
+	rowPrefix := func(i int) string {
 		if i == m.masterFilterField {
-			return lipgloss.NewStyle().Foreground(palette.accent).Render(">") + " " + text
+			return lipgloss.NewStyle().Foreground(palette.accent).Render(">") + " "
 		}
-		return "  " + text
+		return "  "
 	}
+	row := func(i int, text string) string { return rowPrefix(i) + text }
 	search := m.masterFilterDraft.Search
 	if m.masterFilterField == 0 {
-		search = m.masterFilterSearch.Render()
+		search = modalLabeledInput(rowPrefix(0)+"search: ", m.masterFilterSearch, true, modalContentWidth(popupWidth(m.width)))
+		lines = append(lines, search)
+	} else {
+		lines = append(lines, row(0, "search: "+search))
 	}
-	lines = append(lines, row(0, "search: "+search))
 	archived := "[ ] show archived"
 	if m.masterFilterDraft.IncludeArchived {
 		archived = "[x] show archived"
@@ -268,7 +261,7 @@ func (m Model) masterFilterView() string {
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · Ctrl+L clear · Ctrl+S save preset · Ctrl+P presets · Esc cancel"))
 	if m.filterPresetMode == "save" {
-		lines = append(lines, "", "Save preset name: "+m.filterPresetName.Render())
+		lines = append(lines, "", "Save preset name: "+modalInput(m.filterPresetName, true, maxInt(1, modalContentWidth(popupWidth(m.width))-18)))
 	}
 	if m.filterPresetMode == "list" {
 		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Presets (Enter apply · d delete · Esc back)"))
@@ -291,12 +284,7 @@ func (m Model) masterFilterView() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(palette.warning).Render(label))
 	}
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.accent)
 }
 
 func (m Model) masterFilterSummary() string {

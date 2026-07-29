@@ -67,7 +67,7 @@ func (m *Model) startStateMenu() {
 	m.stateIndex = 0
 }
 
-var manualStates = []string{kanban.StateRunning, kanban.StateWaitingForUser, kanban.StateIdleUnknown, kanban.StateError}
+var manualStates = kanban.ManuallySettableRuntimeStates()
 
 func (m Model) updateStateMenu(key tea.KeyMsg) Model {
 	switch key.String() {
@@ -520,9 +520,10 @@ func (m Model) editView() string {
 		harnessValue = "pi"
 	}
 	if m.editField == 2 {
-		meta = append(meta, focusChip.Render("harness")+" "+m.editInputs[2].Render())
+		label := focusChip.Render("harness") + " "
+		meta = append(meta, label+m.editInputs[2].Viewport(maxInt(1, contentW-lipgloss.Width(label))))
 	} else {
-		meta = append(meta, chip.Render(harnessValue))
+		meta = append(meta, chip.Render(trimToWidth(harnessValue, contentW)))
 	}
 	if !t.UpdatedAt.IsZero() {
 		meta = append(meta, metaText.Render("updated "+relativeTime(t.UpdatedAt)))
@@ -531,7 +532,7 @@ func (m Model) editView() string {
 		meta = append(meta, lipgloss.NewStyle().Foreground(palette.warning).Bold(true).Render("unsaved"))
 	}
 	if len(meta) > 0 {
-		lines = append(lines, strings.Join(meta, metaText.Render("  ·  ")))
+		lines = append(lines, inspectorMetadataLines(contentW, metaText.Render("  ·  "), meta...)...)
 	}
 	if t.WorkspaceID.Valid && strings.TrimSpace(t.WorkspaceBranch.String) != "" {
 		for _, line := range inspectorBranchLines(t.WorkspaceBranch.String, contentW) {
@@ -555,7 +556,7 @@ func (m Model) editView() string {
 	if m.editField == 1 {
 		m.bodyTA.SetWidth(contentW)
 		m.bodyTA.SetHeight(descriptionLines)
-		lines = append(lines, m.bodyTA.View())
+		lines = append(lines, textareaOverlayView(m.bodyTA))
 		if completion := m.fileCompletionView(fileCompletionBody, contentW); completion != "" {
 			lines = append(lines, completion)
 		}
@@ -590,6 +591,37 @@ func (m Model) editView() string {
 	}
 	title := ticketInspectorTitle(t.DisplayID, m.editInputs[0], m.editField == 0, dirty, titleWidth)
 	return ticketInspectorBox(content, title, boxW)
+}
+
+// inspectorMetadataLines packs complete metadata chips into bounded rows. This
+// preserves semantic chips (and an active input cursor) instead of truncating a
+// joined line after it has already overflowed the inspector frame.
+func inspectorMetadataLines(width int, separator string, entries ...string) []string {
+	width = maxInt(1, width)
+	var lines []string
+	current := ""
+	for _, entry := range entries {
+		if lipgloss.Width(entry) > width {
+			entry = trimToWidth(entry, width)
+		}
+		if entry == "" {
+			continue
+		}
+		if current == "" {
+			current = entry
+			continue
+		}
+		if lipgloss.Width(current)+lipgloss.Width(separator)+lipgloss.Width(entry) <= width {
+			current += separator + entry
+			continue
+		}
+		lines = append(lines, current)
+		current = entry
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
 }
 
 func inspectorBranchLines(branch string, width int) []string {
@@ -685,7 +717,7 @@ func ticketInspectorTitle(displayID string, title InputBuffer, focused bool, dir
 		if available < 1 {
 			available = 1
 		}
-		return prefix + renderInputWindow(title, available)
+		return prefix + title.Viewport(available)
 	}
 	value := strings.TrimSpace(title.Value())
 	if value == "" {
@@ -696,48 +728,6 @@ func ticketInspectorTitle(displayID string, title InputBuffer, focused bool, dir
 		full = trimToWidth(full, maxWidth)
 	}
 	return full
-}
-
-func renderInputWindow(input InputBuffer, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	value := []rune(input.Value())
-	cursor := input.Cursor()
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor > len(value) {
-		cursor = len(value)
-	}
-	cursorStyle := lipgloss.NewStyle().Reverse(true)
-	if len(value) == 0 {
-		return cursorStyle.Render(" ")
-	}
-	if cursor == len(value) {
-		textWidth := width - 1
-		if textWidth < 0 {
-			textWidth = 0
-		}
-		start := len(value) - textWidth
-		if start < 0 {
-			start = 0
-		}
-		return string(value[start:]) + cursorStyle.Render(" ")
-	}
-	start := 0
-	if cursor >= width {
-		start = cursor - width + 1
-	}
-	end := start + width
-	if end > len(value) {
-		end = len(value)
-	}
-	var out strings.Builder
-	out.WriteString(string(value[start:cursor]))
-	out.WriteString(cursorStyle.Render(string(value[cursor : cursor+1])))
-	out.WriteString(string(value[cursor+1 : end]))
-	return out.String()
 }
 
 func relativeTime(t time.Time) string {
@@ -785,6 +775,9 @@ func ticketInspectorBox(content, title string, width int) string {
 	lines = append(lines, top)
 	lines = append(lines, border.Render("│")+"  "+strings.Repeat(" ", bodyWidth)+"  "+border.Render("│"))
 	for _, line := range strings.Split(content, "\n") {
+		if lipgloss.Width(line) > bodyWidth {
+			line = trimToWidth(line, bodyWidth)
+		}
 		lines = append(lines, border.Render("│")+"  "+padLine(line, bodyWidth)+"  "+border.Render("│"))
 	}
 	lines = append(lines, border.Render("│")+"  "+strings.Repeat(" ", bodyWidth)+"  "+border.Render("│"))
@@ -796,20 +789,10 @@ func inspectorStatusLabel(ticket storage.Ticket) string {
 	if ticket.SessionRef.Valid && strings.TrimSpace(ticket.SessionRef.String) != "" && !ticket.SessionActive {
 		return "resumable"
 	}
-	switch ticket.Runtime {
-	case "", kanban.StateNotStarted:
-		return "not started"
-	case kanban.StateNeedsPermission:
-		return "needs permission"
-	case kanban.StateWaitingForUser:
-		return "waiting for user"
-	case kanban.StateIdleUnknown:
-		return "idle unknown"
-	case kanban.StateRepairNeeded:
-		return "repair needed"
-	default:
-		return strings.ReplaceAll(ticket.Runtime, "_", " ")
+	if info, ok := kanban.RuntimeStateFor(ticket.Runtime); ok {
+		return info.ExpandedLabel
 	}
+	return strings.ReplaceAll(ticket.Runtime, "_", " ")
 }
 
 func statusChipForTicket(ticket storage.Ticket, label string) string {
@@ -817,13 +800,15 @@ func statusChipForTicket(ticket storage.Ticket, label string) string {
 	if label == "resumable" {
 		return style.Foreground(palette.success).Render(label)
 	}
-	switch ticket.Runtime {
-	case kanban.StateWaitingForUser:
-		style = style.Foreground(palette.warning)
-	case kanban.StateNeedsPermission, kanban.StateError, kanban.StateRepairNeeded:
-		style = style.Foreground(palette.error_)
-	case kanban.StateRunning:
-		style = style.Foreground(palette.success)
+	if info, ok := kanban.RuntimeStateFor(ticket.Runtime); ok {
+		switch info.Tone {
+		case kanban.RuntimeToneSuccess:
+			style = style.Foreground(palette.success)
+		case kanban.RuntimeToneWarning:
+			style = style.Foreground(palette.warning)
+		case kanban.RuntimeToneError:
+			style = style.Foreground(palette.error_)
+		}
 	}
 	return style.Render(label)
 }
@@ -1084,7 +1069,7 @@ func (m Model) notesThreadView(innerWidth int) string {
 		}
 		lines := []string{
 			lipgloss.NewStyle().Foreground(palette.accent).Render(action),
-			m.noteTA.View(),
+			textareaOverlayView(m.noteTA),
 		}
 		if completion := m.fileCompletionView(fileCompletionNote, innerWidth); completion != "" {
 			lines = append(lines, completion)
@@ -1140,11 +1125,11 @@ func newNoteTextarea(value string, termWidth int) textarea.Model {
 	ta.SetValue(value)
 	ta.Placeholder = "(write your note here, markdown supported)"
 	ta.ShowLineNumbers = false
-	popupInner := popupWidth(termWidth) - 4
-	if popupInner < 20 {
-		popupInner = 20
+	contentWidth := inspectorPopupWidth(termWidth) - 6
+	if contentWidth < 20 {
+		contentWidth = 20
 	}
-	ta.SetWidth(popupInner - 4)
+	ta.SetWidth(contentWidth)
 	ta.SetHeight(6)
 	return ta
 }
@@ -1166,12 +1151,7 @@ func (m Model) stateMenuView() string {
 		lines = append(lines, statusStyle.Render(m.status))
 	}
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.accent)
 }
 
 func (m Model) columnEditView() string {
@@ -1179,15 +1159,10 @@ func (m Model) columnEditView() string {
 	if m.columnAction == "rename" {
 		title = "Rename column"
 	}
-	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render(title)
-	content := header + "\n\n" +
-		fmt.Sprintf("%s name: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), m.columnInput.Render()) +
-		"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel")
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(content)
+	return modalFrame([]string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render(title), "",
+		"> name: " + modalInput(m.columnInput, true, maxInt(1, modalContentWidth(popupW)-8)), "",
+		lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel"),
+	}, popupW, palette.accent)
 }

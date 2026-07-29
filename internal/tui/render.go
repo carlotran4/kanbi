@@ -19,77 +19,56 @@ func (m Model) View() string {
 		return fmt.Sprintf("Kanbi could not load the board.\n\nCause: %v\n\nNext: check the database path and permissions, then run `kanbi doctor`.\nPress Ctrl+C to exit safely; active agent sessions are not terminated.\n", m.err)
 	}
 
-	// Always render the base board first so modals can overlay it.
+	// Always render the base board first so the selected modal can overlay it.
 	base := m.baseView()
-
-	if m.integrationOpen {
+	switch m.activeModalKind() {
+	case modalIntegration:
 		return overlayModal(base, fitModal(m.integrationView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.focusSettingsOpen {
+	case modalFocusSettings:
 		return overlayModal(base, fitModal(m.focusSettingsView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.focusReplaceOpen {
+	case modalFocusReplace:
 		return overlayModal(base, fitModal(m.focusReplaceView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.pauseOpen {
+	case modalPause:
 		return overlayModal(base, fitModal(m.pauseView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.resumeOpen {
+	case modalResume:
 		return overlayModal(base, fitModal(m.resumeView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.firstRun {
+	case modalOnboarding:
 		return overlayModal(base, fitModal(m.onboardingView(), m.height, 0, false), m.width, m.height)
-	}
-	if m.showHelp {
+	case modalHelp:
 		return overlayModal(base, fitModal(m.helpView(), m.height, m.modalScroll, false), m.width, m.height)
-	}
-	if m.boardRenaming {
+	case modalBoardRename:
 		return overlayModal(base, fitModal(m.boardRenameView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.boardWorktreeEnabling {
+	case modalBoardWorktreeEnable:
 		return overlayModal(base, fitModal(m.boardWorktreeEnableView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.boardEditing {
+	case modalBoardEdit:
 		return overlayModal(base, fitModal(m.boardEditView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.boardDeleting {
+	case modalBoardDelete:
 		return overlayModal(base, fitModal(m.boardDeleteView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.boardExporting {
+	case modalBoardExport:
 		return overlayModal(base, fitModal(m.boardExportView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.boardImporting {
+	case modalBoardImport:
 		return overlayModal(base, fitModal(m.boardImportView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.boardPicker {
+	case modalBoardPicker:
 		return overlayModal(base, fitModal(m.boardPickerView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.masterFilterOpen {
+	case modalMasterFilter:
 		return overlayModal(base, fitModal(m.masterFilterView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.editing {
+	case modalEdit:
 		return overlayModal(base, fitModal(m.editView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.stateMenu {
+	case modalStateMenu:
 		return overlayModal(base, fitModal(m.stateMenuView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.columnEditing {
+	case modalColumnEdit:
 		return overlayModal(base, fitModal(m.columnEditView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.promptFallback {
+	case modalPromptFallback:
 		return overlayModal(base, fitModal(m.promptFallbackView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.repairing {
+	case modalRepair:
 		return overlayModal(base, fitModal(m.repairView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.branchNaming {
+	case modalBranchName:
 		return overlayModal(base, fitModal(m.branchNameView(), m.height, 0, true), m.width, m.height)
-	}
-	if m.workspaceIntegrating {
+	case modalWorkspaceIntegration:
 		return overlayModal(base, fitModal(m.workspaceIntegrationView(), m.height, 0, true), m.width, m.height)
+	default:
+		return base
 	}
-
-	return base
 }
 
 func (m Model) baseView() string {
@@ -524,32 +503,10 @@ func cardStatusLine(ticket storage.Ticket, width int) string {
 }
 
 func runtimeLabel(ticket storage.Ticket) string {
-	switch ticket.Runtime {
-	case kanban.StateNotStarted, "":
-		return "not started"
-	case kanban.StateStarting:
-		return "starting"
-	case kanban.StateRunning:
-		return "running"
-	case kanban.StateWaitingForUser:
-		return "waiting"
-	case kanban.StateNeedsPermission:
-		return "permission"
-	case kanban.StateIdleUnknown:
-		return "idle"
-	case kanban.StateClosing:
-		return "closing"
-	case kanban.StateClosed:
-		return "closed"
-	case kanban.StateExited:
-		return "exited"
-	case kanban.StateRepairNeeded:
-		return "repair"
-	case kanban.StateError:
-		return "error"
-	default:
-		return "unknown"
+	if info, ok := kanban.RuntimeStateFor(ticket.Runtime); ok {
+		return info.CompactLabel
 	}
+	return "unknown"
 }
 
 func runtimeIndicator(ticket storage.Ticket) string {
@@ -696,7 +653,7 @@ func (m Model) workspaceIntegrationView() string {
 		"",
 		lipgloss.NewStyle().Faint(true).Render("Enter integrate · Esc cancel"),
 	}
-	return lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(palette.warning).Padding(1, 2).Width(popupWidth(m.width) - 4).Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupWidth(m.width), palette.warning)
 }
 
 func (m Model) branchNameView() string {
@@ -705,7 +662,7 @@ func (m Model) branchNameView() string {
 		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Branch name"),
 		"",
 		"Source: " + p.SourceBranch,
-		"> " + m.branchName.Render(),
+		"> " + modalInput(m.branchName, true, maxInt(1, modalContentWidth(popupWidth(m.width))-2)),
 	}
 	if p.SourceDirty {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(palette.warning).Render("Source has uncommitted changes; they are not included."))
@@ -717,7 +674,7 @@ func (m Model) branchNameView() string {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(palette.warning).Render("Press Enter again to continue without source changes."))
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Enter validate/create · Esc cancel (creates no session or workspace)"))
-	return lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(palette.accent).Padding(1, 2).Width(popupWidth(m.width) - 4).Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupWidth(m.width), palette.accent)
 }
 
 func elapsedLabel(ticket storage.Ticket) string {

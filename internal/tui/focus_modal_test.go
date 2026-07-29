@@ -209,6 +209,36 @@ func TestPauseModalStaysBoundedAndResizesInputs(t *testing.T) {
 	}
 }
 
+func TestNoteTextareaUsesInspectorWidthAndResizes(t *testing.T) {
+	m := Model{width: 160, height: 45, noteEditing: true}
+	m.noteTA = newNoteTextarea("", m.width)
+	if want := inspectorPopupWidth(160) - 6; m.noteTA.Width()+2 != want {
+		t.Fatalf("note outer width=%d, want inspector content width %d", m.noteTA.Width()+2, want)
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = focusTestModel(t, next)
+	if want := maxInt(20, inspectorPopupWidth(80)-6); m.noteTA.Width()+2 != want {
+		t.Fatalf("resized note outer width=%d, want %d", m.noteTA.Width()+2, want)
+	}
+}
+
+func TestPauseValidationFocusesMissingFieldForImmediateTyping(t *testing.T) {
+	m := Model{width: 80, height: 24}
+	m.startPause(storage.Ticket{ID: 1, DisplayID: "T-001"})
+	// Validate from another field so this catches a stale Bubbles focus.
+	m.pauseInputs[0].Blur()
+	m.pauseField = 2
+	_, _ = m.updatePause(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.pauseField != 0 || !m.pauseInputs[0].Focused() {
+		t.Fatalf("missing field did not receive focus: field=%d focused=%v", m.pauseField, m.pauseInputs[0].Focused())
+	}
+	next, _ := m.updatePause(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = focusTestModel(t, next)
+	if got := m.pauseInputs[0].Value(); got != "x" {
+		t.Fatalf("immediate input=%q, want x", got)
+	}
+}
+
 func TestPauseAndResumeSubmissionCommandsAreSingleFlight(t *testing.T) {
 	store, ctx := newTestStore(t)
 	model := New(ctx, NewService(store, nil))
@@ -308,6 +338,73 @@ func TestPausedSectionHeadingRemainsVisibleWhenScrolledInsideSection(t *testing.
 	view := ansiStrip(m.columnView(0, col, 39))
 	if !strings.Contains(view, "PAUSED · 2") {
 		t.Fatalf("paused heading disappeared after scrolling into section:\n%s", view)
+	}
+}
+
+func TestResumeScrollClampsAtBottom(t *testing.T) {
+	long := strings.Repeat("long checkpoint content ", 20)
+	m := Model{width: 80, height: 24}
+	m.startResume(storage.Ticket{
+		DisplayID: "GH-340", Title: "resume scroll", Body: long,
+		LatestCheckpoint: &storage.PauseCheckpoint{Why: long, Completed: long, NextAction: long, PausedAt: time.Now()},
+	})
+	limit := m.resumeScrollLimit()
+	if limit == 0 {
+		t.Fatal("test fixture must require scrolling")
+	}
+	for range limit + 3 {
+		next, _ := m.updateResume(tea.KeyMsg{Type: tea.KeyDown})
+		m = focusTestModel(t, next)
+	}
+	if m.modalScroll != limit {
+		t.Fatalf("scroll=%d, want bottom limit %d", m.modalScroll, limit)
+	}
+	next, _ := m.updateResume(tea.KeyMsg{Type: tea.KeyDown})
+	m = focusTestModel(t, next)
+	if m.modalScroll != limit {
+		t.Fatalf("down at bottom changed scroll to %d, want %d", m.modalScroll, limit)
+	}
+	next, _ = m.updateResume(tea.KeyMsg{Type: tea.KeyUp})
+	m = focusTestModel(t, next)
+	if m.modalScroll != limit-1 {
+		t.Fatalf("up from bottom=%d, want %d", m.modalScroll, limit-1)
+	}
+	view := m.resumeView()
+	if !strings.Contains(view, "Resume GH-340") || !strings.Contains(view, "r resume   s resume + send handoff   Esc cancel") {
+		t.Fatalf("scrolling hid fixed title/actions:\n%s", view)
+	}
+}
+
+func TestResumeScrollClampsAfterResize(t *testing.T) {
+	long := strings.Repeat("long checkpoint content ", 20)
+	m := Model{width: 80, height: 24}
+	m.startResume(storage.Ticket{
+		DisplayID: "GH-340", Title: "resume resize", Body: long,
+		LatestCheckpoint: &storage.PauseCheckpoint{Why: long, Completed: long, NextAction: long, PausedAt: time.Now()},
+	})
+	m.modalScroll = m.resumeScrollLimit()
+	if m.modalScroll == 0 {
+		t.Fatal("test fixture must require scrolling")
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 45})
+	m = focusTestModel(t, next)
+	limit := m.resumeScrollLimit()
+	if m.modalScroll != limit {
+		t.Fatalf("resize retained stale scroll=%d, want new limit %d", m.modalScroll, limit)
+	}
+	next, _ = m.updateResume(tea.KeyMsg{Type: tea.KeyDown})
+	m = focusTestModel(t, next)
+	if m.modalScroll != limit {
+		t.Fatalf("down after resize changed scroll to %d, want %d", m.modalScroll, limit)
+	}
+	next, _ = m.updateResume(tea.KeyMsg{Type: tea.KeyUp})
+	m = focusTestModel(t, next)
+	if m.modalScroll != maxInt(0, limit-1) {
+		t.Fatalf("up after resize=%d, want %d", m.modalScroll, maxInt(0, limit-1))
+	}
+	view := m.resumeView()
+	if !strings.Contains(view, "Resume GH-340") || !strings.Contains(view, "r resume   s resume + send handoff   Esc cancel") {
+		t.Fatalf("resize hid fixed title/actions:\n%s", view)
 	}
 }
 

@@ -248,7 +248,7 @@ func (m Model) integrationView() string {
 			lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render(hint))
 		}
 	}
-	return lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(palette.accent).Padding(1, 2).Width(width - 4).Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, width, palette.accent)
 }
 
 func shortSHA(sha string) string {

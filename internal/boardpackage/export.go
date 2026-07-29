@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/archiveutil"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -31,7 +32,7 @@ func Export(ctx context.Context, store *storage.Store, dataDir string, boardID i
 		return errors.New("dataDir is required")
 	}
 	attachmentRoot := filepath.Join(dataDir, "attachments")
-	if inside, pathErr := pathWithin(attachmentRoot, destPath); pathErr != nil {
+	if inside, pathErr := archiveutil.PathWithin(attachmentRoot, destPath); pathErr != nil {
 		return pathErr
 	} else if inside {
 		return errors.New("board package destination must not be inside the attachment directory")

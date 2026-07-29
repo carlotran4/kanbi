@@ -86,7 +86,6 @@ func NewServiceWithSyncer(store *storage.Store, manager SessionManager, syncer T
 	return &Service{Store: store, Manager: manager, Syncer: syncer}
 }
 
-func (s *Service) SetFocusPolicy(policy storage.FocusPolicy) { s.Store.SetFocusPolicy(policy) }
 func (s *Service) SaveFocusPolicy(ctx context.Context, policy storage.FocusPolicy) error {
 	if s.FocusPolicySaver == nil {
 		return fmt.Errorf("focus settings persistence unavailable")
@@ -277,7 +276,7 @@ func (s *Service) UpdateTicket(ctx context.Context, id int64, title, body, harne
 		return err
 	}
 	title = strings.TrimSpace(title)
-	if before.Title != title && before.WindowName.Valid && s.Manager != nil {
+	if before.Title != title && before.SessionActive && before.WindowName.Valid && (!before.Multiplexer.Valid || before.Multiplexer.String == "" || before.Multiplexer.String == "tmux") && s.Manager != nil {
 		if err := s.Manager.RenameTicketWindow(ctx, before, title); err != nil {
 			return err
 		}

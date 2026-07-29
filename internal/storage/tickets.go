@@ -59,16 +59,9 @@ func (s *Store) TicketByID(ctx context.Context, id int64) (Ticket, error) {
 }
 
 func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, harnessName string) (Ticket, error) {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return Ticket{}, errors.New("ticket title is required")
-	}
-	harnessName = strings.ToLower(strings.TrimSpace(harnessName))
-	if harnessName == "" {
-		harnessName = "pi"
-	}
-	if !validHarness(harnessName) {
-		return Ticket{}, fmt.Errorf("unsupported harness %q", harnessName)
+	write, err := normalizeTicketWrite(title, body, harnessName, true)
+	if err != nil {
+		return Ticket{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -113,7 +106,7 @@ func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, h
 	displayID := fmt.Sprintf("T-%03d", next)
 	now := time.Now().UTC()
 	res, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,display_id,display_number,title,body,harness,position,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?)`,
-		boardID, columnID, displayID, next, title, body, harnessName, pos, now, now)
+		boardID, columnID, displayID, next, write.Title, write.Body, write.Harness, pos, now, now)
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -130,24 +123,16 @@ func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, h
 // ValidateTicketUpdate checks ticket fields without changing durable state.
 // Callers that need to coordinate runtime effects must validate first.
 func (s *Store) ValidateTicketUpdate(title, harnessName string) error {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return errors.New("ticket title is required")
-	}
-	harnessName = strings.ToLower(strings.TrimSpace(harnessName))
-	if !validHarness(harnessName) {
-		return fmt.Errorf("unsupported harness %q", harnessName)
-	}
-	return nil
+	_, err := normalizeTicketWrite(title, "", harnessName, false)
+	return err
 }
 
 func (s *Store) UpdateTicket(ctx context.Context, id int64, title, body, harnessName string) error {
-	if err := s.ValidateTicketUpdate(title, harnessName); err != nil {
+	write, err := normalizeTicketWrite(title, body, harnessName, false)
+	if err != nil {
 		return err
 	}
-	title = strings.TrimSpace(title)
-	harnessName = strings.ToLower(strings.TrimSpace(harnessName))
-	res, err := s.db.ExecContext(ctx, `update tickets set title=?, body=?, harness=?, updated_at=? where id=?`, title, body, harnessName, time.Now().UTC(), id)
+	res, err := s.db.ExecContext(ctx, `update tickets set title=?, body=?, harness=?, updated_at=? where id=?`, write.Title, write.Body, write.Harness, time.Now().UTC(), id)
 	return requireAffected(res, err)
 }
 

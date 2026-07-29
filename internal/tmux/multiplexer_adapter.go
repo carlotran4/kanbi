@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"time"
 
@@ -209,6 +210,39 @@ func ApplyContainerRefToSession(session *storage.Session, ref multiplexer.Contai
 		session.MuxMetadata.Valid = true
 		session.MuxMetadata.String = ref.Metadata
 	}
+}
+
+// ContainerRefFromIntegrationRun decodes the durable generic multiplexer
+// reference owned by a repository integration run. Blank legacy kinds predate
+// generic runtime columns and retain tmux compatibility.
+func ContainerRefFromIntegrationRun(run storage.IntegrationRun) multiplexer.ContainerRef {
+	ref := multiplexer.ContainerRef{Kind: multiplexer.KindTmux}
+	if run.Multiplexer.Valid && strings.TrimSpace(run.Multiplexer.String) != "" {
+		ref.Kind = multiplexer.Kind(run.Multiplexer.String)
+	}
+	if run.MuxNamespace.Valid {
+		ref.Namespace = run.MuxNamespace.String
+	}
+	if run.MuxContainerID.Valid {
+		ref.ID = run.MuxContainerID.String
+	}
+	if run.MuxContainerName.Valid {
+		ref.Name = run.MuxContainerName.String
+	}
+	if run.MuxMetadata.Valid {
+		ref.Metadata = run.MuxMetadata.String
+	}
+	return ref
+}
+
+// ApplyContainerRefToIntegrationRun encodes all generic multiplexer fields
+// without reconstructing integration-run lifecycle data.
+func ApplyContainerRefToIntegrationRun(run *storage.IntegrationRun, ref multiplexer.ContainerRef) {
+	run.Multiplexer = sql.NullString{String: string(ref.Kind), Valid: ref.Kind != ""}
+	run.MuxNamespace = sql.NullString{String: ref.Namespace, Valid: ref.Namespace != ""}
+	run.MuxContainerID = sql.NullString{String: ref.ID, Valid: ref.ID != ""}
+	run.MuxContainerName = sql.NullString{String: ref.Name, Valid: ref.Name != ""}
+	run.MuxMetadata = sql.NullString{String: ref.Metadata, Valid: ref.Metadata != ""}
 }
 
 func adapterNamespace(manager *Manager, ref multiplexer.ContainerRef) string {

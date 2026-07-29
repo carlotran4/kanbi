@@ -7,19 +7,19 @@ import (
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func focusModalWidth(termWidth int) int {
-	if termWidth <= 80 {
-		return maxInt(30, termWidth)
-	}
-	return 76
+	// Keep a visible margin at 80 columns while retaining a sensible compact
+	// layout on smaller terminals.
+	return minInt(76, maxInt(2, termWidth-4))
 }
 
 func focusTextarea(value string, width, height int) textarea.Model {
 	ta := textarea.New()
 	ta.SetValue(value)
-	ta.SetWidth(maxInt(20, width-12))
+	ta.SetWidth(maxInt(1, modalContentWidth(width)))
 	ta.SetHeight(maxInt(2, height))
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
@@ -32,7 +32,7 @@ func (m *Model) resizePauseInputs() {
 	}
 	width := focusModalWidth(m.width)
 	for i := range m.pauseInputs {
-		m.pauseInputs[i].SetWidth(maxInt(20, width-12))
+		m.pauseInputs[i].SetWidth(maxInt(1, modalContentWidth(width)))
 	}
 }
 
@@ -79,8 +79,9 @@ func (m *Model) updatePause(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		for i, value := range values {
 			if strings.TrimSpace(value) == "" {
 				m.status = labels[i] + " is required"
+				m.pauseInputs[m.pauseField].Blur()
 				m.pauseField = i
-				return m, nil
+				return m, m.pauseInputs[i].Focus()
 			}
 		}
 		if m.pauseWarnNoRef {
@@ -140,12 +141,15 @@ func (m *Model) updateResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.resumeSubmitting {
 		return m, nil
 	}
+	m.clampResumeScroll()
 	switch key.String() {
 	case "esc":
 		m.resumeOpen = false
 		return m, nil
 	case "j", "down":
-		m.modalScroll++
+		if limit := m.resumeScrollLimit(); m.modalScroll < limit {
+			m.modalScroll++
+		}
 		return m, nil
 	case "k", "up":
 		if m.modalScroll > 0 {
@@ -166,32 +170,33 @@ func (m *Model) updateResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) pauseView() string {
-	lines := []string{"Pause " + m.pauseTicket.DisplayID}
+	width := focusModalWidth(m.width)
+	contentWidth := modalContentWidth(width)
+	lines := []string{lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Pause " + m.pauseTicket.DisplayID)}
 	labels := []string{"Why is this being paused?", "What has already been completed?", "Exact next action"}
 	for i, label := range labels {
 		prefix := "  "
 		if i == m.pauseField {
 			prefix = "> "
 		}
-		// textarea.View includes terminal clear-to-end sequences which corrupt
-		// an overlaid board to the popup's right. The textual focus marker keeps
-		// the active field authoritative after stripping those sequences.
-		lines = append(lines, prefix+label, ansiStrip(m.pauseInputs[i].View()))
+		lines = append(lines, prefix+label)
+		for _, line := range strings.Split(textareaOverlayView(m.pauseInputs[i]), "\n") {
+			lines = append(lines, trimToWidth(line, contentWidth))
+		}
 	}
 	if m.pauseWarnNoRef {
-		lines = append(lines, "WARNING: no verified resume reference; closing may require repair/start-fresh.")
+		lines = append(lines, wrapText("WARNING: no verified resume reference; closing may require repair/start-fresh.", contentWidth, 3)...)
 	}
 	if m.status != "" {
-		lines = append(lines, "Status: "+m.status)
+		lines = append(lines, wrapText("Status: "+m.status, contentWidth, 3)...)
 	}
 	controls := "Ctrl+S pause   Esc cancel"
 	if m.pauseSubmitting {
 		controls = "Pausing…"
 	}
 	lines = append(lines, controls)
-	return boxLines(strings.Split(strings.Join(lines, "\n"), "\n"), focusModalWidth(m.width))
+	return modalFrame(lines, width, palette.warning)
 }
-
 func (m *Model) startFocusReplacement(moveTicket storage.Ticket, columnID int64, resumeTicket storage.Ticket, send bool) {
 	candidates, err := m.actions.FocusedTickets(m.ctx)
 	if err != nil || len(candidates) == 0 {
@@ -250,32 +255,52 @@ func (m *Model) updateFocusReplace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) focusReplaceView() string {
+	width := focusModalWidth(m.width)
+	contentWidth := modalContentWidth(width)
 	title := "Focus limit reached — choose work to pause"
 	if m.focusReplaceResolveOnly {
 		title = fmt.Sprintf("Focus overflow %d/%d — pause work before admission", m.focus.Used, m.focus.Limit)
 	}
-	lines := []string{title, "Enter opens the required handoff form; Esc cancels"}
+	lines := []string{lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render(trimToWidth(title, contentWidth)), "Enter opens the required handoff form; Esc cancels"}
 	for i, t := range m.focusReplaceTickets {
-		prefix := " "
+		prefix := "  "
 		if i == m.focusReplaceIndex {
-			prefix = ">"
+			prefix = "> "
 		}
-		lines = append(lines, fmt.Sprintf("%s %s [%s] %s", prefix, t.DisplayID, t.BoardName, t.Title))
+		for j, line := range wrapText(fmt.Sprintf("%s%s [%s] %s", prefix, t.DisplayID, t.BoardName, t.Title), contentWidth, 3) {
+			if j > 0 {
+				line = "  " + line
+			}
+			lines = append(lines, line)
+		}
 	}
-	return boxLines(lines, focusModalWidth(m.width))
+	return modalFrame(lines, width, palette.warning)
+}
+func (m *Model) clampResumeScroll() {
+	if !m.resumeOpen {
+		return
+	}
+	m.modalScroll = minInt(maxInt(0, m.modalScroll), m.resumeScrollLimit())
 }
 
-func (m Model) resumeView() string {
+func (m Model) resumeScrollLimit() int {
+	return maxInt(0, len(m.resumeBody())-m.resumeBodyRows())
+}
+
+func (m Model) resumeBodyRows() int {
+	// Reserve frame, padding, fixed title, and actions before selecting body.
+	return maxInt(1, m.height-6-2)
+}
+
+func (m Model) resumeBody() []string {
 	checkpoint := m.resumeTicket.LatestCheckpoint
-	width := focusModalWidth(m.width)
 	if checkpoint == nil {
-		return boxLines([]string{"Resume unavailable: no pause checkpoint"}, width)
+		return nil
 	}
-	contentWidth := maxInt(20, width-4)
+	contentWidth := modalContentWidth(focusModalWidth(m.width))
 	body := []string{"Description"}
 	appendWrapped := func(prefix, value string) {
-		value = strings.TrimSpace(value)
-		wrapped := wrapText(prefix+value, contentWidth, 1000)
+		wrapped := wrapText(prefix+strings.TrimSpace(value), contentWidth, 1000)
 		if len(wrapped) == 0 {
 			wrapped = []string{prefix}
 		}
@@ -286,22 +311,29 @@ func (m Model) resumeView() string {
 	appendWrapped("Why: ", checkpoint.Why)
 	appendWrapped("Completed: ", checkpoint.Completed)
 	appendWrapped("Next: ", checkpoint.NextAction)
+	return body
+}
 
-	bodyRows := maxInt(4, m.height-6)
-	maxScroll := maxInt(0, len(body)-bodyRows)
-	scroll := minInt(maxInt(0, m.modalScroll), maxScroll)
-	end := minInt(len(body), scroll+bodyRows)
-	visibleBody := body[scroll:end]
-	if scroll > 0 && len(visibleBody) > 0 {
-		visibleBody[0] = "↑ " + trimToWidth(visibleBody[0], maxInt(1, contentWidth-2))
+func (m Model) resumeView() string {
+	checkpoint := m.resumeTicket.LatestCheckpoint
+	width := focusModalWidth(m.width)
+	contentWidth := modalContentWidth(width)
+	if checkpoint == nil {
+		return modalFrame([]string{"Resume unavailable: no pause checkpoint"}, width, palette.warning)
 	}
-	if end < len(body) && len(visibleBody) > 0 {
-		last := len(visibleBody) - 1
-		visibleBody[last] = trimToWidth(visibleBody[last], maxInt(1, contentWidth-2)) + " ↓"
-	}
-
+	body := m.resumeBody()
 	title := trimToWidth(fmt.Sprintf("Resume %s: %s", m.resumeTicket.DisplayID, m.resumeTicket.Title), contentWidth)
-	lines := append([]string{title}, visibleBody...)
-	lines = append(lines, "r resume   s resume + send handoff   Esc cancel")
-	return boxLines(lines, width)
+	controls := "r resume   s resume + send handoff   Esc cancel"
+	maxScroll := m.resumeScrollLimit()
+	scroll := minInt(maxInt(0, m.modalScroll), maxScroll)
+	end := minInt(len(body), scroll+m.resumeBodyRows())
+	visible := append([]string(nil), body[scroll:end]...)
+	if scroll > 0 && len(visible) > 0 {
+		visible[0] = "↑ " + trimToWidth(visible[0], maxInt(1, contentWidth-2))
+	}
+	if end < len(body) && len(visible) > 0 {
+		last := len(visible) - 1
+		visible[last] = trimToWidth(visible[last], maxInt(1, contentWidth-2)) + " ↓"
+	}
+	return modalFrame(append([]string{lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render(title)}, append(visible, controls)...), width, palette.warning)
 }

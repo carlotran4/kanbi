@@ -318,6 +318,39 @@ func TestDefaultRegistryImplementsImplementedBackends(t *testing.T) {
 	}
 }
 
+func TestScheduledSyncUsesBoundCLIContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	store, err := storage.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "Remote", Workdir: t.TempDir(), TicketBackend: KindGitHub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &gatedBackend{kind: KindGitHub, started: make(chan int64, 1), release: make(chan struct{})}
+	manager := NewManagerWithContext(ctx, store)
+	manager.Registry = NewRegistry(LocalBackend{}, backend)
+	manager.ScheduleBoardSync(board.ID)
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("scheduled sync did not start")
+	}
+	cancel()
+	done := make(chan struct{})
+	go func() { manager.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not drain canceled work")
+	}
+}
+
 func TestScheduleBoardSyncCoalescesSchedulingStorm(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.OpenMemory()

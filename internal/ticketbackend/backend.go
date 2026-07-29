@@ -150,7 +150,18 @@ type Manager struct {
 }
 
 func NewManager(store *storage.Store) *Manager {
-	return &Manager{Store: store, Registry: DefaultRegistry(), Interval: time.Minute, boardLocks: map[int64]*sync.Mutex{}, Owner: fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid()), LeaseTTL: 5 * time.Minute}
+	return newManager(store, nil)
+}
+
+// NewManagerWithContext binds mutation-triggered work to ctx without starting
+// startup or periodic sync. It is for short-lived command paths whose caller
+// must be able to cancel scheduled provider work during shutdown.
+func NewManagerWithContext(ctx context.Context, store *storage.Store) *Manager {
+	return newManager(store, ctx)
+}
+
+func newManager(store *storage.Store, runCtx context.Context) *Manager {
+	return &Manager{Store: store, Registry: DefaultRegistry(), Interval: time.Minute, boardLocks: map[int64]*sync.Mutex{}, Owner: fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid()), LeaseTTL: 5 * time.Minute, runCtx: runCtx}
 }
 
 func (m *Manager) boardLock(boardID int64) *sync.Mutex {

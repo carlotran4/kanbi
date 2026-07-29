@@ -6,9 +6,9 @@ Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent se
 
 ```mermaid
 flowchart LR
-    CLI[CLI commands] --> Store
+    CLI[CLI commands] --> App[Application service]
     CLI --> Manager
-    TUI[Bubble Tea TUI] --> App[Application service]
+    TUI[Bubble Tea TUI] --> App
     App --> Store[(SQLite)]
     App --> Workspace[Execution workspace manager]
     Workspace --> Git[Git linked worktrees]
@@ -65,12 +65,13 @@ Stop and ask before:
 
 | Path | Responsibility |
 | --- | --- |
-| `cmd/kanbi` | CLI entrypoint, command parsing, board startup, doctor command, board/ticket CLI actions. |
-| `internal/app` | Presentation-independent board, ticket, note, and session use-case orchestration. |
+| `cmd/kanbi` | CLI entrypoint, command parsing, target resolution, output formatting, board startup, doctor command, and command surfaces. Ticket/note mutations use `internal/app`; direct runtime edges remain only for command surfaces without an app use case. |
+| `internal/app` | Presentation-independent board, ticket, note, and session use-case orchestration, including post-save runtime effects and manager-owned mutation sync scheduling. |
 | `internal/boardruntime` | Starts the board process in the configured runtime, including Herdr availability, workspace, pane, environment, and attach orchestration. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
 | `internal/buildinfo` | Release-injected semantic version, commit/build metadata, Go platform, and schema compatibility reporting. |
 | `internal/diagnostics` | Opt-in bounded private log writer and redacted support-bundle collection (`kanbi-support-bundle`). |
+| `internal/archiveutil` | Policy-free symlink-aware path containment, bounded ZIP reads, and regular-file extraction safety shared by archive formats. |
 | `internal/backup` | Versioned full SQLite-and-attachments export/restore archives (`kanbi-backup`) with validation. |
 | `internal/boardpackage` | Versioned single-board packages (`kanbi-board-package`) with path-safe attachments, preview, create-new import, and compensating rollback. |
 | `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. Includes board archive/sync flags, workflow keys, filter presets, and board aggregate load/import. `TicketProjection` and `ColumnView` are explicit read models. |
@@ -161,10 +162,14 @@ For the full state model, read [`docs/state-management.md`](./state-management.m
 
 ```mermaid
 flowchart LR
-    CLIorTUI[CLI/TUI add] --> Store[(storage)]
+    CLIorTUI[CLI/TUI add] --> App[Application service]
+    App --> Store[(storage)]
     Store --> Column[First or selected column]
     Store --> Ticket[Ticket row with board-local display id]
+    App --> Sync[Manager-owned board sync schedule]
 ```
+
+CLI parsing resolves the board and column and formats the resulting projection; the application service performs ticket creation, update, move, and note mutation orchestration. This keeps CLI mutations aligned with TUI validation, live-window rename ordering, and exactly-one board sync scheduling.
 
 ### Default Ticket Action
 

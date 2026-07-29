@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/archiveutil"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -104,10 +105,11 @@ func Import(ctx context.Context, store *storage.Store, dataDir, archivePath stri
 		if !ok {
 			return Result{}, fmt.Errorf("board package missing attachments: %s", zipPath)
 		}
-		target := filepath.Join(stage, strconv.FormatInt(entry.SourceTicketID, 10), entry.RelativePath)
-		if err := extractRegular(zf, target); err != nil {
+		rel := filepath.ToSlash(filepath.Join(strconv.FormatInt(entry.SourceTicketID, 10), entry.RelativePath))
+		if err := archiveutil.ExtractRegular(stage, zf, rel, maxAttachmentBytes); err != nil {
 			return Result{}, err
 		}
+		target := filepath.Join(stage, filepath.FromSlash(rel))
 		sum, size, err := hashFile(target)
 		if err != nil {
 			return Result{}, err
@@ -184,7 +186,9 @@ func Import(ctx context.Context, store *storage.Store, dataDir, archivePath stri
 
 	var written []int64
 	fail := func(opErr error) (Result, error) {
-		if rbErr := rollbackImport(ctx, store, dataDir, ins.Board.ID, written); rbErr != nil {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if rbErr := rollbackImport(rollbackCtx, store, dataDir, ins.Board.ID, written); rbErr != nil {
 			return Result{}, fmt.Errorf("%w; rollback failed: %v", opErr, rbErr)
 		}
 		return Result{}, opErr

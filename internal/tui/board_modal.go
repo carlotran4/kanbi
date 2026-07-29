@@ -250,12 +250,7 @@ func (m Model) boardPickerView() string {
 	}
 	lines = append(lines, lipgloss.NewStyle().Faint(true).Render(hint))
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.accent)
 }
 
 func (m Model) updateBoardWorktreeEnable(key tea.KeyMsg) Model {
@@ -287,7 +282,7 @@ func (m Model) boardWorktreeEnableView() string {
 		"",
 		lipgloss.NewStyle().Faint(true).Render("Enter enable · Esc cancel"),
 	}
-	return lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(palette.warning).Padding(1, 2).Width(popupWidth(m.width) - 4).Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupWidth(m.width), palette.warning)
 }
 
 func (m *Model) startCurrentBoardRename(returnPicker bool) {
@@ -327,17 +322,13 @@ func (m Model) updateBoardRename(key tea.KeyMsg) Model {
 }
 
 func (m Model) boardRenameView() string {
-	content := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Rename board") +
-		"\n\n" +
-		fmt.Sprintf("%s name: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), m.boardRenameName.Render()) +
-		"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel")
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(content)
+	contentWidth := modalContentWidth(popupW)
+	return modalFrame([]string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Rename board"), "",
+		modalLabeledInput("> name: ", m.boardRenameName, true, contentWidth), "",
+		lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel"),
+	}, popupW, palette.accent)
 }
 
 func (m *Model) startBoardCreate() {
@@ -425,11 +416,8 @@ func (m Model) boardEditView() string {
 		}
 		return " "
 	}
-	render := func(field int, input InputBuffer) string {
-		if m.boardEditField == field {
-			return input.Render()
-		}
-		return input.Value()
+	render := func(field int, prefix string, input InputBuffer) string {
+		return modalLabeledInput(prefix, input, m.boardEditField == field, modalContentWidth(popupW))
 	}
 	if m.boardEditAction == "cwd" {
 		header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Set board cwd for " + m.boardEditName.Value())
@@ -437,15 +425,15 @@ func (m Model) boardEditView() string {
 		if m.status != "" {
 			lines = append(lines, statusStyle.Render(m.status), "")
 		}
-		lines = append(lines, fmt.Sprintf("%s cwd: %s", cursor(1), render(1, m.boardEditCWD)))
+		lines = append(lines, render(1, cursor(1)+" cwd: ", m.boardEditCWD))
 	} else {
 		header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Create board")
 		lines = append(lines, header, "")
 		if m.status != "" {
 			lines = append(lines, statusStyle.Render(m.status), "")
 		}
-		lines = append(lines, fmt.Sprintf("%s name: %s", cursor(0), render(0, m.boardEditName)))
-		lines = append(lines, fmt.Sprintf("%s cwd:  %s", cursor(1), render(1, m.boardEditCWD)))
+		lines = append(lines, render(0, cursor(0)+" name: ", m.boardEditName))
+		lines = append(lines, render(1, cursor(1)+" cwd:  ", m.boardEditCWD))
 		modeLabel := "shared board directory"
 		if m.boardEditMode == storage.WorktreeModeGit {
 			modeLabel = "isolated Git worktrees"
@@ -453,12 +441,7 @@ func (m Model) boardEditView() string {
 		lines = append(lines, fmt.Sprintf("%s execution: %s", cursor(2), modeLabel))
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Tab switch field · ←/→ change execution · Enter save · Esc cancel"))
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.accent)
 }
 
 func (m Model) updateBoardDelete(key tea.KeyMsg) Model {
@@ -521,17 +504,12 @@ func (m Model) boardExportView() string {
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Export board package"),
 		"",
-		"path: " + m.boardExportPath.Render(),
+		"path: " + modalInput(m.boardExportPath, true, maxInt(1, modalContentWidth(popupWidth(m.width))-6)),
 		"",
 		lipgloss.NewStyle().Faint(true).Render("Writes a kanbi-board-package zip. Active sessions block export. Enter export · Esc cancel"),
 	}
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.accent)
 }
 
 func (m Model) updateBoardImport(key tea.KeyMsg) Model {
@@ -586,11 +564,11 @@ func (m Model) boardImportView() string {
 	pathLine := "path: " + m.boardImportPath.Value()
 	nameLine := "rename: " + m.boardImportName.Value()
 	if m.boardImportField == 0 {
-		pathLine = "> path: " + m.boardImportPath.Render()
-		nameLine = "  rename: " + m.boardImportName.Value()
+		pathLine = "> path: " + modalInput(m.boardImportPath, true, maxInt(1, modalContentWidth(popupWidth(m.width))-8))
+		nameLine = "  rename: " + modalInput(m.boardImportName, false, maxInt(1, modalContentWidth(popupWidth(m.width))-10))
 	} else {
-		pathLine = "  path: " + m.boardImportPath.Value()
-		nameLine = "> rename: " + m.boardImportName.Render()
+		pathLine = "  path: " + modalInput(m.boardImportPath, false, maxInt(1, modalContentWidth(popupWidth(m.width))-8))
+		nameLine = "> rename: " + modalInput(m.boardImportName, true, maxInt(1, modalContentWidth(popupWidth(m.width))-10))
 	}
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Import board package"),
@@ -604,12 +582,7 @@ func (m Model) boardImportView() string {
 		lines = append(lines, "", statusStyle.Render(m.status))
 	}
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.accent)
 }
 
 func (m Model) boardDeleteView() string {
@@ -620,15 +593,10 @@ func (m Model) boardDeleteView() string {
 		lipgloss.NewStyle().Faint(true).Render("Hard delete is local-only. Prefer archive (a) to hide without destroying history. Active sessions block deletion."),
 		"",
 		"Type the exact board name to confirm:",
-		m.boardDeleteInput.Render(),
+		modalInput(m.boardDeleteInput, true, modalContentWidth(popupWidth(m.width))),
 		"",
 		lipgloss.NewStyle().Faint(true).Render("Enter delete · Esc cancel"),
 	}
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.error_).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.error_)
 }

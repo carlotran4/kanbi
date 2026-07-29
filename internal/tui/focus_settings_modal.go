@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/carlotran4/kanbi/internal/storage"
 )
@@ -120,29 +121,9 @@ func (m *Model) updateFocusSettings(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func focusSettingsInputView(buffer InputBuffer, width int) string {
-	if width <= 1 {
-		return ""
-	}
-	runes := []rune(buffer.Value())
-	cursor := buffer.Cursor()
-	start := 0
-	if cursor >= width {
-		start = cursor - width + 1
-	}
-	end := minInt(len(runes), start+width)
-	window := NewInputBuffer(string(runes[start:end]))
-	window.SetCursor(cursor - start)
-	view := window.Render()
-	if start > 0 {
-		view = "~" + view
-	}
-	return trimToWidth(view, width)
-}
-
 func (m Model) focusSettingsView() string {
 	width := focusModalWidth(m.width)
-	contentWidth := maxInt(20, width-4)
+	contentWidth := modalContentWidth(width)
 	marker := func(field int) string {
 		if m.focusSettingsField == field {
 			return "> "
@@ -153,23 +134,37 @@ func (m Model) focusSettingsView() string {
 	if m.focusSettingsEnabled {
 		checked = "on"
 	}
-	lines := []string{
-		"Global Focus Mode settings",
-		"",
-		marker(0) + "Enabled: " + checked + "  (Space/Enter toggle)",
-		marker(1) + "Limit: " + focusSettingsInputView(m.focusSettingsLimit, maxInt(8, contentWidth-11)),
-		marker(2) + "Workflow keys: " + focusSettingsInputView(m.focusSettingsKeys, maxInt(8, contentWidth-19)),
-		"",
+	limitWidth := maxInt(1, contentWidth-11)
+	keysWidth := maxInt(1, contentWidth-17)
+	limit := m.focusSettingsLimit.Value()
+	keys := m.focusSettingsKeys.Value()
+	if m.focusSettingsField == 1 {
+		limit = m.focusSettingsLimit.Viewport(limitWidth)
+	} else {
+		limit = trimToWidth(limit, limitWidth)
 	}
+	if m.focusSettingsField == 2 {
+		keys = m.focusSettingsKeys.Viewport(keysWidth)
+	} else {
+		keys = trimToWidth(keys, keysWidth)
+	}
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Global Focus Mode settings"),
+		marker(0) + "Enabled: " + checked + "  (Space/Enter toggle)",
+		marker(1) + "Limit: " + limit,
+		marker(2) + "Workflow keys: " + keys,
+	}
+	lines = append(lines, "")
 	lines = append(lines, wrapText("Use stable workflow_key values separated by commas (escape commas as \\,).", contentWidth, 3)...)
 	lines = append(lines, wrapText("Applies here now; other running Kanbi processes update after restart.", contentWidth, 3)...)
 	if m.status != "" {
-		lines = append(lines, "", "Status: "+trimToWidth(m.status, contentWidth))
+		lines = append(lines, "")
+		lines = append(lines, wrapText("Status: "+m.status, contentWidth, 3)...)
 	}
 	controls := "Ctrl+S save   Esc cancel"
 	if m.focusSettingsSubmitting {
 		controls = "Saving…"
 	}
 	lines = append(lines, "", controls)
-	return boxLines(lines, width)
+	return modalFrame(lines, width, palette.accent)
 }

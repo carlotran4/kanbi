@@ -15,6 +15,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/backup"
 	"github.com/carlotran4/kanbi/internal/boardpackage"
 	"github.com/carlotran4/kanbi/internal/boardruntime"
@@ -179,12 +180,9 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 				Cause:     reconcileWarning,
 			})
 		}
-		syncer := ticketbackend.NewManager(cli.store)
-		stopSync := syncer.Start(ctx)
+		stopSync := cli.Syncer().Start(ctx)
 		defer stopSync()
-		defer manager.Close()
-		svc := tui.NewServiceWithSyncer(cli.store, manager, syncer)
-		svc.SetFocusPolicy(storage.FocusPolicy{Enabled: cfg.Focus.Enabled, Limit: cfg.Focus.Limit, WorkflowKeys: cfg.Focus.WorkflowKeys})
+		svc := cli.Service()
 		svc.FocusPolicySaver = func(_ context.Context, policy storage.FocusPolicy) error {
 			return config.SaveFocus(cfg.Paths.ConfigFile, config.Focus{Enabled: policy.Enabled, Limit: policy.Limit, WorkflowKeys: policy.WorkflowKeys})
 		}
@@ -561,7 +559,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			if err != nil {
 				return err
 			}
-			if err := boardpackage.Export(ctx, cli.store, cfg.Paths.DataDir, b.ID, args[2]); err != nil {
+			if err := cli.Service().ExportBoard(ctx, b.ID, args[2]); err != nil {
 				return err
 			}
 			if format.JSON {
@@ -592,7 +590,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				}
 			}
 			if previewOnly {
-				report, err := boardpackage.Preview(ctx, cli.store, path)
+				report, err := cli.Service().PreviewBoardPackage(ctx, path)
 				if err != nil {
 					return err
 				}
@@ -605,7 +603,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				}
 				return nil
 			}
-			result, err := boardpackage.Import(ctx, cli.store, cfg.Paths.DataDir, path, boardpackage.ImportOptions{NameOverride: nameOverride})
+			result, err := cli.Service().ImportBoardPackage(ctx, path, boardpackage.ImportOptions{NameOverride: nameOverride})
 			if err != nil {
 				return err
 			}
@@ -692,7 +690,7 @@ func runAdd(ctx context.Context, cfg config.Config, args []string) error {
 		if len(board.Columns) == 0 {
 			return fmt.Errorf("board %q has no columns", board.Board.Name)
 		}
-		t, err := cli.store.CreateTicket(ctx, board.Columns[0].ID, title, body, harnessName)
+		t, err := cli.Service().CreateTicket(ctx, board.Columns[0].ID, title, body, harnessName)
 		if err != nil {
 			return err
 		}
@@ -746,7 +744,7 @@ func runSync(ctx context.Context, cfg config.Config, args []string) error {
 		return err
 	}
 	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
-		syncer := ticketbackend.NewManager(cli.store)
+		syncer := cli.Syncer()
 		var boards []storage.Board
 		if boardName == "" {
 			boards, err = cli.store.ListBoards(ctx)
@@ -889,7 +887,7 @@ func runUpdate(ctx context.Context, cfg config.Config, args []string) error {
 		if opts.Harness != nil {
 			harnessName = *opts.Harness
 		}
-		if err := cli.store.UpdateTicket(ctx, ticket.ID, title, body, harnessName); err != nil {
+		if err := cli.Service().UpdateTicket(ctx, ticket.ID, title, body, harnessName); err != nil {
 			return err
 		}
 		updated, err := cli.store.TicketByID(ctx, ticket.ID)
@@ -921,11 +919,11 @@ func runMove(ctx context.Context, cfg config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
-		colID, err := cli.store.ColumnIDByBoardAndName(ctx, ticket.BoardID, toColumn)
+		colID, err := cli.Service().ColumnIDByBoardAndName(ctx, ticket.BoardID, toColumn)
 		if err != nil {
 			return err
 		}
-		if err := cli.store.MoveTicket(ctx, ticket.ID, colID); err != nil {
+		if err := cli.Service().MoveTicket(ctx, ticket.ID, colID); err != nil {
 			return err
 		}
 		updated, err := cli.store.TicketByID(ctx, ticket.ID)
@@ -986,7 +984,7 @@ func runNotes(ctx context.Context, cfg config.Config, args []string) error {
 			if err != nil {
 				return err
 			}
-			note, err := cli.store.AddNote(ctx, ticket.ID, opts.Body)
+			note, err := cli.Service().AddNote(ctx, ticket.ID, opts.Body)
 			if err != nil {
 				return err
 			}
@@ -1250,6 +1248,8 @@ type cliContext struct {
 	cfg     config.Config
 	store   *storage.Store
 	manager *tmux.Manager
+	syncer  *ticketbackend.Manager
+	service *app.Service
 }
 
 func newCLIContext(ctx context.Context, cfg config.Config) (*cliContext, error) {
@@ -1257,8 +1257,10 @@ func newCLIContext(ctx context.Context, cfg config.Config) (*cliContext, error) 
 	if err != nil {
 		return nil, err
 	}
+	// Apply the already-durable configuration before any use case can admit a
+	// focus ticket. Runtime policy changes still go through SaveFocusPolicy.
 	store.SetFocusPolicy(storage.FocusPolicy{Enabled: cfg.Focus.Enabled, Limit: cfg.Focus.Limit, WorkflowKeys: cfg.Focus.WorkflowKeys})
-	return &cliContext{ctx: ctx, cfg: cfg, store: store, manager: tmux.NewManagerWithContext(ctx, cfg, store)}, nil
+	return &cliContext{ctx: ctx, cfg: cfg, store: store}, nil
 }
 
 func withCLIContext(ctx context.Context, cfg config.Config, fn func(*cliContext) error) error {
@@ -1271,6 +1273,12 @@ func withCLIContext(ctx context.Context, cfg config.Config, fn func(*cliContext)
 }
 
 func (c *cliContext) Close() error {
+	// Stop drains detached one-shot mutation sync before SQLite closes. The
+	// board path may also have called the Start stop function; Manager.Stop is
+	// idempotent.
+	if c.syncer != nil {
+		c.syncer.Stop()
+	}
 	if c.manager != nil {
 		c.manager.Close()
 	}
@@ -1282,6 +1290,21 @@ func (c *cliContext) Manager() *tmux.Manager {
 		c.manager = tmux.NewManagerWithContext(c.ctx, c.cfg, c.store)
 	}
 	return c.manager
+}
+
+func (c *cliContext) Syncer() *ticketbackend.Manager {
+	if c.syncer == nil {
+		c.syncer = ticketbackend.NewManagerWithContext(c.ctx, c.store)
+	}
+	return c.syncer
+}
+
+func (c *cliContext) Service() *app.Service {
+	if c.service == nil {
+		c.service = app.NewServiceWithSyncer(c.store, c.Manager(), c.Syncer())
+		c.service.DataDir = c.cfg.Paths.DataDir
+	}
+	return c.service
 }
 
 func shouldAttachTmuxForBoard(cfg config.Config) bool {

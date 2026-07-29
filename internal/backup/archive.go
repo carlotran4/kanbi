@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/archiveutil"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -25,7 +26,7 @@ type Manifest struct {
 
 func Export(ctx context.Context, store *storage.Store, dataDir, destination string) (err error) {
 	attachmentRoot := filepath.Join(dataDir, "attachments")
-	if inside, pathErr := pathWithin(attachmentRoot, destination); pathErr != nil {
+	if inside, pathErr := archiveutil.PathWithin(attachmentRoot, destination); pathErr != nil {
 		return pathErr
 	} else if inside {
 		return errors.New("backup destination must not be inside the attachment directory")
@@ -94,56 +95,6 @@ func Export(ctx context.Context, store *storage.Store, dataDir, destination stri
 	})
 }
 
-// pathWithin reports whether candidate is inside root after resolving absolute
-// paths and existing symlink ancestors. A candidate that does not exist yet is
-// checked via its nearest existing ancestor so destinations under symlink
-// aliases of the attachments tree are rejected before creating the archive.
-func pathWithin(root, candidate string) (bool, error) {
-	rootResolved, err := resolveExistingPath(root)
-	if err != nil {
-		return false, err
-	}
-	candidateResolved, err := resolveExistingPath(candidate)
-	if err != nil {
-		return false, err
-	}
-	rel, err := filepath.Rel(rootResolved, candidateResolved)
-	if err != nil {
-		return false, err
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))), nil
-}
-
-func resolveExistingPath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved, nil
-	}
-	// Walk parents until an existing prefix can be evaluated, then rejoin the
-	// missing suffix so destinations under symlink-aliased roots still match.
-	cur := abs
-	suffix := ""
-	for {
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return abs, nil
-		}
-		base := filepath.Base(cur)
-		if suffix == "" {
-			suffix = base
-		} else {
-			suffix = filepath.Join(base, suffix)
-		}
-		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
-			return filepath.Join(resolved, suffix), nil
-		}
-		cur = parent
-	}
-}
-
 func writeBytes(zw *zip.Writer, name string, data []byte, mode os.FileMode) error {
 	h := &zip.FileHeader{Name: name, Method: zip.Deflate}
 	h.SetMode(mode)
@@ -192,8 +143,12 @@ func Restore(ctx context.Context, archivePath, dbPath, dataDir string, force boo
 	haveManifest, haveDB := false, false
 	for _, zf := range zr.File {
 		name := filepath.ToSlash(zf.Name)
+		mode := zf.FileInfo().Mode()
+		if mode&os.ModeSymlink != 0 || !mode.IsRegular() {
+			return fmt.Errorf("unsafe backup entry %q", name)
+		}
 		if name == "manifest.json" {
-			data, err := readLimited(zf, 1<<20)
+			data, err := archiveutil.ReadLimited(zf, 1<<20)
 			if err != nil {
 				return err
 			}
@@ -203,23 +158,20 @@ func Restore(ctx context.Context, archivePath, dbPath, dataDir string, force boo
 			haveManifest = true
 			continue
 		}
-		var target string
+		rel := ""
 		if name == "database/kanbi.db" {
-			target = stageDB
+			rel = "kanbi.db"
 			haveDB = true
 		} else if strings.HasPrefix(name, "attachments/") {
-			rel := strings.TrimPrefix(name, "attachments/")
+			rel = strings.TrimPrefix(name, "attachments/")
 			if rel == "" || filepath.IsAbs(rel) || strings.Contains(rel, "..") {
 				return fmt.Errorf("unsafe backup path %q", name)
 			}
-			target = filepath.Join(stageAttachments, filepath.FromSlash(rel))
+			rel = filepath.ToSlash(filepath.Join("attachments", rel))
 		} else {
 			return fmt.Errorf("unexpected backup entry %q", name)
 		}
-		if zf.UncompressedSize64 > 10<<30 {
-			return fmt.Errorf("backup entry too large: %s", name)
-		}
-		if err := extract(zf, target); err != nil {
+		if err := archiveutil.ExtractRegular(stage, zf, rel, 10<<30); err != nil {
 			return err
 		}
 	}
@@ -289,33 +241,4 @@ func Restore(ctx context.Context, archivePath, dbPath, dataDir string, force boo
 	_ = os.Remove(oldDB)
 	_ = os.RemoveAll(oldAttachments)
 	return nil
-}
-
-func readLimited(zf *zip.File, limit int64) ([]byte, error) {
-	r, err := zf.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-	return io.ReadAll(io.LimitReader(r, limit))
-}
-func extract(zf *zip.File, target string) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return err
-	}
-	r, err := zf.Open()
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	f, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(f, r)
-	closeErr := f.Close()
-	if copyErr != nil {
-		return copyErr
-	}
-	return closeErr
 }

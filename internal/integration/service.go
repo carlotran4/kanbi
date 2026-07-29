@@ -65,6 +65,13 @@ func (s *Service) git(ctx context.Context, dir string, args ...string) (string, 
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+func (s *Service) workspaceGit() workspace.Git {
+	if s.Workspace != nil {
+		return s.Workspace.Git
+	}
+	return workspace.Git{}
+}
 func tokenPair() (string, string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -96,17 +103,17 @@ func (s *Service) Eligible(ctx context.Context, boardID int64) ([]Candidate, err
 			out = append(out, candidate)
 			continue
 		}
-		head, err := s.git(ctx, w.RepositoryRoot, "rev-parse", "refs/heads/"+w.BranchName)
+		head, err := s.workspaceGit().ResolveRevision(ctx, w.RepositoryRoot, "refs/heads/"+w.BranchName)
 		if err != nil {
 			candidate.Reason = "branch unavailable"
 			out = append(out, candidate)
 			continue
 		}
 		candidate.HeadSHA = head
-		dirty, err := s.git(ctx, w.WorktreePath, "status", "--porcelain=v1", "--untracked-files=normal")
+		clean, err := s.workspaceGit().IsClean(ctx, w.WorktreePath)
 		if err != nil {
 			candidate.Reason = "observation error"
-		} else if dirty != "" {
+		} else if !clean {
 			candidate.Reason = "dirty; commit work first"
 		} else {
 			candidate.Eligible = true
@@ -139,7 +146,7 @@ func (s *Service) Create(ctx context.Context, opts CreateOptions) (CreateResult,
 		return CreateResult{}, errors.New("one or more selected workspaces are not eligible")
 	}
 	first := picks[0].Workspace
-	sourceSHA, err := s.git(ctx, first.RepositoryRoot, "rev-parse", "refs/heads/"+first.SourceBranch)
+	sourceSHA, err := s.workspaceGit().ResolveRevision(ctx, first.RepositoryRoot, "refs/heads/"+first.SourceBranch)
 	if err != nil {
 		return CreateResult{}, err
 	}
@@ -295,37 +302,45 @@ func (s *Service) Report(ctx context.Context, publicID, status, commit, token, c
 	default:
 		return errors.New("status must be ready, blocked, or failed")
 	}
-	head, err := s.git(ctx, run.WorktreePath, "rev-parse", commit)
+	head, err := s.workspaceGit().ResolveRevision(ctx, run.WorktreePath, commit)
 	if err != nil {
 		return err
 	}
-	worktreeHead, err := s.git(ctx, run.WorktreePath, "rev-parse", "HEAD")
+	worktreeHead, err := s.workspaceGit().ResolveRevision(ctx, run.WorktreePath, "HEAD")
 	if err != nil {
 		return err
 	}
 	if head != worktreeHead {
 		return errors.New("reported candidate must be the integration worktree HEAD")
 	}
-	branch, err := s.git(ctx, run.WorktreePath, "branch", "--show-current")
+	branch, err := s.workspaceGit().CurrentBranch(ctx, run.WorktreePath)
 	if err != nil {
 		return err
 	}
 	if branch != run.BranchName {
 		return fmt.Errorf("integration worktree is on %s, expected %s", branch, run.BranchName)
 	}
-	dirty, err := s.git(ctx, run.WorktreePath, "status", "--porcelain=v1", "--untracked-files=normal")
+	clean, err := s.workspaceGit().IsClean(ctx, run.WorktreePath)
 	if err != nil {
 		return err
 	}
-	if dirty != "" {
+	if !clean {
 		return errors.New("integration worktree must be clean")
 	}
 	for _, item := range run.Items {
-		if _, err := s.git(ctx, run.WorktreePath, "merge-base", "--is-ancestor", item.HeadSHA, head); err != nil {
+		contains, err := s.workspaceGit().IsAncestor(ctx, run.WorktreePath, item.HeadSHA, head)
+		if err != nil {
+			return fmt.Errorf("check candidate ancestry for %s: %w", item.BranchName, err)
+		}
+		if !contains {
 			return fmt.Errorf("candidate does not contain %s at %s", item.BranchName, item.HeadSHA)
 		}
 	}
-	if _, err := s.git(ctx, run.WorktreePath, "merge-base", "--is-ancestor", run.SourceSHA, head); err != nil {
+	descends, err := s.workspaceGit().IsAncestor(ctx, run.WorktreePath, run.SourceSHA, head)
+	if err != nil {
+		return err
+	}
+	if !descends {
 		return errors.New("candidate does not descend from snapshotted source")
 	}
 	return s.Store.ReportIntegrationRun(ctx, publicID, storage.IntegrationStateReady, head, message)
@@ -378,17 +393,24 @@ func (s *Service) Promote(ctx context.Context, publicID string, opts PromoteOpti
 	if wsSvc == nil {
 		wsSvc = &workspace.Service{Store: s.Store, StateDir: s.StateDir}
 	}
+	git := s.workspaceGit()
 	return wsSvc.WithRepoLock(ctx, run.CommonDir, func() error {
-		sourceBranch, err := s.git(ctx, run.RepositoryRoot, "branch", "--show-current")
-		if err != nil || sourceBranch != run.SourceBranch {
+		sourceBranch, err := git.CurrentBranch(ctx, run.RepositoryRoot)
+		if err != nil {
+			return fmt.Errorf("read source checkout branch: %w", err)
+		}
+		if sourceBranch != run.SourceBranch {
 			return fmt.Errorf("source checkout must remain on recorded branch %s", run.SourceBranch)
 		}
-		sourceHead, err := s.git(ctx, run.RepositoryRoot, "rev-parse", "HEAD")
+		sourceHead, err := git.ResolveRevision(ctx, run.RepositoryRoot, "HEAD")
 		if err != nil {
 			return err
 		}
-		dirty, err := s.git(ctx, run.RepositoryRoot, "status", "--porcelain=v1", "--untracked-files=normal")
-		if err != nil || dirty != "" {
+		clean, err := git.IsClean(ctx, run.RepositoryRoot)
+		if err != nil {
+			return err
+		}
+		if !clean {
 			return errors.New("source checkout must be clean")
 		}
 		alreadyPromoted := (run.State == storage.IntegrationStatePromoting || run.State == storage.IntegrationStateCleanupRequired) && sourceHead == run.CandidateSHA.String
@@ -402,17 +424,26 @@ func (s *Service) Promote(ctx context.Context, publicID string, opts PromoteOpti
 					return fmt.Errorf("close integration agent before promotion: %w", err)
 				}
 			}
-			candidateHead, err := s.git(ctx, run.WorktreePath, "rev-parse", "HEAD")
-			if err != nil || candidateHead != run.CandidateSHA.String {
+			candidateHead, err := git.ResolveRevision(ctx, run.WorktreePath, "HEAD")
+			if err != nil {
+				return fmt.Errorf("read integration candidate head: %w", err)
+			}
+			if candidateHead != run.CandidateSHA.String {
 				return errors.New("integration candidate changed after it was reported")
 			}
-			candidateDirty, err := s.git(ctx, run.WorktreePath, "status", "--porcelain=v1", "--untracked-files=normal")
-			if err != nil || candidateDirty != "" {
+			candidateClean, err := git.IsClean(ctx, run.WorktreePath)
+			if err != nil {
+				return err
+			}
+			if !candidateClean {
 				return errors.New("integration candidate worktree must remain clean")
 			}
 			for _, item := range run.Items {
-				head, err := s.git(ctx, run.RepositoryRoot, "rev-parse", "refs/heads/"+item.BranchName)
-				if err != nil || head != item.HeadSHA {
+				head, err := git.ResolveRevision(ctx, run.RepositoryRoot, "refs/heads/"+item.BranchName)
+				if err != nil {
+					return fmt.Errorf("read ticket branch %s: %w", item.BranchName, err)
+				}
+				if head != item.HeadSHA {
 					return fmt.Errorf("ticket branch %s advanced; refresh the run", item.BranchName)
 				}
 				t, err := s.Store.TicketByID(ctx, item.TicketID)
@@ -430,15 +461,26 @@ func (s *Service) Promote(ctx context.Context, publicID string, opts PromoteOpti
 			}
 			// Agents can race final writes while closing. Revalidate source,
 			// branch snapshots, worktree identity, and cleanliness afterwards.
-			if head, _ := s.git(ctx, run.RepositoryRoot, "rev-parse", "HEAD"); head != run.SourceSHA {
+			head, err := git.ResolveRevision(ctx, run.RepositoryRoot, "HEAD")
+			if err != nil {
+				return fmt.Errorf("read source head after closing agents: %w", err)
+			}
+			if head != run.SourceSHA {
 				return errors.New("source advanced while closing ticket agents; refresh the run")
 			}
-			if status, _ := s.git(ctx, run.RepositoryRoot, "status", "--porcelain=v1", "--untracked-files=normal"); status != "" {
+			clean, err := git.IsClean(ctx, run.RepositoryRoot)
+			if err != nil {
+				return fmt.Errorf("check source cleanliness after closing agents: %w", err)
+			}
+			if !clean {
 				return errors.New("source checkout changed while closing ticket agents")
 			}
 			for _, item := range run.Items {
-				head, err := s.git(ctx, run.RepositoryRoot, "rev-parse", "refs/heads/"+item.BranchName)
-				if err != nil || head != item.HeadSHA {
+				head, err := git.ResolveRevision(ctx, run.RepositoryRoot, "refs/heads/"+item.BranchName)
+				if err != nil {
+					return fmt.Errorf("read ticket branch %s after closing agents: %w", item.BranchName, err)
+				}
+				if head != item.HeadSHA {
 					return fmt.Errorf("ticket branch %s advanced while closing agents; refresh the run", item.BranchName)
 				}
 				w, ok, err := s.Store.WorkspaceByID(ctx, item.WorkspaceID)
@@ -448,16 +490,12 @@ func (s *Service) Promote(ctx context.Context, publicID string, opts PromoteOpti
 				if err := wsSvc.Validate(ctx, w); err != nil {
 					return err
 				}
-				if status, err := s.git(ctx, w.WorktreePath, "status", "--porcelain=v1", "--untracked-files=normal"); err != nil || status != "" {
+				if clean, err := git.IsClean(ctx, w.WorktreePath); err != nil || !clean {
 					return fmt.Errorf("ticket workspace %s has uncommitted changes after agent close", item.BranchName)
 				}
 			}
-			if cmdText := strings.TrimSpace(run.ValidationCommand.String); cmdText != "" {
-				cmd := exec.CommandContext(ctx, "/bin/sh", "-c", cmdText)
-				cmd.Dir = run.WorktreePath
-				if out, err := cmd.CombinedOutput(); err != nil {
-					return fmt.Errorf("integration validation failed: %s: %w", strings.TrimSpace(string(out)), err)
-				}
+			if out, err := workspace.RunValidationCommand(ctx, run.WorktreePath, run.ValidationCommand.String); err != nil {
+				return fmt.Errorf("integration validation failed: %s: %w", out, err)
 			}
 			if run.State == storage.IntegrationStateReady {
 				if err := s.Store.MarkIntegrationPromoting(ctx, publicID); err != nil {
