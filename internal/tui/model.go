@@ -311,6 +311,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resizePauseInputs()
+		if m.noteEditing {
+			m.noteTA.SetWidth(maxInt(20, inspectorPopupWidth(m.width)-6))
+		}
 		m.syncScrollDimensions()
 		m.hScrollFollow()
 		m.vScrollFollow()

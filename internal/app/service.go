@@ -276,7 +276,7 @@ func (s *Service) UpdateTicket(ctx context.Context, id int64, title, body, harne
 		return err
 	}
 	title = strings.TrimSpace(title)
-	if before.Title != title && before.WindowName.Valid && s.Manager != nil {
+	if before.Title != title && before.SessionActive && before.WindowName.Valid && (!before.Multiplexer.Valid || before.Multiplexer.String == "" || before.Multiplexer.String == "tmux") && s.Manager != nil {
 		if err := s.Manager.RenameTicketWindow(ctx, before, title); err != nil {
 			return err
 		}

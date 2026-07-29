@@ -209,6 +209,36 @@ func TestPauseModalStaysBoundedAndResizesInputs(t *testing.T) {
 	}
 }
 
+func TestNoteTextareaUsesInspectorWidthAndResizes(t *testing.T) {
+	m := Model{width: 160, height: 45, noteEditing: true}
+	m.noteTA = newNoteTextarea("", m.width)
+	if want := inspectorPopupWidth(160) - 6; m.noteTA.Width()+2 != want {
+		t.Fatalf("note outer width=%d, want inspector content width %d", m.noteTA.Width()+2, want)
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = focusTestModel(t, next)
+	if want := maxInt(20, inspectorPopupWidth(80)-6); m.noteTA.Width()+2 != want {
+		t.Fatalf("resized note outer width=%d, want %d", m.noteTA.Width()+2, want)
+	}
+}
+
+func TestPauseValidationFocusesMissingFieldForImmediateTyping(t *testing.T) {
+	m := Model{width: 80, height: 24}
+	m.startPause(storage.Ticket{ID: 1, DisplayID: "T-001"})
+	// Validate from another field so this catches a stale Bubbles focus.
+	m.pauseInputs[0].Blur()
+	m.pauseField = 2
+	_, _ = m.updatePause(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.pauseField != 0 || !m.pauseInputs[0].Focused() {
+		t.Fatalf("missing field did not receive focus: field=%d focused=%v", m.pauseField, m.pauseInputs[0].Focused())
+	}
+	next, _ := m.updatePause(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = focusTestModel(t, next)
+	if got := m.pauseInputs[0].Value(); got != "x" {
+		t.Fatalf("immediate input=%q, want x", got)
+	}
+}
+
 func TestPauseAndResumeSubmissionCommandsAreSingleFlight(t *testing.T) {
 	store, ctx := newTestStore(t)
 	model := New(ctx, NewService(store, nil))

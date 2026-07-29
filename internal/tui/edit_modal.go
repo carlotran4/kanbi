@@ -1052,11 +1052,11 @@ func newNoteTextarea(value string, termWidth int) textarea.Model {
 	ta.SetValue(value)
 	ta.Placeholder = "(write your note here, markdown supported)"
 	ta.ShowLineNumbers = false
-	popupInner := popupWidth(termWidth) - 4
-	if popupInner < 20 {
-		popupInner = 20
+	contentWidth := inspectorPopupWidth(termWidth) - 6
+	if contentWidth < 20 {
+		contentWidth = 20
 	}
-	ta.SetWidth(popupInner - 4)
+	ta.SetWidth(contentWidth)
 	ta.SetHeight(6)
 	return ta
 }

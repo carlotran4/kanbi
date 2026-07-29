@@ -186,7 +186,9 @@ func Import(ctx context.Context, store *storage.Store, dataDir, archivePath stri
 
 	var written []int64
 	fail := func(opErr error) (Result, error) {
-		if rbErr := rollbackImport(ctx, store, dataDir, ins.Board.ID, written); rbErr != nil {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if rbErr := rollbackImport(rollbackCtx, store, dataDir, ins.Board.ID, written); rbErr != nil {
 			return Result{}, fmt.Errorf("%w; rollback failed: %v", opErr, rbErr)
 		}
 		return Result{}, opErr

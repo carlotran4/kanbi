@@ -110,6 +110,11 @@ func (m *Manager) RefreshIntegrationRuns(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
+		valid, err := adapter.Validate(ctx, ref)
+		if err != nil || !valid {
+			// Observation failures and stale refs leave durable state unchanged.
+			continue
+		}
 
 		// Native state is authoritative only when the provider gives a concrete
 		// native result. Integration runs intentionally have no idle_unknown;
@@ -160,6 +165,13 @@ func (m *Manager) FocusIntegration(ctx context.Context, run storage.IntegrationR
 	adapter, err := m.multiplexerAdapter(ref.Kind)
 	if err != nil {
 		return err
+	}
+	valid, err := adapter.Validate(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return multiplexer.ErrContainerNotFound
 	}
 	return adapter.Focus(ctx, ref)
 }

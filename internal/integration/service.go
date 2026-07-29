@@ -329,7 +329,10 @@ func (s *Service) Report(ctx context.Context, publicID, status, commit, token, c
 	}
 	for _, item := range run.Items {
 		contains, err := s.workspaceGit().IsAncestor(ctx, run.WorktreePath, item.HeadSHA, head)
-		if err != nil || !contains {
+		if err != nil {
+			return fmt.Errorf("check candidate ancestry for %s: %w", item.BranchName, err)
+		}
+		if !contains {
 			return fmt.Errorf("candidate does not contain %s at %s", item.BranchName, item.HeadSHA)
 		}
 	}
@@ -393,7 +396,10 @@ func (s *Service) Promote(ctx context.Context, publicID string, opts PromoteOpti
 	git := s.workspaceGit()
 	return wsSvc.WithRepoLock(ctx, run.CommonDir, func() error {
 		sourceBranch, err := git.CurrentBranch(ctx, run.RepositoryRoot)
-		if err != nil || sourceBranch != run.SourceBranch {
+		if err != nil {
+			return fmt.Errorf("read source checkout branch: %w", err)
+		}
+		if sourceBranch != run.SourceBranch {
 			return fmt.Errorf("source checkout must remain on recorded branch %s", run.SourceBranch)
 		}
 		sourceHead, err := git.ResolveRevision(ctx, run.RepositoryRoot, "HEAD")
@@ -419,7 +425,10 @@ func (s *Service) Promote(ctx context.Context, publicID string, opts PromoteOpti
 				}
 			}
 			candidateHead, err := git.ResolveRevision(ctx, run.WorktreePath, "HEAD")
-			if err != nil || candidateHead != run.CandidateSHA.String {
+			if err != nil {
+				return fmt.Errorf("read integration candidate head: %w", err)
+			}
+			if candidateHead != run.CandidateSHA.String {
 				return errors.New("integration candidate changed after it was reported")
 			}
 			candidateClean, err := git.IsClean(ctx, run.WorktreePath)
@@ -431,7 +440,10 @@ func (s *Service) Promote(ctx context.Context, publicID string, opts PromoteOpti
 			}
 			for _, item := range run.Items {
 				head, err := git.ResolveRevision(ctx, run.RepositoryRoot, "refs/heads/"+item.BranchName)
-				if err != nil || head != item.HeadSHA {
+				if err != nil {
+					return fmt.Errorf("read ticket branch %s: %w", item.BranchName, err)
+				}
+				if head != item.HeadSHA {
 					return fmt.Errorf("ticket branch %s advanced; refresh the run", item.BranchName)
 				}
 				t, err := s.Store.TicketByID(ctx, item.TicketID)
@@ -449,15 +461,26 @@ func (s *Service) Promote(ctx context.Context, publicID string, opts PromoteOpti
 			}
 			// Agents can race final writes while closing. Revalidate source,
 			// branch snapshots, worktree identity, and cleanliness afterwards.
-			if head, err := git.ResolveRevision(ctx, run.RepositoryRoot, "HEAD"); err != nil || head != run.SourceSHA {
+			head, err := git.ResolveRevision(ctx, run.RepositoryRoot, "HEAD")
+			if err != nil {
+				return fmt.Errorf("read source head after closing agents: %w", err)
+			}
+			if head != run.SourceSHA {
 				return errors.New("source advanced while closing ticket agents; refresh the run")
 			}
-			if clean, err := git.IsClean(ctx, run.RepositoryRoot); err != nil || !clean {
+			clean, err := git.IsClean(ctx, run.RepositoryRoot)
+			if err != nil {
+				return fmt.Errorf("check source cleanliness after closing agents: %w", err)
+			}
+			if !clean {
 				return errors.New("source checkout changed while closing ticket agents")
 			}
 			for _, item := range run.Items {
 				head, err := git.ResolveRevision(ctx, run.RepositoryRoot, "refs/heads/"+item.BranchName)
-				if err != nil || head != item.HeadSHA {
+				if err != nil {
+					return fmt.Errorf("read ticket branch %s after closing agents: %w", item.BranchName, err)
+				}
+				if head != item.HeadSHA {
 					return fmt.Errorf("ticket branch %s advanced while closing agents; refresh the run", item.BranchName)
 				}
 				w, ok, err := s.Store.WorkspaceByID(ctx, item.WorkspaceID)

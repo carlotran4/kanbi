@@ -111,10 +111,6 @@ func (b *InputBuffer) Home() { b.cursor = 0 }
 
 func (b *InputBuffer) End() { b.cursor = len([]rune(b.value)) }
 
-func (b InputBuffer) Render() string {
-	return b.Viewport(1 << 20)
-}
-
 type inputGrapheme struct {
 	text       string
 	start, end int // rune offsets, retained for InputBuffer's existing API

@@ -79,8 +79,9 @@ func (m *Model) updatePause(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		for i, value := range values {
 			if strings.TrimSpace(value) == "" {
 				m.status = labels[i] + " is required"
+				m.pauseInputs[m.pauseField].Blur()
 				m.pauseField = i
-				return m, nil
+				return m, m.pauseInputs[i].Focus()
 			}
 		}
 		if m.pauseWarnNoRef {

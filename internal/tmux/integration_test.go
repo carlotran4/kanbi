@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -209,6 +210,22 @@ func TestRefreshIntegrationRunsUsesTranscriptForTmux(t *testing.T) {
 	got, _ := store.IntegrationRunByPublicID(ctx, run.PublicID)
 	if got.State != storage.IntegrationStateWaitingForUser {
 		t.Fatalf("state=%s, want waiting_for_user", got.State)
+	}
+}
+
+func TestRefreshIntegrationRunsIgnoresStaleTmuxContainerID(t *testing.T) {
+	store, ctx, run := integrationObservationRun(t, multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: "runtime", ID: "@7", Name: "integration"})
+	cfg := config.Defaults(config.Paths{})
+	manager := &Manager{Config: cfg, Store: store, Runner: &fakeRunner{windows: map[string]string{"@7": "other-window"}, pane: "Approve command? yes/no"}}
+	if err := manager.RefreshIntegrationRuns(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.IntegrationRunByPublicID(ctx, run.PublicID)
+	if got.State != storage.IntegrationStateRunning {
+		t.Fatalf("state=%s, want unchanged running", got.State)
+	}
+	if err := manager.FocusIntegration(ctx, run); !errors.Is(err, multiplexer.ErrContainerNotFound) {
+		t.Fatalf("focus error=%v, want missing container", err)
 	}
 }
 

@@ -1294,7 +1294,7 @@ func (c *cliContext) Manager() *tmux.Manager {
 
 func (c *cliContext) Syncer() *ticketbackend.Manager {
 	if c.syncer == nil {
-		c.syncer = ticketbackend.NewManager(c.store)
+		c.syncer = ticketbackend.NewManagerWithContext(c.ctx, c.store)
 	}
 	return c.syncer
 }

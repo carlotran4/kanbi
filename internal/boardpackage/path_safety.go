@@ -27,6 +27,9 @@ func safeRelativePath(name string) (string, error) {
 }
 
 func flatAttachmentName(name string) (string, error) {
+	if strings.Contains(name, `\`) {
+		return "", fmt.Errorf("backslash attachment path rejected: %q", name)
+	}
 	safe, err := safeRelativePath(name)
 	if err != nil {
 		return "", err
