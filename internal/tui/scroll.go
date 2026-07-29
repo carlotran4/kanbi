@@ -45,12 +45,15 @@ func (m *Model) boardContentHeight() int {
 func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWidth int) (end int, showAbove, showBelow bool) {
 	avail := m.boardContentHeight()
 	isFocusColumn := m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey)
-	focusedCount, pausedCount := 0, 0
+	focusedCount, pausedCount, archivedCount := 0, 0, 0
 	if isFocusColumn {
 		for _, ticket := range col.Tickets {
-			if ticket.FocusPaused {
+			switch focusTicketSection(ticket) {
+			case focusSectionPaused:
 				pausedCount++
-			} else {
+			case focusSectionArchived:
+				archivedCount++
+			default:
 				focusedCount++
 			}
 		}
@@ -76,12 +79,23 @@ func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWi
 	end = scrollTop - 1
 	for ti := scrollTop; ti < len(col.Tickets); ti++ {
 		h := cardHeightEx(col.Tickets[ti], columnWidth, ci == m.col && ti == m.card, m.masterBoard)
-		if isFocusColumn && pausedCount > 0 && col.Tickets[ti].FocusPaused && (ti == scrollTop || !col.Tickets[ti-1].FocusPaused) {
+		section := focusTicketSection(col.Tickets[ti])
+		previousSection := -1
+		if ti > scrollTop {
+			previousSection = focusTicketSection(col.Tickets[ti-1])
+		}
+		if isFocusColumn && section == focusSectionPaused && (ti == scrollTop || previousSection != focusSectionPaused) {
 			// Keep PAUSED authoritative even when scrolling begins inside the
 			// paused partition.
 			h++
 		}
-		if isFocusColumn && pausedCount == 0 && ti == len(col.Tickets)-1 {
+		if isFocusColumn && section == focusSectionArchived && (ti == scrollTop || previousSection != focusSectionArchived) {
+			if pausedCount == 0 {
+				h += 2 // empty PAUSED label/message
+			}
+			h++ // ARCHIVED label
+		}
+		if isFocusColumn && pausedCount == 0 && archivedCount == 0 && ti == len(col.Tickets)-1 {
 			// Reserve the empty PAUSED label/message only when the final focused
 			// card and that compact section can both fit.
 			h += 2

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/statusbar"
@@ -109,7 +110,7 @@ func (m Model) baseView() string {
 		} else if keys := strings.Join(m.focus.WorkflowKeys, ", "); keys != "" {
 			focusText += " · " + keys
 		}
-		headerLine = spaceBetween(" Kanbi · "+boardName, focusText+" ", maxInt(1, m.width))
+		headerLine = focusHeaderLine(" Kanbi · "+boardName, focusText+" ", maxInt(1, m.width))
 	}
 	header := statusBarStyle.Render(headerLine) + "\n\n"
 	board := m.boardView()
@@ -153,6 +154,20 @@ func (m Model) baseView() string {
 	b.WriteString(strings.Repeat("\n", blankRows+1))
 	b.WriteString(strings.Join(footer, "\n"))
 	return b.String()
+}
+
+func focusHeaderLine(left, focusText string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	focusText = trimToWidth(focusText, width)
+	focusWidth := lipgloss.Width(focusText)
+	if focusWidth >= width {
+		return focusText
+	}
+	leftWidth := width - focusWidth - 1
+	left = trimToWidth(left, maxInt(0, leftWidth))
+	return spaceBetween(left, focusText, width)
 }
 
 func (m Model) contextBar() string {
@@ -251,6 +266,22 @@ func (m Model) hScrollHint() string {
 	return dim.Render(hint)
 }
 
+const (
+	focusSectionFocused = iota
+	focusSectionPaused
+	focusSectionArchived
+)
+
+func focusTicketSection(ticket storage.Ticket) int {
+	if ticket.ArchivedAt.Valid {
+		return focusSectionArchived
+	}
+	if ticket.FocusPaused {
+		return focusSectionPaused
+	}
+	return focusSectionFocused
+}
+
 func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 	focused := ci == m.col
 	borderStyle := mutedBorder
@@ -273,12 +304,15 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 	}
 
 	isFocusColumn := m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey)
-	focusedCount, pausedCount := 0, 0
+	focusedCount, pausedCount, archivedCount := 0, 0, 0
 	if isFocusColumn {
 		for _, ticket := range col.Tickets {
-			if ticket.FocusPaused {
+			switch focusTicketSection(ticket) {
+			case focusSectionPaused:
 				pausedCount++
-			} else {
+			case focusSectionArchived:
+				archivedCount++
+			default:
 				focusedCount++
 			}
 		}
@@ -323,18 +357,37 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 		lines = append(lines, mutedBorder.Render(padLine(hint, columnWidth)))
 	}
 	pausedHeadingShown := false
-	if isFocusColumn && pausedCount > 0 && col.Tickets[scrollTop].FocusPaused {
+	archivedHeadingShown := false
+	firstSection := focusTicketSection(col.Tickets[scrollTop])
+	if isFocusColumn && pausedCount > 0 && firstSection == focusSectionPaused {
 		lines = append(lines, padLine(fmt.Sprintf("PAUSED · %d", pausedCount), columnWidth))
 		pausedHeadingShown = true
 	}
+	if isFocusColumn && firstSection == focusSectionArchived {
+		if pausedCount == 0 {
+			lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
+			pausedHeadingShown = true
+		}
+		lines = append(lines, padLine(fmt.Sprintf("ARCHIVED · %d", archivedCount), columnWidth))
+		archivedHeadingShown = true
+	}
 	for ti := scrollTop; ti <= visibleEnd; ti++ {
-		if isFocusColumn && col.Tickets[ti].FocusPaused && !pausedHeadingShown {
+		section := focusTicketSection(col.Tickets[ti])
+		if isFocusColumn && section == focusSectionPaused && !pausedHeadingShown {
 			lines = append(lines, padLine(fmt.Sprintf("PAUSED · %d", pausedCount), columnWidth))
 			pausedHeadingShown = true
 		}
+		if isFocusColumn && section == focusSectionArchived && !archivedHeadingShown {
+			if pausedCount == 0 && !pausedHeadingShown {
+				lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
+				pausedHeadingShown = true
+			}
+			lines = append(lines, padLine(fmt.Sprintf("ARCHIVED · %d", archivedCount), columnWidth))
+			archivedHeadingShown = true
+		}
 		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], columnWidth, m.masterBoard)...)
 	}
-	if isFocusColumn && pausedCount == 0 && !showBelow {
+	if isFocusColumn && pausedCount == 0 && !pausedHeadingShown && !showBelow {
 		lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
 	}
 	if showBelow {
@@ -1006,14 +1059,7 @@ func trimToWidth(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	runes := []rune(s)
-	if len(runes) <= width {
-		return s
-	}
-	if width == 1 {
-		return string(runes[:1])
-	}
-	return string(runes[:width-1]) + "~"
+	return ansi.Truncate(s, width, "~")
 }
 
 func runeLen(s string) int {

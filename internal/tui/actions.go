@@ -82,6 +82,7 @@ type SessionCommands interface {
 	StartFreshTicket(context.Context, storage.Ticket, bool) error
 	MoveTicketToDefaultMultiplexer(context.Context, storage.Ticket) error
 	UpdateSessionRef(context.Context, storage.Ticket, string) error
+	SendPauseHandoff(context.Context, storage.Ticket, *storage.PauseCheckpoint) error
 	PreflightTicketWorkspace(context.Context, storage.Ticket, string) (storage.WorkspacePreflight, error)
 	PrepareTicketWorkspace(context.Context, storage.Ticket, string, bool) error
 	ResolveTicketWorkspace(context.Context, storage.Ticket) error

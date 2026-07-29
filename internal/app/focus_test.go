@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -15,11 +16,17 @@ type focusTestManager struct {
 	closeCalls int
 	openCalls  int
 	openSend   bool
+	message    string
 }
 
 func (m *focusTestManager) OpenTicket(_ context.Context, _ storage.Ticket, sendPrompt bool) error {
 	m.openCalls++
 	m.openSend = sendPrompt
+	return nil
+}
+
+func (m *focusTestManager) SendTicketMessage(_ context.Context, _ storage.Ticket, message string) error {
+	m.message = message
 	return nil
 }
 
@@ -90,6 +97,19 @@ func TestResumeUsesNormalOpenWithoutSendingPrompt(t *testing.T) {
 	}
 	if manager.openCalls != 1 || manager.openSend {
 		t.Fatalf("open calls=%d sendPrompt=%v, want one prompt-free open", manager.openCalls, manager.openSend)
+	}
+}
+
+func TestSendPauseHandoffAfterRepairUsesStructuredCheckpoint(t *testing.T) {
+	svc, manager, ticket := focusTestService(t)
+	checkpoint := &storage.PauseCheckpoint{Why: "waiting", Completed: "storage", NextAction: "finish UI"}
+	if err := svc.SendPauseHandoff(context.Background(), ticket, checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## Resuming paused work", "**Why this was paused**\nwaiting", "**Already completed**\nstorage", "**Next action**\nfinish UI"} {
+		if !strings.Contains(manager.message, want) {
+			t.Fatalf("handoff missing %q: %q", want, manager.message)
+		}
 	}
 }
 

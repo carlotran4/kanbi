@@ -93,10 +93,24 @@ func (m *Model) updatePause(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		replacement := m.pauseTicket
 		moveTarget, moveColumn := m.focusReplaceMoveTicket, m.focusReplaceMoveColumn
 		resumeTarget, resumeSend := m.focusReplaceResumeTicket, m.focusReplaceResumeSend
+		resolveOnly := m.focusReplaceResolveOnly
 		return m, func() tea.Msg {
 			switch {
+			case moveTarget.ID != 0 && resolveOnly:
+				if err := m.actions.PauseTicket(m.ctx, replacement.ID, values[0], values[1], values[2]); err != nil {
+					return pauseTicketMsg{displayID: replacement.DisplayID, err: err}
+				}
+				return focusMoveTicketMsg{ticket: moveTarget, columnID: moveColumn, err: m.actions.MoveTicket(m.ctx, moveTarget.ID, moveColumn)}
 			case moveTarget.ID != 0:
 				return pauseTicketMsg{displayID: replacement.DisplayID, err: m.actions.PauseAndMove(m.ctx, replacement.ID, moveTarget.ID, moveColumn, values[0], values[1], values[2])}
+			case resumeTarget.ID != 0 && resolveOnly:
+				if err := m.actions.PauseTicket(m.ctx, replacement.ID, values[0], values[1], values[2]); err != nil {
+					return pauseTicketMsg{displayID: replacement.DisplayID, err: err}
+				}
+				return resumeTicketMsg{
+					ticket: resumeTarget, displayID: resumeTarget.DisplayID, sendHandoff: resumeSend,
+					err: m.actions.ResumePausedTicket(m.ctx, resumeTarget.ID, resumeSend),
+				}
 			case resumeTarget.ID != 0:
 				return resumeTicketMsg{
 					ticket: resumeTarget, displayID: resumeTarget.DisplayID, sendHandoff: resumeSend,
@@ -191,7 +205,13 @@ func (m *Model) startFocusReplacement(moveTicket storage.Ticket, columnID int64,
 	m.focusReplaceMoveColumn = columnID
 	m.focusReplaceResumeTicket = resumeTicket
 	m.focusReplaceResumeSend = send
-	m.status = "Choose focused work to pause or Esc to cancel"
+	m.focusReplaceResolveOnly = m.focus.OverCapacity && (moveTicket.ID != 0 || resumeTicket.ID != 0)
+	if m.focusReplaceResolveOnly {
+		needed := m.focus.Used - m.focus.Limit + 1
+		m.status = fmt.Sprintf("Overflow resolution: pause %d focused ticket(s) before admission can continue", needed)
+	} else {
+		m.status = "Choose focused work to pause or Esc to cancel"
+	}
 }
 
 func (m *Model) clearFocusReplacement() {
@@ -202,12 +222,14 @@ func (m *Model) clearFocusReplacement() {
 	m.focusReplaceMoveColumn = 0
 	m.focusReplaceResumeTicket = storage.Ticket{}
 	m.focusReplaceResumeSend = false
+	m.focusReplaceResolveOnly = false
 }
 
 func (m *Model) updateFocusReplace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
 		m.clearFocusReplacement()
+		m.status = ""
 		return m, nil
 	case "j", "down":
 		if m.focusReplaceIndex < len(m.focusReplaceTickets)-1 {
@@ -228,7 +250,11 @@ func (m *Model) updateFocusReplace(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) focusReplaceView() string {
-	lines := []string{"Focus limit reached — choose work to pause", "Enter opens the required handoff form; Esc cancels"}
+	title := "Focus limit reached — choose work to pause"
+	if m.focusReplaceResolveOnly {
+		title = fmt.Sprintf("Focus overflow %d/%d — pause work before admission", m.focus.Used, m.focus.Limit)
+	}
+	lines := []string{title, "Enter opens the required handoff form; Esc cancels"}
 	for i, t := range m.focusReplaceTickets {
 		prefix := " "
 		if i == m.focusReplaceIndex {

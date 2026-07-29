@@ -101,6 +101,9 @@ type Model struct {
 	repairRef               InputBuffer
 	repairTicket            storage.Ticket
 	repairReason            string
+	repairSendHandoff       bool
+	repairCheckpoint        *storage.PauseCheckpoint
+	repairRuntimeReady      bool
 	showHelp                bool
 	firstRun                bool
 	onboardingPage          int
@@ -158,6 +161,7 @@ type Model struct {
 	resumeSending            bool
 	resumeSubmitting         bool
 	focusReplaceOpen         bool
+	focusReplaceResolveOnly  bool
 	focusReplaceTickets      []storage.Ticket
 	focusReplaceIndex        int
 	focusReplaceMoveTicket   storage.Ticket
@@ -245,6 +249,12 @@ type resumeTicketMsg struct {
 	displayID   string
 	sendHandoff bool
 	err         error
+}
+
+type focusMoveTicketMsg struct {
+	ticket   storage.Ticket
+	columnID int64
+	err      error
 }
 
 type moveMultiplexerMsg struct {
@@ -362,6 +372,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "paused " + msg.displayID
 		m.reload()
 		return m, nil
+	case focusMoveTicketMsg:
+		m.pauseSubmitting = false
+		if errors.Is(msg.err, storage.ErrFocusCapacity) {
+			m.pauseOpen = false
+			m.reload()
+			m.clearFocusReplacement()
+			m.startFocusReplacement(msg.ticket, msg.columnID, storage.Ticket{}, false)
+			return m, nil
+		}
+		m.pauseOpen = false
+		m.clearFocusReplacement()
+		if msg.err != nil {
+			m.reload()
+			m.setActionError("admit focused ticket", msg.err, "The overflow pause was saved; review current focus capacity and retry the move.")
+			return m, nil
+		}
+		m.status = "moved " + msg.ticket.DisplayID + " into focus"
+		m.reload()
+		return m, nil
 	case resumeTicketMsg:
 		m.pauseSubmitting = false
 		m.resumeSubmitting = false
@@ -369,20 +398,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var runtimeErr app.ResumeRuntimeError
 			switch {
 			case errors.Is(msg.err, storage.ErrFocusCapacity):
+				m.pauseOpen = false
+				m.reload()
+				m.clearFocusReplacement()
 				m.startFocusReplacement(storage.Ticket{}, 0, msg.ticket, msg.sendHandoff)
 			case errors.As(msg.err, &runtimeErr):
 				m.pauseOpen = false
 				m.resumeOpen = false
 				m.clearFocusReplacement()
 				m.reload()
-				if isRepairError(runtimeErr.Err) {
-					m.startRepair(msg.ticket, runtimeErr.Err)
-				} else {
+				var handoffErr app.HandoffDeliveryError
+				switch {
+				case errors.As(runtimeErr.Err, &handoffErr):
+					m.startHandoffRetry(msg.ticket, msg.ticket.LatestCheckpoint, handoffErr.Err)
+				case isRepairError(runtimeErr.Err):
+					m.startResumeRepair(msg.ticket, runtimeErr.Err, msg.sendHandoff)
+				default:
 					m.setActionError("resume paused ticket", runtimeErr.Err, "The focus slot is claimed; fix the runtime issue, then press Enter to retry the normal open path.")
 				}
 			case isRepairError(msg.err):
 				m.resumeOpen = false
-				m.startRepair(msg.ticket, msg.err)
+				m.startResumeRepair(msg.ticket, msg.err, msg.sendHandoff)
 			default:
 				m.setActionError("resume paused ticket", msg.err, "Keep the handoff form and choose another focused ticket if the policy changed, then retry.")
 			}
@@ -452,7 +488,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateOnboarding(key), nil
 	}
 	// Clear stale status on any keypress (unless a modal is consuming input).
-	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.integrationOpen && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen && !m.pauseOpen && !m.resumeOpen {
+	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.integrationOpen && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen && !m.focusReplaceOpen && !m.pauseOpen && !m.resumeOpen {
 		m.status = ""
 		m.errOperation = ""
 		m.errNext = ""
@@ -669,15 +705,13 @@ func (m *Model) reload() {
 			}
 			for ci := range m.view.Columns {
 				for ti := range m.view.Columns[ci].Tickets {
-					m.view.Columns[ci].Tickets[ti].FocusMember = keys[m.view.Columns[ci].WorkflowKey]
-					if m.masterBoard {
-						// Master synthetic columns retain the workflow key.
-						m.view.Columns[ci].Tickets[ti].FocusMember = keys[m.view.Columns[ci].WorkflowKey]
-					}
+					// Master synthetic columns retain the workflow key, but archived
+					// tickets are historical rows rather than focus commitments.
+					m.view.Columns[ci].Tickets[ti].FocusMember = keys[m.view.Columns[ci].WorkflowKey] && !m.view.Columns[ci].Tickets[ti].ArchivedAt.Valid
 				}
 				if keys[m.view.Columns[ci].WorkflowKey] {
 					sort.SliceStable(m.view.Columns[ci].Tickets, func(i, j int) bool {
-						return !m.view.Columns[ci].Tickets[i].FocusPaused && m.view.Columns[ci].Tickets[j].FocusPaused
+						return focusTicketSection(m.view.Columns[ci].Tickets[i]) < focusTicketSection(m.view.Columns[ci].Tickets[j])
 					})
 				}
 			}
@@ -861,6 +895,7 @@ func (m *Model) moveTicketColumn(delta int) {
 	}
 	if err := m.actions.MoveTicket(m.ctx, t.ID, toColumnID); err != nil {
 		if errors.Is(err, storage.ErrFocusCapacity) {
+			m.reload()
 			m.startFocusReplacement(t, toColumnID, storage.Ticket{}, false)
 			return
 		}

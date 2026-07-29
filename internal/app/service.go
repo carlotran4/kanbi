@@ -46,6 +46,13 @@ type ResumeRuntimeError struct{ Err error }
 func (e ResumeRuntimeError) Error() string { return e.Err.Error() }
 func (e ResumeRuntimeError) Unwrap() error { return e.Err }
 
+// HandoffDeliveryError distinguishes a successfully opened session whose saved
+// handoff still needs delivery from a runtime open/repair failure.
+type HandoffDeliveryError struct{ Err error }
+
+func (e HandoffDeliveryError) Error() string { return e.Err.Error() }
+func (e HandoffDeliveryError) Unwrap() error { return e.Err }
+
 type WorkspaceManager interface {
 	PreflightTicketWorkspace(context.Context, storage.Ticket, string) (storage.WorkspacePreflight, error)
 	PrepareTicketWorkspace(context.Context, storage.Ticket, string, bool) error
@@ -413,14 +420,37 @@ func (s *Service) openResumedTicket(ctx context.Context, ticket storage.Ticket, 
 	}
 	sender, ok := s.Manager.(TicketMessageSender)
 	if !ok {
+		return HandoffDeliveryError{Err: fmt.Errorf("handoff message unavailable for this runtime")}
+	}
+	refreshed, err := s.Store.TicketByID(ctx, ticket.ID)
+	if err != nil {
+		return HandoffDeliveryError{Err: err}
+	}
+	if err := sender.SendTicketMessage(ctx, refreshed, pauseHandoffMessage(checkpoint)); err != nil {
+		return HandoffDeliveryError{Err: err}
+	}
+	return nil
+}
+
+// SendPauseHandoff delivers a retained resume-and-send intent after the user
+// completes repair/edit-ref/start-fresh.
+func (s *Service) SendPauseHandoff(ctx context.Context, ticket storage.Ticket, checkpoint *storage.PauseCheckpoint) error {
+	if checkpoint == nil {
+		return fmt.Errorf("pause checkpoint unavailable")
+	}
+	sender, ok := s.Manager.(TicketMessageSender)
+	if !ok {
 		return fmt.Errorf("handoff message unavailable for this runtime")
 	}
 	refreshed, err := s.Store.TicketByID(ctx, ticket.ID)
 	if err != nil {
 		return err
 	}
-	message := fmt.Sprintf("## Resuming paused work\n\n**Why this was paused**\n%s\n\n**Already completed**\n%s\n\n**Next action**\n%s", checkpoint.Why, checkpoint.Completed, checkpoint.NextAction)
-	return sender.SendTicketMessage(ctx, refreshed, message)
+	return sender.SendTicketMessage(ctx, refreshed, pauseHandoffMessage(checkpoint))
+}
+
+func pauseHandoffMessage(checkpoint *storage.PauseCheckpoint) string {
+	return fmt.Sprintf("## Resuming paused work\n\n**Why this was paused**\n%s\n\n**Already completed**\n%s\n\n**Next action**\n%s", checkpoint.Why, checkpoint.Completed, checkpoint.NextAction)
 }
 
 func (s *Service) MoveTicket(ctx context.Context, id, columnID int64) error {

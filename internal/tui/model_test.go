@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,7 +16,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/prompt"
+	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/statusbar"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/tmux"
@@ -492,6 +495,8 @@ type openingStore struct {
 	startedFresh           bool
 	startedFreshSendPrompt bool
 	movedToDefault         bool
+	handoffSent            *storage.PauseCheckpoint
+	handoffErr             error
 }
 
 func (s *openingStore) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
@@ -528,11 +533,69 @@ func (s *openingStore) MoveTicketToDefaultMultiplexer(ctx context.Context, ticke
 	return nil
 }
 
+func (s *openingStore) SendPauseHandoff(_ context.Context, _ storage.Ticket, checkpoint *storage.PauseCheckpoint) error {
+	if s.handoffErr != nil {
+		return s.handoffErr
+	}
+	s.handoffSent = checkpoint
+	return nil
+}
+
 func (s *openingStore) UpdateSessionRef(ctx context.Context, ticket storage.Ticket, ref string) error {
 	if ticket.SessionID.Valid {
 		return s.Service.Store.UpdateSessionRef(ctx, ticket.SessionID.Int64, ref)
 	}
 	return nil
+}
+
+func TestResumeAndSendHandoffSurvivesStartFreshRepair(t *testing.T) {
+	store, ctx := newTestStore(t)
+	wrapped := &openingStore{Service: NewService(store, nil)}
+	checkpoint := &storage.PauseCheckpoint{Why: "waiting", Completed: "storage", NextAction: "finish UI"}
+	model := New(ctx, wrapped)
+	model.startResumeRepair(storage.Ticket{ID: 1, DisplayID: "T-001", LatestCheckpoint: checkpoint}, session.RepairNeededError{Reason: "missing ref"}, true)
+	model = model.updateRepair(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	if model.repairing || !wrapped.startedFresh || wrapped.handoffSent != checkpoint {
+		t.Fatalf("repair lost handoff intent: repairing=%v fresh=%v handoff=%+v", model.repairing, wrapped.startedFresh, wrapped.handoffSent)
+	}
+}
+
+func TestOpenedResumeKeepsHandoffRetryAfterDeliveryFailure(t *testing.T) {
+	store, ctx := newTestStore(t)
+	wrapped := &openingStore{Service: NewService(store, nil)}
+	checkpoint := &storage.PauseCheckpoint{Why: "waiting", Completed: "storage", NextAction: "finish UI"}
+	model := New(ctx, wrapped)
+	msg := resumeTicketMsg{
+		ticket:    storage.Ticket{ID: 1, DisplayID: "T-001", LatestCheckpoint: checkpoint},
+		displayID: "T-001", sendHandoff: true,
+		err: app.ResumeRuntimeError{Err: app.HandoffDeliveryError{Err: errors.New("send failed")}},
+	}
+	next, _ := model.Update(msg)
+	model = next.(Model)
+	if !model.repairing || !model.repairRuntimeReady || !strings.Contains(model.status, "press s to retry") {
+		t.Fatalf("opened resume lost handoff retry: repairing=%v ready=%v status=%q", model.repairing, model.repairRuntimeReady, model.status)
+	}
+	model = model.updateRepair(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if model.repairing || wrapped.handoffSent != checkpoint {
+		t.Fatalf("opened resume handoff retry failed: repairing=%v handoff=%+v", model.repairing, wrapped.handoffSent)
+	}
+}
+
+func TestResumeRepairKeepsHandoffRetryAfterSendFailure(t *testing.T) {
+	store, ctx := newTestStore(t)
+	wrapped := &openingStore{Service: NewService(store, nil), handoffErr: fmt.Errorf("send failed")}
+	checkpoint := &storage.PauseCheckpoint{Why: "waiting", Completed: "storage", NextAction: "finish UI"}
+	model := New(ctx, wrapped)
+	model.startResumeRepair(storage.Ticket{ID: 1, DisplayID: "T-001", LatestCheckpoint: checkpoint}, session.RepairNeededError{Reason: "missing ref"}, true)
+	model = model.updateRepair(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	if !model.repairing || !model.repairRuntimeReady || !strings.Contains(model.status, "press s to retry") {
+		t.Fatalf("handoff failure lost retry state: repairing=%v ready=%v status=%q", model.repairing, model.repairRuntimeReady, model.status)
+	}
+	wrapped.handoffErr = nil
+	model = model.updateRepair(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if model.repairing || wrapped.handoffSent != checkpoint {
+		t.Fatalf("handoff retry failed: repairing=%v handoff=%+v", model.repairing, wrapped.handoffSent)
+	}
 }
 
 func TestCardStatusLines(t *testing.T) {

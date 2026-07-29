@@ -41,10 +41,61 @@ func (m *Model) startRepair(ticket storage.Ticket, err error) {
 	m.repairTicket = ticket
 	m.repairRef = NewInputBuffer("")
 	m.repairReason = err.Error()
+	m.repairSendHandoff = false
+	m.repairCheckpoint = nil
+	m.repairRuntimeReady = false
 	m.status = err.Error()
 }
 
+func (m *Model) startResumeRepair(ticket storage.Ticket, err error, sendHandoff bool) {
+	checkpoint := ticket.LatestCheckpoint
+	m.startRepair(ticket, err)
+	m.repairSendHandoff = sendHandoff && checkpoint != nil
+	m.repairCheckpoint = checkpoint
+}
+
+func (m *Model) startHandoffRetry(ticket storage.Ticket, checkpoint *storage.PauseCheckpoint, err error) {
+	m.repairing = true
+	m.repairEditingRef = false
+	m.repairTicket = ticket
+	m.repairReason = err.Error()
+	m.repairSendHandoff = checkpoint != nil
+	m.repairCheckpoint = checkpoint
+	m.repairRuntimeReady = true
+	m.status = "session opened; handoff not sent: " + err.Error() + " · press s to retry"
+}
+
+func (m *Model) finishRepairHandoff(ticket storage.Ticket) error {
+	if !m.repairSendHandoff {
+		return nil
+	}
+	return m.actions.SendPauseHandoff(m.ctx, ticket, m.repairCheckpoint)
+}
+
+func (m *Model) clearRepair() {
+	m.repairing = false
+	m.repairSendHandoff = false
+	m.repairCheckpoint = nil
+	m.repairRuntimeReady = false
+}
+
 func (m Model) updateRepair(key tea.KeyMsg) Model {
+	if m.repairRuntimeReady {
+		switch key.String() {
+		case "esc", "c":
+			m.clearRepair()
+			m.status = "cancelled saved handoff"
+		case "s":
+			if err := m.finishRepairHandoff(m.repairTicket); err != nil {
+				m.status = "handoff not sent: " + err.Error() + " · press s to retry"
+				return m
+			}
+			m.clearRepair()
+			m.status = "sent saved handoff " + m.repairTicket.DisplayID
+			m.reload()
+		}
+		return m
+	}
 	if m.repairEditingRef {
 		switch key.String() {
 		case "esc":
@@ -62,8 +113,14 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 					m.status = err.Error()
 					return m
 				}
+				m.repairRuntimeReady = true
+				if err := m.finishRepairHandoff(updated); err != nil {
+					m.repairEditingRef = false
+					m.status = "session opened; handoff not sent: " + err.Error() + " · press s to retry"
+					return m
+				}
 			}
-			m.repairing = false
+			m.clearRepair()
 			m.status = "updated session ref " + m.repairTicket.DisplayID
 			m.reload()
 		default:
@@ -73,7 +130,7 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 	}
 	switch key.String() {
 	case "esc", "c":
-		m.repairing = false
+		m.clearRepair()
 		m.status = "cancelled repair"
 	case "e":
 		m.repairEditingRef = true
@@ -83,7 +140,12 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 			m.status = err.Error()
 			return m
 		}
-		m.repairing = false
+		m.repairRuntimeReady = true
+		if err := m.finishRepairHandoff(m.repairTicket); err != nil {
+			m.status = "session started; handoff not sent: " + err.Error() + " · press s to retry"
+			return m
+		}
+		m.clearRepair()
 		m.status = "started fresh " + m.repairTicket.DisplayID
 		m.reload()
 	case "r":
@@ -91,7 +153,12 @@ func (m Model) updateRepair(key tea.KeyMsg) Model {
 			m.status = err.Error()
 			return m
 		}
-		m.repairing = false
+		m.repairRuntimeReady = true
+		if err := m.finishRepairHandoff(m.repairTicket); err != nil {
+			m.status = "session opened; handoff not sent: " + err.Error() + " · press s to retry"
+			return m
+		}
+		m.clearRepair()
 		m.status = "retried " + m.repairTicket.DisplayID
 		m.reload()
 	}
@@ -131,6 +198,19 @@ func (m Model) repairView() string {
 			Render(content)
 	}
 	var lines []string
+	if m.repairRuntimeReady {
+		lines = append(lines,
+			lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Saved handoff not sent: "+m.repairTicket.DisplayID),
+			"", "The session is open. Retry only the structured pause handoff.", "",
+			"s  retry saved handoff", "c  cancel",
+		)
+		return lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(palette.warning).
+			Padding(1, 2).
+			Width(popupW - 4).
+			Render(strings.Join(lines, "\n"))
+	}
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Session repair needed: "+m.repairTicket.DisplayID))
 	lines = append(lines, "", "Cause: "+m.repairReason, "")
 	lines = append(lines, "Next: retry after checking the runtime, edit a verified session ref, or start fresh.", "")
@@ -138,6 +218,12 @@ func (m Model) repairView() string {
 	lines = append(lines, "e  edit session ref")
 	lines = append(lines, "f  start fresh")
 	lines = append(lines, "c  cancel")
+	if m.repairSendHandoff {
+		lines = append(lines, "", "After repair, Kanbi will send the saved pause handoff.")
+		if m.repairRuntimeReady {
+			lines = append(lines, "s  retry saved handoff")
+		}
+	}
 	if m.repairTicket.Harness == "copilot" && (!m.repairTicket.SessionRef.Valid || m.repairTicket.SessionRef.String == "") {
 		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Note: Copilot does not expose a session ref; start fresh or edit ref manually."))
 	}

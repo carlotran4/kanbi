@@ -24,6 +24,160 @@ func focusTestModel(t *testing.T, model tea.Model) Model {
 	}
 }
 
+func TestFocusHeaderPreservesOverflowWithLongBoardName(t *testing.T) {
+	for _, boardName := range []string{
+		"A very long provider delivery board name that consumes header room",
+		"重要な配送ボード🚀重要な配送ボード🚀重要な配送ボード🚀",
+	} {
+		line := focusHeaderLine(" Kanbi · "+boardName, "FOCUS 4/3 · pause 1 to continue ", 80)
+		if displayWidth(line) != 80 || !strings.Contains(line, "FOCUS 4/3 · pause 1 to continue") {
+			t.Fatalf("focus status was dropped from constrained header %q: %q", boardName, line)
+		}
+	}
+}
+
+func TestArchivedTicketIsNotRenderedAsFocusCommitment(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	if err := store.SetColumnWorkflowKey(ctx, view.Columns[0].ID, "focus"); err != nil {
+		t.Fatal(err)
+	}
+	store.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 3, WorkflowKeys: []string{"focus"}})
+	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "active", "", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := store.CreateTicket(ctx, view.Columns[0].ID, "archived", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ArchiveTicket(ctx, archived.ID); err != nil {
+		t.Fatal(err)
+	}
+	model := New(ctx, NewService(store, nil))
+	model.masterBoard = true
+	model.masterFilter.IncludeArchived = true
+	model.reload()
+	var archivedProjection storage.Ticket
+	for _, col := range model.view.Columns {
+		for _, ticket := range col.Tickets {
+			if ticket.ID == archived.ID {
+				archivedProjection = ticket
+			}
+		}
+	}
+	if archivedProjection.ID == 0 || archivedProjection.FocusMember {
+		t.Fatalf("archived ticket projected as focus member: %+v", archivedProjection)
+	}
+	model.width, model.height = 160, 45
+	rendered := ansiStrip(model.View())
+	if !strings.Contains(rendered, "ARCHIVED · 1") {
+		t.Fatalf("archived focus-column ticket lacks separate section:\n%s", rendered)
+	}
+	if got := strings.Count(rendered, "PAUSED · 0"); got != 1 {
+		t.Fatalf("archived-only focus column rendered PAUSED section %d times:\n%s", got, rendered)
+	}
+}
+
+func TestMoveCapacityErrorReloadsOverflowBeforeChoosingReplacement(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	if err := store.SetColumnWorkflowKey(ctx, view.Columns[1].ID, "focus"); err != nil {
+		t.Fatal(err)
+	}
+	store.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 3, WorkflowKeys: []string{"focus"}})
+	target, err := store.CreateTicket(ctx, view.Columns[0].ID, "target", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		if _, err := store.CreateTicket(ctx, view.Columns[1].ID, fmt.Sprintf("focused %d", i), "", "pi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 1, WorkflowKeys: []string{"focus"}})
+	model := New(ctx, NewService(store, nil))
+	model.col, model.card = 0, 0
+	if selected, _ := model.selectedTicket(); selected.ID != target.ID {
+		t.Fatalf("unexpected target selection: %+v", selected)
+	}
+	// Simulate a provider/process changing usage after the last projection.
+	model.focus = storage.FocusStatus{Enabled: true, Limit: 1, Used: 1, WorkflowKeys: []string{"focus"}}
+	model.moveTicketColumn(1)
+	if !model.focusReplaceOpen || !model.focusReplaceResolveOnly || model.focus.Used != 2 {
+		t.Fatalf("move used stale focus status: chooser=%v resolveOnly=%v focus=%+v", model.focusReplaceOpen, model.focusReplaceResolveOnly, model.focus)
+	}
+}
+
+func TestProviderOverflowResolutionCommitsPausesUntilAdmissionFits(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	if err := store.SetColumnWorkflowKey(ctx, view.Columns[0].ID, "focus"); err != nil {
+		t.Fatal(err)
+	}
+	store.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 5, WorkflowKeys: []string{"focus"}})
+	target, err := store.CreateTicket(ctx, view.Columns[0].ID, "target", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PauseTicket(ctx, target.ID, "why", "done", "next"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 4 {
+		if _, err := store.CreateTicket(ctx, view.Columns[0].ID, fmt.Sprintf("focused %d", i), "", "pi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 3, WorkflowKeys: []string{"focus"}})
+	model := New(ctx, NewService(store, &quitTestManager{}))
+	model.startResume(target)
+	next, cmd := model.updateResume(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	model = focusTestModel(t, next)
+	model = focusTestModel(t, mustRunFocusCmd(t, model, cmd))
+	if !model.focusReplaceOpen || !model.focusReplaceResolveOnly {
+		t.Fatalf("overflow did not request a resolution pause: chooser=%v resolveOnly=%v", model.focusReplaceOpen, model.focusReplaceResolveOnly)
+	}
+
+	model = openAndFillReplacement(t, model)
+	next, cmd = model.updatePause(tea.KeyMsg{Type: tea.KeyCtrlS})
+	model = focusTestModel(t, next)
+	model = focusTestModel(t, mustRunFocusCmd(t, model, cmd))
+	if !model.focusReplaceOpen || model.focusReplaceResolveOnly {
+		t.Fatalf("first committed pause should leave exact-capacity replacement: chooser=%v resolveOnly=%v", model.focusReplaceOpen, model.focusReplaceResolveOnly)
+	}
+
+	model = openAndFillReplacement(t, model)
+	next, cmd = model.updatePause(tea.KeyMsg{Type: tea.KeyCtrlS})
+	model = focusTestModel(t, next)
+	model = focusTestModel(t, mustRunFocusCmd(t, model, cmd))
+	resumed, err := store.TicketByID(ctx, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _ := store.FocusStatus(ctx)
+	if resumed.FocusPaused || status.Used != 3 || model.focusReplaceOpen {
+		t.Fatalf("overflow resolution did not finish admission: paused=%v status=%+v chooser=%v", resumed.FocusPaused, status, model.focusReplaceOpen)
+	}
+}
+
+func mustRunFocusCmd(t *testing.T, model Model, cmd tea.Cmd) tea.Model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected command")
+	}
+	next, _ := model.Update(cmd())
+	return next
+}
+
+func openAndFillReplacement(t *testing.T, model Model) Model {
+	t.Helper()
+	next, _ := model.updateFocusReplace(tea.KeyMsg{Type: tea.KeyEnter})
+	model = focusTestModel(t, next)
+	for i, value := range []string{"why", "done", "next"} {
+		model.pauseInputs[i].SetValue(value)
+	}
+	return model
+}
+
 func TestReplacementChooserReceivesInputBeforeHiddenResumeModal(t *testing.T) {
 	m := Model{
 		resumeOpen:          true,
