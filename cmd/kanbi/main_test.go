@@ -1393,3 +1393,23 @@ func TestCLISupportBundleCreatesArchive(t *testing.T) {
 		t.Fatal("bundle archive raw bytes contain secret")
 	}
 }
+
+func TestCLIBoardPackageCommandsUseConfiguredDataDirectory(t *testing.T) {
+	run, _ := setupCLI(t)
+	if err := run("add", "portable ticket"); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(t.TempDir(), "default.kanbi-board.zip")
+	if err := run("boards", "export", "Default", archivePath); err != nil {
+		t.Fatalf("export board package: %v", err)
+	}
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Fatalf("board package was not written: %v", err)
+	}
+	if err := run("boards", "import", archivePath, "--preview"); err != nil {
+		t.Fatalf("preview board package: %v", err)
+	}
+	if err := run("boards", "import", archivePath, "--name", "Imported Default"); err != nil {
+		t.Fatalf("import board package: %v", err)
+	}
+}

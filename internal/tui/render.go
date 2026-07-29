@@ -503,32 +503,10 @@ func cardStatusLine(ticket storage.Ticket, width int) string {
 }
 
 func runtimeLabel(ticket storage.Ticket) string {
-	switch ticket.Runtime {
-	case kanban.StateNotStarted, "":
-		return "not started"
-	case kanban.StateStarting:
-		return "starting"
-	case kanban.StateRunning:
-		return "running"
-	case kanban.StateWaitingForUser:
-		return "waiting"
-	case kanban.StateNeedsPermission:
-		return "permission"
-	case kanban.StateIdleUnknown:
-		return "idle"
-	case kanban.StateClosing:
-		return "closing"
-	case kanban.StateClosed:
-		return "closed"
-	case kanban.StateExited:
-		return "exited"
-	case kanban.StateRepairNeeded:
-		return "repair"
-	case kanban.StateError:
-		return "error"
-	default:
-		return "unknown"
+	if info, ok := kanban.RuntimeStateFor(ticket.Runtime); ok {
+		return info.CompactLabel
 	}
+	return "unknown"
 }
 
 func runtimeIndicator(ticket storage.Ticket) string {

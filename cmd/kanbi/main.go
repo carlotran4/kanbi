@@ -559,7 +559,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 			if err != nil {
 				return err
 			}
-			if err := boardpackage.Export(ctx, cli.store, cfg.Paths.DataDir, b.ID, args[2]); err != nil {
+			if err := cli.Service().ExportBoard(ctx, b.ID, args[2]); err != nil {
 				return err
 			}
 			if format.JSON {
@@ -590,7 +590,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				}
 			}
 			if previewOnly {
-				report, err := boardpackage.Preview(ctx, cli.store, path)
+				report, err := cli.Service().PreviewBoardPackage(ctx, path)
 				if err != nil {
 					return err
 				}
@@ -603,7 +603,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				}
 				return nil
 			}
-			result, err := boardpackage.Import(ctx, cli.store, cfg.Paths.DataDir, path, boardpackage.ImportOptions{NameOverride: nameOverride})
+			result, err := cli.Service().ImportBoardPackage(ctx, path, boardpackage.ImportOptions{NameOverride: nameOverride})
 			if err != nil {
 				return err
 			}
@@ -1302,6 +1302,7 @@ func (c *cliContext) Syncer() *ticketbackend.Manager {
 func (c *cliContext) Service() *app.Service {
 	if c.service == nil {
 		c.service = app.NewServiceWithSyncer(c.store, c.Manager(), c.Syncer())
+		c.service.DataDir = c.cfg.Paths.DataDir
 	}
 	return c.service
 }

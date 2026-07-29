@@ -67,7 +67,7 @@ func (m *Model) startStateMenu() {
 	m.stateIndex = 0
 }
 
-var manualStates = []string{kanban.StateRunning, kanban.StateWaitingForUser, kanban.StateIdleUnknown, kanban.StateError}
+var manualStates = kanban.ManuallySettableRuntimeStates()
 
 func (m Model) updateStateMenu(key tea.KeyMsg) Model {
 	switch key.String() {
@@ -747,20 +747,10 @@ func inspectorStatusLabel(ticket storage.Ticket) string {
 	if ticket.SessionRef.Valid && strings.TrimSpace(ticket.SessionRef.String) != "" && !ticket.SessionActive {
 		return "resumable"
 	}
-	switch ticket.Runtime {
-	case "", kanban.StateNotStarted:
-		return "not started"
-	case kanban.StateNeedsPermission:
-		return "needs permission"
-	case kanban.StateWaitingForUser:
-		return "waiting for user"
-	case kanban.StateIdleUnknown:
-		return "idle unknown"
-	case kanban.StateRepairNeeded:
-		return "repair needed"
-	default:
-		return strings.ReplaceAll(ticket.Runtime, "_", " ")
+	if info, ok := kanban.RuntimeStateFor(ticket.Runtime); ok {
+		return info.ExpandedLabel
 	}
+	return strings.ReplaceAll(ticket.Runtime, "_", " ")
 }
 
 func statusChipForTicket(ticket storage.Ticket, label string) string {
@@ -768,13 +758,15 @@ func statusChipForTicket(ticket storage.Ticket, label string) string {
 	if label == "resumable" {
 		return style.Foreground(palette.success).Render(label)
 	}
-	switch ticket.Runtime {
-	case kanban.StateWaitingForUser:
-		style = style.Foreground(palette.warning)
-	case kanban.StateNeedsPermission, kanban.StateError, kanban.StateRepairNeeded:
-		style = style.Foreground(palette.error_)
-	case kanban.StateRunning:
-		style = style.Foreground(palette.success)
+	if info, ok := kanban.RuntimeStateFor(ticket.Runtime); ok {
+		switch info.Tone {
+		case kanban.RuntimeToneSuccess:
+			style = style.Foreground(palette.success)
+		case kanban.RuntimeToneWarning:
+			style = style.Foreground(palette.warning)
+		case kanban.RuntimeToneError:
+			style = style.Foreground(palette.error_)
+		}
 	}
 	return style.Render(label)
 }

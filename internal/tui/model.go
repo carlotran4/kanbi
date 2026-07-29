@@ -1264,5 +1264,5 @@ func findTicketByID(view storage.BoardView, id int64) (storage.Ticket, error) {
 }
 
 func isAttention(state string) bool {
-	return state == kanban.StateWaitingForUser || state == kanban.StateNeedsPermission || state == kanban.StateError
+	return kanban.NeedsAttention(state)
 }

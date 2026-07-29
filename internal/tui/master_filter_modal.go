@@ -23,22 +23,12 @@ func (m *Model) startMasterFilter() {
 	m.masterFilterField = 0
 }
 
-var masterRuntimeOptions = []string{
-	kanban.StateNotStarted,
-	kanban.StateStarting,
-	kanban.StateRunning,
-	kanban.StateWaitingForUser,
-	kanban.StateNeedsPermission,
-	kanban.StateIdleUnknown,
-	kanban.StateClosing,
-	kanban.StateClosed,
-	kanban.StateExited,
-	kanban.StateRepairNeeded,
-	kanban.StateError,
+func masterRuntimeOptions() []string {
+	return kanban.FilterableRuntimeStates()
 }
 
 func (m *Model) reloadMasterFilterOptions() {
-	m.masterFilterRuntimes = append([]string(nil), masterRuntimeOptions...)
+	m.masterFilterRuntimes = masterRuntimeOptions()
 	m.masterFilterHarnesses = nil
 	harnessSet := map[string]bool{}
 	tickets, err := m.actions.ListTickets(m.ctx, true)
