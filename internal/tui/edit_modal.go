@@ -499,7 +499,7 @@ func (m Model) editView() string {
 		harnessValue = "pi"
 	}
 	if m.editField == 2 {
-		meta = append(meta, focusChip.Render("harness")+" "+m.editInputs[2].Render())
+		meta = append(meta, focusChip.Render("harness")+" "+m.editInputs[2].Viewport(maxInt(1, contentW-10)))
 	} else {
 		meta = append(meta, chip.Render(harnessValue))
 	}
@@ -522,7 +522,7 @@ func (m Model) editView() string {
 	if m.editField == 1 {
 		m.bodyTA.SetWidth(contentW)
 		m.bodyTA.SetHeight(descriptionLines)
-		lines = append(lines, m.bodyTA.View())
+		lines = append(lines, textareaOverlayView(m.bodyTA))
 		if completion := m.fileCompletionView(fileCompletionBody, contentW); completion != "" {
 			lines = append(lines, completion)
 		}
@@ -643,7 +643,7 @@ func ticketInspectorTitle(displayID string, title InputBuffer, focused bool, dir
 		if available < 1 {
 			available = 1
 		}
-		return prefix + renderInputWindow(title, available)
+		return prefix + title.Viewport(available)
 	}
 	value := strings.TrimSpace(title.Value())
 	if value == "" {
@@ -654,48 +654,6 @@ func ticketInspectorTitle(displayID string, title InputBuffer, focused bool, dir
 		full = trimToWidth(full, maxWidth)
 	}
 	return full
-}
-
-func renderInputWindow(input InputBuffer, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	value := []rune(input.Value())
-	cursor := input.Cursor()
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor > len(value) {
-		cursor = len(value)
-	}
-	cursorStyle := lipgloss.NewStyle().Reverse(true)
-	if len(value) == 0 {
-		return cursorStyle.Render(" ")
-	}
-	if cursor == len(value) {
-		textWidth := width - 1
-		if textWidth < 0 {
-			textWidth = 0
-		}
-		start := len(value) - textWidth
-		if start < 0 {
-			start = 0
-		}
-		return string(value[start:]) + cursorStyle.Render(" ")
-	}
-	start := 0
-	if cursor >= width {
-		start = cursor - width + 1
-	}
-	end := start + width
-	if end > len(value) {
-		end = len(value)
-	}
-	var out strings.Builder
-	out.WriteString(string(value[start:cursor]))
-	out.WriteString(cursorStyle.Render(string(value[cursor : cursor+1])))
-	out.WriteString(string(value[cursor+1 : end]))
-	return out.String()
 }
 
 func relativeTime(t time.Time) string {
@@ -1038,7 +996,7 @@ func (m Model) notesThreadView(innerWidth int) string {
 		}
 		lines := []string{
 			lipgloss.NewStyle().Foreground(palette.accent).Render(action),
-			m.noteTA.View(),
+			textareaOverlayView(m.noteTA),
 		}
 		if completion := m.fileCompletionView(fileCompletionNote, innerWidth); completion != "" {
 			lines = append(lines, completion)
@@ -1120,12 +1078,7 @@ func (m Model) stateMenuView() string {
 		lines = append(lines, statusStyle.Render(m.status))
 	}
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.accent)
 }
 
 func (m Model) columnEditView() string {
@@ -1133,15 +1086,10 @@ func (m Model) columnEditView() string {
 	if m.columnAction == "rename" {
 		title = "Rename column"
 	}
-	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render(title)
-	content := header + "\n\n" +
-		fmt.Sprintf("%s name: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), m.columnInput.Render()) +
-		"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel")
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(content)
+	return modalFrame([]string{
+		lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render(title), "",
+		"> name: " + modalInput(m.columnInput, true, maxInt(1, modalContentWidth(popupW)-8)), "",
+		lipgloss.NewStyle().Faint(true).Render("Enter save · Esc cancel"),
+	}, popupW, palette.accent)
 }

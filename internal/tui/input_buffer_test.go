@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestInputBufferEditsTextAtCursor(t *testing.T) {
 	buf := NewInputBuffer("ab")
@@ -27,6 +30,32 @@ func TestInputBufferEditsTextAtCursor(t *testing.T) {
 	}
 	if got, want := buf.Cursor(), 2; got != want {
 		t.Fatalf("after delete cursor = %d, want %d", got, want)
+	}
+}
+
+func TestInputBufferViewportKeepsCursorVisibleAndBounded(t *testing.T) {
+	cases := []struct {
+		value         string
+		cursor, width int
+	}{
+		{"", 0, 1}, {"abcdef", 0, 4}, {"abcdef", 3, 4}, {"abcdef", 6, 4},
+		{"a🙂界b", 1, 4}, {"a🙂界b", 2, 4}, {"a🙂界b", 3, 4},
+	}
+	for _, tc := range cases {
+		buf := NewInputBuffer(tc.value)
+		buf.SetCursor(tc.cursor)
+		view := buf.Viewport(tc.width)
+		if got := displayWidth(view); got > tc.width {
+			t.Fatalf("%q cursor=%d width=%d rendered %d: %q", tc.value, tc.cursor, tc.width, got, view)
+		}
+		if ansiStrip(view) == "" {
+			t.Fatalf("cursor cell missing from %q", view)
+		}
+	}
+	buf := NewInputBuffer("abcdef")
+	buf.End()
+	if view := ansiStrip(buf.Viewport(4)); !strings.HasPrefix(view, "…") || !strings.Contains(view, " ") {
+		t.Fatalf("end viewport=%q", view)
 	}
 }
 

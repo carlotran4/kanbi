@@ -175,27 +175,17 @@ func (m Model) promptFallbackView() string {
 		"c  cancel",
 	}
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.warning).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.warning)
 }
 
 func (m Model) repairView() string {
 	popupW := popupWidth(m.width)
 	if m.repairEditingRef {
-		content := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Edit session ref for "+m.repairTicket.DisplayID) +
-			"\n\n" +
-			fmt.Sprintf("%s ref: %s", lipgloss.NewStyle().Foreground(palette.accent).Render(">"), m.repairRef.Render()) +
-			"\n\n" + lipgloss.NewStyle().Faint(true).Render("Enter save · Esc back")
-		return lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(palette.accent).
-			Padding(1, 2).
-			Width(popupW - 4).
-			Render(content)
+		return modalFrame([]string{
+			lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render("Edit session ref for " + m.repairTicket.DisplayID), "",
+			fmt.Sprintf("> ref: %s", modalInput(m.repairRef, true, maxInt(1, modalContentWidth(popupW)-7))), "",
+			lipgloss.NewStyle().Faint(true).Render("Enter save · Esc back"),
+		}, popupW, palette.accent)
 	}
 	var lines []string
 	if m.repairRuntimeReady {
@@ -204,12 +194,7 @@ func (m Model) repairView() string {
 			"", "The session is open. Retry only the structured pause handoff.", "",
 			"s  retry saved handoff", "c  cancel",
 		)
-		return lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(palette.warning).
-			Padding(1, 2).
-			Width(popupW - 4).
-			Render(strings.Join(lines, "\n"))
+		return modalFrame(lines, popupW, palette.warning)
 	}
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Session repair needed: "+m.repairTicket.DisplayID))
 	lines = append(lines, "", "Cause: "+m.repairReason, "")
@@ -227,10 +212,5 @@ func (m Model) repairView() string {
 	if m.repairTicket.Harness == "copilot" && (!m.repairTicket.SessionRef.Valid || m.repairTicket.SessionRef.String == "") {
 		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Note: Copilot does not expose a session ref; start fresh or edit ref manually."))
 	}
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.warning).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.warning)
 }

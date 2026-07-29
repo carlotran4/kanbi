@@ -11,6 +11,24 @@ import (
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
+func TestModalFrameHasRoundedExactWidth(t *testing.T) {
+	for _, width := range []int{160, 80, 20} {
+		view := modalFrame([]string{"> focused control", "a long line that is safely bounded"}, width, palette.warning)
+		lines := strings.Split(view, "\n")
+		if !strings.Contains(ansiStrip(lines[0]), "╭") || !strings.Contains(ansiStrip(lines[len(lines)-1]), "╯") {
+			t.Fatalf("width=%d lacks rounded frame: %q", width, view)
+		}
+		for _, line := range lines {
+			if got := displayWidth(line); got != width {
+				t.Fatalf("width=%d line width=%d: %q", width, got, line)
+			}
+		}
+		if !strings.Contains(ansiStrip(view), "> ") {
+			t.Fatalf("focus marker changed: %q", view)
+		}
+	}
+}
+
 func TestEmptyStartupShowsDismissibleActionableOnboarding(t *testing.T) {
 	store, ctx := newTestStore(t)
 	model := NewWithPicker(ctx, NewService(store, nil))

@@ -236,7 +236,7 @@ func (m Model) masterFilterView() string {
 	}
 	search := m.masterFilterDraft.Search
 	if m.masterFilterField == 0 {
-		search = m.masterFilterSearch.Render()
+		search = modalInput(m.masterFilterSearch, true, maxInt(1, modalContentWidth(popupWidth(m.width))-8))
 	}
 	lines = append(lines, row(0, "search: "+search))
 	archived := "[ ] show archived"
@@ -268,7 +268,7 @@ func (m Model) masterFilterView() string {
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Type to search · Space toggle · Enter apply · Ctrl+L clear · Ctrl+S save preset · Ctrl+P presets · Esc cancel"))
 	if m.filterPresetMode == "save" {
-		lines = append(lines, "", "Save preset name: "+m.filterPresetName.Render())
+		lines = append(lines, "", "Save preset name: "+modalInput(m.filterPresetName, true, maxInt(1, modalContentWidth(popupWidth(m.width))-18)))
 	}
 	if m.filterPresetMode == "list" {
 		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Presets (Enter apply · d delete · Esc back)"))
@@ -291,12 +291,7 @@ func (m Model) masterFilterView() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(palette.warning).Render(label))
 	}
 	popupW := popupWidth(m.width)
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(palette.accent).
-		Padding(1, 2).
-		Width(popupW - 4).
-		Render(strings.Join(lines, "\n"))
+	return modalFrame(lines, popupW, palette.accent)
 }
 
 func (m Model) masterFilterSummary() string {

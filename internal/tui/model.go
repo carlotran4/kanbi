@@ -509,36 +509,76 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.firstRun {
-		return m.updateOnboarding(key), nil
-	}
-	// Clear stale status on any keypress (unless a modal is consuming input).
-	if !m.editing && !m.stateMenu && !m.columnEditing && !m.promptFallback && !m.repairing && !m.branchNaming && !m.integrationOpen && !m.boardRenaming && !m.boardEditing && !m.boardWorktreeEnabling && !m.boardDeleting && !m.boardExporting && !m.boardImporting && !m.masterFilterOpen && !m.focusSettingsOpen && !m.focusReplaceOpen && !m.pauseOpen && !m.resumeOpen {
+	kind := m.activeModalKind()
+	if kind == modalNone {
+		// Only board-level keys dismiss stale board status. Every overlay owns
+		// its status while it is the selected modal.
 		m.status = ""
 		m.errOperation = ""
 		m.errNext = ""
 	}
-	if m.integrationOpen {
+	switch kind {
+	case modalIntegration:
 		return m.updateIntegration(key)
-	}
-	if m.focusSettingsOpen {
+	case modalFocusSettings:
 		return m.updateFocusSettings(key)
-	}
-	// Input routing must follow View's modal stacking order. A replacement
-	// chooser can be displayed over an open resume brief.
-	if m.focusReplaceOpen {
+	case modalFocusReplace:
 		return m.updateFocusReplace(key)
-	}
-	if m.pauseOpen {
+	case modalPause:
 		return m.updatePause(key)
-	}
-	if m.resumeOpen {
+	case modalResume:
 		return m.updateResume(key)
-	}
-	if m.masterFilterOpen {
+	case modalOnboarding:
+		return m.updateOnboarding(key), nil
+	case modalHelp:
+		switch key.String() {
+		case "?", "esc", "q":
+			m.showHelp = false
+			m.modalScroll = 0
+		case "j", "down", "pgdown":
+			m.modalScroll++
+		case "k", "up", "pgup":
+			if m.modalScroll > 0 {
+				m.modalScroll--
+			}
+		}
+		return m, nil
+	case modalBoardRename:
+		return m.updateBoardRename(key), nil
+	case modalBoardWorktreeEnable:
+		return m.updateBoardWorktreeEnable(key), nil
+	case modalBoardEdit:
+		return m.updateBoardEdit(key), nil
+	case modalBoardDelete:
+		return m.updateBoardDelete(key), nil
+	case modalBoardExport:
+		return m.updateBoardExport(key), nil
+	case modalBoardImport:
+		return m.updateBoardImport(key), nil
+	case modalBoardPicker:
+		previousBoardID, previousMaster := m.boardID, m.masterBoard
+		m = m.updateBoardPicker(key)
+		if previousBoardID != m.boardID || previousMaster != m.masterBoard {
+			m.statusBarGeneration++
+			m.statusBarResults = make(map[string]statusbar.ModuleResult)
+			return m, m.initialStatusBarCmd()
+		}
+		return m, nil
+	case modalMasterFilter:
 		return m.updateMasterFilter(key), nil
-	}
-	if m.workspaceIntegrating {
+	case modalEdit:
+		return m.updateEdit(key)
+	case modalStateMenu:
+		return m.updateStateMenu(key), nil
+	case modalColumnEdit:
+		return m.updateColumnEdit(key), nil
+	case modalPromptFallback:
+		return m.updatePromptFallback(key)
+	case modalRepair:
+		return m.updateRepair(key), nil
+	case modalBranchName:
+		return m.updateBranchName(key)
+	case modalWorkspaceIntegration:
 		switch key.String() {
 		case "esc":
 			m.workspaceIntegrating = false
@@ -552,66 +592,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.branchNaming {
-		return m.updateBranchName(key)
-	}
-	if m.promptFallback {
-		return m.updatePromptFallback(key)
-	}
-	if m.boardRenaming {
-		return m.updateBoardRename(key), nil
-	}
-	if m.boardWorktreeEnabling {
-		return m.updateBoardWorktreeEnable(key), nil
-	}
-	if m.boardEditing {
-		return m.updateBoardEdit(key), nil
-	}
-	if m.boardDeleting {
-		return m.updateBoardDelete(key), nil
-	}
-	if m.boardExporting {
-		return m.updateBoardExport(key), nil
-	}
-	if m.boardImporting {
-		return m.updateBoardImport(key), nil
-	}
-	if m.boardPicker {
-		previousBoardID, previousMaster := m.boardID, m.masterBoard
-		m = m.updateBoardPicker(key)
-		if previousBoardID != m.boardID || previousMaster != m.masterBoard {
-			m.statusBarGeneration++
-			m.statusBarResults = make(map[string]statusbar.ModuleResult)
-			return m, m.initialStatusBarCmd()
-		}
-		return m, nil
-	}
-	if m.repairing {
-		return m.updateRepair(key), nil
-	}
-	if m.stateMenu {
-		return m.updateStateMenu(key), nil
-	}
-	if m.columnEditing {
-		return m.updateColumnEdit(key), nil
-	}
-	if m.editing {
-		return m.updateEdit(key)
-	}
-	if m.showHelp {
-		switch key.String() {
-		case "?", "esc", "q":
-			m.showHelp = false
-			m.modalScroll = 0
-		case "j", "down", "pgdown":
-			m.modalScroll++
-		case "k", "up", "pgup":
-			if m.modalScroll > 0 {
-				m.modalScroll--
-			}
-		}
-		return m, nil
-	}
+
 	switch key.String() {
 	case "?":
 		m.showHelp = true
