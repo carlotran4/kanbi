@@ -546,7 +546,7 @@ func (m Model) editView() string {
 			available = 1
 		}
 		if m.editField == 3 {
-			lines = append(lines, accent.Bold(true).Render("▸ Session ref: ")+renderInputWindow(m.editSessionRef, available))
+			lines = append(lines, accent.Bold(true).Render("▸ Session ref: ")+m.editSessionRef.Viewport(available))
 		} else {
 			lines = append(lines, metaText.Render(label+trimToWidth(m.editSessionRef.Value(), available)))
 		}
