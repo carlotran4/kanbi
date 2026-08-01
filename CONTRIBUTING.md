@@ -86,8 +86,7 @@ Any open P0 or P1 blocks a stable release.
 
 - Compatibility claims: [`docs/compatibility.md`](./docs/compatibility.md)
 - Support / diagnostics: [`docs/support.md`](./docs/support.md)
-- Release process: [`docs/release-checklist.md`](./docs/release-checklist.md)
-- Stable v1.0 evidence: [`docs/verification/stable-v1.0-qualification.md`](./docs/verification/stable-v1.0-qualification.md)
+- Release process and stable gates: [`docs/release-checklist.md`](./docs/release-checklist.md)
 
 ## License
 

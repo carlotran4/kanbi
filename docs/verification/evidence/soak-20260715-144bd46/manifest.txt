@@ -1,8 +1,0 @@
-candidate_sha=144bd46
-started_utc=2026-07-14T03:49:03Z
-planned_seconds=86400
-memory_abort_bytes=10737418240
-host=private devbox via Tailscale
-kernel=Linux devbox 6.17.13-1-pve #1 SMP PREEMPT_DYNAMIC PMX 6.17.13-1 (2026-02-10T14:06Z) x86_64 x86_64 x86_64 GNU/Linux
-go=go version go1.26.5 linux/amd64
-tmux=tmux 3.2a

@@ -1,6 +1,6 @@
 # Release Checklist
 
-Use this list before tagging a release. Channel and version rules live in [`release-channels.md`](./release-channels.md). Public `v0.x` releases must also complete [`beta-release-checklist.md`](./beta-release-checklist.md). For the first stable release, this checklist is necessary but not sufficient: every gate in [`verification/stable-v1.0-qualification.md`](./verification/stable-v1.0-qualification.md) must be complete for the exact candidate commit, and stable workflow publishing must be explicitly unlocked. Until then, do not create or publish `v1.0.0`.
+Use this list before tagging any release. Channel and version rules live in [`release-channels.md`](./release-channels.md). Keep exact-commit evidence in the GitHub Actions run, release issue, or GitHub Release rather than committing generated logs and dated attestations to the source tree. Stable workflow publishing must remain locked until every stable-only gate below passes.
 
 ## Release blockers
 
@@ -13,6 +13,7 @@ P0 covers security/credential leakage, durable-data or history loss/corruption, 
 - [ ] Reviewed notes exist at `docs/releases/vVERSION.md`; the release workflow rejects missing notes and publishes this file verbatim.
 - [ ] User-facing docs updated (`README.md`, `docs/installation.md`, contracts as needed).
 - [ ] Compat matrix (`docs/compatibility.md`) still accurate for claimed platforms/deps.
+- [ ] Material changes after the frozen SHA invalidate affected evidence and require a new candidate.
 
 ## 2. Local verification
 
@@ -24,14 +25,12 @@ go test -race ./...
 go vet ./...
 govulncheck ./...
 ./scripts/smoke.sh --skip-checks
-```
-
-Optional when storage/lifecycle touched:
-
-```bash
+KANBI_SOAK_SECONDS=60 ./scripts/soak-runtime.sh
 go test ./internal/harness ./internal/tmux ./internal/storage ./internal/diagnostics
-./scripts/upgrade-rollback-drill.sh
 ```
+
+- [ ] Diagnostics redaction and degraded support-bundle checks pass with synthetic secret/content canaries.
+- [ ] Applicable real harness, Herdr, GitHub, and Jira checks pass, or each unavailable check has a recorded reason and equivalent evidence. A skip is not a pass.
 
 ## 3. Local release artifact snapshot
 
@@ -60,25 +59,48 @@ Confirm provenance ldflags and packaged `BUILDINFO.json`:
 - `internal/buildinfo.BuildDate` (UTC RFC3339)
 - archive membership: `kanbi`, `README.md`, `LICENSE`, `BUILDINFO.json`
 
-## 4. Tag and publish
+## 4. Candidate workflow and recovery
 
-- [ ] Record the full frozen commit SHA and qualification evidence before tagging.
+- [ ] Dispatch `.github/workflows/release.yml` for the frozen SHA before tagging; record the full SHA and run URL in a durable release issue.
+- [ ] Confirm the verify job and all four native jobs pass, then download the combined bundle.
+- [ ] Verify `BUNDLE_MANIFEST.txt`, `SHA256SUMS`, and every archive's `BUILDINFO.json` against the frozen SHA, version, platform, and schema.
+- [ ] For every schema-changing release, run the prior published artifact against the exact candidate artifact before tagging:
+
+```bash
+OLD_ARCHIVE=/path/to/prior-release.tar.gz \
+NEW_ARCHIVE=/path/to/exact-candidate.tar.gz \
+./scripts/upgrade-rollback-drill.sh
+```
+
+Attach the ignored `dist/verification/` result to the release issue. The drill must cover migration, downgrade rejection, backup/restore, attachments, and complete session history.
+
+## 5. Tag and publish
+
 - [ ] Confirm there are no open P0/P1 defects.
-- [ ] Create an annotated immutable tag on the verified commit (`v0.3.0-beta.1` for the next beta; `vX.Y.Z` for an authorized stable release).
-- [ ] Push tag to GitHub to trigger `.github/workflows/release.yml`.
-- [ ] Confirm workflow: verify job (fmt/tests/race/vet/govulncheck/smoke) then native builds for linux/darwin amd64/arm64.
+- [ ] Create an annotated immutable tag on the verified commit (`v0.3.0-beta.1` for a beta; `vX.Y.Z` for an authorized stable release).
+- [ ] Push the tag and confirm the release workflow reruns successfully for that exact SHA.
 - [ ] Confirm release assets: four archives + `SHA256SUMS` + `BUNDLE_MANIFEST.txt`.
 - [ ] Confirm every `v0.x` or suffixed release is marked GitHub prerelease and does not replace the latest stable release.
-- [ ] Download all four artifacts and confirm each `BUILDINFO.json` and `kanbi version` commit equals the tag target SHA; record native checks in the release evidence matrix.
 
-## 5. Post-publish smoke
+## 6. Post-publish smoke
 
-- [ ] Download one archive, verify checksum, install to a throwaway PATH entry.
-- [ ] `kanbi doctor` on a clean data dir.
-- [ ] Open board UI once, or run CLI `boards`/`list` smoke.
-- [ ] For schema-changing releases, run `./scripts/upgrade-rollback-drill.sh` and keep the log under `docs/verification/` if requested.
+- [ ] Download one published archive, verify checksum, and install to a throwaway PATH entry.
+- [ ] Run `version`, `doctor`, database initialization, and a disposable board/session smoke.
+- [ ] Record the post-publication result in the GitHub Release or release issue.
 
-## 6. Immediate response kit
+## 7. Stable-only gates
+
+Before setting `KANBI_STABLE_RELEASE_APPROVAL` or publishing a stable major release:
+
+- [ ] Run all deterministic and applicable real tmux, Herdr, harness, GitHub, and Jira checks on the exact candidate; document unavailable environments and equivalent evidence without calling a skip a pass.
+- [ ] Complete a multi-day, multi-process operational soak without data loss, duplicate mutation, persistent lock contention, or unbounded resource growth.
+- [ ] Run upgrade, downgrade-rejection, backup, restore, and rollback checks using the prior tagged artifact and exact candidate artifact.
+- [ ] Validate all four native artifacts and complete the keyboard-only, 80x24, light/dark, and degraded-state UX matrix in [`ux-readiness.md`](./ux-readiness.md).
+- [ ] Search diagnostics/support bundles for synthetic credential and private-content canaries, including degraded operation.
+- [ ] Confirm zero open P0/P1 issues and have an external user complete checksum/install, first run, session start/close/resume or repair, backup, and restore.
+- [ ] Record final approval as `VERSION@FULL_COMMIT_SHA`, then set the repository approval variable only for that candidate. Remove or change it after publication.
+
+## 8. Immediate response kit
 
 If regression appears:
 
@@ -96,6 +118,6 @@ Every published archive must allow a maintainer to identify:
 | Toolchain | Go version from `go.mod` / build environment / `BUILDINFO.json` |
 | Binary checksum | `SHA256SUMS` beside archives |
 | Schema compatibility | `database schema` line in `kanbi version` and `BUILDINFO.json` `schema_version` |
-| Verification status | green release workflow + checklist above |
+| Verification status | green release workflow + linked release issue/checklist |
 
 Workflow and `scripts/build-release.sh` inject version/commit/date via `-ldflags -X`.

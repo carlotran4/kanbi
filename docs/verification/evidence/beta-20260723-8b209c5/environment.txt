@@ -1,7 +1,0 @@
-candidate=8b209c580281589f2afb1c02495769976e985260
-started_utc=2026-07-23T04:19:25Z
-go version go1.26.5-X:nodwarf5 linux/amd64
-tmux 3.7b
-herdr 0.7.5
-3.53.3 2026-06-26 20:14:12 d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d78alt1 (64-bit)
-finished_utc=2026-07-23T04:31:30Z

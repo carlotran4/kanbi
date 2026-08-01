@@ -1,9 +1,0 @@
-Archive:  /tmp/tmp.NGZQYNFdUJ/support.zip
-  Length      Date    Time    Name
----------  ---------- -----   ----
-      185  1980-00-00 00:00   manifest.json
-     6191  1980-00-00 00:00   support-bundle.json
-     1713  1980-00-00 00:00   README.txt
-     1958  1980-00-00 00:00   field-policies.json
----------                     -------
-    10047                     4 files

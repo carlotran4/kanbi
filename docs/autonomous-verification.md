@@ -409,7 +409,7 @@ Optional real artifact comparison:
 OLD_ARCHIVE=/path/to/old.tar.gz NEW_ARCHIVE=/path/to/new.tar.gz ./scripts/upgrade-rollback-drill.sh
 ```
 
-The script records a timestamped result under `docs/verification/upgrade-rollback-drill-<UTC timestamp>.txt` and updates `upgrade-rollback-drill-latest.txt`. With explicit old/new archives it rejects identical commits or schema versions and verifies required attachment data, active/inactive session history, downgrade rejection, SQLite/foreign-key integrity, and rollback removal of post-backup changes.
+The script records a timestamped result under ignored `dist/verification/` and updates a local `upgrade-rollback-drill-latest.txt`. Attach relevant output to the release issue or workflow run; do not commit generated verification logs. With explicit old/new archives it rejects identical commits or schema versions and verifies required attachment data, active/inactive session history, downgrade rejection, SQLite/foreign-key integrity, and rollback removal of post-backup changes.
 
 ## CI And Release Verification
 
@@ -425,4 +425,4 @@ tmp=$(mktemp -d) && tar -xzf "$archive" -C "$tmp"
 ./scripts/release-artifact-smoke.sh "$tmp/kanbi" 0.3.0-beta.1 "$(git rev-parse HEAD)" "$tmp/BUILDINFO.json"
 ```
 
-After extracting the snapshot, verify `kanbi version` reports the supplied version, commit, UTC build date, runtime platform, and current database schema, and that `BUILDINFO.json` matches. Release notes and upgrade-impacting changes belong in `CHANGELOG.md`. Channel policy: [`docs/release-channels.md`](./release-channels.md). Beta gate: [`docs/beta-release-checklist.md`](./beta-release-checklist.md). Common checklist: [`docs/release-checklist.md`](./release-checklist.md).
+After extracting the snapshot, verify `kanbi version` reports the supplied version, commit, UTC build date, runtime platform, and current database schema, and that `BUILDINFO.json` matches. Release notes and upgrade-impacting changes belong in `CHANGELOG.md`. Channel policy: [`docs/release-channels.md`](./release-channels.md). Release and stable gates: [`docs/release-checklist.md`](./release-checklist.md).

@@ -14,7 +14,7 @@ Kanbi uses one release pipeline from development betas through stable releases. 
 
 The release workflow accepts only `MAJOR.MINOR.PATCH`, `MAJOR.MINOR.PATCH-beta.N`, and `MAJOR.MINOR.PATCH-rc.N`, with an optional leading `v`. All `0.x` tags and every suffixed tag are published as GitHub prereleases, so they do not replace GitHub's latest stable release.
 
-The current beta target is **`v0.3.0-beta.3`**, superseding the published `v0.3.0-beta.2` without moving any immutable tag. A target is not qualified or published until its dated verification record completes every applicable beta gate.
+The current published beta is **`v0.3.0-beta.3`**, which superseded `v0.3.0-beta.2` without moving either immutable tag. Future candidates are qualified through a workflow-dispatch run and durable GitHub release issue rather than committed dated verification records.
 
 ## One artifact path
 
@@ -31,13 +31,11 @@ Workflow dispatch never publishes a GitHub Release. Use it first to qualify an e
 
 ## Beta gate
 
-Follow [`beta-release-checklist.md`](./beta-release-checklist.md). Betas may have incomplete features and documented usability limitations, but they may not knowingly ship the core safety blockers defined there: credential leakage, durable-state/history corruption, unsafe active-work termination, duplicate remote creation, unusable backup/restore, or an artifact unable to initialize its database.
-
-A material fix creates a new beta number and reruns affected qualification. Do not move a tag to a different commit.
+Follow the common [`release-checklist.md`](./release-checklist.md). Betas may have incomplete features and documented usability limitations, but they may not knowingly ship credential leakage, durable-state/history corruption, unsafe active-work termination, duplicate remote creation, unusable backup/restore, or an artifact unable to initialize its database. A material fix creates a new beta number and reruns affected qualification; never move an existing tag.
 
 ## Stable gate
 
-Stable publishing is technically locked by default. A tag with major version 1 or greater fails unless repository variable `KANBI_STABLE_RELEASE_APPROVAL` exactly matches `VERSION@FULL_COMMIT_SHA` (for example `1.0.0@0123…`). A maintainer may set that candidate-bound value only after the exact candidate satisfies [`verification/stable-v1.0-qualification.md`](./verification/stable-v1.0-qualification.md) and receives final approval. Change or remove it after publication so it cannot authorize another version or commit.
+Stable publishing is technically locked by default. A tag with major version 1 or greater fails unless repository variable `KANBI_STABLE_RELEASE_APPROVAL` exactly matches `VERSION@FULL_COMMIT_SHA` (for example `1.0.0@0123…`). A maintainer may set that candidate-bound value only after the exact candidate satisfies the stable-only gates in [`release-checklist.md`](./release-checklist.md) and receives final approval. Change or remove it after publication so it cannot authorize another version or commit.
 
 The variable is an accidental-release guard, not evidence. Setting it cannot waive any stable gate.
 

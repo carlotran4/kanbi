@@ -1,6 +1,0 @@
-release_url=https://github.com/carlotran4/kanbi/releases/tag/v0.3.0-beta.2
-tag_workflow=https://github.com/carlotran4/kanbi/actions/runs/29979868971
-tag_commit=8b209c580281589f2afb1c02495769976e985260
-isDraft=false
-isPrerelease=true
-publishedAt=2026-07-23T04:42:29Z
