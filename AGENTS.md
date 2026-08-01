@@ -15,8 +15,6 @@ Read these in order before making non-trivial changes:
 7. [`docs/multiplexer-contracts.md`](./docs/multiplexer-contracts.md) — configured runtime multiplexer adapter contract.
 8. [`docs/autonomous-verification.md`](./docs/autonomous-verification.md) — detailed verification guidance.
 
-Historical product context lives in [`docs/archive/design-spec.md`](./docs/archive/design-spec.md). Do not read it for normal implementation work; current docs above win on conflicts.
-
 ## Current Source of Truth
 
 - SQLite is canonical durable state.

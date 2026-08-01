@@ -248,17 +248,3 @@ Indexes used by board projection, latest-session lookup, external identity looku
 The canonical module path is `github.com/carlotran4/kanbi`. Supported stable/beta/RC tags trigger native CGO builds on Linux and macOS for amd64 and arm64. Every native runner validates the exact binary's provenance, database backup/restore, and fake-harness lifecycle before a four-archive checksummed bundle can publish. All `v0.x` and suffixed tags publish as prereleases; stable major versions are workflow-locked until qualification approval. Release metadata is injected into `internal/buildinfo`, and archives include the binary/README/license/`BUILDINFO.json`. Database migrations are forward-only: older binaries refuse newer schema versions, so rollback requires restoring a pre-upgrade backup. See [`docs/release-channels.md`](./release-channels.md), [`docs/installation.md`](./installation.md), [`docs/compatibility.md`](./compatibility.md), and [`docs/release-checklist.md`](./release-checklist.md).
 
 Operations support tools (`kanbi doctor`, opt-in diagnostics logging, `kanbi support-bundle`) are documented in [`docs/support.md`](./support.md).
-
-## Historical Design Context
-
-[`docs/archive/design-spec.md`](./archive/design-spec.md) contains historical product context and earlier design decisions. Do not read it for normal implementation work. When it conflicts with current docs, prefer this order:
-
-1. `AGENTS.md`
-2. `docs/architecture.md`
-3. `docs/state-management.md`
-4. `docs/ticket-session-lifecycle.md`
-5. `docs/harness-contracts.md`
-6. `docs/multi-board-behavior.md`
-7. `docs/multiplexer-contracts.md`
-8. `README.md`
-9. `docs/archive/design-spec.md` (historical context only)

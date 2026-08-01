@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -222,34 +221,4 @@ func (s *Store) MarkWorkspaceCleanupRequired(ctx context.Context, id int64, reas
 func (s *Store) ClearCurrentWorkspace(ctx context.Context, ticketID int64) error {
 	_, err := s.db.ExecContext(ctx, `update ticket_workspaces set is_current=0, updated_at=? where ticket_id=? and is_current=1`, time.Now().UTC(), ticketID)
 	return err
-}
-
-// AcquireRepoIntegrationLock uses the board/repo board row as a serialize point.
-// Callers should that keep a short transaction around mutation while holding the lock.
-func (s *Store) WithBoardMutationLock(ctx context.Context, boardID int64, fn func(tx *sql.Tx) error) error {
-	if boardID == 0 {
-		return errors.New("board id is required")
-	}
-	if fn == nil {
-		return errors.New("mutation function is required")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=?`, boardID); err != nil {
-		return err
-	}
-	var exists int
-	if err := tx.QueryRowContext(ctx, `select count(*) from boards where id=?`, boardID).Scan(&exists); err != nil {
-		return err
-	}
-	if exists == 0 {
-		return fmt.Errorf("board %d not found", boardID)
-	}
-	if err := fn(tx); err != nil {
-		return err
-	}
-	return tx.Commit()
 }

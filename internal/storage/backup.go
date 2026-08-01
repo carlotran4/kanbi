@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -79,14 +78,4 @@ func ValidateDatabase(ctx context.Context, path string) error {
 		return errors.New("invalid Kanbi database: foreign-key violations found")
 	}
 	return fkRows.Err()
-}
-
-func AtomicReplaceFile(source, destination string) error {
-	if err := os.Chmod(source, 0o600); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
-		return err
-	}
-	return os.Rename(source, destination)
 }
