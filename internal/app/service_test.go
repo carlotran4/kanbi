@@ -93,7 +93,8 @@ func TestTemplateCRUDIsSyncFreeAndApplicationSchedulesOnce(t *testing.T) {
 	if len(syncer.boardIDs) != 0 {
 		t.Fatalf("template CRUD scheduled provider sync: %v", syncer.boardIDs)
 	}
-	if _, err := service.CreateTicketFromTemplate(ctx, view.Columns[0].ID, tmpl.ID, storage.TemplateTicketOverrides{Title: "Bug: resize"}); err != nil {
+	title := "Bug: resize"
+	if _, err := service.CreateTicketFromTemplate(ctx, view.Columns[0].ID, tmpl.ID, storage.TemplateTicketOverrides{Title: &title}); err != nil {
 		t.Fatal(err)
 	}
 	if want := []int64{view.Board.ID}; !reflect.DeepEqual(syncer.boardIDs, want) {

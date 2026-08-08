@@ -862,11 +862,14 @@ func runAdd(ctx context.Context, cfg config.Config, args []string) error {
 		}
 		var t storage.Ticket
 		if opts.Template != "" {
-			tmpl, err := cli.store.TicketTemplateByName(ctx, board.Board.ID, opts.Template)
-			if err != nil {
-				return fmt.Errorf("template %q not found on board %q: %w", opts.Template, board.Board.Name, err)
+			tmpl, lookupErr := cli.store.TicketTemplateByName(ctx, board.Board.ID, opts.Template)
+			if lookupErr != nil {
+				return fmt.Errorf("template %q not found on board %q: %w", opts.Template, board.Board.Name, lookupErr)
 			}
-			overrides := storage.TemplateTicketOverrides{Title: opts.Title}
+			overrides := storage.TemplateTicketOverrides{}
+			if opts.TitleSet {
+				overrides.Title = &opts.Title
+			}
 			if opts.BodySet {
 				overrides.Body = &opts.Body
 			}
@@ -1814,7 +1817,7 @@ func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {
 
 type addOptions struct {
 	Title, Body, Harness, Board, Template string
-	BodySet, HarnessSet                   bool
+	TitleSet, BodySet, HarnessSet         bool
 }
 
 func parseAddOptions(args []string) (addOptions, error) {
@@ -1867,7 +1870,7 @@ func parseAddOptions(args []string) (addOptions, error) {
 			if opts.Title != "" {
 				return addOptions{}, fmt.Errorf("add accepts one title")
 			}
-			opts.Title = args[i]
+			opts.Title, opts.TitleSet = args[i], true
 		}
 	}
 	return opts, nil

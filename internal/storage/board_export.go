@@ -359,6 +359,11 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 		if err != nil {
 			return BoardInsertResult{}, fmt.Errorf("template %d: %w", tmpl.SourceID, err)
 		}
+		for j := 0; j < i; j++ {
+			if strings.EqualFold(normalizedTemplates[j].Name, write.Name) {
+				return BoardInsertResult{}, errors.New("template name already exists on this board")
+			}
+		}
 		normalizedTemplates[i] = write
 	}
 	normalizedTickets := make([]ticketWrite, len(in.Tickets))

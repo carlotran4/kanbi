@@ -15,6 +15,7 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 ### Fixed
 
 - Keep template picker/manager controls, status, harness labels, truncation cues, and nearby selection visible through empty, long-list, duplicate-name, delete, and 80x24 flows.
+- Reject explicitly blank template-ticket titles, preserve omitted-title fallback semantics, and enforce Unicode-aware case-insensitive template names across CRUD, lookup, and package import.
 - Disambiguate identical Master column labels from distinct workflow keys and retain active Master filter summaries while Focus Mode is enabled.
 
 ## [0.3.0-beta.4] - 2026-10-09

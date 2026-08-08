@@ -99,7 +99,8 @@ func (m *Model) startTemplateEditor(tmpl storage.TicketTemplate, create bool) {
 }
 
 func (m *Model) createFromSelectedTemplate() {
-	ticket, err := m.actions.CreateTicketFromTemplate(m.ctx, m.templateColumnID, m.templateSelected.ID, storage.TemplateTicketOverrides{Title: m.templateTitle.Value()})
+	title := m.templateTitle.Value()
+	ticket, err := m.actions.CreateTicketFromTemplate(m.ctx, m.templateColumnID, m.templateSelected.ID, storage.TemplateTicketOverrides{Title: &title})
 	if err != nil {
 		m.status = err.Error()
 		return

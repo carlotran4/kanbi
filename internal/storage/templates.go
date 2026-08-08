@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -46,10 +47,44 @@ func (s *Store) TicketTemplateByID(ctx context.Context, id int64) (TicketTemplat
 }
 
 func (s *Store) TicketTemplateByName(ctx context.Context, boardID int64, name string) (TicketTemplate, error) {
-	var t TicketTemplate
-	err := s.db.QueryRowContext(ctx, `select id,board_id,name,title,body,harness,created_at,updated_at from ticket_templates where board_id=? and name=? collate nocase`, boardID, strings.TrimSpace(name)).
-		Scan(&t.ID, &t.BoardID, &t.Name, &t.Title, &t.Body, &t.Harness, &t.CreatedAt, &t.UpdatedAt)
-	return t, err
+	templates, err := s.ListTicketTemplates(ctx, boardID)
+	if err != nil {
+		return TicketTemplate{}, err
+	}
+	name = strings.TrimSpace(name)
+	var match TicketTemplate
+	for _, tmpl := range templates {
+		if !strings.EqualFold(tmpl.Name, name) {
+			continue
+		}
+		if match.ID != 0 {
+			return TicketTemplate{}, errors.New("template name is ambiguous on this board")
+		}
+		match = tmpl
+	}
+	if match.ID == 0 {
+		return TicketTemplate{}, sql.ErrNoRows
+	}
+	return match, nil
+}
+
+func templateNameConflictTx(ctx context.Context, tx *sql.Tx, boardID int64, name string, excludeID int64) error {
+	rows, err := tx.QueryContext(ctx, `select id,name from ticket_templates where board_id=?`, boardID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var existing string
+		if err := rows.Scan(&id, &existing); err != nil {
+			return err
+		}
+		if id != excludeID && strings.EqualFold(existing, name) {
+			return errors.New("template name already exists on this board")
+		}
+	}
+	return rows.Err()
 }
 
 func (s *Store) CreateTicketTemplate(ctx context.Context, boardID int64, name, title, body, harnessName string) (TicketTemplate, error) {
@@ -57,12 +92,28 @@ func (s *Store) CreateTicketTemplate(ctx context.Context, boardID int64, name, t
 	if err != nil {
 		return TicketTemplate{}, err
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TicketTemplate{}, err
+	}
+	defer tx.Rollback()
+	if res, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=?`, boardID); err != nil {
+		return TicketTemplate{}, err
+	} else if err := requireAffected(res, nil); err != nil {
+		return TicketTemplate{}, err
+	}
+	if err := templateNameConflictTx(ctx, tx, boardID, write.Name, 0); err != nil {
+		return TicketTemplate{}, err
+	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `insert into ticket_templates(board_id,name,title,body,harness,created_at,updated_at) values(?,?,?,?,?,?,?)`, boardID, write.Name, write.Title, write.Body, write.Harness, now, now)
+	res, err := tx.ExecContext(ctx, `insert into ticket_templates(board_id,name,title,body,harness,created_at,updated_at) values(?,?,?,?,?,?,?)`, boardID, write.Name, write.Title, write.Body, write.Harness, now, now)
 	if err != nil {
 		return TicketTemplate{}, ticketTemplateWriteError(err)
 	}
 	id, _ := res.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		return TicketTemplate{}, err
+	}
 	return s.TicketTemplateByID(ctx, id)
 }
 
@@ -71,8 +122,23 @@ func (s *Store) UpdateTicketTemplate(ctx context.Context, id int64, name, title,
 	if err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx, `update ticket_templates set name=?,title=?,body=?,harness=?,updated_at=? where id=?`, write.Name, write.Title, write.Body, write.Harness, time.Now().UTC(), id)
-	return requireAffected(res, ticketTemplateWriteError(err))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var boardID int64
+	if err := tx.QueryRowContext(ctx, `select board_id from ticket_templates where id=?`, id).Scan(&boardID); err != nil {
+		return err
+	}
+	if err := templateNameConflictTx(ctx, tx, boardID, write.Name, id); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `update ticket_templates set name=?,title=?,body=?,harness=?,updated_at=? where id=?`, write.Name, write.Title, write.Body, write.Harness, time.Now().UTC(), id)
+	if err := requireAffected(res, ticketTemplateWriteError(err)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func ticketTemplateWriteError(err error) error {
@@ -108,12 +174,12 @@ func (s *Store) CreateTicketFromTemplate(ctx context.Context, columnID, template
 	if columnBoardID != tmpl.BoardID {
 		return Ticket{}, errors.New("cannot apply a template from another board")
 	}
-	title := strings.TrimSpace(overrides.Title)
-	if title == "" {
-		title = tmpl.Title
-	}
+	title := tmpl.Title
 	if strings.TrimSpace(title) == "" {
 		title = tmpl.Name
+	}
+	if overrides.Title != nil {
+		title = *overrides.Title
 	}
 	body := tmpl.Body
 	if overrides.Body != nil {

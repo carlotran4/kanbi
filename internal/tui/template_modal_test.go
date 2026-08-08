@@ -40,6 +40,27 @@ func TestCreateTicketFromTemplateFlowCreatesOneSnapshot(t *testing.T) {
 	}
 }
 
+func TestTemplateTitleExplicitlyClearedIsRejected(t *testing.T) {
+	model, store, ctx := newTestModel(t)
+	view := defaultBoardView(t, ctx, store)
+	if _, err := store.CreateTicketTemplate(ctx, view.Board.ID, "Bug", "Seed title", "body", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	model.startTemplateCreate()
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = next.(Model)
+	model.templateTitle.Set("")
+	next, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = next.(Model)
+	if model.templateMode != "title" || model.status != "ticket title is required" {
+		t.Fatalf("blank title mode=%q status=%q", model.templateMode, model.status)
+	}
+	tickets, err := store.ListTickets(ctx, false)
+	if err != nil || len(tickets) != 0 {
+		t.Fatalf("blank title created ticket: %+v err=%v", tickets, err)
+	}
+}
+
 func TestTemplatePickerCancelCreatesNothingAndFits80x24(t *testing.T) {
 	model, store, ctx := newTestModel(t)
 	view := defaultBoardView(t, ctx, store)

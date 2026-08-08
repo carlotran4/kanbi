@@ -175,7 +175,7 @@ type TicketTemplate struct {
 // TemplateTicketOverrides distinguishes omitted fields from intentional empty
 // values when a CLI or UI applies a template.
 type TemplateTicketOverrides struct {
-	Title   string
+	Title   *string
 	Body    *string
 	Harness string
 }

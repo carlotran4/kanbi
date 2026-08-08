@@ -146,6 +146,13 @@ func TestTemplateCLIWorkflowAndTemplateTicketOverrides(t *testing.T) {
 	if ticket.Title != "Defect: resize" || ticket.Body != "explicit body" || ticket.Harness != "codex" {
 		t.Fatalf("unexpected template CLI ticket: %+v", ticket)
 	}
+	if err := runArgs("add", "", "--template", "Defect"); err == nil || !strings.Contains(err.Error(), "ticket title is required") {
+		t.Fatalf("explicit blank template title error=%v", err)
+	}
+	tickets, err := s.ListTickets(context.Background(), false)
+	if err != nil || len(tickets) != 1 {
+		t.Fatalf("blank title created a ticket: %+v err=%v", tickets, err)
+	}
 	out := captureStdout(t, func() error { return runArgs("templates", "list", "--json") })
 	if !strings.Contains(out, "kanbi.v1.ticket-template-list") || !strings.Contains(out, "Defect") {
 		t.Fatalf("unexpected template JSON: %s", out)
@@ -207,7 +214,7 @@ func TestParseAddOptionsTemplatePreservesExplicitOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.Template != "Bug" || opts.Title != "Ticket title" || !opts.BodySet || opts.Body != "" || !opts.HarnessSet || opts.Harness != "codex" || opts.Board != "Repo" {
+	if opts.Template != "Bug" || opts.Title != "Ticket title" || !opts.TitleSet || !opts.BodySet || opts.Body != "" || !opts.HarnessSet || opts.Harness != "codex" || opts.Board != "Repo" {
 		t.Fatalf("unexpected options: %+v", opts)
 	}
 }

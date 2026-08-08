@@ -14,8 +14,9 @@ func TestTicketTemplateCRUDAndSnapshotApplication(t *testing.T) {
 	} else if err.Error() != "template name already exists on this board" {
 		t.Fatalf("duplicate error=%q", err)
 	}
+	title := "Bug: resize"
 	body := "override body"
-	ticket, err := s.CreateTicketFromTemplate(ctx, view.Columns[0].ID, tmpl.ID, TemplateTicketOverrides{Title: "Bug: resize", Body: &body, Harness: "codex"})
+	ticket, err := s.CreateTicketFromTemplate(ctx, view.Columns[0].ID, tmpl.ID, TemplateTicketOverrides{Title: &title, Body: &body, Harness: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +67,38 @@ func TestTicketTemplatesAreBoardScopedAndCascadeWithBoard(t *testing.T) {
 	}
 }
 
+func TestTicketTemplateNamesUseUnicodeCaseFolding(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	created, err := s.CreateTicketTemplate(ctx, view.Board.ID, "Ärger", "", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTicketTemplate(ctx, view.Board.ID, "ärger", "", "body", "pi"); err == nil || err.Error() != "template name already exists on this board" {
+		t.Fatalf("unicode duplicate error=%v", err)
+	}
+	found, err := s.TicketTemplateByName(ctx, view.Board.ID, "äRGER")
+	if err != nil || found.ID != created.ID {
+		t.Fatalf("unicode lookup=%+v err=%v", found, err)
+	}
+}
+
+func TestBoardAggregateRejectsUnicodeFoldedTemplateDuplicates(t *testing.T) {
+	s, ctx := newTestStore(t)
+	_, err := s.InsertBoardAggregate(ctx, BoardAggregateInsert{
+		Name:          "Imported",
+		WorktreeMode:  WorktreeModeOff,
+		TicketBackend: "local",
+		Templates: []AggregateTemplate{
+			{SourceID: 1, Name: "Ä", Harness: "pi"},
+			{SourceID: 2, Name: "ä", Harness: "pi"},
+		},
+	})
+	if err == nil || err.Error() != "template name already exists on this board" {
+		t.Fatalf("aggregate duplicate error=%v", err)
+	}
+}
+
 func TestTicketTemplateFallbackTitleAndValidation(t *testing.T) {
 	s, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, s)
@@ -85,5 +118,9 @@ func TestTicketTemplateFallbackTitleAndValidation(t *testing.T) {
 	}
 	if ticket.Title != "Investigation" {
 		t.Fatalf("fallback title = %q", ticket.Title)
+	}
+	blank := ""
+	if _, err := s.CreateTicketFromTemplate(ctx, view.Columns[0].ID, tmpl.ID, TemplateTicketOverrides{Title: &blank}); err == nil || err.Error() != "ticket title is required" {
+		t.Fatalf("explicit blank title error=%v", err)
 	}
 }

@@ -50,7 +50,8 @@ kanbi add "Bug: resize failure" --board Repo --template "Bug report"
 
 For `kanbi add --template`, explicit title, body, and harness values override
 the template. Without an explicit title, the template title is used; if that is
-blank, the template name becomes the ticket title.
+blank, the template name becomes the ticket title. An explicitly supplied but
+blank title is rejected rather than silently restoring a template default.
 
 ## Provider-backed boards
 
