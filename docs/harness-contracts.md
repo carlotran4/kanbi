@@ -128,8 +128,10 @@ The returned `sessions.id` (UUID) is passed to `copilot --resume=<id>` for resum
 | Action | Command |
 | --- | --- |
 | Start open-only | `claude` |
-| Start with prompt | `claude <prompt>` |
+| Start with prompt | `claude <prompt>`, then explicit `Enter` |
 | Resume | `claude --resume <session_ref>` |
+
+After launching with a positional prompt, Kanbi sends an explicit `Enter`. This submits the populated editor in Claude Code versions that do not auto-submit the positional prompt; versions that already submitted it treat Enter on the empty editor as a no-op.
 
 ### Session Ref Capture
 
@@ -152,7 +154,7 @@ Walking by directory rather than computing the encoded directory name avoids any
 
 The returned `sessionId` is passed to `claude --resume <id>` for resume. Because the workspace-trust dialog can delay creation, manager-owned background capture continues for up to five minutes. Any delayed ref is persisted to the exact session attempt that launched the capture, and polling is canceled when the runtime manager shuts down.
 
-**Verified:** start, ref capture, close, resume path. See `TestCaptureClaudeSessionRefFromProjectsDir` and `TestClaudeDefaultUsesPromptArgumentMode`.
+**Verified:** start, explicit initial-prompt submission, ref capture, close, and resume path. See `TestClaudeOpenTicketSubmitsInitialPrompt`, `TestCaptureClaudeSessionRefFromProjectsDir`, and `TestClaudeDefaultUsesPromptArgumentMode`.
 
 ### Exit Keys
 

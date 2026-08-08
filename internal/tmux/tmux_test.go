@@ -45,9 +45,9 @@ type invalidatingLaunchRunner struct {
 
 type captureErrorRunner struct{ fakeRunner }
 
-type piSubmitErrorRunner struct{ fakeRunner }
+type promptSubmitErrorRunner struct{ fakeRunner }
 
-func (r *piSubmitErrorRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+func (r *promptSubmitErrorRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	out, err := r.fakeRunner.Run(ctx, name, args...)
 	if err == nil && len(args) > 0 && args[0] == "send-keys" && args[len(args)-1] == "Enter" {
 		return "", errors.New("simulated Enter failure")
@@ -1550,32 +1550,67 @@ func TestPiOpenTicketSubmitsInitialPrompt(t *testing.T) {
 	}
 }
 
-func TestPiInitialPromptSubmitFailureCleansUpAttempt(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
-	view := defaultBoardView(t, ctx, store)
-	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Pi Demo", "Body", "pi")
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestClaudeOpenTicketSubmitsInitialPrompt(t *testing.T) {
 	cfg := config.Defaults(config.Paths{StateDir: t.TempDir()})
-	runner := &piSubmitErrorRunner{}
-	manager := &Manager{Config: cfg, Store: store, Runner: runner}
+	runner := &fakeRunner{}
+	manager := &Manager{Config: cfg, Runner: runner}
+	ticket := storage.Ticket{ID: 1, DisplayID: "T-001", Title: "Claude Demo", Body: "Body", Harness: "claude"}
 
-	err = manager.OpenTicket(ctx, ticket, true)
-	if err == nil || !strings.Contains(err.Error(), "submit Pi initial prompt") {
-		t.Fatalf("error = %v, want Pi submit failure", err)
-	}
-	if _, active, err := store.ActiveSession(ctx, ticket.ID); err != nil {
+	if err := manager.OpenTicket(context.Background(), ticket, true); err != nil {
 		t.Fatal(err)
-	} else if active {
-		t.Fatal("failed Pi prompt submission left an active session")
 	}
-	for _, c := range runner.calls {
-		if len(c.args) > 0 && c.args[0] == "kill-window" {
-			return
+
+	newWindowIndex, enterIndex, enterCount := -1, -1, 0
+	for i, c := range runner.calls {
+		if len(c.args) > 0 && c.args[0] == "new-window" {
+			joined := strings.Join(c.args, "\n")
+			if strings.Contains(joined, "claude") && strings.Contains(joined, "# T-001: Claude Demo\n\nBody") {
+				newWindowIndex = i
+			}
+		}
+		if len(c.args) > 3 && c.args[0] == "send-keys" && c.args[len(c.args)-1] == "Enter" {
+			if c.args[1] != "-t" || c.args[2] != "kanbi:@7" {
+				t.Fatalf("Claude submit targeted %v, want launched window kanbi:@7", c.args)
+			}
+			enterIndex = i
+			enterCount++
 		}
 	}
-	t.Fatalf("failed Pi prompt submission did not clean up its window: %+v", runner.calls)
+	if newWindowIndex < 0 || enterIndex <= newWindowIndex || enterCount != 1 {
+		t.Fatalf("Claude initial prompt must be populated, then explicitly submitted exactly once: new-window=%d enter=%d count=%d calls=%+v", newWindowIndex, enterIndex, enterCount, runner.calls)
+	}
+}
+
+func TestInitialPromptSubmitFailureCleansUpAttempt(t *testing.T) {
+	for _, harnessName := range []string{"pi", "claude"} {
+		t.Run(harnessName, func(t *testing.T) {
+			store, ctx := newTmuxTestStore(t)
+			view := defaultBoardView(t, ctx, store)
+			ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Prompt Demo", "Body", harnessName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Defaults(config.Paths{StateDir: t.TempDir()})
+			runner := &promptSubmitErrorRunner{}
+			manager := &Manager{Config: cfg, Store: store, Runner: runner}
+
+			err = manager.OpenTicket(ctx, ticket, true)
+			if err == nil || !strings.Contains(err.Error(), "submit "+harnessName+" initial prompt") {
+				t.Fatalf("error = %v, want %s submit failure", err, harnessName)
+			}
+			if _, active, err := store.ActiveSession(ctx, ticket.ID); err != nil {
+				t.Fatal(err)
+			} else if active {
+				t.Fatalf("failed %s prompt submission left an active session", harnessName)
+			}
+			for _, c := range runner.calls {
+				if len(c.args) > 0 && c.args[0] == "kill-window" {
+					return
+				}
+			}
+			t.Fatalf("failed %s prompt submission did not clean up its window: %+v", harnessName, runner.calls)
+		})
+	}
 }
 
 func TestCodexOpenTicketSendsPromptAsArgument(t *testing.T) {

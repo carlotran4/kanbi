@@ -79,7 +79,7 @@ flowchart TD
 | Pi | `pi` | `pi <prompt>` plus bundled ref extension and explicit `Enter` | `pi --session <ref>` | arg + submit | extension handoff; fallback scan of `~/.pi/agent/sessions` |
 | Codex | `codex --no-alt-screen` | `codex --no-alt-screen <prompt>` | `codex resume --no-alt-screen <ref>` | arg | scan `~/.codex/history.jsonl` for matching prompt |
 | Copilot | `copilot` | `copilot -i <prompt>` | `copilot --resume=<ref>` | arg | query `~/.copilot/session-store.db` for matching cwd/prompt |
-| Claude | `claude` | `claude <prompt>` | `claude --resume <ref>` | arg | scan `~/.claude/projects/**/*.jsonl` for matching cwd/prompt |
+| Claude | `claude` | `claude <prompt>` plus explicit `Enter` | `claude --resume <ref>` | arg + submit | scan `~/.claude/projects/**/*.jsonl` for matching cwd/prompt |
 | Fake/smoke paste harness | configured command | start, wait for ready, multiplexer text send | configured resume | paste | parse terminal marker such as `SESSION_REF=` |
 
 ## Command Rules
@@ -94,7 +94,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 - Allowed only when the ticket has never started.
 - Uses the ticket body rendered as Markdown prompt.
-- For arg-mode harnesses, append prompt to the harness command. Pi additionally receives an explicit `Enter` after launch so versions that only populate the editor submit the turn.
+- For arg-mode harnesses, append prompt to the harness command. Pi and Claude additionally receive an explicit `Enter` after launch so versions that only populate the editor submit the turn.
 - For paste-mode harnesses, wait for prompt-ready, paste via tmux buffer, send Enter.
 - Creates exactly one active session row. The row is claimed as `starting` before runtime launch and becomes `running` only after its container reference is persisted.
 - Attempts harness-specific session ref capture. Delayed Pi/Claude capture is owned by the runtime manager and updates the exact session attempt that initiated it, even if a newer attempt becomes active before capture completes.
