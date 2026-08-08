@@ -68,56 +68,61 @@ func (s *Store) CreateTicket(ctx context.Context, columnID int64, title, body, h
 		return Ticket{}, err
 	}
 	defer tx.Rollback()
-
-	var boardID int64
-	if columnID == 0 {
-		if err := tx.QueryRowContext(ctx, `select id from columns order by board_id, position limit 1`).Scan(&columnID); err != nil {
-			return Ticket{}, err
-		}
-	}
-	var archived sql.NullTime
-	if err := tx.QueryRowContext(ctx, `select c.board_id,b.archived_at from columns c join boards b on b.id=c.board_id where c.id=?`, columnID).Scan(&boardID, &archived); err != nil {
-		return Ticket{}, err
-	}
-	if archived.Valid {
-		return Ticket{}, fmt.Errorf("cannot create a ticket on an archived board: %w", ErrBoardArchived)
-	}
-	// Serialize creation with ArchiveBoard so a ticket is either created before
-	// archiving or rejected after it, never added to an archived board.
-	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=?`, boardID); err != nil {
-		return Ticket{}, err
-	}
-	policy := s.FocusPolicy()
-	if isFocus, err := focusColumnTx(ctx, tx, columnID, policy); err != nil {
-		return Ticket{}, err
-	} else if isFocus {
-		if err := requireFocusCapacity(ctx, tx, policy); err != nil {
-			return Ticket{}, err
-		}
-	}
-	var next int
-	if err := tx.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&next); err != nil {
-		return Ticket{}, err
-	}
-	pos, err := visibleTicketOrder.nextPosition(ctx, tx, columnID)
+	id, _, err := s.createTicketTx(ctx, tx, columnID, write)
 	if err != nil {
-		return Ticket{}, err
-	}
-	displayID := fmt.Sprintf("T-%03d", next)
-	now := time.Now().UTC()
-	res, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,display_id,display_number,title,body,harness,position,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?)`,
-		boardID, columnID, displayID, next, write.Title, write.Body, write.Harness, pos, now, now)
-	if err != nil {
-		return Ticket{}, err
-	}
-	id, _ := res.LastInsertId()
-	if _, err := tx.ExecContext(ctx, `update boards set next_ticket_number=next_ticket_number+1 where id=?`, boardID); err != nil {
 		return Ticket{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Ticket{}, err
 	}
 	return s.TicketByID(ctx, id)
+}
+
+func (s *Store) createTicketTx(ctx context.Context, tx *sql.Tx, columnID int64, write ticketWrite) (int64, int64, error) {
+	var boardID int64
+	if columnID == 0 {
+		if err := tx.QueryRowContext(ctx, `select id from columns order by board_id, position limit 1`).Scan(&columnID); err != nil {
+			return 0, 0, err
+		}
+	}
+	var archived sql.NullTime
+	if err := tx.QueryRowContext(ctx, `select c.board_id,b.archived_at from columns c join boards b on b.id=c.board_id where c.id=?`, columnID).Scan(&boardID, &archived); err != nil {
+		return 0, 0, err
+	}
+	if archived.Valid {
+		return 0, 0, fmt.Errorf("cannot create a ticket on an archived board: %w", ErrBoardArchived)
+	}
+	if _, err := tx.ExecContext(ctx, `update boards set updated_at=updated_at where id=?`, boardID); err != nil {
+		return 0, 0, err
+	}
+	policy := s.FocusPolicy()
+	if isFocus, err := focusColumnTx(ctx, tx, columnID, policy); err != nil {
+		return 0, 0, err
+	} else if isFocus {
+		if err := requireFocusCapacity(ctx, tx, policy); err != nil {
+			return 0, 0, err
+		}
+	}
+	var next int
+	if err := tx.QueryRowContext(ctx, `select next_ticket_number from boards where id=?`, boardID).Scan(&next); err != nil {
+		return 0, 0, err
+	}
+	pos, err := visibleTicketOrder.nextPosition(ctx, tx, columnID)
+	if err != nil {
+		return 0, 0, err
+	}
+	displayID := fmt.Sprintf("T-%03d", next)
+	now := time.Now().UTC()
+	res, err := tx.ExecContext(ctx, `insert into tickets(board_id,column_id,display_id,display_number,title,body,harness,position,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?)`,
+		boardID, columnID, displayID, next, write.Title, write.Body, write.Harness, pos, now, now)
+	if err != nil {
+		return 0, 0, err
+	}
+	id, _ := res.LastInsertId()
+	if _, err := tx.ExecContext(ctx, `update boards set next_ticket_number=next_ticket_number+1 where id=?`, boardID); err != nil {
+		return 0, 0, err
+	}
+	return id, boardID, nil
 }
 
 // ValidateTicketUpdate checks ticket fields without changing durable state.

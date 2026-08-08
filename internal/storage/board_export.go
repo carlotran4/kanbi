@@ -15,10 +15,21 @@ type BoardAggregate struct {
 	Board            Board
 	NextTicketNumber int
 	Columns          []AggregateColumn
+	Templates        []AggregateTemplate
 	Tickets          []AggregateTicket
 	Notes            []AggregateNote
 	Sessions         []AggregateSession
 	PauseCheckpoints []AggregatePauseCheckpoint
+}
+
+type AggregateTemplate struct {
+	SourceID  int64
+	Name      string
+	Title     string
+	Body      string
+	Harness   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type AggregateColumn struct {
@@ -112,6 +123,7 @@ type BoardAggregateInsert struct {
 	NextTicketNumber int
 	SourceExportUUID string
 	Columns          []AggregateColumn
+	Templates        []AggregateTemplate
 	Tickets          []AggregateTicket
 	Notes            []AggregateNote
 	Sessions         []AggregateSession
@@ -192,6 +204,24 @@ func (s *Store) LoadBoardAggregate(ctx context.Context, boardID int64) (BoardAgg
 		return BoardAggregate{}, err
 	}
 	colRows.Close()
+
+	templateRows, err := tx.QueryContext(ctx, `select id,name,title,body,harness,created_at,updated_at from ticket_templates where board_id=? order by name collate nocase,id`, boardID)
+	if err != nil {
+		return BoardAggregate{}, err
+	}
+	for templateRows.Next() {
+		var tmpl AggregateTemplate
+		if err := templateRows.Scan(&tmpl.SourceID, &tmpl.Name, &tmpl.Title, &tmpl.Body, &tmpl.Harness, &tmpl.CreatedAt, &tmpl.UpdatedAt); err != nil {
+			templateRows.Close()
+			return BoardAggregate{}, err
+		}
+		agg.Templates = append(agg.Templates, tmpl)
+	}
+	if err := templateRows.Err(); err != nil {
+		templateRows.Close()
+		return BoardAggregate{}, err
+	}
+	templateRows.Close()
 
 	ticketRows, err := tx.QueryContext(ctx, `select id, column_id, external_id, external_url, external_updated_at, sync_version, display_id, display_number, title, body, harness, position, archived_at, coalesce(focus_paused,0), remote_push_state, remote_push_token, remote_push_attempted_at, created_at, updated_at from tickets where board_id=? order by id`, boardID)
 	if err != nil {
@@ -323,6 +353,14 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 	if nextTicketNumber > maxSafeImportedTicketNumber {
 		return BoardInsertResult{}, errors.New("next ticket number is too large")
 	}
+	normalizedTemplates := make([]TicketTemplate, len(in.Templates))
+	for i, tmpl := range in.Templates {
+		write, err := normalizeTemplateWrite(tmpl.Name, tmpl.Title, tmpl.Body, tmpl.Harness)
+		if err != nil {
+			return BoardInsertResult{}, fmt.Errorf("template %d: %w", tmpl.SourceID, err)
+		}
+		normalizedTemplates[i] = write
+	}
 	normalizedTickets := make([]ticketWrite, len(in.Tickets))
 	for i, ticket := range in.Tickets {
 		write, err := normalizeTicketWrite(ticket.Title, ticket.Body, ticket.Harness, true)
@@ -377,6 +415,20 @@ func (s *Store) InsertBoardAggregate(ctx context.Context, in BoardAggregateInser
 		}
 		id, _ := cres.LastInsertId()
 		columnRemap[col.SourceID] = id
+	}
+
+	for i, tmpl := range in.Templates {
+		createdAt := tmpl.CreatedAt
+		updatedAt := tmpl.UpdatedAt
+		if createdAt.IsZero() {
+			createdAt = now
+		}
+		if updatedAt.IsZero() {
+			updatedAt = createdAt
+		}
+		if _, err := tx.ExecContext(ctx, `insert into ticket_templates(board_id,name,title,body,harness,created_at,updated_at) values(?,?,?,?,?,?,?)`, boardID, normalizedTemplates[i].Name, normalizedTemplates[i].Title, normalizedTemplates[i].Body, normalizedTemplates[i].Harness, createdAt, updatedAt); err != nil {
+			return BoardInsertResult{}, err
+		}
 	}
 
 	ticketRemap := map[int64]int64{}

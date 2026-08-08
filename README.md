@@ -55,7 +55,7 @@ kanbi boards add "My Project" --cwd "$PWD"
 kanbi
 ```
 
-Select the board, press `n` to create a ticket, save it with `Ctrl+S`, then press `Enter` to start the agent. Single-line fields consistently support Left/Right, Home/End, Backspace/Delete, spaces, and insertion at the cursor. When a ticket already has a captured harness session ref, its ticket editor shows that ref as a tab-accessible field so it can be repointed after a bad capture or transient error. While editing a ticket body, `Ctrl+V` attaches PNG, JPEG, GIF, or WebP clipboard images and pastes text normally; pasted image file paths are copied into Kanbi's attachment storage. In the agent prompt, pasted images are labeled `[image 1]`, `[image 2]`, and so on in prompt order. In ticket bodies and notes, type `@` to find a project file, use Up/Down and Enter or Tab to select it, and Kanbi inserts a textual relative path such as `@internal/tui/model.go`; it does not expand or attach file contents. Search uses the existing ticket worktree when available, otherwise the board working directory, and skips common generated dependency/build directories.
+Select the board, press `n` to create a blank ticket, or press `N` to choose a board-scoped ticket template. Press `T` to create and manage templates. Template selection asks for the ticket-specific title before creating one ordinary ticket; on Master it first asks for the owning board. Templates are local Kanbi metadata—even on GitHub/Jira boards—and are copied by value, so later template changes never alter existing tickets. Save the ticket editor with `Ctrl+S`, then press `Enter` to start the agent. Single-line fields consistently support Left/Right, Home/End, Backspace/Delete, spaces, and insertion at the cursor. When a ticket already has a captured harness session ref, its ticket editor shows that ref as a tab-accessible field so it can be repointed after a bad capture or transient error. While editing a ticket body, `Ctrl+V` attaches PNG, JPEG, GIF, or WebP clipboard images and pastes text normally; pasted image file paths are copied into Kanbi's attachment storage. In the agent prompt, pasted images are labeled `[image 1]`, `[image 2]`, and so on in prompt order. In ticket bodies and notes, type `@` to find a project file, use Up/Down and Enter or Tab to select it, and Kanbi inserts a textual relative path such as `@internal/tui/model.go`; it does not expand or attach file contents. Search uses the existing ticket worktree when available, otherwise the board working directory, and skips common generated dependency/build directories.
 
 Runtime refresh preserves unsaved edits and keeps the last valid board visible with a stale warning if observation fails. Navigation and refresh keep the viewport anchored; resizing fills newly available space. The notes tab shows the selected note and following notes; `j/k` moves through the thread, and saving an older note keeps it selected.
 
@@ -100,6 +100,7 @@ Run `kanbi --help` or `kanbi COMMAND --help` for the rest.
 - [Installation](./docs/installation.md)
 - [Configuration](./docs/configuration.md)
 - [Ticket backends](./docs/ticket-backends.md)
+- [Ticket templates](./docs/ticket-templates.md)
 - [Multi-board behavior](./docs/multi-board-behavior.md)
 - [Compatibility](./docs/compatibility.md)
 - [Support](./docs/support.md)

@@ -26,6 +26,7 @@ var migrations = []migration{
 	{version: 6, name: "ticket workspaces and session launch cwd", apply: migrateTicketWorkspaces},
 	{version: 7, name: "repository integration runs", apply: migrateIntegrationRuns},
 	{version: 8, name: "global focus checkpoints", apply: migrateGlobalFocus},
+	{version: 9, name: "board ticket templates", apply: migrateTicketTemplates},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.
@@ -330,6 +331,28 @@ func migrateBoardArchiveAndWorkflow(ctx context.Context, tx *sql.Tx) error {
 	}
 	if _, err := tx.ExecContext(ctx, `create unique index if not exists master_filter_presets_name_nocase_uq on master_filter_presets(name collate nocase)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateTicketTemplates(ctx context.Context, tx *sql.Tx) error {
+	for _, statement := range []string{
+		`create table if not exists ticket_templates (
+  id integer primary key autoincrement,
+  board_id integer not null references boards(id) on delete cascade,
+  name text not null,
+  title text not null default '',
+  body text not null default '',
+  harness text not null default 'pi',
+  created_at datetime not null,
+  updated_at datetime not null
+)`,
+		`create unique index if not exists ticket_templates_board_name_nocase_uq on ticket_templates(board_id, name collate nocase)`,
+		`create index if not exists idx_ticket_templates_board_name on ticket_templates(board_id, name collate nocase)`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
 	}
 	return nil
 }

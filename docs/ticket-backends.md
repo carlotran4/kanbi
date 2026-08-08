@@ -44,7 +44,7 @@ External adapters should sync all ticket metadata that can be represented locall
 - notes as remote comments and remote comments as local notes;
 - external URLs and update/version markers.
 
-Local runtime/session data is out of scope for external ticket sync.
+Local runtime/session data is out of scope for external ticket sync. Board-scoped ticket templates are also local Kanbi metadata: template CRUD never invokes a provider, and applying one sends only the resulting ordinary ticket through the existing mutation-sync path.
 
 ## Adapter Contract
 

@@ -27,6 +27,7 @@ func Preview(ctx context.Context, store *storage.Store, archivePath string) (Rep
 		BoardName:        doc.Board.Name,
 		TicketBackend:    doc.Board.TicketBackend,
 		TicketCount:      len(doc.Tickets),
+		TemplateCount:    len(doc.Templates),
 		NoteCount:        len(doc.Notes),
 		SessionCount:     len(doc.Sessions),
 		CheckpointCount:  len(doc.Checkpoints),

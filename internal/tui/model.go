@@ -182,6 +182,22 @@ type Model struct {
 	focusSettingsKeys        InputBuffer
 	focusSettingsField       int
 	focusSettingsSubmitting  bool
+
+	templateOpen      bool
+	templateMode      string // pick, title, manage, edit, delete
+	templateBoard     storage.Board
+	templateColumnID  int64
+	templates         []storage.TicketTemplate
+	templateIndex     int
+	templateFilter    InputBuffer
+	templateSelected  storage.TicketTemplate
+	templateTitle     InputBuffer
+	templateEditField int
+	templateEditNew   bool
+	templateName      InputBuffer
+	templateSeedTitle InputBuffer
+	templateHarness   InputBuffer
+	templateBodyTA    textarea.Model
 }
 
 // defaultTermSize is used before a WindowSizeMsg arrives.
@@ -324,6 +340,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizePauseInputs()
 		if m.noteEditing {
 			m.noteTA.SetWidth(maxInt(20, inspectorPopupWidth(m.width)-6))
+		}
+		if m.templateOpen && m.templateMode == "edit" {
+			m.templateBodyTA.SetWidth(maxInt(20, modalContentWidth(focusModalWidth(m.width))-4))
 		}
 		m.syncScrollDimensions()
 		m.hScrollFollow()
@@ -586,6 +605,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case modalMasterFilter:
 		return m.updateMasterFilter(key), nil
+	case modalTemplates:
+		return m.updateTemplates(key)
 	case modalEdit:
 		return m.updateEdit(key)
 	case modalStateMenu:
@@ -654,6 +675,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reorderColumn(1)
 	case "n":
 		m.createTicket()
+	case "N":
+		m.startTemplateCreate()
+	case "T":
+		m.startTemplateManagement()
 	case "c":
 		m.startColumnEdit("add")
 	case "r":
@@ -985,6 +1010,10 @@ func (m *Model) startEdit() {
 	if !ok {
 		return
 	}
+	m.startEditTicket(t)
+}
+
+func (m *Model) startEditTicket(t storage.Ticket) {
 	m.editing = true
 	m.editTicket = t
 	m.editField = 0

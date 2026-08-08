@@ -1,7 +1,5 @@
 package storage
 
-import ()
-
 const schema = `
 pragma foreign_keys = on;
 
@@ -42,6 +40,22 @@ create table if not exists master_filter_presets (
   created_at datetime not null,
   updated_at datetime not null
 );
+
+create table if not exists ticket_templates (
+  id integer primary key autoincrement,
+  board_id integer not null references boards(id) on delete cascade,
+  name text not null,
+  title text not null default '',
+  body text not null default '',
+  harness text not null default 'pi',
+  created_at datetime not null,
+  updated_at datetime not null
+);
+
+create unique index if not exists ticket_templates_board_name_nocase_uq
+  on ticket_templates(board_id, name collate nocase);
+create index if not exists idx_ticket_templates_board_name
+  on ticket_templates(board_id, name collate nocase);
 
 create table if not exists tickets (
   id integer primary key autoincrement,

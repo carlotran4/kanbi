@@ -159,6 +159,27 @@ type TicketProjection struct {
 // Ticket is retained as a compatibility name for the ticket query model.
 type Ticket = TicketProjection
 
+// TicketTemplate is board-scoped local metadata copied into ordinary tickets.
+// Applying a template is snapshot-based; existing tickets are never linked back.
+type TicketTemplate struct {
+	ID        int64
+	BoardID   int64
+	Name      string
+	Title     string
+	Body      string
+	Harness   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// TemplateTicketOverrides distinguishes omitted fields from intentional empty
+// values when a CLI or UI applies a template.
+type TemplateTicketOverrides struct {
+	Title   string
+	Body    *string
+	Harness string
+}
+
 type Note struct {
 	ID                int64
 	TicketID          int64

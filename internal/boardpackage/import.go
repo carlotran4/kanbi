@@ -138,6 +138,12 @@ func Import(ctx context.Context, store *storage.Store, dataDir, archivePath stri
 			SourceID: c.SourceID, Name: c.Name, WorkflowKey: c.WorkflowKey, Position: c.Position,
 		})
 	}
+	for _, tmpl := range doc.Templates {
+		insert.Templates = append(insert.Templates, storage.AggregateTemplate{
+			SourceID: tmpl.SourceID, Name: tmpl.Name, Title: tmpl.Title, Body: tmpl.Body,
+			Harness: tmpl.Harness, CreatedAt: tmpl.CreatedAt, UpdatedAt: tmpl.UpdatedAt,
+		})
+	}
 	for _, t := range doc.Tickets {
 		insert.Tickets = append(insert.Tickets, storage.AggregateTicket{
 			SourceID: t.SourceID, ColumnSourceID: t.ColumnSourceID,

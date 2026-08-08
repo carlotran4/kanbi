@@ -178,6 +178,37 @@ func TestBusyTimeoutAllowsConcurrentWriterToComplete(t *testing.T) {
 	}
 }
 
+func TestTicketTemplateMigrationFromV8PreservesHistoryAndIsIdempotent(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket, err := s.CreateTicket(ctx, view.Columns[0].ID, "existing", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `drop table ticket_templates`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `delete from schema_migrations where version=9`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TicketByID(ctx, ticket.ID); err != nil {
+		t.Fatalf("v8 to v9 migration lost ticket history: %v", err)
+	}
+	if _, err := s.CreateTicketTemplate(ctx, view.Board.ID, "Bug", "Bug:", "body", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	templates, err := s.ListTicketTemplates(ctx, view.Board.ID)
+	if err != nil || len(templates) != 1 {
+		t.Fatalf("template migration unavailable or non-idempotent: %+v err=%v", templates, err)
+	}
+}
+
 func TestMigrateV5BackfillsWorkflowKeysAndBoardUUID(t *testing.T) {
 	ctx := context.Background()
 	path := t.TempDir() + "/pre-v5.db"

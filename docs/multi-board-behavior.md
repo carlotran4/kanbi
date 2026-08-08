@@ -119,6 +119,10 @@ Master cards include board context:
 T-001 [Client B] Implement auth
 ```
 
+## Ticket templates
+
+Templates belong to one real board and are local Kanbi metadata. `N` on a named board shows that board's templates for the focused destination column. On Master it first asks for a real board, resolves the focused synthetic workflow key on that board, and only then shows that board's templates. `T` manages templates directly on a named board or asks for a board from Master. Applying copies title/body/harness into one ordinary ticket; template edits never affect existing tickets. Templates do not select columns, and package export/import preserves them with their board. See [`docs/ticket-templates.md`](./ticket-templates.md).
+
 ## Creating a ticket from Master
 
 ```mermaid

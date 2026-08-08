@@ -102,6 +102,7 @@ func Export(ctx context.Context, store *storage.Store, dataDir string, boardID i
 		SourceBoardUUID: agg.Board.UUID,
 		SourceBoardName: agg.Board.Name,
 		TicketCount:     len(doc.Tickets),
+		TemplateCount:   len(doc.Templates),
 		NoteCount:       len(doc.Notes),
 		SessionCount:    len(doc.Sessions),
 		CheckpointCount: len(doc.Checkpoints),
@@ -200,6 +201,12 @@ func documentFromAggregate(agg storage.BoardAggregate) Document {
 			Name:        c.Name,
 			WorkflowKey: c.WorkflowKey,
 			Position:    c.Position,
+		})
+	}
+	for _, tmpl := range agg.Templates {
+		doc.Templates = append(doc.Templates, TemplatePayload{
+			SourceID: tmpl.SourceID, Name: tmpl.Name, Title: tmpl.Title, Body: tmpl.Body,
+			Harness: tmpl.Harness, CreatedAt: tmpl.CreatedAt, UpdatedAt: tmpl.UpdatedAt,
 		})
 	}
 	for _, t := range agg.Tickets {

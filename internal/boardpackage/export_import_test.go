@@ -43,6 +43,9 @@ func seedPackagedBoard(t *testing.T, s *storage.Store, ctx context.Context, data
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.CreateTicketTemplate(ctx, board.ID, "Bug report", "Bug:", "## Reproduction\n", "codex"); err != nil {
+		t.Fatal(err)
+	}
 	ticket, err := s.CreateTicket(ctx, view.Columns[0].ID, "Packaged", "body", "pi")
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +109,7 @@ func TestBoardPackageRoundTripPreservesTombstoneAndSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TicketCount != 1 || report.CheckpointCount != 1 || report.AttachmentCount != 1 || !report.NameCollision {
+	if report.TicketCount != 1 || report.TemplateCount != 1 || report.CheckpointCount != 1 || report.AttachmentCount != 1 || !report.NameCollision {
 		t.Fatalf("preview unexpected: %+v", report)
 	}
 	if len(report.MissingAttachments) != 0 || len(report.UnlistedAttachments) != 0 || len(report.InvalidAttachments) != 0 {
@@ -129,6 +132,9 @@ func TestBoardPackageRoundTripPreservesTombstoneAndSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(agg.Templates) != 1 || agg.Templates[0].Name != "Bug report" || agg.Templates[0].Harness != "codex" {
+		t.Fatalf("expected template round-trip: %+v", agg.Templates)
+	}
 	if len(agg.Notes) != 1 || !agg.Notes[0].DeletedAt.Valid {
 		t.Fatalf("expected note tombstone round-trip: %+v", agg.Notes)
 	}
@@ -147,6 +153,33 @@ func TestBoardPackageRoundTripPreservesTombstoneAndSession(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "attachments", fmt.Sprintf("%d", newID), "img.png")); err != nil {
 		t.Fatalf("attachment missing after import: %v", err)
+	}
+}
+
+func TestBoardPackageImportsSchemaV8PayloadWithoutTemplates(t *testing.T) {
+	s, ctx := openStore(t)
+	dataDir := t.TempDir()
+	board, _ := seedPackagedBoard(t, s, ctx, dataDir)
+	current := filepath.Join(t.TempDir(), "current.zip")
+	if err := boardpackage.Export(ctx, s, dataDir, board.ID, current); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(t.TempDir(), "legacy.zip")
+	rewritePackageWithoutTemplates(t, current, legacy)
+	report, err := boardpackage.Preview(ctx, s, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.SchemaCompatible || report.Manifest.SchemaVersion != 8 || report.TemplateCount != 0 {
+		t.Fatalf("unexpected legacy preview: %+v", report)
+	}
+	result, err := boardpackage.Import(ctx, s, dataDir, legacy, boardpackage.ImportOptions{NameOverride: "Legacy imported"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	templates, err := s.ListTicketTemplates(ctx, result.Board.ID)
+	if err != nil || len(templates) != 0 {
+		t.Fatalf("legacy package should import without templates: %+v err=%v", templates, err)
 	}
 }
 
@@ -557,6 +590,53 @@ func rewriteBoardJSON(t *testing.T, src, dest string, editDoc func(*boardpackage
 	}
 	for name, data := range extra {
 		if err := writeZipFile(zw, name, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func rewritePackageWithoutTemplates(t *testing.T, src, dest string) {
+	t.Helper()
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	out, err := os.Create(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	zw := zip.NewWriter(out)
+	defer zw.Close()
+	for _, zf := range r.File {
+		rc, err := zf.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data := mustReadAll(t, rc)
+		_ = rc.Close()
+		switch filepath.ToSlash(zf.Name) {
+		case "manifest.json":
+			var manifest boardpackage.Manifest
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest.SchemaVersion = 8
+			manifest.TemplateCount = 0
+			data, err = json.MarshalIndent(manifest, "", "  ")
+		case "board.json":
+			var doc boardpackage.Document
+			if err := json.Unmarshal(data, &doc); err != nil {
+				t.Fatal(err)
+			}
+			doc.Templates = nil
+			data, err = json.MarshalIndent(doc, "", "  ")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeZipFile(zw, zf.Name, data); err != nil {
 			t.Fatal(err)
 		}
 	}

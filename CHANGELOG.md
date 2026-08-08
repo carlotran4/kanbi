@@ -4,6 +4,14 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ## Unreleased
 
+### Added
+
+- Board-scoped ticket templates with keyboard-first `N` creation and `T` management flows, Master board routing, CLI CRUD and `kanbi add --template`, snapshot semantics, provider-safe single creation, and board-package portability.
+
+### Changed
+
+- Database schema advances from 8 to 9 to persist local ticket templates. Older binaries reject the migrated database; restore a pre-upgrade backup to roll back.
+
 ## [0.3.0-beta.4] - 2026-10-09
 
 ### Improved
@@ -19,6 +27,7 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 - Require Go 1.26.9 for patched standard-library HTTP, TLS, and MIME handling, and update indirect networking dependencies.
 
 There is no database schema change from beta.3 (schema 8). See the [beta.4 release notes](./docs/releases/v0.3.0-beta.4.md) for upgrade, rollback, and remaining beta limitations.
+
 
 ## [0.3.0-beta.3] - 2026-07-29
 

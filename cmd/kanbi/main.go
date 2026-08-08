@@ -101,6 +101,8 @@ func run(args []string) error {
 		return runIntegration(ctx, cfg, args[1:])
 	case "add":
 		return runAdd(ctx, cfg, args[1:])
+	case "templates":
+		return runTemplates(ctx, cfg, args[1:])
 	case "list":
 		return runList(ctx, cfg, args[1:])
 	case "show", "get":
@@ -599,7 +601,7 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 				if format.JSON {
 					return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.board_package_preview", "report": report})
 				}
-				fmt.Printf("preview\t%s\ttickets=%d\tnotes=%d\tsessions=%d\tattachments=%d\tcollision=%v\n", report.BoardName, report.TicketCount, report.NoteCount, report.SessionCount, report.AttachmentCount, report.NameCollision)
+				fmt.Printf("preview\t%s\ttemplates=%d\ttickets=%d\tnotes=%d\tsessions=%d\tattachments=%d\tcollision=%v\n", report.BoardName, report.TemplateCount, report.TicketCount, report.NoteCount, report.SessionCount, report.AttachmentCount, report.NameCollision)
 				for _, w := range report.Warnings {
 					fmt.Printf("warning\t%s\n", w)
 				}
@@ -672,27 +674,209 @@ func runBoards(ctx context.Context, cfg config.Config, args []string) error {
 	})
 }
 
+func runTemplates(ctx context.Context, cfg config.Config, args []string) error {
+	format, cleaned, err := parseFormat(args)
+	if err != nil {
+		return err
+	}
+	if len(cleaned) == 0 {
+		return errors.New("usage: kanbi templates list|add|update|delete")
+	}
+	action := cleaned[0]
+	opts, err := parseTemplateOptions(cleaned[1:])
+	if err != nil {
+		return err
+	}
+	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
+		board, err := cli.ResolveBoardView(opts.Board)
+		if err != nil {
+			return err
+		}
+		svc := cli.Service()
+		switch action {
+		case "list":
+			if opts.Name != "" || opts.AnyFieldSet() {
+				return errors.New("usage: kanbi templates list [--board NAME] [--json]")
+			}
+			templates, err := svc.ListTicketTemplates(ctx, board.Board.ID)
+			if err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.ticket-template-list", "board": jsonBoard(board.Board), "templates": jsonTemplates(templates)})
+			}
+			for _, tmpl := range templates {
+				fmt.Printf("%s\t%s\t[%s]\n", tmpl.Name, tmpl.Title, tmpl.Harness)
+			}
+			return nil
+		case "add":
+			if opts.NewNameSet {
+				return errors.New("--name is only valid with templates update")
+			}
+			if opts.Name == "" {
+				return errors.New("usage: kanbi templates add NAME [--title TITLE] [--body BODY|--body-file PATH|--body-stdin] [--harness NAME] [--board NAME]")
+			}
+			harnessName := opts.Harness
+			if !opts.HarnessSet {
+				harnessName = "pi"
+			}
+			tmpl, err := svc.CreateTicketTemplate(ctx, board.Board.ID, opts.Name, opts.Title, opts.Body, harnessName)
+			if err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.ticket-template", "template": jsonTemplate(tmpl)})
+			}
+			fmt.Printf("%s [%s]\n", tmpl.Name, tmpl.Harness)
+			return nil
+		case "update":
+			if opts.Name == "" {
+				return errors.New("usage: kanbi templates update NAME [fields]")
+			}
+			tmpl, err := cli.store.TicketTemplateByName(ctx, board.Board.ID, opts.Name)
+			if err != nil {
+				return err
+			}
+			name, title, body, harnessName := tmpl.Name, tmpl.Title, tmpl.Body, tmpl.Harness
+			if opts.NewNameSet {
+				name = opts.NewName
+			}
+			if opts.TitleSet {
+				title = opts.Title
+			}
+			if opts.BodySet {
+				body = opts.Body
+			}
+			if opts.HarnessSet {
+				harnessName = opts.Harness
+			}
+			if err := svc.UpdateTicketTemplate(ctx, tmpl.ID, name, title, body, harnessName); err != nil {
+				return err
+			}
+			updated, err := cli.store.TicketTemplateByID(ctx, tmpl.ID)
+			if err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.ticket-template", "template": jsonTemplate(updated)})
+			}
+			fmt.Printf("%s [%s]\n", updated.Name, updated.Harness)
+			return nil
+		case "delete":
+			if opts.Name == "" || opts.AnyFieldSet() {
+				return errors.New("usage: kanbi templates delete NAME [--board NAME]")
+			}
+			tmpl, err := cli.store.TicketTemplateByName(ctx, board.Board.ID, opts.Name)
+			if err != nil {
+				return err
+			}
+			if err := svc.DeleteTicketTemplate(ctx, tmpl.ID); err != nil {
+				return err
+			}
+			if format.JSON {
+				return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.ticket-template-delete", "deleted": jsonTemplate(tmpl)})
+			}
+			fmt.Println("deleted", tmpl.Name)
+			return nil
+		default:
+			return errors.New("usage: kanbi templates list|add|update|delete")
+		}
+	})
+}
+
+type templateOptions struct {
+	Name, NewName, Title, Body, Harness, Board string
+	NewNameSet, TitleSet, BodySet, HarnessSet  bool
+}
+
+func (o templateOptions) AnyFieldSet() bool {
+	return o.NewNameSet || o.TitleSet || o.BodySet || o.HarnessSet
+}
+
+func parseTemplateOptions(args []string) (templateOptions, error) {
+	var opts templateOptions
+	for i := 0; i < len(args); i++ {
+		flag := args[i]
+		switch flag {
+		case "--title", "--body", "--body-file", "--harness", "--board", "--name":
+			i++
+			if i >= len(args) {
+				return templateOptions{}, fmt.Errorf("%s requires a value", flag)
+			}
+			switch flag {
+			case "--title":
+				opts.Title, opts.TitleSet = args[i], true
+			case "--body":
+				opts.Body, opts.BodySet = args[i], true
+			case "--body-file":
+				value, err := readValue("file", args[i])
+				if err != nil {
+					return templateOptions{}, err
+				}
+				opts.Body, opts.BodySet = value, true
+			case "--harness":
+				opts.Harness, opts.HarnessSet = args[i], true
+			case "--board":
+				opts.Board = args[i]
+			case "--name":
+				opts.NewName, opts.NewNameSet = args[i], true
+			}
+		case "--body-stdin":
+			value, err := readValue("stdin", "")
+			if err != nil {
+				return templateOptions{}, err
+			}
+			opts.Body, opts.BodySet = value, true
+		default:
+			if strings.HasPrefix(flag, "-") {
+				return templateOptions{}, fmt.Errorf("unknown templates flag %s", flag)
+			}
+			if opts.Name != "" {
+				return templateOptions{}, errors.New("templates command accepts one name")
+			}
+			opts.Name = flag
+		}
+	}
+	return opts, nil
+}
+
 func runAdd(ctx context.Context, cfg config.Config, args []string) error {
 	format, cleaned, err := parseFormat(args)
 	if err != nil {
 		return err
 	}
-	title, body, harnessName, boardName, err := parseAddArgs(cleaned)
+	opts, err := parseAddOptions(cleaned)
 	if err != nil {
 		return err
 	}
-	if title == "" {
-		return fmt.Errorf("usage: kanbi add \"title\" --body \"...\" --harness pi")
+	if opts.Title == "" && opts.Template == "" {
+		return fmt.Errorf("usage: kanbi add [\"title\"] [--template NAME] --body \"...\" --harness pi")
 	}
 	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
-		board, err := cli.ResolveBoardView(boardName)
+		board, err := cli.ResolveBoardView(opts.Board)
 		if err != nil {
 			return err
 		}
 		if len(board.Columns) == 0 {
 			return fmt.Errorf("board %q has no columns", board.Board.Name)
 		}
-		t, err := cli.Service().CreateTicket(ctx, board.Columns[0].ID, title, body, harnessName)
+		var t storage.Ticket
+		if opts.Template != "" {
+			tmpl, err := cli.store.TicketTemplateByName(ctx, board.Board.ID, opts.Template)
+			if err != nil {
+				return fmt.Errorf("template %q not found on board %q: %w", opts.Template, board.Board.Name, err)
+			}
+			overrides := storage.TemplateTicketOverrides{Title: opts.Title}
+			if opts.BodySet {
+				overrides.Body = &opts.Body
+			}
+			if opts.HarnessSet {
+				overrides.Harness = opts.Harness
+			}
+			t, err = cli.Service().CreateTicketFromTemplate(ctx, board.Columns[0].ID, tmpl.ID, overrides)
+		} else {
+			t, err = cli.Service().CreateTicket(ctx, board.Columns[0].ID, opts.Title, opts.Body, opts.Harness)
+		}
 		if err != nil {
 			return err
 		}
@@ -1497,6 +1681,21 @@ func jsonSession(s storage.Session) any {
 	}
 }
 
+func jsonTemplates(templates []storage.TicketTemplate) []any {
+	out := make([]any, 0, len(templates))
+	for _, tmpl := range templates {
+		out = append(out, jsonTemplate(tmpl))
+	}
+	return out
+}
+
+func jsonTemplate(t storage.TicketTemplate) any {
+	return map[string]any{
+		"id": t.ID, "board_id": t.BoardID, "name": t.Name, "title": t.Title,
+		"body": t.Body, "harness": t.Harness, "created_at": t.CreatedAt, "updated_at": t.UpdatedAt,
+	}
+}
+
 func jsonNotes(notes []storage.Note) []any {
 	out := make([]any, 0, len(notes))
 	for _, n := range notes {
@@ -1613,52 +1812,70 @@ func parseBoardAddArgs(args []string) (storage.CreateBoardOptions, error) {
 	return opts, nil
 }
 
-func parseAddArgs(args []string) (title, body, harnessName, boardName string, err error) {
-	harnessName = "pi"
+type addOptions struct {
+	Title, Body, Harness, Board, Template string
+	BodySet, HarnessSet                   bool
+}
+
+func parseAddOptions(args []string) (addOptions, error) {
+	opts := addOptions{Harness: "pi"}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--body", "--body-file":
 			flag := args[i]
 			i++
 			if i >= len(args) {
-				return "", "", "", "", fmt.Errorf("%s requires a value", flag)
+				return addOptions{}, fmt.Errorf("%s requires a value", flag)
 			}
 			kind := "literal"
 			if flag == "--body-file" {
 				kind = "file"
 			}
-			body, err = readValue(kind, args[i])
+			value, err := readValue(kind, args[i])
 			if err != nil {
-				return "", "", "", "", err
+				return addOptions{}, err
 			}
+			opts.Body, opts.BodySet = value, true
 		case "--body-stdin":
-			body, err = readValue("stdin", "")
+			value, err := readValue("stdin", "")
 			if err != nil {
-				return "", "", "", "", err
+				return addOptions{}, err
 			}
+			opts.Body, opts.BodySet = value, true
 		case "--harness":
 			i++
 			if i >= len(args) {
-				return "", "", "", "", fmt.Errorf("--harness requires a value")
+				return addOptions{}, fmt.Errorf("--harness requires a value")
 			}
-			harnessName = args[i]
+			opts.Harness, opts.HarnessSet = args[i], true
 		case "--board":
 			i++
 			if i >= len(args) {
-				return "", "", "", "", fmt.Errorf("--board requires a value")
+				return addOptions{}, fmt.Errorf("--board requires a value")
 			}
-			boardName = args[i]
+			opts.Board = args[i]
+		case "--template":
+			i++
+			if i >= len(args) {
+				return addOptions{}, fmt.Errorf("--template requires a value")
+			}
+			opts.Template = args[i]
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return "", "", "", "", fmt.Errorf("unknown add flag %s", args[i])
+				return addOptions{}, fmt.Errorf("unknown add flag %s", args[i])
 			}
-			if title != "" {
-				return "", "", "", "", fmt.Errorf("add accepts one title")
+			if opts.Title != "" {
+				return addOptions{}, fmt.Errorf("add accepts one title")
 			}
-			title = args[i]
+			opts.Title = args[i]
 		}
 	}
-	return title, body, harnessName, boardName, nil
+	return opts, nil
+}
+
+func parseAddArgs(args []string) (title, body, harnessName, boardName string, err error) {
+	opts, err := parseAddOptions(args)
+	return opts.Title, opts.Body, opts.Harness, opts.Board, err
 }
 
 func parseOptionalBoard(args []string) (string, error) {

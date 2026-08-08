@@ -20,6 +20,7 @@ Commands:
   boards     List, add, rename, or update boards
   integration Report, promote, cancel, or list repository integration runs
   add        Create a ticket
+  templates  Manage board-scoped ticket templates
   list       List tickets
   show       Show one ticket
   update     Update ticket metadata
@@ -43,6 +44,7 @@ Examples:
   kanbi doctor
   kanbi boards add "My Project" --cwd "$PWD"
   kanbi add "Investigate failure" --body "Reproduce and fix"
+  kanbi templates add "Bug report" --body-file bug.md
   kanbi open T-001
   kanbi backup ~/kanbi-backup.kanbi
 
@@ -75,9 +77,15 @@ Agent integration sessions receive KANBI_INTEGRATION_TOKEN automatically. A read
 List and manage boards. Archive hides a board and pauses sync without deleting
 history. Board packages are create-new-only exports (format kanbi-board-package);
 they are not full database backups. The TUI still provides confirmed hard delete.`,
-	"add": `Usage: kanbi add TITLE [--body TEXT | --body-file PATH] [--harness NAME] [--board NAME] [--json]
+	"add": `Usage: kanbi add [TITLE] [--template NAME] [--body TEXT | --body-file PATH | --body-stdin] [--harness NAME] [--board NAME] [--json]
 
-Create a ticket in the board's first column.`,
+Create a ticket in the board's first column. Explicit title, body, and harness values override template defaults.`,
+	"templates": `Usage: kanbi templates list [--board NAME] [--json]
+       kanbi templates add NAME [--title TITLE] [--body TEXT|--body-file PATH|--body-stdin] [--harness NAME] [--board NAME] [--json]
+       kanbi templates update NAME [--name NEW] [--title TITLE] [--body TEXT|--body-file PATH|--body-stdin] [--harness NAME] [--board NAME] [--json]
+       kanbi templates delete NAME [--board NAME] [--json]
+
+Manage local, board-scoped templates. Applying a template copies its current values into an ordinary ticket; later template changes do not affect existing tickets.`,
 	"list": `Usage: kanbi list [--board NAME] [--json]
 
 List tickets, including board context when listing multiple boards.`,

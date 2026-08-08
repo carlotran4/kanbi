@@ -47,6 +47,11 @@ type BoardCommands interface {
 
 type TicketCommands interface {
 	CreateTicket(context.Context, int64, string, string, string) (storage.Ticket, error)
+	CreateTicketFromTemplate(context.Context, int64, int64, storage.TemplateTicketOverrides) (storage.Ticket, error)
+	ListTicketTemplates(context.Context, int64) ([]storage.TicketTemplate, error)
+	CreateTicketTemplate(context.Context, int64, string, string, string, string) (storage.TicketTemplate, error)
+	UpdateTicketTemplate(context.Context, int64, string, string, string, string) error
+	DeleteTicketTemplate(context.Context, int64) error
 	UpdateTicket(context.Context, int64, string, string, string) error
 	ArchiveTicket(context.Context, int64) error
 	MoveTicket(context.Context, int64, int64) error

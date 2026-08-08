@@ -77,7 +77,7 @@ Stop and ask before:
 | `internal/archiveutil` | Policy-free symlink-aware path containment, bounded ZIP reads, and regular-file extraction safety shared by archive formats. |
 | `internal/backup` | Versioned full SQLite-and-attachments export/restore archives (`kanbi-backup`) with validation. |
 | `internal/boardpackage` | Versioned single-board packages (`kanbi-board-package`) with path-safe attachments, preview, create-new import, and compensating rollback. |
-| `internal/storage` | SQLite adapter split by boards, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. Includes board archive/sync flags, workflow keys, filter presets, and board aggregate load/import. `TicketProjection` and `ColumnView` are explicit read models. |
+| `internal/storage` | SQLite adapter split by boards, ticket templates, tickets, columns, sessions, notes, remote sync, projections, schema, and migrations. Includes board archive/sync flags, workflow keys, filter presets, and board aggregate load/import. `TicketProjection` and `ColumnView` are explicit read models. |
 | `internal/session` | Provider-neutral lifecycle policy and errors, durable session repository contract, and compiled-in multiplexer registry. |
 | `internal/workspace` | Multiplexer-neutral Git repository inspection, branch/worktree provisioning and validation, status observation, conflict resolution primitives, repository flock, and conservative cleanup. |
 | `internal/integration` | Repository-scoped integration runs: exact source/ticket snapshots, managed integration checkout and prompt, token-authenticated agent reports, independent candidate verification, serialized promotion, and ticket-workspace retirement. |
@@ -121,6 +121,7 @@ Session rows persist generic multiplexer container fields (`multiplexer`, `mux_n
 ```mermaid
 erDiagram
   boards ||--o{ columns : owns
+  boards ||--o{ ticket_templates : owns
   boards ||--o{ tickets : owns
   columns ||--o{ tickets : contains
   tickets ||--o{ sessions : launches
@@ -129,6 +130,7 @@ erDiagram
 
 - A **board** owns columns, display numbering, a working directory, and exactly one implemented ticket metadata backend. Board names are unique without regard to case.
 - The **Master board** is a synthetic all-boards view; it is not a stored board row.
+- A **ticket template** is board-scoped local metadata containing a reusable name, title seed, literal body, and supported harness. Application snapshots those values into an ordinary ticket; provider sync never owns templates and existing tickets are never linked back.
 - A **ticket** is durable work metadata: non-blank title, body, supported harness preference, workflow column, archive status, and local Focus Mode pause state. A ticket may move only between columns owned by its board. Append-only pause checkpoints preserve every pause/resume handoff independently of provider metadata and runtime state.
 - Column names are unique by exact spelling within a board. Master aggregation matches column `workflow_key` values (defaulted to each column's display name at creation; rename does not change the key). At most one column per workflow key is allowed on a board.
 - External ticket and note identities are unique within their owning board/ticket so sync never has to choose an ambiguous local row.

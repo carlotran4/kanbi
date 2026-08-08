@@ -81,6 +81,32 @@ func TestTicketMutationsScheduleOwningBoardExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestTemplateCRUDIsSyncFreeAndApplicationSchedulesOnce(t *testing.T) {
+	ctx, _, view, syncer, _, service := newMutationService(t)
+	tmpl, err := service.CreateTicketTemplate(ctx, view.Board.ID, "Bug", "Bug:", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateTicketTemplate(ctx, tmpl.ID, "Defect", "Bug:", "body", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	if len(syncer.boardIDs) != 0 {
+		t.Fatalf("template CRUD scheduled provider sync: %v", syncer.boardIDs)
+	}
+	if _, err := service.CreateTicketFromTemplate(ctx, view.Columns[0].ID, tmpl.ID, storage.TemplateTicketOverrides{Title: "Bug: resize"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []int64{view.Board.ID}; !reflect.DeepEqual(syncer.boardIDs, want) {
+		t.Fatalf("scheduled boards=%v want=%v", syncer.boardIDs, want)
+	}
+	if err := service.DeleteTicketTemplate(ctx, tmpl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(syncer.boardIDs, []int64{view.Board.ID}) {
+		t.Fatalf("delete scheduled provider sync: %v", syncer.boardIDs)
+	}
+}
+
 func TestUpdateTicketRenamesBeforePersistenceAndSchedulesAfterSuccess(t *testing.T) {
 	ctx, store, view, syncer, manager, service := newMutationService(t)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Original", "body", "pi")

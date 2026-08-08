@@ -20,6 +20,45 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 	if m.boardIndex < 0 {
 		m.boardIndex = 0
 	}
+	if m.boardPickerMode == "template-create" || m.boardPickerMode == "template-manage" {
+		switch key.String() {
+		case "esc", "b":
+			m.boardPicker = false
+		case "j", "down":
+			if count > 0 {
+				m.boardIndex = (m.boardIndex + 1) % count
+			}
+		case "k", "up":
+			if count > 0 {
+				m.boardIndex--
+				if m.boardIndex < 0 {
+					m.boardIndex = count - 1
+				}
+			}
+		case "enter":
+			if m.boardIndex == 0 || m.boardIndex-1 >= len(m.boards) {
+				m.status = "choose a real board"
+				return m
+			}
+			b := m.boards[m.boardIndex-1]
+			m.boardPicker = false
+			if m.boardPickerMode == "template-manage" {
+				m.openTemplateModal(b, 0, "manage")
+				return m
+			}
+			key := m.masterCreateKey
+			if key == "" {
+				key = m.masterCreateCol
+			}
+			columnID, err := m.actions.ColumnIDByBoardAndWorkflowKey(m.ctx, b.ID, key)
+			if err != nil {
+				m.status = "target board has no workflow key " + key
+				return m
+			}
+			m.openTemplateModal(b, columnID, "pick")
+		}
+		return m
+	}
 	switch key.String() {
 	case "esc", "b":
 		m.boardPicker = false
@@ -198,6 +237,10 @@ func (m Model) boardPickerView() string {
 	title := "Select board"
 	if m.boardPickerMode == "create" {
 		title = "Create ticket in which board?"
+	} else if m.boardPickerMode == "template-create" {
+		title = "Create from template in which board?"
+	} else if m.boardPickerMode == "template-manage" {
+		title = "Manage templates for which board?"
 	}
 	header := lipgloss.NewStyle().Bold(true).Foreground(palette.accent).Render(title)
 	lines = append(lines, header, "")
@@ -216,7 +259,7 @@ func (m Model) boardPickerView() string {
 		return "  " + name
 	}
 	masterLabel := "Master (all boards)"
-	if m.boardPickerMode == "create" {
+	if m.boardPickerMode == "create" || m.boardPickerMode == "template-create" || m.boardPickerMode == "template-manage" {
 		masterLabel = "Master (choose a real board below)"
 	}
 	lines = append(lines, row(0, masterLabel))
@@ -245,6 +288,8 @@ func (m Model) boardPickerView() string {
 	var hint string
 	if m.boardPickerMode == "create" {
 		hint = "Enter create · j/k move · Esc cancel"
+	} else if m.boardPickerMode == "template-create" || m.boardPickerMode == "template-manage" {
+		hint = "Enter select · j/k move · Esc cancel"
 	} else {
 		hint = "Enter select · c create · r rename · w cwd · t enable worktrees · a archive · s sync · e export · i import · A archived · d delete · j/k · Esc"
 	}
@@ -531,7 +576,7 @@ func (m Model) updateBoardImport(key tea.KeyMsg) Model {
 				return m
 			}
 			m.boardImportPreviewed = true
-			m.status = fmt.Sprintf("preview %s tickets=%d notes=%d attachments=%d collision=%v · Enter to import", report.BoardName, report.TicketCount, report.NoteCount, report.AttachmentCount, report.NameCollision)
+			m.status = fmt.Sprintf("preview %s templates=%d tickets=%d notes=%d attachments=%d collision=%v · Enter to import", report.BoardName, report.TemplateCount, report.TicketCount, report.NoteCount, report.AttachmentCount, report.NameCollision)
 			if report.NameCollision && strings.TrimSpace(m.boardImportName.Value()) == "" {
 				m.status += " (set rename first)"
 			}

@@ -127,6 +127,37 @@ func TestCLIUpdateRejectsInvalidValuesWithoutChangingTicket(t *testing.T) {
 	}
 }
 
+func TestTemplateCLIWorkflowAndTemplateTicketOverrides(t *testing.T) {
+	runArgs, openStore := setupCLI(t)
+	if err := runArgs("templates", "add", "Bug", "--title", "Bug:", "--body", "template body", "--harness", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runArgs("templates", "update", "Bug", "--name", "Defect", "--harness", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runArgs("add", "Defect: resize", "--template", "Defect", "--body", "explicit body"); err != nil {
+		t.Fatal(err)
+	}
+	s := openStore()
+	ticket, err := s.TicketByDisplayID(context.Background(), "T-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.Title != "Defect: resize" || ticket.Body != "explicit body" || ticket.Harness != "codex" {
+		t.Fatalf("unexpected template CLI ticket: %+v", ticket)
+	}
+	out := captureStdout(t, func() error { return runArgs("templates", "list", "--json") })
+	if !strings.Contains(out, "kanbi.v1.ticket-template-list") || !strings.Contains(out, "Defect") {
+		t.Fatalf("unexpected template JSON: %s", out)
+	}
+	if err := runArgs("templates", "delete", "Defect"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runArgs("templates", "add", "Bad", "--name", "Ignored"); err == nil {
+		t.Fatal("expected add to reject update-only --name")
+	}
+}
+
 // ---- parseAddArgs ----
 
 func TestParseAddArgsPositional(t *testing.T) {
@@ -168,6 +199,26 @@ func TestParseAddArgsUnknownFlag(t *testing.T) {
 	_, _, _, _, err := parseAddArgs([]string{"Title", "--unknown"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestParseAddOptionsTemplatePreservesExplicitOverrides(t *testing.T) {
+	opts, err := parseAddOptions([]string{"Ticket title", "--template", "Bug", "--body", "", "--harness", "codex", "--board", "Repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Template != "Bug" || opts.Title != "Ticket title" || !opts.BodySet || opts.Body != "" || !opts.HarnessSet || opts.Harness != "codex" || opts.Board != "Repo" {
+		t.Fatalf("unexpected options: %+v", opts)
+	}
+}
+
+func TestParseTemplateOptions(t *testing.T) {
+	opts, err := parseTemplateOptions([]string{"Bug", "--name", "Defect", "--title", "Bug:", "--body", "body", "--harness", "pi", "--board", "Repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Name != "Bug" || opts.NewName != "Defect" || !opts.TitleSet || !opts.BodySet || !opts.HarnessSet || opts.Board != "Repo" {
+		t.Fatalf("unexpected template options: %+v", opts)
 	}
 }
 

@@ -256,6 +256,27 @@ func (s *Service) ResolveMasterFilter(ctx context.Context, d storage.DurableMast
 func (s *Service) DurableFromMasterFilter(ctx context.Context, f storage.MasterFilter) (storage.DurableMasterFilter, error) {
 	return s.Store.DurableFromMasterFilter(ctx, f)
 }
+func (s *Service) ListTicketTemplates(ctx context.Context, boardID int64) ([]storage.TicketTemplate, error) {
+	return s.Store.ListTicketTemplates(ctx, boardID)
+}
+func (s *Service) CreateTicketTemplate(ctx context.Context, boardID int64, name, title, body, harness string) (storage.TicketTemplate, error) {
+	return s.Store.CreateTicketTemplate(ctx, boardID, name, title, body, harness)
+}
+func (s *Service) UpdateTicketTemplate(ctx context.Context, id int64, name, title, body, harness string) error {
+	return s.Store.UpdateTicketTemplate(ctx, id, name, title, body, harness)
+}
+func (s *Service) DeleteTicketTemplate(ctx context.Context, id int64) error {
+	return s.Store.DeleteTicketTemplate(ctx, id)
+}
+func (s *Service) CreateTicketFromTemplate(ctx context.Context, columnID, templateID int64, overrides storage.TemplateTicketOverrides) (storage.Ticket, error) {
+	ticket, err := s.Store.CreateTicketFromTemplate(ctx, columnID, templateID, overrides)
+	if err != nil {
+		return storage.Ticket{}, err
+	}
+	s.syncBoardAfterTicketChange(ctx, ticket.BoardID)
+	return ticket, nil
+}
+
 func (s *Service) CreateTicket(ctx context.Context, columnID int64, title, body, harness string) (storage.Ticket, error) {
 	ticket, err := s.Store.CreateTicket(ctx, columnID, title, body, harness)
 	if err != nil {

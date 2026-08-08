@@ -52,6 +52,8 @@ func (m Model) View() string {
 		return overlayModal(base, fitModal(m.boardPickerView(), m.height, 0, true), m.width, m.height)
 	case modalMasterFilter:
 		return overlayModal(base, fitModal(m.masterFilterView(), m.height, 0, true), m.width, m.height)
+	case modalTemplates:
+		return overlayModal(base, fitModal(m.templatesView(), m.height, 0, true), m.width, m.height)
 	case modalEdit:
 		return overlayModal(base, fitModal(m.editView(), m.inspectorViewportHeight()+2, 0, true), m.width, m.height)
 	case modalStateMenu:
@@ -157,19 +159,21 @@ func focusHeaderLine(left, focusText string, width int) string {
 }
 
 func (m Model) contextBar() string {
-	items := []string{"Enter:send/open", "n:new", "e:ticket", "I:integrate", "b:boards", "F:focus"}
+	items := []string{"Enter:send/open", "n:new", "N:template", "T:templates", "e:ticket", "I:integrate", "b:boards", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
 	items = append(items, "!:attention", "q:quit", "?:help+legend")
+	separator := "  "
 	if m.width <= 80 {
-		items = []string{"Enter:open", "n:new", "b:boards", "F:focus"}
+		items = []string{"Enter:open", "n:new", "N:template", "T:manage", "b:boards", "F:focus"}
 		if m.masterBoard {
 			items = append(items, "f:filters")
 		}
 		items = append(items, "q:quit", "?:help")
+		separator = " "
 	}
-	return trimToWidth(strings.Join(items, "  "), maxInt(1, m.width))
+	return trimToWidth(strings.Join(items, separator), maxInt(1, m.width))
 }
 
 const (
@@ -1032,7 +1036,7 @@ func (m Model) helpView() string {
 	section("Tickets")
 	row("Enter", "send a new prompt, or open/resume the session")
 	row("x", "safely close session")
-	row("n / e / E", "new / inspect / edit body in $EDITOR")
+	row("n/N/T · e/E", "new / template / manage · inspect / $EDITOR")
 	row("g / a / m", "open GitHub / archive / mark state")
 	row("H/L", "move ticket left/right")
 	row("J/K", "reorder ticket up/down")

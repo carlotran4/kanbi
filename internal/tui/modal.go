@@ -22,6 +22,7 @@ const (
 	modalBoardImport
 	modalBoardPicker
 	modalMasterFilter
+	modalTemplates
 	modalEdit
 	modalStateMenu
 	modalColumnEdit
@@ -65,6 +66,8 @@ func (m Model) activeModalKind() modalKind {
 		return modalBoardPicker
 	case m.masterFilterOpen:
 		return modalMasterFilter
+	case m.templateOpen:
+		return modalTemplates
 	case m.editing:
 		return modalEdit
 	case m.stateMenu:

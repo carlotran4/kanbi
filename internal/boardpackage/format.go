@@ -22,6 +22,7 @@ type Manifest struct {
 	SourceBoardUUID string    `json:"source_board_uuid"`
 	SourceBoardName string    `json:"source_board_name"`
 	TicketCount     int       `json:"ticket_count"`
+	TemplateCount   int       `json:"template_count,omitempty"`
 	NoteCount       int       `json:"note_count"`
 	SessionCount    int       `json:"session_count"`
 	CheckpointCount int       `json:"checkpoint_count,omitempty"`
@@ -32,6 +33,7 @@ type Manifest struct {
 type Document struct {
 	Board       BoardPayload        `json:"board"`
 	Columns     []ColumnPayload     `json:"columns"`
+	Templates   []TemplatePayload   `json:"ticket_templates,omitempty"`
 	Tickets     []TicketPayload     `json:"tickets"`
 	Notes       []NotePayload       `json:"notes"`
 	Sessions    []SessionPayload    `json:"sessions"`
@@ -52,6 +54,16 @@ type BoardPayload struct {
 	ArchivedAt       *time.Time `json:"archived_at,omitempty"`
 	SyncEnabled      bool       `json:"sync_enabled"`
 	SourceExportUUID string     `json:"source_export_uuid,omitempty"`
+}
+
+type TemplatePayload struct {
+	SourceID  int64     `json:"source_id"`
+	Name      string    `json:"name"`
+	Title     string    `json:"title,omitempty"`
+	Body      string    `json:"body"`
+	Harness   string    `json:"harness"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type ColumnPayload struct {
@@ -148,6 +160,7 @@ type Report struct {
 	BoardName           string   `json:"board_name"`
 	TicketBackend       string   `json:"ticket_backend"`
 	TicketCount         int      `json:"ticket_count"`
+	TemplateCount       int      `json:"template_count"`
 	NoteCount           int      `json:"note_count"`
 	SessionCount        int      `json:"session_count"`
 	CheckpointCount     int      `json:"checkpoint_count"`
