@@ -88,6 +88,11 @@ func (m Model) baseView() string {
 		boardName = "Board"
 	}
 	if m.focus.Enabled {
+		if m.masterBoard {
+			if summary := m.masterFilterSummary(); summary != "" {
+				boardName += "  filter: " + summary
+			}
+		}
 		focusText := fmt.Sprintf("Focus %d/%d", m.focus.Used, m.focus.Limit)
 		if m.focus.OverCapacity {
 			focusText = fmt.Sprintf("FOCUS %d/%d · pause %d to continue", m.focus.Used, m.focus.Limit, m.focus.Used-m.focus.Limit)

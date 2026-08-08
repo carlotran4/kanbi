@@ -97,7 +97,7 @@ flowchart TD
   F --> G[Render Master]
 ```
 
-Master groups tickets by column `workflow_key`. Example: every board column keyed `Open` contributes tickets to the synthetic `Open` column even if a board renames the display label. Workflow keys default to the column display name at creation and are preserved across renames. By default Master shows unarchived tickets only.
+Master groups tickets by column `workflow_key`. Example: every board column keyed `Open` contributes tickets to the synthetic `Open` column even if a board renames the display label. Workflow keys default to the column display name at creation and are preserved across renames. When distinct workflow keys choose the same representative display label, Master appends each workflow key (for example, `Open [Open]` and `Open [Inbox]`) so materially different destinations never look identical. By default Master shows unarchived tickets only.
 
 ## Master filters
 

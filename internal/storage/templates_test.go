@@ -11,6 +11,8 @@ func TestTicketTemplateCRUDAndSnapshotApplication(t *testing.T) {
 	}
 	if _, err := s.CreateTicketTemplate(ctx, view.Board.ID, "bug REPORT", "", "", "pi"); err == nil {
 		t.Fatal("expected case-insensitive duplicate name rejection")
+	} else if err.Error() != "template name already exists on this board" {
+		t.Fatalf("duplicate error=%q", err)
 	}
 	body := "override body"
 	ticket, err := s.CreateTicketFromTemplate(ctx, view.Columns[0].ID, tmpl.ID, TemplateTicketOverrides{Title: "Bug: resize", Body: &body, Harness: "codex"})

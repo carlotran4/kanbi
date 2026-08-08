@@ -37,6 +37,10 @@ func TestMasterFilterModalAppliesSearchAndClear(t *testing.T) {
 	if got := tuiTicketTitles(model); len(got) != 1 || got[0] != "Codex handoff" {
 		t.Fatalf("search filter not applied titles=%v\n%s", got, model.View())
 	}
+	model.focus = storage.FocusStatus{Enabled: true, Limit: 3, Used: 1, WorkflowKeys: []string{"In Progress"}}
+	if rendered := model.View(); !strings.Contains(rendered, "filter:") || !strings.Contains(rendered, "search=codex") {
+		t.Fatalf("Focus header hid active Master filter:\n%s", rendered)
+	}
 
 	model, _ = mustUpdate(t, model, "f")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlL})

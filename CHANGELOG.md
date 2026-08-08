@@ -12,6 +12,11 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 - Database schema advances from 8 to 9 to persist local ticket templates. Older binaries reject the migrated database; restore a pre-upgrade backup to roll back.
 
+### Fixed
+
+- Keep template picker/manager controls, status, harness labels, truncation cues, and nearby selection visible through empty, long-list, duplicate-name, delete, and 80x24 flows.
+- Disambiguate identical Master column labels from distinct workflow keys and retain active Master filter summaries while Focus Mode is enabled.
+
 ## [0.3.0-beta.4] - 2026-10-09
 
 ### Improved

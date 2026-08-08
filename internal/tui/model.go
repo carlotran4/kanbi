@@ -183,21 +183,22 @@ type Model struct {
 	focusSettingsField       int
 	focusSettingsSubmitting  bool
 
-	templateOpen      bool
-	templateMode      string // pick, title, manage, edit, delete
-	templateBoard     storage.Board
-	templateColumnID  int64
-	templates         []storage.TicketTemplate
-	templateIndex     int
-	templateFilter    InputBuffer
-	templateSelected  storage.TicketTemplate
-	templateTitle     InputBuffer
-	templateEditField int
-	templateEditNew   bool
-	templateName      InputBuffer
-	templateSeedTitle InputBuffer
-	templateHarness   InputBuffer
-	templateBodyTA    textarea.Model
+	templateOpen        bool
+	templateMode        string // pick, title, manage, edit, delete
+	templateBoard       storage.Board
+	templateColumnID    int64
+	templates           []storage.TicketTemplate
+	templateIndex       int
+	templateFilter      InputBuffer
+	templateSelected    storage.TicketTemplate
+	templateTitle       InputBuffer
+	templateTitleReturn string
+	templateEditField   int
+	templateEditNew     bool
+	templateName        InputBuffer
+	templateSeedTitle   InputBuffer
+	templateHarness     InputBuffer
+	templateBodyTA      textarea.Model
 }
 
 // defaultTermSize is used before a WindowSizeMsg arrives.

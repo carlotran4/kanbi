@@ -80,6 +80,32 @@ func TestMasterAggregatesByWorkflowKeyAcrossRenames(t *testing.T) {
 	_ = bView
 }
 
+func TestMasterDisambiguatesIdenticalLabelsForDistinctWorkflowKeys(t *testing.T) {
+	s, ctx := newTestStore(t)
+	other, err := s.CreateBoard(ctx, "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherView := boardViewByID(t, ctx, s, other.ID)
+	if err := s.SetColumnWorkflowKey(ctx, otherView.Columns[0].ID, "Inbox"); err != nil {
+		t.Fatal(err)
+	}
+	master, err := s.MasterBoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, col := range master.Columns {
+		if seen[col.Name] {
+			t.Fatalf("duplicate visible Master label %q: %+v", col.Name, master.Columns)
+		}
+		seen[col.Name] = true
+	}
+	if !seen["Open [Open]"] || !seen["Open [Inbox]"] {
+		t.Fatalf("expected disambiguated Open labels, got %+v", master.Columns)
+	}
+}
+
 func TestSetColumnWorkflowKeyConflictAndRenamePreservesKey(t *testing.T) {
 	s, ctx := newTestStore(t)
 	board, err := s.CreateBoard(ctx, "Keys")

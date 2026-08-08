@@ -144,6 +144,96 @@ func TestTemplatePickerKeepsControlsWithLongListAndPreviewAt80x24(t *testing.T) 
 	}
 }
 
+func TestEmptyTemplatePickerTShortcutOpensManager(t *testing.T) {
+	model, _, _ := newTestModel(t)
+	model.startTemplateCreate()
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("T")})
+	model = next.(Model)
+	if !model.templateOpen || model.templateMode != "manage" {
+		t.Fatalf("T from empty picker mode=%q filter=%q", model.templateMode, model.templateFilter.Value())
+	}
+}
+
+func TestTemplateEditorClearsValidationStatusWhenCancelled(t *testing.T) {
+	model, store, ctx := newTestModel(t)
+	view := defaultBoardView(t, ctx, store)
+	if _, err := store.CreateTicketTemplate(ctx, view.Board.ID, "Bug", "", "body", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	model.startTemplateManagement()
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	model = next.(Model)
+	model.templateName.Set("BUG")
+	next, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	model = next.(Model)
+	if model.status != "template name already exists on this board" {
+		t.Fatalf("unexpected validation status %q", model.status)
+	}
+	next, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = next.(Model)
+	if model.templateMode != "manage" || model.status != "" {
+		t.Fatalf("cancel left stale status: mode=%q status=%q", model.templateMode, model.status)
+	}
+}
+
+func TestTemplateManagerKeepsStatusAndFrameAt80x24(t *testing.T) {
+	model, store, ctx := newTestModel(t)
+	view := defaultBoardView(t, ctx, store)
+	for i := 0; i < 24; i++ {
+		if _, err := store.CreateTicketTemplate(ctx, view.Board.ID, fmt.Sprintf("Template %02d", i), "Title", "body", "pi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model.width, model.height = 80, 24
+	model.startTemplateManagement()
+	model.status = "saved template"
+	rendered := ansiStrip(model.View())
+	if !strings.Contains(rendered, "Status: saved template") || !strings.Contains(rendered, "c create") {
+		t.Fatalf("manager status or controls clipped at 80x24:\n%s", rendered)
+	}
+}
+
+func TestTemplateManagerUseEscapeReturnsToManagerAndDeleteKeepsNearbySelection(t *testing.T) {
+	model, store, ctx := newTestModel(t)
+	view := defaultBoardView(t, ctx, store)
+	for i := 0; i < 3; i++ {
+		if _, err := store.CreateTicketTemplate(ctx, view.Board.ID, fmt.Sprintf("Template %d", i), "", "body", "pi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model.startTemplateManagement()
+	model.templateIndex = 2
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = next.(Model)
+	next, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = next.(Model)
+	if model.templateMode != "manage" {
+		t.Fatalf("Esc returned to %q, want manage", model.templateMode)
+	}
+	next, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = next.(Model)
+	next, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	model = next.(Model)
+	if model.templateIndex != 1 {
+		t.Fatalf("selection index=%d want 1 after deleting last item", model.templateIndex)
+	}
+}
+
+func TestTemplateRowsPreserveHarnessAndLongPreviewShowsEllipsis(t *testing.T) {
+	model, store, ctx := newTestModel(t)
+	view := defaultBoardView(t, ctx, store)
+	name := strings.Repeat("Very long template name ", 10)
+	if _, err := store.CreateTicketTemplate(ctx, view.Board.ID, name, "Long title", strings.Repeat("preview content ", 100), "claude"); err != nil {
+		t.Fatal(err)
+	}
+	model.width, model.height = 80, 24
+	model.startTemplateCreate()
+	rendered := ansiStrip(model.View())
+	if !strings.Contains(rendered, "[claude]") || !strings.Contains(rendered, "…") {
+		t.Fatalf("picker lost harness or truncation marker:\n%s", rendered)
+	}
+}
+
 func TestTemplateManagerBoundsLongListsAt80x24(t *testing.T) {
 	model, store, ctx := newTestModel(t)
 	view := defaultBoardView(t, ctx, store)

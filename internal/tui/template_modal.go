@@ -76,7 +76,9 @@ func (m *Model) refreshTemplates() bool {
 		return false
 	}
 	m.templates = templates
-	m.templateIndex = 0
+	if m.templateIndex >= len(m.templates) {
+		m.templateIndex = maxInt(0, len(m.templates)-1)
+	}
 	return true
 }
 
@@ -127,6 +129,11 @@ func (m Model) updateTemplates(key tea.KeyMsg) (Model, tea.Cmd) {
 		switch key.String() {
 		case "esc":
 			m.templateOpen = false
+		case "T":
+			m.templateMode = "manage"
+			m.templateFilter = NewInputBuffer("")
+			m.templateIndex = 0
+			m.status = ""
 		case "j", "down":
 			if len(items) > 0 {
 				m.templateIndex = (m.templateIndex + 1) % len(items)
@@ -142,7 +149,9 @@ func (m Model) updateTemplates(key tea.KeyMsg) (Model, tea.Cmd) {
 			if len(items) > 0 {
 				m.templateSelected = items[m.templateIndex]
 				m.templateTitle = NewInputBuffer(m.templateSelected.Title)
+				m.templateTitleReturn = "pick"
 				m.templateMode = "title"
+				m.status = ""
 			}
 		default:
 			if m.templateFilter.HandleKey(key.String(), key.Runes) {
@@ -152,7 +161,10 @@ func (m Model) updateTemplates(key tea.KeyMsg) (Model, tea.Cmd) {
 	case "title":
 		switch key.String() {
 		case "esc":
-			m.templateMode = "pick"
+			m.templateMode = m.templateTitleReturn
+			if m.templateMode == "" {
+				m.templateMode = "pick"
+			}
 		case "enter":
 			m.createFromSelectedTemplate()
 		default:
@@ -186,18 +198,22 @@ func (m Model) updateTemplates(key tea.KeyMsg) (Model, tea.Cmd) {
 			if len(m.templates) > 0 {
 				m.templateSelected = m.templates[m.templateIndex]
 				m.templateMode = "delete"
+				m.status = ""
 			}
 		case "enter":
 			if len(m.templates) > 0 && m.templateColumnID != 0 {
 				m.templateSelected = m.templates[m.templateIndex]
 				m.templateTitle = NewInputBuffer(m.templateSelected.Title)
+				m.templateTitleReturn = "manage"
 				m.templateMode = "title"
+				m.status = ""
 			}
 		}
 	case "delete":
 		switch key.String() {
 		case "esc", "n":
 			m.templateMode = "manage"
+			m.status = ""
 		case "enter", "y":
 			if err := m.actions.DeleteTicketTemplate(m.ctx, m.templateSelected.ID); err != nil {
 				m.status = err.Error()
@@ -212,6 +228,7 @@ func (m Model) updateTemplates(key tea.KeyMsg) (Model, tea.Cmd) {
 		case "esc":
 			m.templateBodyTA.Blur()
 			m.templateMode = "manage"
+			m.status = ""
 		case "ctrl+s":
 			name, title, body, harnessName := m.templateName.Value(), m.templateSeedTitle.Value(), m.templateBodyTA.Value(), m.templateHarness.Value()
 			var err error
@@ -276,7 +293,7 @@ func (m Model) templatesView() string {
 		lines = append(lines, header.Render("New ticket from template · "+m.templateBoard.Name), "Search: "+m.templateFilter.Viewport(maxInt(1, contentWidth-8)), "")
 		items := m.filteredTemplates()
 		if len(items) == 0 {
-			lines = append(lines, "No matching templates.", "Press Esc to cancel; use T to create one.")
+			lines = append(lines, "No matching templates.", "Press T to manage templates, or Esc to cancel.")
 		} else {
 			// Reserve rows for header/search, preview, controls, and modal borders so
 			// Enter/Esc never scroll out of view at 80x24.
@@ -290,7 +307,7 @@ func (m Model) templatesView() string {
 				if i == m.templateIndex {
 					marker = "> "
 				}
-				lines = append(lines, trimToWidth(marker+tmpl.Name+"  ["+tmpl.Harness+"]", contentWidth))
+				lines = append(lines, templatePickerRow(marker, tmpl, contentWidth))
 			}
 			if end < len(items) {
 				lines = append(lines, fmt.Sprintf("  ↓ %d more", len(items)-end))
@@ -299,9 +316,10 @@ func (m Model) templatesView() string {
 			lines = append(lines, "", "Preview: "+emptyDefaultUI(tmpl.Title, tmpl.Name))
 			preview := strings.TrimSpace(tmpl.Body)
 			if preview != "" {
-				previewLines := wrapText(preview, contentWidth, 4)
+				previewLines := wrapText(preview, contentWidth, 5)
 				if len(previewLines) > 4 {
-					previewLines = append(previewLines[:3], trimToWidth(previewLines[3]+"…", contentWidth))
+					previewLines = previewLines[:4]
+					previewLines[3] = trimToWidth(previewLines[3], maxInt(1, contentWidth-1)) + "…"
 				}
 				lines = append(lines, previewLines...)
 			}
@@ -314,7 +332,11 @@ func (m Model) templatesView() string {
 		if len(m.templates) == 0 {
 			lines = append(lines, "No templates for this board.")
 		}
-		start, end := templateWindow(len(m.templates), m.templateIndex, maxInt(1, m.height-11))
+		listRows := m.height - 15
+		if m.status != "" {
+			listRows = m.height - 17
+		}
+		start, end := templateWindow(len(m.templates), m.templateIndex, maxInt(1, listRows))
 		if start > 0 {
 			lines = append(lines, fmt.Sprintf("  ↑ %d more", start))
 		}
@@ -324,7 +346,7 @@ func (m Model) templatesView() string {
 			if i == m.templateIndex {
 				marker = "> "
 			}
-			lines = append(lines, trimToWidth(marker+tmpl.Name+"  "+emptyDefaultUI(tmpl.Title, "(title prompted)")+"  ["+tmpl.Harness+"]", contentWidth))
+			lines = append(lines, templateManagerRow(marker, tmpl, contentWidth))
 		}
 		if end < len(m.templates) {
 			lines = append(lines, fmt.Sprintf("  ↓ %d more", len(m.templates)-end))
@@ -392,6 +414,21 @@ func templateWindow(total, selected, limit int) (int, int) {
 		start = maxInt(0, end-limit)
 	}
 	return start, end
+}
+
+func templatePickerRow(marker string, tmpl storage.TicketTemplate, width int) string {
+	suffix := "[" + tmpl.Harness + "]"
+	leftWidth := maxInt(1, width-lipgloss.Width(suffix)-1)
+	left := trimToWidth(marker+tmpl.Name, leftWidth)
+	return spaceBetween(left, suffix, width)
+}
+
+func templateManagerRow(marker string, tmpl storage.TicketTemplate, width int) string {
+	suffix := "[" + tmpl.Harness + "]"
+	leftWidth := maxInt(1, width-lipgloss.Width(suffix)-1)
+	left := marker + tmpl.Name + "  " + emptyDefaultUI(tmpl.Title, "(title prompted)")
+	left = trimToWidth(left, leftWidth)
+	return spaceBetween(left, suffix, width)
 }
 
 func emptyDefaultUI(value, fallback string) string {

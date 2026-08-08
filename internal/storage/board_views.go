@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-
 	"strings"
 )
 
@@ -79,6 +78,23 @@ select c.workflow_key,
 	}
 	if err := rows.Err(); err != nil {
 		return BoardView{}, err
+	}
+	labelCounts := make(map[string]int, len(view.Columns))
+	for _, col := range view.Columns {
+		labelCounts[strings.ToLower(col.Name)]++
+	}
+	usedLabels := make(map[string]bool, len(view.Columns))
+	for i := range view.Columns {
+		candidate := view.Columns[i].Name
+		if labelCounts[strings.ToLower(candidate)] > 1 {
+			candidate = fmt.Sprintf("%s [%s]", candidate, view.Columns[i].WorkflowKey)
+		}
+		base := candidate
+		for suffix := 2; usedLabels[strings.ToLower(candidate)]; suffix++ {
+			candidate = fmt.Sprintf("%s #%d", base, suffix)
+		}
+		view.Columns[i].Name = candidate
+		usedLabels[strings.ToLower(candidate)] = true
 	}
 	for i := range view.Columns {
 		suffix, args := masterFilterQuery(view.Columns[i].WorkflowKey, filter)

@@ -60,7 +60,7 @@ func (s *Store) CreateTicketTemplate(ctx context.Context, boardID int64, name, t
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx, `insert into ticket_templates(board_id,name,title,body,harness,created_at,updated_at) values(?,?,?,?,?,?,?)`, boardID, write.Name, write.Title, write.Body, write.Harness, now, now)
 	if err != nil {
-		return TicketTemplate{}, err
+		return TicketTemplate{}, ticketTemplateWriteError(err)
 	}
 	id, _ := res.LastInsertId()
 	return s.TicketTemplateByID(ctx, id)
@@ -72,7 +72,14 @@ func (s *Store) UpdateTicketTemplate(ctx context.Context, id int64, name, title,
 		return err
 	}
 	res, err := s.db.ExecContext(ctx, `update ticket_templates set name=?,title=?,body=?,harness=?,updated_at=? where id=?`, write.Name, write.Title, write.Body, write.Harness, time.Now().UTC(), id)
-	return requireAffected(res, err)
+	return requireAffected(res, ticketTemplateWriteError(err))
+}
+
+func ticketTemplateWriteError(err error) error {
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
+		return errors.New("template name already exists on this board")
+	}
+	return err
 }
 
 func (s *Store) DeleteTicketTemplate(ctx context.Context, id int64) error {
