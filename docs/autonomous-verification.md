@@ -415,6 +415,8 @@ The script records a timestamped result under ignored `dist/verification/` and u
 
 GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux tmux smoke job. Keep deterministic tmux manager tests in the normal CI suite; real harness/provider checks remain opt-in. The scheduled daily and manually dispatched CI workflow runs `scripts/soak-runtime.sh` for 60 seconds with the race detector; its fake provider and temporary databases require no credentials and leave no external resources.
 
+CI and release jobs select the latest available Go 1.26 patch release while `go.mod` records the minimum supported patch. Dependabot checks Go modules and pinned GitHub Actions weekly. This keeps standard-library security fixes flowing into builds without automatically adopting a new Go minor release.
+
 Supported release tags (`vMAJOR.MINOR.PATCH`, `vMAJOR.MINOR.PATCH-beta.N`, and `vMAJOR.MINOR.PATCH-rc.N`) trigger `.github/workflows/release.yml`. All `v0.x` and suffixed tags publish as prereleases; stable major versions remain workflow-locked until stable qualification is approved. Release builds use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every native job validates `BUILDINFO.json`, database initialization, backup/restore, and the fake-harness tmux lifecycle against the exact built binary. The bundle job requires four archives, verifies a shared `SHA256SUMS`, and records `BUNDLE_MANIFEST.txt`; workflow dispatch produces the same combined bundle without publishing. Before tagging, test the native local artifact path with:
 
 ```bash
