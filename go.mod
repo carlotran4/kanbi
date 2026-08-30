@@ -10,7 +10,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/rivo/uniseg v0.4.7
-	golang.org/x/sys v0.38.0
+	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
