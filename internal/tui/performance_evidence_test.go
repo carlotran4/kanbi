@@ -78,6 +78,15 @@ func TestPerformanceEvidence(t *testing.T) {
 			})
 			m.masterBoard = true
 			measurePerformance(t, "master-projection", 40, func() { m.reload() })
+			ticket := m.view.Columns[0].Tickets[0]
+			iteration := 0
+			measurePerformance(t, "master-projection-invalidated", 20, func() {
+				iteration++
+				if err := store.UpdateTicket(ctx, ticket.ID, fmt.Sprintf("Master revision %d", iteration), ticket.Body, ticket.Harness); err != nil {
+					t.Fatal(err)
+				}
+				m.reload()
+			})
 		})
 	}
 	for _, bodyBytes := range []int{1024, 65536} {

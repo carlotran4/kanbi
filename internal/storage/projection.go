@@ -100,7 +100,17 @@ func ticketProjectionSQL(suffix string) string {
 }
 
 func (s *Store) queryProjectedTickets(ctx context.Context, suffix string, args ...any) ([]Ticket, error) {
-	rows, err := s.reader().QueryContext(ctx, ticketProjectionSQL(suffix), args...)
+	return queryProjectedTicketsFrom(ctx, s.reader(), suffix, args...)
+}
+
+// projectionReader lets a projection use one physical connection throughout.
+type projectionReader interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func queryProjectedTicketsFrom(ctx context.Context, reader projectionReader, suffix string, args ...any) ([]Ticket, error) {
+	rows, err := reader.QueryContext(ctx, ticketProjectionSQL(suffix), args...)
 	if err != nil {
 		return nil, err
 	}

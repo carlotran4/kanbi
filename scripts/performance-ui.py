@@ -127,7 +127,8 @@ def main():
             ui("text", "PERF_BODY_EDIT_")
             capture("long-body typing", "PERF_BODY_EDIT_")
             key("C-s", "save body", selected=True)
-            assert "PERF_BODY_EDIT_" in db.execute("select body from tickets where id=?", (ticket_id,)).fetchone()[0]
+            saved_body = db.execute("select body from tickets where id=?", (ticket_id,)).fetchone()[0]
+            assert saved_body == body + "PERF_BODY_EDIT_", ("body changed/truncated",len(body),len(saved_body))
             # An actual SQLite writer runs across a polling tick; UI navigation
             # and an unsaved editor remain usable while observations wait.
             db.execute("begin immediate")

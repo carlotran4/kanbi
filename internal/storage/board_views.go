@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 
 	"strings"
 )
@@ -19,11 +21,13 @@ func (s *Store) BoardView(ctx context.Context) (BoardView, error) {
 }
 
 func (s *Store) BoardViewByID(ctx context.Context, boardID int64) (BoardView, error) {
-	var board Board
-	if err := scanBoard(s.reader().QueryRowContext(ctx, boardSelectSQL+` where id=?`, boardID), &board); err != nil {
-		return BoardView{}, err
-	}
-	return s.boardViewFor(ctx, board)
+	return s.cachedBoardView(ctx, fmt.Sprintf("board:%d", boardID), func(reader *sql.Conn) (BoardView, error) {
+		var board Board
+		if err := scanBoard(reader.QueryRowContext(ctx, boardSelectSQL+` where id=?`, boardID), &board); err != nil {
+			return BoardView{}, err
+		}
+		return boardViewFor(ctx, reader, board)
+	})
 }
 
 func (s *Store) MasterBoardView(ctx context.Context) (BoardView, error) {
@@ -31,9 +35,13 @@ func (s *Store) MasterBoardView(ctx context.Context) (BoardView, error) {
 }
 
 func (s *Store) MasterBoardViewWithFilter(ctx context.Context, filter MasterFilter) (BoardView, error) {
+	return s.cachedBoardView(ctx, masterProjectionCacheKey(filter), func(reader *sql.Conn) (BoardView, error) { return masterBoardViewFrom(ctx, reader, filter) })
+}
+
+func masterBoardViewFrom(ctx context.Context, reader projectionReader, filter MasterFilter) (BoardView, error) {
 	// Aggregate by workflow_key across non-archived boards. Representative display
 	// name is the Name of the min-position column among boards contributing that key.
-	rows, err := s.reader().QueryContext(ctx, `
+	rows, err := reader.QueryContext(ctx, `
 select c.workflow_key,
        (select c2.name from columns c2
          join boards b2 on b2.id=c2.board_id
@@ -74,7 +82,7 @@ select c.workflow_key,
 	}
 	for i := range view.Columns {
 		suffix, args := masterFilterQuery(view.Columns[i].WorkflowKey, filter)
-		tickets, err := s.queryProjectedTickets(ctx, suffix, args...)
+		tickets, err := queryProjectedTicketsFrom(ctx, reader, suffix, args...)
 		if err != nil {
 			return BoardView{}, err
 		}
@@ -83,8 +91,8 @@ select c.workflow_key,
 	return view, nil
 }
 
-func (s *Store) boardViewFor(ctx context.Context, board Board) (BoardView, error) {
-	rows, err := s.reader().QueryContext(ctx, `select id, board_id, name, coalesce(workflow_key,name), position from columns where board_id=? order by position`, board.ID)
+func boardViewFor(ctx context.Context, reader projectionReader, board Board) (BoardView, error) {
+	rows, err := reader.QueryContext(ctx, `select id, board_id, name, coalesce(workflow_key,name), position from columns where board_id=? order by position`, board.ID)
 	if err != nil {
 		return BoardView{}, err
 	}
@@ -103,7 +111,7 @@ func (s *Store) boardViewFor(ctx context.Context, board Board) (BoardView, error
 	if err := rows.Close(); err != nil {
 		return BoardView{}, err
 	}
-	tickets, err := s.queryProjectedTickets(ctx, `where t.board_id=? and t.archived_at is null order by t.column_id,t.position`, board.ID)
+	tickets, err := queryProjectedTicketsFrom(ctx, reader, `where t.board_id=? and t.archived_at is null order by t.column_id,t.position`, board.ID)
 	if err != nil {
 		return BoardView{}, err
 	}

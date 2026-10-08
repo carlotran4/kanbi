@@ -42,13 +42,27 @@ jobs:
           git worktree add --detach "$baseline" "$BASE_SHA"
           trap 'git worktree remove --force "$baseline"' EXIT
           cp internal/tui/performance*_test.go "$baseline/internal/tui/"
-          (cd "$baseline" && go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External)$' -count=1) | tee /tmp/kanbi-baseline.txt
+          (cd "$baseline" && KANBI_PERFORMANCE_FPS=60 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1) | tee /tmp/kanbi-baseline.txt
+          : > /tmp/kanbi-followup-baseline.txt
+          # This issue's pre-follow-up commit may disappear from fetched history
+          # after a squash merge. Future PRs still compare their own base.
+          if git cat-file -e 001a82f38c1c6b7c5d4020bc1b1d45ee1bc336ae^{commit} 2>/dev/null; then
+            followup="$(mktemp -d)"
+            git worktree add --detach "$followup" 001a82f38c1c6b7c5d4020bc1b1d45ee1bc336ae
+            trap 'git worktree remove --force "$baseline"; git worktree remove --force "$followup"' EXIT
+            cp internal/tui/performance*_test.go "$followup/internal/tui/"
+            (cd "$followup" && KANBI_PERFORMANCE_FPS=60 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1) | tee /tmp/kanbi-followup-baseline.txt
+          fi
           go fmt ./...
-          KANBI_PERFORMANCE_ENFORCE=1 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External)$' -count=1 | tee /tmp/kanbi-candidate.txt
+          KANBI_PERFORMANCE_ENFORCE=1 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1 | tee /tmp/kanbi-candidate.txt
           printf 'Baseline and candidate CPU/service timings; physical screen latency is not measured.\n' >> "$GITHUB_STEP_SUMMARY"
           printf '\n```text\n' >> "$GITHUB_STEP_SUMMARY"
-          rg 'PERF |reference Go=' /tmp/kanbi-baseline.txt /tmp/kanbi-candidate.txt >> "$GITHUB_STEP_SUMMARY"
+          rg 'PERF |reference Go=' /tmp/kanbi-baseline.txt /tmp/kanbi-followup-baseline.txt /tmp/kanbi-candidate.txt >> "$GITHUB_STEP_SUMMARY"
           printf '```\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Idle renderer CPU and traffic
+        env:
+          KANBI_PERFORMANCE: '1'
+        run: go test -v ./internal/tui -run '^TestPerformanceRendererIdle$' -count=3
       - name: Deterministic, race, vet, and smoke verification
         run: |
           go test ./...

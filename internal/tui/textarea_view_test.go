@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/carlotran4/kanbi/internal/tui/textarea"
 	"github.com/charmbracelet/lipgloss"
 )
 

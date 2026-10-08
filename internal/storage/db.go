@@ -17,10 +17,12 @@ import (
 )
 
 type Store struct {
-	db      *sql.DB
-	readDB  *sql.DB
-	focusMu sync.RWMutex
-	focus   FocusPolicy
+	db              *sql.DB
+	readDB          *sql.DB
+	projectionMu    sync.Mutex
+	projectionCache projectionCache
+	focusMu         sync.RWMutex
+	focus           FocusPolicy
 }
 
 // SetFocusPolicy configures the process's global focus policy. The durable

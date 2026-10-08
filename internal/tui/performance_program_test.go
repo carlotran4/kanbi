@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +27,14 @@ import (
 func TestPerformanceProgram(t *testing.T) {
 	if os.Getenv("KANBI_PERFORMANCE") != "1" {
 		t.Skip("opt-in input-to-write measurements")
+	}
+	fps := 120
+	if setting := os.Getenv("KANBI_PERFORMANCE_FPS"); setting != "" {
+		value, err := strconv.Atoi(setting)
+		if err != nil || value < 1 || value > 120 {
+			t.Fatal("KANBI_PERFORMANCE_FPS must be 1..120")
+		}
+		fps = value
 	}
 	for _, scenario := range []string{"simulated-300ms-observation", "actual-300ms-SQLite-writer"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -75,7 +84,7 @@ func TestPerformanceProgram(t *testing.T) {
 				input, feed := io.Pipe()
 				receipt := &programReceiptReader{Reader: input}
 				output := &programOutputProbe{receipt: receipt, ready: make(chan int64, 1), initial: make(chan struct{})}
-				p := tea.NewProgram(m, tea.WithContext(parent), tea.WithInput(receipt), tea.WithOutput(output), tea.WithoutSignalHandler())
+				p := tea.NewProgram(m, tea.WithContext(parent), tea.WithInput(receipt), tea.WithOutput(output), tea.WithoutSignalHandler(), tea.WithFPS(fps))
 				done := make(chan struct{})
 				go func() { defer close(done); _, _ = p.Run() }()
 				select {
@@ -139,7 +148,7 @@ func TestPerformanceProgram(t *testing.T) {
 			}
 			sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
 			q := func(p int) float64 { return float64(latencies[(len(latencies)*p+99)/100-1]) / 1e6 }
-			t.Logf("PERF program-receipt-to-write-%s inline/60FPS n=%d p50=%.3fms p95=%.3fms p99=%.3fms bytes/trial=%d writes/trial=%.1f", scenario, len(latencies), q(50), q(95), q(99), totalBytes/int64(len(latencies)), float64(totalWrites)/float64(len(latencies)))
+			t.Logf("PERF program-receipt-to-write-%s inline/%dFPS n=%d p50=%.3fms p95=%.3fms p99=%.3fms bytes/trial=%d writes/trial=%.1f", scenario, fps, len(latencies), q(50), q(95), q(99), totalBytes/int64(len(latencies)), float64(totalWrites)/float64(len(latencies)))
 			// The baseline intentionally exceeds this goal. Opt-in enforcement is for
 			// the candidate, so the same measurement source works on the old commit.
 			if os.Getenv("KANBI_PERFORMANCE_ENFORCE") == "1" && q(95) >= 50 {

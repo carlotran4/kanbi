@@ -190,7 +190,7 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		svc.Integration = &integrationpkg.Service{Store: cli.store, StateDir: cfg.Paths.StateDir, Launcher: manager, Workspace: manager.WorkspaceService, DefaultHarness: cfg.Integration.Harness, ValidationCommand: cfg.Integration.ValidationCommand}
 		model := tui.NewWithPickerStatusBarOptions(ctx, svc, reconcileWarning, *cfg.StatusBar)
 		defer model.Close()
-		_, err := tea.NewProgram(model).Run()
+		_, err := tea.NewProgram(model, tea.WithFPS(tui.RenderFPS)).Run()
 		return err
 	})
 }
