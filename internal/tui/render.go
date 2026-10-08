@@ -53,7 +53,7 @@ func (m Model) View() string {
 	case modalMasterFilter:
 		return overlayModal(base, fitModal(m.masterFilterView(), m.height, 0, true), m.width, m.height)
 	case modalEdit:
-		return overlayModal(base, fitModal(m.editView(), m.height, 0, true), m.width, m.height)
+		return overlayModal(base, fitModal(m.editView(), m.inspectorViewportHeight()+2, 0, true), m.width, m.height)
 	case modalStateMenu:
 		return overlayModal(base, fitModal(m.stateMenuView(), m.height, 0, true), m.width, m.height)
 	case modalColumnEdit:

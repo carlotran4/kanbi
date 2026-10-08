@@ -226,8 +226,10 @@ func TestNotesTabShowsSelectedBodyAt80x24WithLongDescription(t *testing.T) {
 	m.width, m.height = 80, 24
 	m.startEdit()
 	m.editField = m.editNotesField()
+	m.status = "note updated"
+	m.noteIndex = 48
 	frame := ansiStrip(m.View())
-	for _, want := range []string{"> [50]", "selected note body visible", "Ctrl+S", "Kanbi", "?:help"} {
+	for _, want := range []string{"> [49]", "selected note body visible", "Ctrl+S", "Kanbi", "?:help"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("missing %q:\n%s", want, frame)
 		}
@@ -250,5 +252,25 @@ func TestEnteringCompactNotesClearsDisplayedKittyGraphics(t *testing.T) {
 	m, cmd := mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
 	if cmd == nil || kittyImagesActive.Load() || m.editField != m.editNotesField() {
 		t.Fatal("notes tab retained displayed image")
+	}
+}
+
+func TestLongBodyTypingKeepsCursorAndFooterVisibleAt80x24(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	defer m.Close()
+	view := defaultBoardView(t, ctx, store)
+	createTicket(t, ctx, store, view.Columns[0].ID, "body target", strings.Repeat("markdown **body** ", 3800), "pi")
+	m.reload()
+	m.width, m.height = 80, 24
+	m.status = "note updated"
+	m.startEdit()
+	m, _ = mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	_ = m.View()
+	m, _ = mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("PERF_TYPED_MARKER")})
+	frame := ansiStrip(m.View())
+	for _, want := range []string{"PERF_TYPED_MARKER", "Ctrl+V", "Ctrl+S", "?:help"} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("missing %q:\n%s", want, frame)
+		}
 	}
 }

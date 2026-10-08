@@ -275,3 +275,23 @@ func (m *Model) clamp() {
 		m.card = maxCard
 	}
 }
+
+// Centered inspectors leave the app header and every current footer row visible.
+// fitModal takes two additional rows for its own outer clipping margin.
+func (m Model) inspectorViewportHeight() int {
+	footer := 2
+	if m.status != "" {
+		if m.errOperation != "" {
+			footer += 3
+		} else {
+			footer++
+		}
+	}
+	if m.refreshError != "" {
+		footer++
+	}
+	if m.integrationNotice != "" {
+		footer++
+	}
+	return maxInt(1, m.height-2*maxInt(2, footer))
+}

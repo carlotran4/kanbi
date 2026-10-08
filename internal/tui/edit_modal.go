@@ -480,7 +480,7 @@ func (m Model) editView() string {
 	if contentW < 30 {
 		contentW = 30
 	}
-	descriptionLines := inspectorDescriptionLines(m.height)
+	descriptionLines := minInt(inspectorDescriptionLines(m.height), maxInt(3, m.inspectorViewportHeight()-13))
 	if m.editSessionRefVisible {
 		descriptionLines--
 	}
@@ -572,10 +572,17 @@ func (m Model) editView() string {
 		// long Markdown body before every note navigation key.
 		preview := m.bodyPreview(storage.Ticket{Body: m.bodyTA.Value()}, contentW)
 		count := 0
+		previewRows := 3
+		if m.inspectorViewportHeight() <= 20 {
+			previewRows = 2
+		}
+		if m.inspectorViewportHeight() <= 16 {
+			previewRows = 1
+		}
 		for line := range strings.SplitSeq(preview, "\n") {
 			lines = append(lines, line)
 			count++
-			if count == 3 {
+			if count == previewRows {
 				break
 			}
 		}
@@ -594,7 +601,7 @@ func (m Model) editView() string {
 	}
 	lines = append(lines, "", notesHeading)
 	if m.editField == m.editNotesField() {
-		noteRows := maxInt(4, m.height-lipgloss.Height(strings.Join(lines, "\n"))-7)
+		noteRows := maxInt(4, m.inspectorViewportHeight()-lipgloss.Height(strings.Join(lines, "\n"))-7)
 		lines = append(lines, m.notesThreadViewRows(contentW, noteRows))
 	} else {
 		lines = append(lines, m.notesCompactView())
@@ -1125,7 +1132,7 @@ func (m Model) notesThreadViewRows(innerWidth, rowBudget int) string {
 	// is bounded to visible notes; navigation can always reach the whole thread.
 	start := maxInt(0, minInt(m.noteIndex, len(m.notes)-1))
 	var lines []string
-	if start > 0 {
+	if start > 0 && rowBudget >= 5 {
 		lines = append(lines, lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("%d earlier notes · k", start)))
 	}
 	for i := start; i < len(m.notes) && len(lines) < rowBudget-2; i++ {
