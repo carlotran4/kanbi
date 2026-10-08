@@ -210,6 +210,8 @@ Successful Git workspace observations are cached for five seconds by workspace i
 
 Card previews and note Markdown have bounded, per-model caches keyed by content and width. Notes render a bounded window beginning at the selected note; all notes remain reachable with j/k. The notes tab uses a compact cached description preview so a long body cannot hide the selected note. Saves retain the changed note selection and deletion follows the adjacent note; entering the compact tab clears previously displayed Kitty graphics. Modal background caches include projection version, geometry, selection, footer state, and elapsed-time second. Ordinary navigation and refresh preserve vertical viewport anchors; only a resize backfills spare space. Terminal environment probes cache positive and negative results for 30 seconds per tmux/pane context and bound each subprocess to 100 ms. Plain inspector dismissal does not probe graphics capabilities when no Kitty image was displayed.
 
+The inspector's read-only description wraps only its visible rows plus one lookahead row for the overflow ellipsis. Ordinary text without either possible image marker skips image regex scans; valid Markdown image paths without extensions still render. The editable textarea retains Bubbles' full cursor/edit behavior.
+
 ## Harness Architecture
 
 Built-in harness contracts are localized in `internal/harness`: command defaults, prompt mode, exit keys, ref capture, and docs anchors are grouped per supported harness. `internal/config` applies those defaults and preserves YAML overrides. `internal/session` owns the pure lifecycle decision table, while the compatibility runtime manager in `internal/tmux` still executes launches across tmux and Herdr adapters. Current supported harnesses:

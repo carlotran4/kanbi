@@ -99,6 +99,12 @@ func TestPerformanceEvidence(t *testing.T) {
 			m.card = 0
 			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
 			m = updated.(Model)
+			measurePerformance(t, "title-typing-update-view", 100, func() {
+				updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+				m = updated.(Model)
+				_ = m.View()
+			})
+			m.editInputs[0].Set(m.editTicket.Title)
 			updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 			m = updated.(Model)
 			measurePerformance(t, "body-typing-update-view", 100, func() {

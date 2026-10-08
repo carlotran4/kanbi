@@ -78,6 +78,19 @@ Focused `go test ./internal/harness ./internal/tmux ./internal/storage` also pas
 
 This workspace runs Go 1.26.7, tmux 3.4, and SQLite after installing tools into a writable prefix. The host rejects Unix socket creation with `Operation not permitted`, so local tmux-dependent CLI tests cannot pass here. The complete test suite, race checks, smoke, and skill UI flow pass on the linked runner, which permits real tmux. Installation does not remove that host restriction.
 
+## Additional inspector improvement
+
+Further inspection found that the read-only description wrapped up to 10,000 rows on every title/harness keystroke solely to decide whether to append an ellipsis. It now wraps the visible rows plus one lookahead row, uses a line iterator, and skips image regex scans when their required literal markers are absent. It preserves exact-fit/overflow behavior, formatting, blank paragraphs, Unicode, image-anywhere handling, and extensionless Markdown image paths. It does not replace or change Bubbles' editable textarea.
+
+A sequential local comparison against `0c90372` uses the identical added title-edit probe with a 64 KiB body, 100 samples after three warmups. Reference host: Intel Xeon Platinum 8573C, nine exposed CPUs, Linux amd64, Go 1.26.7. Local scheduling noise is higher than on the runner; these numbers should not be combined with the earlier table's hardware results.
+
+| Title Update + View | Before | After |
+| --- | ---: | ---: |
+| p50 / p95 / p99, ms | 10.182 / 26.812 / 53.716 | 3.145 / 10.409 / 18.808 |
+| Go bytes / allocations per edit | 1,031,035 / 9,204 | 532,768 / 2,521 |
+
+The title-edit probe is now included in the same-runner performance workflow at both 1 KiB and 64 KiB. It restores the title before measuring body edits to keep that fixture independent. Functional regression tests exercise exact-fit versus clipped text, Markdown formatting, blank paragraphs, long Unicode descriptions, and extensionless images. The existing real UI flow includes title drafts and long-description inspection at both terminal sizes; subsequent runs are available in [PR #359's checks](https://github.com/carlotran4/kanbi/pull/359/checks).
+
 ## Reproduction and remaining work
 
 The opt-in tests are skipped by ordinary `go test`. On a host with Go, tmux, SQLite, and Git:

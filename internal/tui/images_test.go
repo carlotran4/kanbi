@@ -105,6 +105,40 @@ func TestRenderMarkdownForInspectorShowsImagePlaceholderWithoutGraphics(t *testi
 	}
 }
 
+func TestInspectorDescriptionTruncationPreservesVisibleText(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+	for _, tc := range []struct {
+		name, body, want string
+		rows             int
+	}{
+		{"short", "one two three four", "one two three four", 1},
+		{"exact fit", "one two three four five six seven", "one two three four\nfive six seven", 2},
+		{"wrapped overflow", "one two three four five six seven", "one two three four\n…", 1},
+		{"next paragraph", "first\n\nsecond", "first\n…", 1},
+		{"formatted", "# Heading\n**bold**", "Heading\nbold", 2},
+		{"zero rows", "hidden", "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ansiStrip(renderMarkdownForInspector(tc.body, 20, tc.rows)); got != tc.want {
+				t.Fatalf("description=%q want %q", got, tc.want)
+			}
+		})
+	}
+	body := strings.Repeat("Unicode café 界 ", 5000)
+	got := ansiStrip(renderMarkdownForInspector(body, 40, 3))
+	if !strings.Contains(got, "café 界") || !strings.HasSuffix(got, "\n…") || strings.Count(got, "\n") != 3 {
+		t.Fatalf("long description lost visible Unicode or truncation: %q", got)
+	}
+}
+
+func TestImageDetectionRetainsMarkdownPathsWithoutExtensions(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+	got := strings.Join(renderMarkdownImagesInline("before ![](/tmp/noextension) after", 40, 4), "\n")
+	if !strings.Contains(got, "[image: noextension]") || !strings.Contains(got, "before") || !strings.Contains(got, "after") {
+		t.Fatalf("image detection lost content: %q", got)
+	}
+}
+
 func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
 	t.Setenv("KANBI_IMAGE_PROTOCOL", "")
 	t.Setenv("TMUX", "")

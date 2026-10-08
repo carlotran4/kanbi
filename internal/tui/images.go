@@ -131,6 +131,12 @@ func renderMarkdownImagesPlaceholder(line string, cols int, maxRows int) []strin
 }
 
 func renderMarkdownImagesInlineWithGraphics(line string, cols int, maxRows int, graphics bool) []string {
+	// Both image syntaxes require one of these literal markers. Avoid the
+	// regex scans for ordinary text while retaining extensionless Markdown
+	// paths and the existing bare-path grammar.
+	if !strings.Contains(line, "![") && !strings.Contains(line, ".") {
+		return nil
+	}
 	if matches := markdownImageRE.FindAllStringSubmatchIndex(line, -1); len(matches) > 0 {
 		var out []string
 		last := 0

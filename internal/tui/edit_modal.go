@@ -850,7 +850,7 @@ func renderMarkdownForInspector(body string, width int, maxLines int) string {
 
 	var lines []string
 	truncated := false
-	for _, raw := range strings.Split(strings.TrimSpace(body), "\n") {
+	for raw := range strings.SplitSeq(strings.TrimSpace(body), "\n") {
 		if len(lines) >= maxLines {
 			truncated = true
 			break
@@ -875,12 +875,17 @@ func renderMarkdownForInspector(body string, width int, maxLines int) string {
 		}
 
 		text, style := markdownLineStyle(trimmed)
-		wrapped := wrapText(text, width, maxLines-len(lines))
+		remaining := maxLines - len(lines)
+		// One lookahead row is enough to detect overflow. Wrapping the entire
+		// description just to decide whether to show an ellipsis is expensive
+		// on every title/harness keystroke when the body is long.
+		wrapped := wrapText(text, width, remaining+1)
 		if len(wrapped) == 0 {
 			continue
 		}
-		if len(wrapped) < len(wrapText(text, width, 10_000)) {
+		if len(wrapped) > remaining {
 			truncated = true
+			wrapped = wrapped[:remaining]
 		}
 		for _, line := range wrapped {
 			lines = append(lines, style.Render(renderInlineMarkdown(line)))
