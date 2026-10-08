@@ -94,7 +94,8 @@ Projection rules:
 
 ```mermaid
 flowchart TD
-    Tick[2s TUI tick] --> List[List projected tickets]
+    Tick[2s after prior completion] --> Worker[Bounded asynchronous observation]
+    Worker --> List[List narrow active-session candidates]
     List --> Active{latest session active?}
     Active -- no --> Skip[do not poll]
     Active -- yes --> Validate[validate container ref]
@@ -103,11 +104,15 @@ flowchart TD
     Capture --> Detect[adapter/pattern/idle detection]
     Detect --> Manual{previous source manual?}
     Manual -- yes + non-pattern heuristic --> Preserve[preserve manual state]
-    Manual -- no or confident pattern --> Update[update runtime metadata]
+    Manual -- no or confident pattern --> Update[Compare observed session version and update]
     Update --> Done[leave the runtime container running]
 ```
 
 Watcher rules:
+
+- Polling skips `starting` and `closing` lifecycle claims. Observation writes compare the exact stored session `updated_at` version and require the same active attempt; a concurrent close, manual override, ref capture, or newer observation wins over stale output. Explicit lifecycle writes remain authoritative.
+- Focus status is a read, including enabled capacity counts; focus admission retains its serialized count-and-write transaction.
+- Runtime results are applied on the TUI thread only for the current board/filter generation; failed polling retains the last good projection and successful polling clears its stale warning.
 
 - Confident interaction patterns (`waiting_for_user`, `needs_permission`) may overwrite manual state. Transcript error text never changes the session lifecycle state to `error`.
 - Heuristics (`running`, `idle_unknown`, generic pane output) should not immediately overwrite a manual override.

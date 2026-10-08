@@ -32,6 +32,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           KANBI_PERFORMANCE: '1'
+          KANBI_PERFORMANCE_TMUX: '1'
         run: |
           set -euo pipefail
           lscpu
@@ -40,10 +41,10 @@ jobs:
           baseline="$(mktemp -d)"
           git worktree add --detach "$baseline" "$BASE_SHA"
           trap 'git worktree remove --force "$baseline"' EXIT
-          cp internal/tui/performance_evidence_test.go "$baseline/internal/tui/"
-          (cd "$baseline" && go test -v ./internal/tui -run '^TestPerformanceEvidence$' -count=1) | tee /tmp/kanbi-baseline.txt
+          cp internal/tui/performance*_test.go "$baseline/internal/tui/"
+          (cd "$baseline" && go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External)$' -count=1) | tee /tmp/kanbi-baseline.txt
           go fmt ./...
-          go test -v ./internal/tui -run '^TestPerformanceEvidence$' -count=1 | tee /tmp/kanbi-candidate.txt
+          go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External)$' -count=1 | tee /tmp/kanbi-candidate.txt
           printf 'Baseline and candidate CPU/service timings; physical screen latency is not measured.\n' >> "$GITHUB_STEP_SUMMARY"
           printf '\n```text\n' >> "$GITHUB_STEP_SUMMARY"
           rg 'PERF |reference Go=' /tmp/kanbi-baseline.txt /tmp/kanbi-candidate.txt >> "$GITHUB_STEP_SUMMARY"
@@ -58,38 +59,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          UI=.pi/skills/kanbi-ui-validation/scripts/ui-session.sh
-          trap '$UI stop' EXIT
-          $UI start
-          $UI capture
-          $UI key Enter
-          sleep 0.1
-          $UI capture
-          for key in j j l j k h; do
-            $UI key "$key"
-            sleep 0.1
-            $UI capture
-          done
-          $UI key '?' 
-          sleep 0.1
-          $UI capture
-          $UI key Escape
-          $UI resize 80 24
-          sleep 0.1
-          $UI capture
-          for key in j l l l l h b; do
-            $UI key "$key"
-            sleep 0.1
-            $UI capture
-          done
-          $UI key j
-          $UI key Enter
-          sleep 0.1
-          $UI capture
-          $UI key e
-          sleep 0.1
-          $UI capture
-          $UI key Escape
-          $UI resize 160 40
-          sleep 0.1
-          $UI capture
+          python3 scripts/performance-ui.py

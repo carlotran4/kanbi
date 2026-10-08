@@ -161,3 +161,54 @@ func TestTerminalImageProtocolDetectsSixelFallback(t *testing.T) {
 		t.Fatalf("iterm should be detected as sixel-capable")
 	}
 }
+
+func TestTerminalEnvironmentCachesPositiveAndNegativeResults(t *testing.T) {
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\nprintf 'call\\n' >> '" + counter + "'\nif [ \"$3\" = POSITIVE ]; then printf 'POSITIVE=kitty\\n'; else exit 1; fi\n"
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMUX", "unique-test-terminal")
+	t.Setenv("TMUX_PANE", "%fixture")
+	t.Setenv("POSITIVE", "")
+	t.Setenv("NEGATIVE", "")
+	for i := 0; i < 3; i++ {
+		if terminalEnv("POSITIVE") != "kitty" || terminalEnv("NEGATIVE") != "" {
+			t.Fatal("invalid environment lookup")
+		}
+	}
+	data, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "call") != 2 {
+		t.Fatalf("uncached terminal lookups: %s", data)
+	}
+	t.Setenv("TMUX_PANE", "%another")
+	_ = terminalEnv("NEGATIVE")
+	data, err = os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "call") != 3 {
+		t.Fatal("cache leaked across terminal contexts")
+	}
+}
+
+func TestImageCleanupSkipsUnusedGraphics(t *testing.T) {
+	t.Setenv("KANBI_IMAGE_PROTOCOL", "kitty")
+	kittyImagesActive.Store(false)
+	t.Cleanup(func() { kittyImagesActive.Store(false) })
+	if clearKittyImagesSeq() != "" {
+		t.Fatal("unused graphics triggered cleanup")
+	}
+	kittyImagesActive.Store(true)
+	if clearKittyImagesSeq() == "" {
+		t.Fatal("active graphics were not cleared")
+	}
+	if clearKittyImagesSeq() != "" {
+		t.Fatal("graphics cleanup was repeated")
+	}
+}

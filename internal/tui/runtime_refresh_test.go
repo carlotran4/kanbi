@@ -144,3 +144,44 @@ func TestPreviewCacheInvalidatesByContentWidthAndCheckpoint(t *testing.T) {
 		t.Fatal("unbounded preview cache")
 	}
 }
+
+func TestOrdinaryNavigationKeepsViewportAnchor(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	defer m.Close()
+	view := defaultBoardView(t, ctx, store)
+	for i := 0; i < 6; i++ {
+		createTicket(t, ctx, store, view.Columns[0].ID, "short", "body", "pi")
+	}
+	m.reload()
+	m.width, m.height = 160, 45
+	m.card = 4
+	m.colScroll[0] = 3
+	m.moveCard(-1)
+	if m.colScroll[0] != 3 {
+		t.Fatalf("ordinary movement backfilled viewport: %d", m.colScroll[0])
+	}
+	m.reload()
+	if m.colScroll[0] != 3 {
+		t.Fatalf("unchanged refresh moved viewport: %d", m.colScroll[0])
+	}
+}
+
+func TestNotesViewportFollowsSelectedNoteAndBoundsWork(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	defer m.Close()
+	for i := 0; i < 50; i++ {
+		m.notes = append(m.notes, storage.Note{ID: int64(i + 1), Body: strings.Repeat("unique ", 30) + string(rune('A'+i))})
+	}
+	m.noteIndex = 49
+	output := ansiStrip(m.notesThreadViewRows(80, 8))
+	if !strings.Contains(output, "> [50]") || strings.Contains(output, "> [1]") {
+		t.Fatalf("selected note missing: %s", output)
+	}
+	if len(strings.Split(output, "\n")) > 8 || len(m.renderCache.notes) != 1 {
+		t.Fatal("notes rendered beyond visible viewport")
+	}
+	first := m.renderNote("original", 40)
+	if first == m.renderNote("changed", 40) {
+		t.Fatal("stale note body cache")
+	}
+}

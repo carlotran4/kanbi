@@ -22,10 +22,10 @@ else coalesce(s.status,'` + kanban.StateNotStarted + `') end`
 var ticketProjectionColumns = []string{
 	"t.id",
 	"t.board_id",
-	"(select name from boards where id=t.board_id)",
-	"(select coalesce(uuid,'') from boards where id=t.board_id)",
-	"(select coalesce(workdir,'') from boards where id=t.board_id)",
-	"(select coalesce(worktree_mode,'off') from boards where id=t.board_id)",
+	"pb.name",
+	"coalesce(pb.uuid,'')",
+	"coalesce(pb.workdir,'')",
+	"coalesce(pb.worktree_mode,'off')",
 	"t.column_id",
 	"t.external_id",
 	"t.external_url",
@@ -82,6 +82,7 @@ var ticketProjectionColumns = []string{
 
 const latestSessionProjectionJoin = `
 from tickets t
+left join boards pb on pb.id=t.board_id
 left join sessions s on s.id=(
   select id from sessions where ticket_id=t.id order by id desc limit 1
 )

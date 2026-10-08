@@ -33,7 +33,7 @@ func (w *runtimeRefreshWorker) stop() {
 	w.mu.Unlock()
 }
 
-// Close cancels and drains TUI observation and status commands. Call after Run,
+// Close cancels status commands and drains TUI observation. Call after Run,
 // before closing Actions' storage. It does not close ticket agent sessions.
 func (m Model) Close() {
 	if m.statusBarCancel != nil {

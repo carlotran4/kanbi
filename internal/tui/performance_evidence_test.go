@@ -51,6 +51,8 @@ func TestPerformanceEvidence(t *testing.T) {
 				m.width, m.height = size[0], size[1]
 				m.syncScrollDimensions()
 				m.vScrollFollow()
+				m.card, m.colScroll[m.col] = 0, 0
+				measurePerformance(t, fmt.Sprintf("stable-view-%dx%d", size[0], size[1]), 200, func() { _ = m.View() })
 				direction := 1
 				measurePerformance(t, fmt.Sprintf("navigation-%dx%d", size[0], size[1]), 200, func() {
 					if m.card >= len(m.view.Columns[m.col].Tickets)-1 {

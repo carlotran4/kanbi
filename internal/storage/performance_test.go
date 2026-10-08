@@ -137,3 +137,98 @@ func TestActiveRuntimeQueryOmitsInactiveMetadata(t *testing.T) {
 		t.Fatalf("wrong runtime projection: %+v", tickets)
 	}
 }
+
+func TestProjectionReadsDoNotQueueBehindOccupiedWriteConnection(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "read.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	board, err := store.DefaultBoard(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := store.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	deadline, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	if _, err := store.BoardViewByID(deadline, board.ID); err != nil {
+		t.Fatalf("projection queued behind occupied writer: %v", err)
+	}
+	if _, err := store.ListBoards(deadline); err != nil {
+		t.Fatal(err)
+	}
+	var foreignKeys, queryOnly int
+	if err := store.reader().QueryRowContext(deadline, "pragma foreign_keys").Scan(&foreignKeys); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.reader().QueryRowContext(deadline, "pragma query_only").Scan(&queryOnly); err != nil {
+		t.Fatal(err)
+	}
+	if foreignKeys != 1 || queryOnly != 1 {
+		t.Fatalf("reader settings foreign_keys=%d query_only=%d", foreignKeys, queryOnly)
+	}
+	if _, err := store.reader().ExecContext(deadline, "update boards set name='unsafe'"); err == nil {
+		t.Fatal("reader permitted a write")
+	}
+}
+
+func TestUnchangedWorkspaceObservationDoesNotWrite(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "observations.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.BoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "workspace", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.CreateWorkspaceClaim(ctx, Workspace{TicketID: ticket.ID, BoardID: view.Board.ID, State: WorkspaceStateReady})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveWorkspaceStatusJSON(ctx, id, `{"dirty":false}`); err != nil {
+		t.Fatal(err)
+	}
+	var before, after int
+	if err := store.reader().QueryRowContext(ctx, `pragma data_version`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveWorkspaceStatusJSON(ctx, id, `{"dirty":false}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.reader().QueryRowContext(ctx, `pragma data_version`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Fatalf("unchanged observation wrote: %d -> %d", before, after)
+	}
+	if err := store.RecordWorkspaceObservationError(ctx, id, "stale"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveWorkspaceStatusJSON(ctx, id, `{"dirty":false}`); err != nil {
+		t.Fatal(err)
+	}
+	w, _, err := store.WorkspaceByID(ctx, id)
+	if err != nil || w.LastError.Valid {
+		t.Fatalf("fresh observation failed to clear error: %+v %v", w, err)
+	}
+	if err := store.SaveWorkspaceStatusJSON(ctx, id+1, `{}`); err == nil {
+		t.Fatal("missing workspace accepted")
+	}
+}

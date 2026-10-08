@@ -758,8 +758,12 @@ func (m *Model) applySnapshot(snapshot boardSnapshot) {
 	}
 	m.syncScrollDimensions()
 	for ci, column := range m.view.Columns {
-		for ti, ticket := range column.Tickets {
-			if ticket.ID == anchors[column.ID] {
+		anchor := anchors[column.ID]
+		if anchor == 0 {
+			continue
+		}
+		for ti := range column.Tickets {
+			if column.Tickets[ti].ID == anchor {
 				m.colScroll[ci] = ti
 				break
 			}

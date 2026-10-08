@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"hash/fnv"
@@ -14,6 +15,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -75,22 +79,47 @@ func supportsSixelGraphics() bool {
 	return strings.Contains(term, "sixel") || strings.Contains(term, "mlterm")
 }
 
+type terminalEnvKey struct{ tmux, pane, name string }
+type terminalEnvValue struct {
+	value string
+	at    time.Time
+}
+
+var terminalEnvironmentCache = struct {
+	sync.Mutex
+	values map[terminalEnvKey]terminalEnvValue
+}{values: make(map[terminalEnvKey]terminalEnvValue)}
+var kittyImagesActive atomic.Bool
+
 func terminalEnv(name string) string {
 	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
 		return value
 	}
-	if strings.TrimSpace(os.Getenv("TMUX")) == "" {
+	tmuxContext := strings.TrimSpace(os.Getenv("TMUX"))
+	if tmuxContext == "" {
 		return ""
 	}
-	out, err := exec.Command("tmux", "show-environment", "-g", name).Output()
-	if err != nil {
-		return ""
+	key := terminalEnvKey{tmux: tmuxContext, pane: os.Getenv("TMUX_PANE"), name: name}
+	terminalEnvironmentCache.Lock()
+	defer terminalEnvironmentCache.Unlock()
+	if value, ok := terminalEnvironmentCache.values[key]; ok && time.Since(value.at) < 30*time.Second {
+		return value.value
 	}
-	line := strings.TrimSpace(string(out))
-	if strings.HasPrefix(line, name+"=") {
-		return strings.TrimPrefix(line, name+"=")
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "show-environment", "-g", name).Output()
+	value := ""
+	if err == nil {
+		line := strings.TrimSpace(string(out))
+		if strings.HasPrefix(line, name+"=") {
+			value = strings.TrimPrefix(line, name+"=")
+		}
 	}
-	return ""
+	if len(terminalEnvironmentCache.values) >= 256 {
+		clear(terminalEnvironmentCache.values)
+	}
+	terminalEnvironmentCache.values[key] = terminalEnvValue{value: value, at: time.Now()}
+	return value
 }
 
 func renderMarkdownImagesInline(line string, cols int, maxRows int) []string {
@@ -178,6 +207,7 @@ func renderKittyImage(path string, cols int, rows int) []string {
 	if !ok {
 		return []string{imagePlaceholder(path)}
 	}
+	kittyImagesActive.Store(true)
 	payload := base64.StdEncoding.EncodeToString([]byte(path))
 	// a=T transmits/displays, t=f means payload is a file path. Kitty-compatible
 	// terminals such as Ghostty require image format and pixel dimensions for
@@ -259,9 +289,13 @@ func withClearKittyImages(cmd tea.Cmd) tea.Cmd {
 }
 
 func clearKittyImagesSeq() string {
+	if !kittyImagesActive.Load() {
+		return ""
+	}
 	if terminalImageProtocol() != imageProtocolKitty {
 		return ""
 	}
+	kittyImagesActive.Store(false)
 	return tmuxPassthrough("\x1b_Ga=d,d=A,q=2\x1b\\")
 }
 

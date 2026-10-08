@@ -428,3 +428,16 @@ tmp=$(mktemp -d) && tar -xzf "$archive" -C "$tmp"
 ```
 
 After extracting the snapshot, verify `kanbi version` reports the supplied version, commit, UTC build date, runtime platform, and current database schema, and that `BUILDINFO.json` matches. Release notes and upgrade-impacting changes belong in `CHANGELOG.md`. Channel policy: [`docs/release-channels.md`](./release-channels.md). Release and stable gates: [`docs/release-checklist.md`](./release-checklist.md).
+
+## Performance issue #358
+
+The opt-in measurement sources in `internal/tui/performance*_test.go` compile on both the PR base and candidate. The Performance evidence workflow runs both on the same Linux runner, then runs the full suite, race detector, vet, smoke, and `python3 scripts/performance-ui.py`. That driver uses the project `kanbi-ui-validation` helper's isolated fixture and captures/checks each meaningful input at 160x40 and 80x24: Master and named boards, vertical/horizontal overflow, help/filters, resize, unsaved title drafts across ticks, 50 notes with edit/add/delete, a 64 KiB Unicode/image body with edit/save, and a real SQLite writer across a polling tick. It stops the disposable tmux session in a `finally` block.
+
+```bash
+KANBI_PERFORMANCE=1 KANBI_PERFORMANCE_TMUX=1 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External)$' -count=1
+python3 scripts/performance-ui.py
+```
+
+CPU/service samples report p50/p95/p99, allocations, and bytes allocated. The real Bubble Tea program test uses production inline mode at its default 60 FPS and records reader receipt to the writer's changed selection frame while observation is deliberately delayed 300 ms. It also reports terminal bytes/writes per trial. Its output is a measurement sink; physical terminal painting is not measured. Actual tmux and Git fixtures are labeled separately. The 10-worktree case reports a first uncached pass and a warm polling burst within the five-second cache lifetime. Use `KANBI_PERFORMANCE_ENFORCE=1` only on the candidate to enforce the 50 ms program p95 goal; the baseline intentionally fails it. Opt-in tests skip normally and do not introduce timing gates into deterministic CI.
+
+Performance evidence and remaining limits are recorded in the PR for #358. Repeat measurements on the user's WSL/terminal before claiming physical input-to-paint latency. Bubble Tea v2, synchronized-output negotiation, alternate-screen changes, stable-height preview layout, and a revision/data-version board projection cache remain separate experiments; this change retains inline mode and 60 FPS.

@@ -1100,6 +1100,8 @@ func TestModelIgnoresKittyGraphicsResponsesWhileEditingTitle(t *testing.T) {
 }
 
 func TestModelEscFromInspectorReturnsClearImageCommand(t *testing.T) {
+	kittyImagesActive.Store(true)
+	t.Cleanup(func() { kittyImagesActive.Store(false) })
 	t.Setenv("KANBI_IMAGE_PROTOCOL", "kitty")
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
