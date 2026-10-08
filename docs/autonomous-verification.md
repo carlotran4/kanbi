@@ -114,6 +114,8 @@ Drive the UI one keypress at a time and capture frames before and after meaningf
 
 Interactive validation supplements rather than replaces a deterministic regression test.
 
+The opt-in performance comparisons and repeatable real UI driver are documented in [Performance issue #358: implementation and evidence](performance-358.md), including reference hardware, sample counts, timing/allocation results, reproduction commands, and remaining limits.
+
 ### 7. Doctor Self-Test
 `kanbi doctor` should have testable internals.
 
