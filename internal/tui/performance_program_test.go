@@ -74,10 +74,16 @@ func TestPerformanceProgram(t *testing.T) {
 				}
 				input, feed := io.Pipe()
 				receipt := &programReceiptReader{Reader: input}
-				output := &programOutputProbe{receipt: receipt, ready: make(chan int64, 1)}
+				output := &programOutputProbe{receipt: receipt, ready: make(chan int64, 1), initial: make(chan struct{})}
 				p := tea.NewProgram(m, tea.WithContext(parent), tea.WithInput(receipt), tea.WithOutput(output), tea.WithoutSignalHandler())
 				done := make(chan struct{})
 				go func() { defer close(done); _, _ = p.Run() }()
+				select {
+				case <-output.initial:
+				case <-time.After(3 * time.Second):
+					cancel()
+					t.Fatal("initial board did not reach writer")
+				}
 				p.Send(runtimeTickMsg(time.Now()))
 				select {
 				case <-actions.started:
@@ -184,6 +190,8 @@ type programOutputProbe struct {
 	mu            sync.Mutex
 	receipt       *programReceiptReader
 	ready         chan int64
+	initial       chan struct{}
+	initialOnce   sync.Once
 	data          strings.Builder
 	bytes, writes int64
 }
@@ -194,7 +202,11 @@ func (w *programOutputProbe) Write(p []byte) (int, error) {
 	w.bytes += int64(len(p))
 	w.writes++
 	w.data.Write(p)
-	if at := w.receipt.at.Load(); at != 0 && strings.Contains(ansiStrip(w.data.String()), "> T-002") {
+	plain := ansiStrip(w.data.String())
+	if strings.Contains(plain, "> T-001") {
+		w.initialOnce.Do(func() { close(w.initial) })
+	}
+	if at := w.receipt.at.Load(); at != 0 && strings.Contains(plain, "> T-002") {
 		select {
 		case w.ready <- time.Now().UnixNano() - at:
 		default:
