@@ -32,7 +32,7 @@ func newRenderCache() *renderCache {
 	return &renderCache{previews: make(map[textRenderKey]string), notes: make(map[textRenderKey]string)}
 }
 
-func (m Model) bodyPreview(ticket storage.Ticket, width int) string {
+func (m *Model) bodyPreview(ticket storage.Ticket, width int) string {
 	body := ticket.Body
 	if ticket.FocusPaused && ticket.LatestCheckpoint != nil {
 		body = "Next: " + ticket.LatestCheckpoint.NextAction
@@ -52,22 +52,22 @@ func (m Model) bodyPreview(ticket storage.Ticket, width int) string {
 	return value
 }
 
-func (m Model) cardPreview(ticket storage.Ticket, width int, focused bool) string {
+func (m *Model) cardPreview(ticket storage.Ticket, width int, focused bool) string {
 	if !focused {
 		return ""
 	}
 	return m.bodyPreview(ticket, maxInt(10, width-8))
 }
 
-func (m Model) cachedCardHeight(ticket storage.Ticket, width int, focused bool) int {
+func (m *Model) cachedCardHeight(ticket storage.Ticket, width int, focused bool) int {
 	return cardHeightWithPreview(ticket, width, m.masterBoard, m.cardPreview(ticket, width, focused))
 }
 
-func (m Model) cachedCardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []string {
+func (m *Model) cachedCardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []string {
 	return cardViewWithPreview(focused, ticket, width, showBoard, m.cardPreview(ticket, width, focused))
 }
 
-func (m Model) cachedBaseView() string {
+func (m *Model) cachedBaseView() string {
 	if m.renderCache == nil || m.activeModalKind() == modalNone {
 		return m.baseView()
 	}
@@ -81,7 +81,7 @@ func (m Model) cachedBaseView() string {
 	return m.renderCache.base
 }
 
-func (m Model) renderNote(body string, width int) string {
+func (m *Model) renderNote(body string, width int) string {
 	body = strings.TrimSpace(body)
 	if m.renderCache == nil {
 		m.renderCache = newRenderCache()

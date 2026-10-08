@@ -76,7 +76,7 @@ def main():
             resize(*size)
             for value in ["j"] * 9 + ["k"] * 4 + ["l"] * 3 + ["h"] * 3:
                 key(value, selected=True)
-            key("?", "help", "legend")
+            key("?", "help", "KEYBINDINGS AND LEGEND")
             key("Escape", selected=True)
             key("f", "Master filters", "filter")
             key("Escape", selected=True)
