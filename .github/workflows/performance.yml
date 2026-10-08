@@ -44,7 +44,7 @@ jobs:
           cp internal/tui/performance*_test.go "$baseline/internal/tui/"
           (cd "$baseline" && go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External)$' -count=1) | tee /tmp/kanbi-baseline.txt
           go fmt ./...
-          go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External)$' -count=1 | tee /tmp/kanbi-candidate.txt
+          KANBI_PERFORMANCE_ENFORCE=1 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External)$' -count=1 | tee /tmp/kanbi-candidate.txt
           printf 'Baseline and candidate CPU/service timings; physical screen latency is not measured.\n' >> "$GITHUB_STEP_SUMMARY"
           printf '\n```text\n' >> "$GITHUB_STEP_SUMMARY"
           rg 'PERF |reference Go=' /tmp/kanbi-baseline.txt /tmp/kanbi-candidate.txt >> "$GITHUB_STEP_SUMMARY"

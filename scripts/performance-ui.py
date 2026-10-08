@@ -57,6 +57,19 @@ def resize(w, h):
 def main():
     print(ui("start"), flush=True)
     try:
+        # Real runtime observation also runs during the UI flow. These windows
+        # contain only a disposable sleeping shell, never a harness.
+        fixture = sqlite3.connect(ui("fixture-path").strip())
+        socket_dir = os.environ.get("CLAUDE_TMUX_SOCKET_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "claude-tmux-sockets"))
+        socket = os.environ.get("KANBI_UI_TMUX_SOCKET", os.path.join(socket_dir, "kanbi-ui.sock"))
+        session = os.environ.get("KANBI_UI_TMUX_SESSION", "kanbi-ui")
+        ticket_ids = fixture.execute("select t.id from tickets t join columns c on c.id=t.column_id where c.workflow_key='Open' order by t.id limit 10").fetchall()
+        for index, (ticket_id,) in enumerate(ticket_ids):
+            name = f"performance-runtime-{index}"
+            window = subprocess.check_output(["tmux", "-S", socket, "new-window", "-d", "-P", "-F", "#{window_id}", "-t", session + ":", "-n", name, "printf 'working on fixture\\n'; sleep 300"], text=True).strip()
+            fixture.execute("insert into sessions(ticket_id,harness,tmux_session_name,tmux_window_name,tmux_window_id,status,is_active,started_at,created_at,updated_at) values(?,'pi',?,?,?,'running',1,datetime('now'),datetime('now'),datetime('now'))", (ticket_id, session, name, window))
+        fixture.commit()
+        fixture.close()
         capture("startup", "Select board")
         key("Enter", "Master", "Master", selected=True)
         for size in [(160, 40), (80, 24)]:
@@ -75,6 +88,7 @@ def main():
             ticket_id, title = db.execute(
                 "select t.id,t.title from tickets t join boards b on b.id=t.board_id "
                 "where b.name='agent-kanban' and t.display_id=?", (display_id,)).fetchone()
+            db.execute("delete from ticket_notes where ticket_id=?", (ticket_id,))
             # Different note bodies expose stale-cache mistakes.
             db.executemany("insert into ticket_notes(ticket_id,body,created_at,updated_at) "
                            "values(?,?,datetime('now'),datetime('now'))",

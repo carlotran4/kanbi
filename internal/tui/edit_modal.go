@@ -1009,7 +1009,9 @@ func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 				m.status = err.Error()
 			} else {
 				m.status = "deleted note"
+				previousIndex := m.noteIndex
 				m.loadNotes(t.ID)
+				m.noteIndex = maxInt(0, minInt(previousIndex, len(m.notes)-1))
 			}
 		}
 	}
@@ -1028,22 +1030,29 @@ func (m *Model) saveNote() {
 		m.noteIsNew = false
 		return
 	}
+	selectedID := m.noteEditID
 	if m.noteIsNew {
-		if _, err := m.actions.AddNote(m.ctx, t.ID, body); err != nil {
+		note, err := m.actions.AddNote(m.ctx, t.ID, body)
+		if err != nil {
 			m.status = err.Error()
-		} else {
-			m.status = "note added"
+			return
 		}
+		selectedID = note.ID
+		m.status = "note added"
 	} else {
 		if err := m.actions.UpdateNote(m.ctx, m.noteEditID, body); err != nil {
 			m.status = err.Error()
-		} else {
-			m.status = "note updated"
+			return
+		}
+		m.status = "note updated"
+	}
+	m.loadNotes(t.ID)
+	for i := range m.notes {
+		if m.notes[i].ID == selectedID {
+			m.noteIndex = i
+			break
 		}
 	}
-	m.noteEditing = false
-	m.noteIsNew = false
-	m.loadNotes(t.ID)
 }
 
 // notesCompactView renders a one-line summary for when notes are not the active tab.
@@ -1064,7 +1073,7 @@ func (m Model) notesCompactView() string {
 	return fmt.Sprintf("%s  %s", count, faint.Render(snippet))
 }
 
-// notesThreadView renders the full notes thread for when notes is the active tab.
+// notesThreadView renders a bounded window of the selected note and its successors.
 func (m Model) notesThreadView(innerWidth int) string {
 	return m.notesThreadViewRows(innerWidth, maxInt(4, m.height/2))
 }

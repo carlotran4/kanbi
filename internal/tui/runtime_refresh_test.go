@@ -185,3 +185,29 @@ func TestNotesViewportFollowsSelectedNoteAndBoundsWork(t *testing.T) {
 		t.Fatal("stale note body cache")
 	}
 }
+
+func TestNotesSaveAndDeleteKeepSelectionInViewport(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	defer m.Close()
+	view := defaultBoardView(t, ctx, store)
+	ticket := createTicket(t, ctx, store, view.Columns[0].ID, "notes", "body", "pi")
+	for i := 0; i < 50; i++ {
+		if _, err := store.AddNote(ctx, ticket.ID, "original note"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.reload()
+	m.startEdit()
+	m.editField = m.editNotesField()
+	m.noteIndex = 10
+	m, _ = m.updateNotesTab(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m.noteTA.SetValue("updated older note")
+	m.saveNote()
+	if m.noteIndex != 10 || m.notes[10].Body != "updated older note" || !strings.Contains(ansiStrip(m.notesThreadViewRows(80, 8)), "updated older note") {
+		t.Fatal("saved note lost selection/visibility")
+	}
+	m, _ = m.updateNotesTab(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if m.noteIndex != 10 || len(m.notes) != 49 {
+		t.Fatal("deletion moved to unrelated newest note")
+	}
+}

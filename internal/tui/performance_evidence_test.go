@@ -96,6 +96,16 @@ func TestPerformanceEvidence(t *testing.T) {
 				}
 				_ = m.View()
 			})
+			m.card = 0
+			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+			m = updated.(Model)
+			updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+			m = updated.(Model)
+			measurePerformance(t, "body-typing-update-view", 100, func() {
+				updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+				m = updated.(Model)
+				_ = m.View()
+			})
 		})
 	}
 	t.Run("notes=50", func(t *testing.T) {
