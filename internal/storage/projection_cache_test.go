@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -12,6 +13,44 @@ import (
 	"testing"
 	"time"
 )
+
+func TestProjectionCacheQueuedReadRespectsCancellation(t *testing.T) {
+	s, ctx := newTestStore(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	first := make(chan error, 1)
+	go func() {
+		_, err := s.cachedBoardView(ctx, "blocked", func(*sql.Conn) (BoardView, error) {
+			close(entered)
+			<-release
+			return BoardView{}, nil
+		})
+		first <- err
+	}()
+	<-entered
+	canceled, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	second := make(chan error, 1)
+	go func() {
+		_, err := s.BoardViewByID(canceled, 1)
+		second <- err
+	}()
+	var err error
+	select {
+	case err = <-second:
+	case <-time.After(time.Second):
+		t.Error("queued read ignored its deadline while another projection held the reader")
+	}
+	close(release)
+	if firstErr := <-first; firstErr != nil {
+		t.Fatal(firstErr)
+	}
+	if err == nil && t.Failed() {
+		err = <-second
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("queued read error = %v, want deadline exceeded", err)
+	}
+}
 
 func TestProjectionCacheTracksMutationsAndProtectsSnapshots(t *testing.T) {
 	for _, file := range []bool{false, true} {

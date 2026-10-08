@@ -32,6 +32,10 @@ is `001a82f38c1c6b7c5d4020bc1b1d45ee1bc336ae` (production code at `7dbde75`).
   pointers are isolated from retained snapshots. Raw length-prefixed filter keys
   include every field and distinguish invalid UTF-8 without JSON normalization.
 
+The reader lease is acquired before the cache mutex, so a queued projection
+retains the connection pool's context cancellation behavior. A regression test
+holds another projection open and verifies that a queued read honors its deadline.
+
 Whole-database invalidation is intentionally conservative. A heartbeat, external
 CLI change, note edit, workspace change, or lifecycle mutation still invalidates
 projections. This cache does not defer freshness with a TTL, and does not claim
@@ -99,9 +103,10 @@ host denying Unix sockets; local smoke reaches the same environment restriction.
 The required complete test/race/vet/smoke and real skill-driven UI flow run on the
 GitHub runner. Their final results and frame review are recorded in PR #359.
 
-The UI driver now verifies byte-for-byte preservation of the entire Unicode,
-image-reference, and long-description body plus the typed suffix, rather than
-only checking for the suffix. It still uses only the project's isolated,
+The UI driver now verifies the entire Unicode, image-reference, and
+long-description body plus the typed suffix, including Kanbi's existing automatic
+`image 1` alt-text numbering, rather than only checking for the suffix. A model
+regression test also checks the complete saved value. It still uses only the project's isolated,
 local-backend, sync-disabled fixture and stops it in `finally`. The flow covers
 Master/named boards, individual navigation keys, overflow, resize, notes,
 unsaved drafts across refreshes, and SQLite writer contention at 160x40 and 80x24.

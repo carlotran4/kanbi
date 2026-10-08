@@ -70,13 +70,16 @@ func readProjectionRevision(ctx context.Context, conn *sql.Conn, ownWrites bool)
 }
 
 func (s *Store) cachedBoardView(ctx context.Context, key string, load func(*sql.Conn) (BoardView, error)) (BoardView, error) {
-	s.projectionMu.Lock()
-	defer s.projectionMu.Unlock()
 	conn, err := s.reader().Conn(ctx)
 	if err != nil {
 		return BoardView{}, err
 	}
 	defer conn.Close()
+	// Lease the sole reader before taking the cache mutex. Waiting for the
+	// database connection honors ctx; a mutex wait would ignore cancellation.
+	// Release the mutex before returning the reader to its one-connection pool.
+	s.projectionMu.Lock()
+	defer s.projectionMu.Unlock()
 	var identity *sqlite3.SQLiteConn
 	if err = conn.Raw(func(raw any) error { identity = raw.(*sqlite3.SQLiteConn); return nil }); err != nil {
 		return BoardView{}, err

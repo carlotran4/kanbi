@@ -128,7 +128,10 @@ def main():
             capture("long-body typing", "PERF_BODY_EDIT_")
             key("C-s", "save body", selected=True)
             saved_body = db.execute("select body from tickets where id=?", (ticket_id,)).fetchone()[0]
-            assert saved_body == body + "PERF_BODY_EDIT_", ("body changed/truncated",len(body),len(saved_body))
+            # Saving has always numbered empty/generated image alt text.
+            # Compare every other byte too; a suffix-only check misses truncation.
+            expected_body = body.replace("![](", "![image 1](", 1) + "PERF_BODY_EDIT_"
+            assert saved_body == expected_body, ("body changed/truncated",len(expected_body),len(saved_body))
             # An actual SQLite writer runs across a polling tick; UI navigation
             # and an unsaved editor remain usable while observations wait.
             db.execute("begin immediate")
