@@ -20,7 +20,7 @@ func (s *Store) BoardView(ctx context.Context) (BoardView, error) {
 
 func (s *Store) BoardViewByID(ctx context.Context, boardID int64) (BoardView, error) {
 	var board Board
-	if err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where id=?`, boardID), &board); err != nil {
+	if err := scanBoard(s.reader().QueryRowContext(ctx, boardSelectSQL+` where id=?`, boardID), &board); err != nil {
 		return BoardView{}, err
 	}
 	return s.boardViewFor(ctx, board)
@@ -33,7 +33,7 @@ func (s *Store) MasterBoardView(ctx context.Context) (BoardView, error) {
 func (s *Store) MasterBoardViewWithFilter(ctx context.Context, filter MasterFilter) (BoardView, error) {
 	// Aggregate by workflow_key across non-archived boards. Representative display
 	// name is the Name of the min-position column among boards contributing that key.
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.reader().QueryContext(ctx, `
 select c.workflow_key,
        (select c2.name from columns c2
          join boards b2 on b2.id=c2.board_id
@@ -84,7 +84,7 @@ select c.workflow_key,
 }
 
 func (s *Store) boardViewFor(ctx context.Context, board Board) (BoardView, error) {
-	rows, err := s.db.QueryContext(ctx, `select id, board_id, name, coalesce(workflow_key,name), position from columns where board_id=? order by position`, board.ID)
+	rows, err := s.reader().QueryContext(ctx, `select id, board_id, name, coalesce(workflow_key,name), position from columns where board_id=? order by position`, board.ID)
 	if err != nil {
 		return BoardView{}, err
 	}
@@ -103,12 +103,18 @@ func (s *Store) boardViewFor(ctx context.Context, board Board) (BoardView, error
 	if err := rows.Close(); err != nil {
 		return BoardView{}, err
 	}
-	for i := range view.Columns {
-		tickets, err := s.TicketsForColumn(ctx, view.Columns[i].ID)
-		if err != nil {
-			return BoardView{}, err
+	tickets, err := s.queryProjectedTickets(ctx, `where t.board_id=? and t.archived_at is null order by t.column_id,t.position`, board.ID)
+	if err != nil {
+		return BoardView{}, err
+	}
+	columns := make(map[int64]int, len(view.Columns))
+	for i, column := range view.Columns {
+		columns[column.ID] = i
+	}
+	for _, ticket := range tickets {
+		if i, ok := columns[ticket.ColumnID]; ok {
+			view.Columns[i].Tickets = append(view.Columns[i].Tickets, ticket)
 		}
-		view.Columns[i].Tickets = tickets
 	}
 	return view, nil
 }

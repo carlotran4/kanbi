@@ -318,7 +318,8 @@ func TestWideningBackfillsVerticalFocusViewport(t *testing.T) {
 		view:      storage.BoardView{Columns: []storage.Column{{WorkflowKey: "focus", Tickets: tickets}}},
 		colScroll: []int{3},
 	}
-	m.vScrollFollow()
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 45})
+	m = next.(Model)
 	if m.colScroll[0] != 0 {
 		t.Fatalf("widened viewport retained stale hidden-above offset %d", m.colScroll[0])
 	}

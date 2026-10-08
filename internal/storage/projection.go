@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/carlotran4/kanbi/internal/kanban"
 )
@@ -91,19 +92,14 @@ left join pause_checkpoints pc on pc.id=(
   select id from pause_checkpoints where ticket_id=t.id order by paused_at desc, id desc limit 1
 ) `
 
+var ticketProjectionPrefix = "select " + strings.Join(ticketProjectionColumns, ",") + latestSessionProjectionJoin
+
 func ticketProjectionSQL(suffix string) string {
-	query := "select "
-	for i, column := range ticketProjectionColumns {
-		if i > 0 {
-			query += ","
-		}
-		query += column
-	}
-	return query + latestSessionProjectionJoin + suffix
+	return ticketProjectionPrefix + suffix
 }
 
 func (s *Store) queryProjectedTickets(ctx context.Context, suffix string, args ...any) ([]Ticket, error) {
-	rows, err := s.db.QueryContext(ctx, ticketProjectionSQL(suffix), args...)
+	rows, err := s.reader().QueryContext(ctx, ticketProjectionSQL(suffix), args...)
 	if err != nil {
 		return nil, err
 	}

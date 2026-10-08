@@ -151,13 +151,13 @@ func (s *Store) BindSessionLaunch(ctx context.Context, sessionID int64, workspac
 	return requireAffected(res, err)
 }
 
-const sessionSelectSQL = `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,coalesce(multiplexer,'tmux'),coalesce(mux_namespace,tmux_session_name),coalesce(mux_container_id,tmux_window_id),coalesce(mux_container_name,tmux_window_name),mux_metadata,workspace_id,launch_cwd,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt from sessions`
+const sessionSelectSQL = `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,coalesce(multiplexer,'tmux'),coalesce(mux_namespace,tmux_session_name),coalesce(mux_container_id,tmux_window_id),coalesce(mux_container_name,tmux_window_name),mux_metadata,workspace_id,launch_cwd,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt,cast(updated_at as text) from sessions`
 
 func (s *Store) sessionByQuery(ctx context.Context, query string, ticketID int64) (Session, bool, error) {
 	var ses Session
 	var active int
 	err := s.db.QueryRowContext(ctx, query, ticketID).
-		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Multiplexer, &ses.MuxNamespace, &ses.MuxContainerID, &ses.MuxContainerName, &ses.MuxMetadata, &ses.WorkspaceID, &ses.LaunchCWD, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt)
+		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Multiplexer, &ses.MuxNamespace, &ses.MuxContainerID, &ses.MuxContainerName, &ses.MuxMetadata, &ses.WorkspaceID, &ses.LaunchCWD, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt, &ses.observationVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, false, nil
 	}

@@ -172,6 +172,7 @@ type Note struct {
 }
 
 type Session struct {
+	observationVersion  string
 	ID                  int64
 	TicketID            int64
 	Harness             string

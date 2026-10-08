@@ -24,7 +24,7 @@ func (s *Store) AddNote(ctx context.Context, ticketID int64, body string) (Note,
 
 func (s *Store) NoteByID(ctx context.Context, noteID int64) (Note, error) {
 	var n Note
-	err := s.db.QueryRowContext(ctx, `select id, ticket_id, external_id, external_updated_at, sync_version, body, deleted_at, created_at, updated_at from ticket_notes where id=?`, noteID).Scan(&n.ID, &n.TicketID, &n.ExternalID, &n.ExternalUpdatedAt, &n.SyncVersion, &n.Body, &n.DeletedAt, &n.CreatedAt, &n.UpdatedAt)
+	err := s.reader().QueryRowContext(ctx, `select id, ticket_id, external_id, external_updated_at, sync_version, body, deleted_at, created_at, updated_at from ticket_notes where id=?`, noteID).Scan(&n.ID, &n.TicketID, &n.ExternalID, &n.ExternalUpdatedAt, &n.SyncVersion, &n.Body, &n.DeletedAt, &n.CreatedAt, &n.UpdatedAt)
 	return n, err
 }
 
@@ -71,7 +71,7 @@ func (s *Store) listNotes(ctx context.Context, ticketID int64, includeDeleted bo
 		query += ` and deleted_at is null`
 	}
 	query += ` order by id asc`
-	rows, err := s.db.QueryContext(ctx, query, ticketID)
+	rows, err := s.reader().QueryContext(ctx, query, ticketID)
 	if err != nil {
 		return nil, err
 	}

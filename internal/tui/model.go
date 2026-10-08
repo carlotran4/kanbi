@@ -23,6 +23,12 @@ import (
 )
 
 type Model struct {
+	renderCache             *renderCache
+	renderVersion           uint64
+	refreshWorker           *runtimeRefreshWorker
+	refreshBusy             bool
+	refreshError            string
+	projectionGeneration    uint64
 	actions                 Actions
 	ctx                     context.Context
 	view                    storage.BoardView
@@ -190,6 +196,8 @@ func NewWithStatusBar(ctx context.Context, store Actions, statusBar statusbar.Co
 	statusBarCtx, statusBarCancel := context.WithCancel(ctx)
 	m := Model{
 		ctx:              ctx,
+		refreshWorker:    newRuntimeRefreshWorker(ctx),
+		renderCache:      newRenderCache(),
 		actions:          store,
 		width:            defaultTermWidth,
 		height:           defaultTermHeight,
@@ -320,11 +328,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncScrollDimensions()
 		m.hScrollFollow()
 		m.vScrollFollow()
+		m.vScrollBackfill()
 		return m, tea.ClearScreen
 	case statusBarResultMsg:
 		if !m.applyStatusBarResult(msg) {
 			return m, nil
 		}
+		m.renderVersion++
 		return m, m.scheduleStatusBarRefresh(msg.name, msg.generation)
 	case statusBarRefreshMsg:
 		if msg.generation != m.statusBarGeneration {
@@ -332,11 +342,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.runStatusBarModule(msg.name)
 	case runtimeTickMsg:
-		if err := m.actions.RefreshRuntime(m.ctx); err != nil {
-			m.setActionError("refresh runtime state", err, "Run `kanbi doctor`, then retry. Existing sessions are left running.")
-		} else {
-			m.reload()
+		if m.refreshBusy {
+			return m, nil
 		}
+		m.refreshBusy = true
+		return m, m.runtimeRefreshCmd()
+	case runtimeRefreshedMsg:
+		m.refreshBusy = false
+		m.applyRuntimeRefresh(msg)
 		return m, runtimeTickCmd()
 	case editorFinishedMsg:
 		m.applyEditorResult(msg)
@@ -502,6 +515,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// containers remain alive regardless of which modal currently has focus.
 	if key.String() == "ctrl+c" {
 		m.statusBarCancel()
+		m.refreshWorker.stop()
 		return m, tea.Quit
 	}
 	if isKittyGraphicsResponse(string(key.Runes)) || isKittyGraphicsResponse(key.String()) {
@@ -614,6 +628,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.startMasterFilter()
 	case "q":
 		m.statusBarCancel()
+		m.refreshWorker.stop()
 		return m, tea.Quit
 	case "!":
 		m.moveAttention(1)
@@ -699,39 +714,54 @@ func (m *Model) reloadBoards() {
 }
 
 func (m *Model) reload() {
+	// Invalidate pending observations on board/filter changes and mutations.
+	m.projectionGeneration++
+	snapshot, err := m.readSnapshot(m.ctx)
+	if err != nil {
+		m.err = err
+		return
+	}
+	m.err = nil
+	m.applySnapshot(snapshot)
+}
+
+func (m *Model) applySnapshot(snapshot boardSnapshot) {
+	m.renderVersion++
 	selectedID := int64(0)
 	if selected, ok := m.selectedTicket(); ok {
 		selectedID = selected.ID
 	}
-	var view storage.BoardView
-	var err error
-	if m.masterBoard {
-		view, err = m.actions.MasterBoardViewWithFilter(m.ctx, m.masterFilter)
-	} else if m.boardID != 0 {
-		view, err = m.actions.BoardViewByID(m.ctx, m.boardID)
-	} else {
-		view, err = m.actions.BoardView(m.ctx)
+	// Anchor each column to its top visible ticket, even after external reorder.
+	anchors := make(map[int64]int64)
+	for ci, column := range m.view.Columns {
+		if ci < len(m.colScroll) && m.colScroll[ci] >= 0 && m.colScroll[ci] < len(column.Tickets) {
+			anchors[column.ID] = column.Tickets[m.colScroll[ci]].ID
+		}
 	}
-	m.view = view
-	m.err = err
-	if focus, focusErr := m.actions.FocusStatus(m.ctx); focusErr == nil {
-		m.focus = focus
-		if focus.Enabled {
-			keys := make(map[string]bool, len(focus.WorkflowKeys))
-			for _, key := range focus.WorkflowKeys {
-				keys[key] = true
+	m.view, m.focus = snapshot.view, snapshot.focus
+	if m.focus.Enabled {
+		keys := make(map[string]bool, len(m.focus.WorkflowKeys))
+		for _, key := range m.focus.WorkflowKeys {
+			keys[key] = true
+		}
+		for ci := range m.view.Columns {
+			column := &m.view.Columns[ci]
+			for ti := range column.Tickets {
+				column.Tickets[ti].FocusMember = keys[column.WorkflowKey] && !column.Tickets[ti].ArchivedAt.Valid
 			}
-			for ci := range m.view.Columns {
-				for ti := range m.view.Columns[ci].Tickets {
-					// Master synthetic columns retain the workflow key, but archived
-					// tickets are historical rows rather than focus commitments.
-					m.view.Columns[ci].Tickets[ti].FocusMember = keys[m.view.Columns[ci].WorkflowKey] && !m.view.Columns[ci].Tickets[ti].ArchivedAt.Valid
-				}
-				if keys[m.view.Columns[ci].WorkflowKey] {
-					sort.SliceStable(m.view.Columns[ci].Tickets, func(i, j int) bool {
-						return focusTicketSection(m.view.Columns[ci].Tickets[i]) < focusTicketSection(m.view.Columns[ci].Tickets[j])
-					})
-				}
+			if keys[column.WorkflowKey] {
+				sort.SliceStable(column.Tickets, func(i, j int) bool {
+					return focusTicketSection(column.Tickets[i]) < focusTicketSection(column.Tickets[j])
+				})
+			}
+		}
+	}
+	m.syncScrollDimensions()
+	for ci, column := range m.view.Columns {
+		for ti, ticket := range column.Tickets {
+			if ticket.ID == anchors[column.ID] {
+				m.colScroll[ci] = ti
+				break
 			}
 		}
 	}
@@ -750,7 +780,7 @@ func (m *Model) reload() {
 	m.hScrollFollow()
 	m.integrationNotice = ""
 	if m.view.Board.ID != 0 && m.view.Board.WorktreeMode == storage.WorktreeModeGit {
-		if runs, listErr := m.actions.ListIntegrationRuns(m.ctx, m.view.Board.ID); listErr == nil {
+		if runs := snapshot.runs; len(runs) > 0 {
 			for _, run := range runs {
 				if m.integrationOpen && run.PublicID == m.integrationRun.PublicID {
 					m.integrationRun = run

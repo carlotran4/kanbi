@@ -82,7 +82,11 @@ type Manager struct {
 
 	// WorkspaceService may be injected by tests. Production lazily constructs
 	// the Git workspace service from Config.Paths and Store.
-	WorkspaceService *workspacepkg.Service
+	WorkspaceService      *workspacepkg.Service
+	workspaceOnce         sync.Once
+	runtimeMu             sync.Mutex
+	workspaceObservations map[int64]workspaceObservation
+	workspaceCursor       int
 }
 
 func NewManager(cfg config.Config, store *storage.Store) *Manager {
@@ -96,9 +100,11 @@ func NewManagerWithContext(ctx context.Context, cfg config.Config, store *storag
 }
 
 func (m *Manager) workspaceService() *workspacepkg.Service {
-	if m.WorkspaceService == nil && m.Store != nil {
-		m.WorkspaceService = &workspacepkg.Service{Store: m.Store, StateDir: m.Config.Paths.StateDir}
-	}
+	m.workspaceOnce.Do(func() {
+		if m.WorkspaceService == nil && m.Store != nil {
+			m.WorkspaceService = &workspacepkg.Service{Store: m.Store, StateDir: m.Config.Paths.StateDir}
+		}
+	})
 	return m.WorkspaceService
 }
 
@@ -444,7 +450,16 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return nil
 }
 
+const workspaceObserveInterval = 5 * time.Second
+
+type workspaceObservation struct {
+	at                        time.Time
+	state, path, sourceBranch string
+}
+
 func (m *Manager) RefreshRuntime(ctx context.Context) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	if m.Store == nil {
 		return nil
 	}
@@ -457,20 +472,42 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			return err
 		}
 		observeCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+		if m.workspaceObservations == nil {
+			m.workspaceObservations = make(map[int64]workspaceObservation)
+		}
+		current := make(map[int64]bool, len(workspaces))
 		for _, workspace := range workspaces {
+			current[workspace.ID] = true
+		}
+		for id := range m.workspaceObservations {
+			if !current[id] {
+				delete(m.workspaceObservations, id)
+			}
+		}
+		start := m.workspaceCursor
+		for i := 0; i < len(workspaces); i++ {
 			if observeCtx.Err() != nil {
 				break
 			}
+			index := (start + i) % len(workspaces)
+			workspace := workspaces[index]
+			m.workspaceCursor = (index + 1) % len(workspaces)
 			if workspace.State == storage.WorkspaceStateIntegrated {
 				continue
 			}
+			previous, cached := m.workspaceObservations[workspace.ID]
+			if cached && time.Since(previous.at) < workspaceObserveInterval && previous.state == workspace.State && previous.path == workspace.WorktreePath && previous.sourceBranch == workspace.SourceBranch {
+				continue
+			}
 			if _, observeErr := service.Observe(observeCtx, workspace); observeErr != nil {
-				_ = m.Store.RecordWorkspaceObservationError(ctx, workspace.ID, observeErr.Error())
+				_ = m.Store.RecordWorkspaceObservationError(observeCtx, workspace.ID, observeErr.Error())
+			} else {
+				m.workspaceObservations[workspace.ID] = workspaceObservation{at: time.Now(), state: workspace.State, path: workspace.WorktreePath, sourceBranch: workspace.SourceBranch}
 			}
 		}
 		cancel()
 	}
-	tickets, err := m.Store.ListTickets(ctx, false)
+	tickets, err := m.Store.ActiveRuntimeTickets(ctx)
 	if err != nil {
 		return err
 	}
@@ -489,7 +526,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		// A starting session is a durable launch claim, not an observable runtime
 		// container yet. Polling it can race the launch, change its status, and
 		// cause CompleteSessionLaunch to reject the claim and close the new pane.
-		if ses.Status == kanban.StateStarting {
+		if ses.Status == kanban.StateStarting || ses.Status == kanban.StateClosing {
 			continue
 		}
 		var out string
@@ -499,7 +536,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			containerRef := ContainerRefFromSession(ses)
 			detection, _ := adapter.Detect(ctx, containerRef)
 			if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
-				if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
+				if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
 					return err
 				}
 				continue
@@ -514,7 +551,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 				return err
 			}
 			if !exists {
-				if err := m.Store.MarkSessionMissing(ctx, ses.ID); err != nil {
+				if err := m.Store.MarkObservedSessionMissing(ctx, ses); err != nil {
 					return err
 				}
 				continue
@@ -523,12 +560,12 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		}
 		if err != nil {
 			if errors.Is(err, multiplexer.ErrContainerNotFound) {
-				if markErr := m.Store.MarkSessionMissing(ctx, ses.ID); markErr != nil {
+				if markErr := m.Store.MarkObservedSessionMissing(ctx, ses); markErr != nil {
 					return markErr
 				}
 				continue
 			}
-			if recordErr := m.Store.RecordSessionObservationFailure(ctx, ses.ID, detectionSource, err.Error()); recordErr != nil {
+			if recordErr := m.Store.RecordObservedSessionFailure(ctx, ses, detectionSource, err.Error()); recordErr != nil {
 				return recordErr
 			}
 			continue
@@ -550,7 +587,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		if detectionSource == "herdr" && source != "pattern" {
 			source = "heuristic"
 		}
-		if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, state, source, reason, excerpt, changed); err != nil {
+		if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, state, source, reason, excerpt, changed); err != nil {
 			return err
 		}
 	}
