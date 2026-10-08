@@ -338,6 +338,9 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		m.currentEditBuffer().HandleKey(key.String(), key.Runes)
 	}
+	if m.editField == m.editNotesField() {
+		return m, clearKittyImagesCmd()
+	}
 	return m, nil
 }
 
@@ -562,6 +565,19 @@ func (m Model) editView() string {
 		lines = append(lines, textareaOverlayView(m.bodyTA))
 		if completion := m.fileCompletionView(fileCompletionBody, contentW); completion != "" {
 			lines = append(lines, completion)
+		}
+	} else if m.editField == m.editNotesField() {
+		// Notes own the viewport while this tab is active. Keep description
+		// context compact, and reuse the plain preview instead of parsing a
+		// long Markdown body before every note navigation key.
+		preview := m.bodyPreview(storage.Ticket{Body: m.bodyTA.Value()}, contentW)
+		count := 0
+		for line := range strings.SplitSeq(preview, "\n") {
+			lines = append(lines, line)
+			count++
+			if count == 3 {
+				break
+			}
 		}
 	} else {
 		body := strings.TrimSpace(m.bodyTA.Value())

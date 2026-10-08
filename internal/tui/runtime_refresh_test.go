@@ -211,3 +211,44 @@ func TestNotesSaveAndDeleteKeepSelectionInViewport(t *testing.T) {
 		t.Fatal("deletion moved to unrelated newest note")
 	}
 }
+
+func TestNotesTabShowsSelectedBodyAt80x24WithLongDescription(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	defer m.Close()
+	view := defaultBoardView(t, ctx, store)
+	ticket := createTicket(t, ctx, store, view.Columns[0].ID, "notes", "Unicode café 界\n![](/tmp/missing.png)\n"+strings.Repeat("markdown **body** ", 3800), "pi")
+	for i := 0; i < 50; i++ {
+		if _, err := store.AddNote(ctx, ticket.ID, "selected note body visible"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.reload()
+	m.width, m.height = 80, 24
+	m.startEdit()
+	m.editField = m.editNotesField()
+	frame := ansiStrip(m.View())
+	for _, want := range []string{"> [50]", "selected note body visible", "Ctrl+S", "Kanbi", "?:help"} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("missing %q:\n%s", want, frame)
+		}
+	}
+	if len(strings.Split(frame, "\n")) > 24 {
+		t.Fatal("inspector overflowed terminal")
+	}
+}
+
+func TestEnteringCompactNotesClearsDisplayedKittyGraphics(t *testing.T) {
+	t.Setenv("KANBI_IMAGE_PROTOCOL", "kitty")
+	kittyImagesActive.Store(true)
+	t.Cleanup(func() { kittyImagesActive.Store(false) })
+	m, store, ctx := newTestModel(t)
+	defer m.Close()
+	view := defaultBoardView(t, ctx, store)
+	createTicket(t, ctx, store, view.Columns[0].ID, "image notes", "body", "pi")
+	m.reload()
+	m.startEdit()
+	m, cmd := mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if cmd == nil || kittyImagesActive.Load() || m.editField != m.editNotesField() {
+		t.Fatal("notes tab retained displayed image")
+	}
+}

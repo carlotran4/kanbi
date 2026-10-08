@@ -115,6 +115,19 @@ func TestPerformanceEvidence(t *testing.T) {
 		}
 		measurePerformance(t, "notes-thread", 200, func() { m.noteIndex = (m.noteIndex + 1) % len(m.notes); _ = m.notesThreadView(80) })
 	})
+	t.Run("notes-modal-body=65536", func(t *testing.T) {
+		m, store, ctx := newTestModel(t)
+		view := defaultBoardView(t, ctx, store)
+		createTicket(t, ctx, store, view.Columns[0].ID, "notes target", strings.Repeat("markdown **body** ", 3640), "pi")
+		m.reload()
+		m.width, m.height = 160, 40
+		m.startEdit()
+		m.editField = m.editNotesField()
+		for i := 0; i < 50; i++ {
+			m.notes = append(m.notes, storage.Note{ID: int64(i + 1), Body: fmt.Sprintf("Note %d: ", i) + strings.Repeat("note **markdown** ", 60), CreatedAt: time.Now(), UpdatedAt: time.Now()})
+		}
+		measurePerformance(t, "notes-modal-with-long-body", 120, func() { m.noteIndex = (m.noteIndex + 1) % len(m.notes); _ = m.View() })
+	})
 }
 
 func measurePerformance(t *testing.T, name string, count int, operation func()) {
