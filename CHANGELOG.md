@@ -4,6 +4,22 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ## Unreleased
 
+## [0.3.0-beta.4] - 2026-10-09
+
+### Improved
+
+- Keep keyboard input responsive while runtime observation and SQLite writes are in progress; reject stale refresh results while preserving selection and unsaved edits.
+- Reduce named-board projection work, cache unchanged projections and Git observations, and avoid repeatedly rendering hidden descriptions and notes.
+- Improve long-description editing and small-terminal inspector behavior while preserving complete saved bodies, Unicode text, and note selection.
+- Raise the maximum renderer cadence to 120 FPS; unchanged frames still emit no output, with a small measured increase in idle CPU.
+- Include the license for the bundled Bubbles textarea in release archives.
+
+### Security
+
+- Require Go 1.26.9 for patched standard-library HTTP, TLS, and MIME handling, and update indirect networking dependencies.
+
+There is no database schema change from beta.3 (schema 8). See the [beta.4 release notes](./docs/releases/v0.3.0-beta.4.md) for upgrade, rollback, and remaining beta limitations.
+
 ## [0.3.0-beta.3] - 2026-07-29
 
 Beta release adding global Focus Mode, project-file completion, and safer session repair while consolidating runtime, storage, CLI, and modal behavior behind shared application seams.

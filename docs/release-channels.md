@@ -14,7 +14,7 @@ Kanbi uses one release pipeline from development betas through stable releases. 
 
 The release workflow accepts only `MAJOR.MINOR.PATCH`, `MAJOR.MINOR.PATCH-beta.N`, and `MAJOR.MINOR.PATCH-rc.N`, with an optional leading `v`. All `0.x` tags and every suffixed tag are published as GitHub prereleases, so they do not replace GitHub's latest stable release.
 
-The current published beta is **`v0.3.0-beta.3`**, which superseded `v0.3.0-beta.2` without moving either immutable tag. Future candidates are qualified through a workflow-dispatch run and durable GitHub release issue rather than committed dated verification records.
+The beta.4 candidate is **`v0.3.0-beta.4`**, following the published `v0.3.0-beta.3` without moving existing immutable tags. Candidates are qualified through a workflow-dispatch run and durable GitHub release issue rather than committed dated verification records.
 
 ## One artifact path
 
