@@ -9,7 +9,11 @@ import (
 	"time"
 )
 
-func (s *Store) focusStatusTx(ctx context.Context, tx *sql.Tx, policy FocusPolicy) (FocusStatus, error) {
+type focusStatusQuerier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func (s *Store) focusStatusTx(ctx context.Context, tx focusStatusQuerier, policy FocusPolicy) (FocusStatus, error) {
 	status := FocusStatus{Enabled: policy.Enabled, Limit: policy.Limit, WorkflowKeys: append([]string(nil), policy.WorkflowKeys...)}
 	if !policy.Enabled || len(policy.WorkflowKeys) == 0 {
 		return status, nil
@@ -28,17 +32,9 @@ func (s *Store) focusStatusTx(ctx context.Context, tx *sql.Tx, policy FocusPolic
 
 // FocusStatus returns globally focused work across all unarchived boards.
 func (s *Store) FocusStatus(ctx context.Context) (FocusStatus, error) {
-	policy := s.FocusPolicy()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return FocusStatus{}, err
-	}
-	defer tx.Rollback()
-	status, err := s.focusStatusTx(ctx, tx, policy)
-	if err != nil {
-		return FocusStatus{}, err
-	}
-	return status, tx.Commit()
+	// Counting commitments is a read. BEGIN IMMEDIATE is reserved for actual
+	// capacity admissions; it would block this status read behind any writer.
+	return s.focusStatusTx(ctx, s.reader(), s.FocusPolicy())
 }
 
 // FocusedTickets lists unpaused commitments eligible for replacement. It is

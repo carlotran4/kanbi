@@ -17,9 +17,12 @@ import (
 )
 
 type Store struct {
-	db      *sql.DB
-	focusMu sync.RWMutex
-	focus   FocusPolicy
+	db              *sql.DB
+	readDB          *sql.DB
+	projectionMu    sync.Mutex
+	projectionCache projectionCache
+	focusMu         sync.RWMutex
+	focus           FocusPolicy
 }
 
 // SetFocusPolicy configures the process's global focus policy. The durable
@@ -70,7 +73,35 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	if path == ":memory:" {
+		return &Store{db: db}, nil
+	}
+	// A separate read-only WAL connection prevents background writer lock
+	// waits from occupying the connection used by board/status reads.
+	readDSN, err := url.Parse(sqliteDSN(path, false))
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	query := readDSN.Query()
+	query.Set("mode", "ro")
+	query.Set("_query_only", "on")
+	query.Del("_journal_mode")
+	query.Del("_synchronous")
+	query.Del("_txlock")
+	readDSN.RawQuery = query.Encode()
+	reader, err := sql.Open("sqlite3", readDSN.String())
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	reader.SetMaxOpenConns(1)
+	if err := reader.Ping(); err != nil {
+		_ = reader.Close()
+		_ = db.Close()
+		return nil, err
+	}
+	return &Store{db: db, readDB: reader}, nil
 }
 
 func OpenMemory() (*Store, error) {
@@ -108,8 +139,19 @@ func sqliteDSN(path string, memory bool) string {
 	return u.String()
 }
 
+func (s *Store) reader() *sql.DB {
+	if s.readDB != nil {
+		return s.readDB
+	}
+	return s.db
+}
+
 func (s *Store) Close() error {
-	return s.db.Close()
+	var readErr error
+	if s.readDB != nil {
+		readErr = s.readDB.Close()
+	}
+	return errors.Join(readErr, s.db.Close())
 }
 
 func (s *Store) verifyForeignKeys(ctx context.Context) error {

@@ -33,29 +33,29 @@ func scanBoard(row boardScanner, b *Board) error {
 
 func (s *Store) DefaultBoard(ctx context.Context) (Board, error) {
 	var b Board
-	err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where archived_at is null order by id limit 1`), &b)
+	err := scanBoard(s.reader().QueryRowContext(ctx, boardSelectSQL+` where archived_at is null order by id limit 1`), &b)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Fall back to any board so imported/archived-only databases still resolve.
-		err = scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` order by id limit 1`), &b)
+		err = scanBoard(s.reader().QueryRowContext(ctx, boardSelectSQL+` order by id limit 1`), &b)
 	}
 	return b, err
 }
 
 func (s *Store) BoardByID(ctx context.Context, id int64) (Board, error) {
 	var b Board
-	err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where id=?`, id), &b)
+	err := scanBoard(s.reader().QueryRowContext(ctx, boardSelectSQL+` where id=?`, id), &b)
 	return b, err
 }
 
 func (s *Store) BoardByUUID(ctx context.Context, uuid string) (Board, error) {
 	var b Board
-	err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where uuid=?`, strings.TrimSpace(uuid)), &b)
+	err := scanBoard(s.reader().QueryRowContext(ctx, boardSelectSQL+` where uuid=?`, strings.TrimSpace(uuid)), &b)
 	return b, err
 }
 
 func (s *Store) BoardByName(ctx context.Context, name string) (Board, error) {
 	var b Board
-	err := scanBoard(s.db.QueryRowContext(ctx, boardSelectSQL+` where lower(name)=lower(?) order by id limit 1`, strings.TrimSpace(name)), &b)
+	err := scanBoard(s.reader().QueryRowContext(ctx, boardSelectSQL+` where lower(name)=lower(?) order by id limit 1`, strings.TrimSpace(name)), &b)
 	return b, err
 }
 
@@ -66,7 +66,7 @@ func (s *Store) RenameBoard(ctx context.Context, boardID int64, name string) err
 		return err
 	}
 	var existing int
-	if err := s.db.QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?) and id<>?`, name, boardID).Scan(&existing); err != nil {
+	if err := s.reader().QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?) and id<>?`, name, boardID).Scan(&existing); err != nil {
 		return err
 	}
 	if existing > 0 {
@@ -92,7 +92,7 @@ func (s *Store) SetBoardWorkdir(ctx context.Context, boardID int64, workdir stri
 
 func (s *Store) countCurrentWorkspaces(ctx context.Context, boardID int64) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&n)
+	err := s.reader().QueryRowContext(ctx, `select count(*) from ticket_workspaces where board_id=? and (is_current=1 or state=?)`, boardID, WorkspaceStateCleanupReq).Scan(&n)
 	return n, err
 }
 
@@ -304,7 +304,7 @@ func (s *Store) ListBoardsFiltered(ctx context.Context, includeArchived bool) ([
 		query += ` where archived_at is null`
 	}
 	query += ` order by lower(name), id`
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.reader().QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +375,7 @@ func (s *Store) CreateBoardWithOptions(ctx context.Context, opts CreateBoardOpti
 		return Board{}, err
 	}
 	var existing int
-	if err := s.db.QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?)`, name).Scan(&existing); err != nil {
+	if err := s.reader().QueryRowContext(ctx, `select count(*) from boards where lower(name)=lower(?)`, name).Scan(&existing); err != nil {
 		return Board{}, err
 	}
 	if existing > 0 {

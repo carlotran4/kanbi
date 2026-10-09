@@ -914,7 +914,9 @@ func TestModelEditRemainsBoundToTicketAfterRefreshArchivesIt(t *testing.T) {
 	if err := store.ArchiveTicket(ctx, edited.ID); err != nil {
 		t.Fatal(err)
 	}
-	next, _ := model.Update(runtimeTickMsg(time.Now()))
+	next, refresh := model.Update(runtimeTickMsg(time.Now()))
+	model = next.(Model)
+	next, _ = model.Update(refresh())
 	model = next.(Model)
 	if selected, ok := model.selectedTicket(); !ok || selected.ID != other.ID {
 		t.Fatalf("refresh should move cursor to ticket B, selected=%+v ok=%v", selected, ok)
@@ -1098,6 +1100,8 @@ func TestModelIgnoresKittyGraphicsResponsesWhileEditingTitle(t *testing.T) {
 }
 
 func TestModelEscFromInspectorReturnsClearImageCommand(t *testing.T) {
+	kittyImagesActive.Store(true)
+	t.Cleanup(func() { kittyImagesActive.Store(false) })
 	t.Setenv("KANBI_IMAGE_PROTOCOL", "kitty")
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)

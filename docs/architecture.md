@@ -25,11 +25,14 @@ flowchart LR
     Sync[Ticket backend sync] --> Store
 ```
 
-- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, session history, provider-note tombstones, cross-process sync leases, remote push pending tokens, and redacted runtime/sync diagnostics live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite. File databases use WAL mode and a busy timeout for concurrent Kanbi processes. Foreign-key enforcement is enabled on every store connection and integrity is verified during initialization.
+- **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, session history, provider-note tombstones, cross-process sync leases, remote push pending tokens, and redacted runtime/sync diagnostics live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite. File databases use WAL mode and a busy timeout for concurrent Kanbi processes. Board, Focus, note, and integration projection reads use a separate read-only, query-only connection so a writer waiting for a lock does not monopolize their connection; private in-memory stores keep one connection. Foreign-key enforcement is enabled on every store connection and integrity is verified during initialization.
 - **The configured multiplexer is observed runtime state.** tmux windows are validated against live tmux. Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
-- **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions.
+- **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions. The CLI retains inline rendering and allows up to 120 FPS. A small licensed textarea patch preserves Bubbles v1 editor semantics while avoiding offscreen styling and repeated printable-ASCII width scans; its upstream and differential regression suites live in `internal/tui/textarea`.
 - **Ticket backend adapters are board-scoped.** Each board has exactly one ticket metadata backend chosen at creation. `local`, `github`, and `atlassian` (Jira) are implemented today; the adapter seam remains prepared for Asana and similar systems.
+
+
+Board projections use an eight-entry cache with a 64 MiB estimated snapshot budget. Every read leases one physical SQLite reader and checks its connection-local database revision; replacement connections invalidate the cache. Private in-memory stores also check own-connection changes and schema changes. A revision check after a fresh load prevents retaining a projection that crosses a commit. Admission requires a second read of the same key at the same revision, so continuously changing boards avoid retained-copy work. Callers receive independent mutable slices/checkpoints. External CLI writes, notes, workspace updates, and lifecycle heartbeats continue invalidating snapshots; this cache introduces no freshness TTL. Filter keys above 16 KiB bypass retention.
 
 ## Current Objective And Scope
 
@@ -194,13 +197,23 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Tick[TUI tick] --> Active[Projected active sessions]
+    Tick[TUI tick] --> Worker[One bounded observation command]
+    Worker --> Active[Narrow active-session query]
     Active --> Validate[Validate terminal container]
     Validate --> Capture[Capture terminal output]
     Capture --> Detect[Harness/pattern/idle detection]
     Detect --> Store[(Runtime metadata update)]
-    Store --> TUI[Updated card labels/indicators]
+    Store --> Snapshot[Read board projection]
+    Snapshot --> TUI[Apply current-generation result in Update]
 ```
+
+The TUI starts one runtime observation command at a time, with a 1.5-second context deadline, then schedules the next tick two seconds after completion. Input and View continue while it runs. A request snapshots the board/filter generation; results from an older foreground reload are discarded. Polling errors keep the last valid board visible with a stale-refresh footer. Editor drafts belong to the UI thread and are not replaced by observation results. Shutdown cancels and joins started observation work before closing storage.
+
+Successful Git workspace observations are cached for five seconds by workspace identity, state, path, and source branch. The 750 ms Git observation budget rotates across workspaces so a slow prefix cannot indefinitely starve the remainder. Failures are retried; explicit resolve/integrate operations still observe and revalidate fresh state. Unchanged workspace status does not write or advance `updated_at`; session liveness/output timestamps retain their existing semantics.
+
+Card previews and note Markdown have bounded, per-model caches keyed by content and width. Notes render a bounded window beginning at the selected note; all notes remain reachable with j/k. The notes tab uses a compact cached description preview so a long body cannot hide the selected note. Saves retain the changed note selection and deletion follows the adjacent note; entering the compact tab clears previously displayed Kitty graphics. Modal background caches include projection version, geometry, selection, footer state, and elapsed-time second. Ordinary navigation and refresh preserve vertical viewport anchors; only a resize backfills spare space. Terminal environment probes cache positive and negative results for 30 seconds per tmux/pane context and bound each subprocess to 100 ms. Plain inspector dismissal does not probe graphics capabilities when no Kitty image was displayed.
+
+The inspector's read-only description wraps only its visible rows plus one lookahead row for the overflow ellipsis. Ordinary text without either possible image marker skips image regex scans; valid Markdown image paths without extensions still render. The editable textarea retains Bubbles' full cursor/edit behavior.
 
 ## Harness Architecture
 

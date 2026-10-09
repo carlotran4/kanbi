@@ -27,6 +27,9 @@ func (m *Model) boardContentHeight() int {
 			fixed += 2
 		}
 	}
+	if m.refreshError != "" {
+		fixed++
+	}
 	if m.integrationNotice != "" {
 		fixed++
 	}
@@ -78,7 +81,7 @@ func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWi
 	used := 0
 	end = scrollTop - 1
 	for ti := scrollTop; ti < len(col.Tickets); ti++ {
-		h := cardHeightEx(col.Tickets[ti], columnWidth, ci == m.col && ti == m.card, m.masterBoard)
+		h := m.cachedCardHeight(col.Tickets[ti], columnWidth, ci == m.col && ti == m.card)
 		section := focusTicketSection(col.Tickets[ti])
 		previousSection := -1
 		if ti > scrollTop {
@@ -114,7 +117,7 @@ func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWi
 		// Extremely short terminals still show the focused/top card. Omit the
 		// lower hint if it cannot fit rather than scrolling the whole terminal.
 		end = scrollTop
-		used = cardHeightEx(col.Tickets[scrollTop], columnWidth, ci == m.col && scrollTop == m.card, m.masterBoard)
+		used = m.cachedCardHeight(col.Tickets[scrollTop], columnWidth, ci == m.col && scrollTop == m.card)
 	}
 	showBelow = end < len(col.Tickets)-1 && used < avail
 	return end, showAbove, showBelow
@@ -127,26 +130,27 @@ func cardHeight(ticket storage.Ticket, width int) int {
 }
 
 func cardHeightEx(ticket storage.Ticket, width int, focused, showBoard bool) int {
+	preview := ""
+	if focused {
+		body := ticket.Body
+		if ticket.FocusPaused && ticket.LatestCheckpoint != nil {
+			body = "Next: " + ticket.LatestCheckpoint.NextAction
+		}
+		preview = renderBodyPreview(body, maxInt(10, width-8))
+	}
+	return cardHeightWithPreview(ticket, width, showBoard, preview)
+}
+
+func cardHeightWithPreview(ticket storage.Ticket, width int, showBoard bool, preview string) int {
 	cardInnerWidth := width - 4
 	titleLines := wrapText(cardTitle(ticket, showBoard), cardInnerWidth-2, 3)
 	if len(titleLines) == 0 {
 		titleLines = []string{ticket.DisplayID}
 	}
 	previewLines := 0
-	if focused {
-		previewWidth := cardInnerWidth - 4
-		if previewWidth < 10 {
-			previewWidth = 10
-		}
-		previewBody := ticket.Body
-		if ticket.FocusPaused && ticket.LatestCheckpoint != nil {
-			previewBody = "Next: " + ticket.LatestCheckpoint.NextAction
-		}
-		preview := renderBodyPreview(previewBody, previewWidth)
-		for _, pl := range strings.Split(preview, "\n") {
-			if strings.TrimSpace(pl) != "" {
-				previewLines++
-			}
+	for line := range strings.SplitSeq(preview, "\n") {
+		if strings.TrimSpace(line) != "" {
+			previewLines++
 		}
 	}
 	workspaceLines := 0
@@ -188,6 +192,23 @@ func (m *Model) vScrollFollow() {
 		}
 		m.colScroll[m.col]++
 	}
+	// Scroll up: retreat offset if focused card is above visible window.
+	for m.card < m.colScroll[m.col] {
+		m.colScroll[m.col]--
+	}
+}
+
+// Backfill is a resize operation. Ordinary navigation and refresh preserve
+// their viewport anchor rather than pulling earlier cards back onto the screen.
+func (m *Model) vScrollBackfill() {
+	if m.col < 0 || m.col >= len(m.view.Columns) || m.col >= len(m.colScroll) {
+		return
+	}
+	col := m.view.Columns[m.col]
+	if len(col.Tickets) == 0 {
+		return
+	}
+	columnWidth, _ := m.boardColumnLayout()
 	// Backfill newly available height after a resize while keeping the selected
 	// card visible. This prevents stale (+N more ▲) hints after widening.
 	for m.colScroll[m.col] > 0 {
@@ -197,10 +218,6 @@ func (m *Model) vScrollFollow() {
 			break
 		}
 		m.colScroll[m.col] = candidate
-	}
-	// Scroll up: retreat offset if focused card is above visible window.
-	for m.card < m.colScroll[m.col] {
-		m.colScroll[m.col]--
 	}
 }
 
@@ -257,4 +274,24 @@ func (m *Model) clamp() {
 	if m.card > maxCard {
 		m.card = maxCard
 	}
+}
+
+// Centered inspectors leave the app header and every current footer row visible.
+// fitModal takes two additional rows for its own outer clipping margin.
+func (m Model) inspectorViewportHeight() int {
+	footer := 2
+	if m.status != "" {
+		if m.errOperation != "" {
+			footer += 3
+		} else {
+			footer++
+		}
+	}
+	if m.refreshError != "" {
+		footer++
+	}
+	if m.integrationNotice != "" {
+		footer++
+	}
+	return maxInt(1, m.height-2*maxInt(2, footer))
 }

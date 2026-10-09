@@ -105,6 +105,40 @@ func TestRenderMarkdownForInspectorShowsImagePlaceholderWithoutGraphics(t *testi
 	}
 }
 
+func TestInspectorDescriptionTruncationPreservesVisibleText(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+	for _, tc := range []struct {
+		name, body, want string
+		rows             int
+	}{
+		{"short", "one two three four", "one two three four", 1},
+		{"exact fit", "one two three four five six seven", "one two three four\nfive six seven", 2},
+		{"wrapped overflow", "one two three four five six seven", "one two three four\n…", 1},
+		{"next paragraph", "first\n\nsecond", "first\n…", 1},
+		{"formatted", "# Heading\n**bold**", "Heading\nbold", 2},
+		{"zero rows", "hidden", "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ansiStrip(renderMarkdownForInspector(tc.body, 20, tc.rows)); got != tc.want {
+				t.Fatalf("description=%q want %q", got, tc.want)
+			}
+		})
+	}
+	body := strings.Repeat("Unicode café 界 ", 5000)
+	got := ansiStrip(renderMarkdownForInspector(body, 40, 3))
+	if !strings.Contains(got, "café 界") || !strings.HasSuffix(got, "\n…") || strings.Count(got, "\n") != 3 {
+		t.Fatalf("long description lost visible Unicode or truncation: %q", got)
+	}
+}
+
+func TestImageDetectionRetainsMarkdownPathsWithoutExtensions(t *testing.T) {
+	stubNoGraphicsTerminal(t)
+	got := strings.Join(renderMarkdownImagesInline("before ![](/tmp/noextension) after", 40, 4), "\n")
+	if !strings.Contains(got, "[image: noextension]") || !strings.Contains(got, "before") || !strings.Contains(got, "after") {
+		t.Fatalf("image detection lost content: %q", got)
+	}
+}
+
 func TestRenderMarkdownForInspectorEmitsKittyGraphics(t *testing.T) {
 	t.Setenv("KANBI_IMAGE_PROTOCOL", "")
 	t.Setenv("TMUX", "")
@@ -159,5 +193,56 @@ func TestTerminalImageProtocolDetectsSixelFallback(t *testing.T) {
 	t.Setenv("TERM_PROGRAM", "iTerm.app")
 	if terminalImageProtocol() != imageProtocolSixel {
 		t.Fatalf("iterm should be detected as sixel-capable")
+	}
+}
+
+func TestTerminalEnvironmentCachesPositiveAndNegativeResults(t *testing.T) {
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\nprintf 'call\\n' >> '" + counter + "'\nif [ \"$3\" = POSITIVE ]; then printf 'POSITIVE=kitty\\n'; else exit 1; fi\n"
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMUX", "unique-test-terminal")
+	t.Setenv("TMUX_PANE", "%fixture")
+	t.Setenv("POSITIVE", "")
+	t.Setenv("NEGATIVE", "")
+	for i := 0; i < 3; i++ {
+		if terminalEnv("POSITIVE") != "kitty" || terminalEnv("NEGATIVE") != "" {
+			t.Fatal("invalid environment lookup")
+		}
+	}
+	data, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "call") != 2 {
+		t.Fatalf("uncached terminal lookups: %s", data)
+	}
+	t.Setenv("TMUX_PANE", "%another")
+	_ = terminalEnv("NEGATIVE")
+	data, err = os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "call") != 3 {
+		t.Fatal("cache leaked across terminal contexts")
+	}
+}
+
+func TestImageCleanupSkipsUnusedGraphics(t *testing.T) {
+	t.Setenv("KANBI_IMAGE_PROTOCOL", "kitty")
+	kittyImagesActive.Store(false)
+	t.Cleanup(func() { kittyImagesActive.Store(false) })
+	if clearKittyImagesSeq() != "" {
+		t.Fatal("unused graphics triggered cleanup")
+	}
+	kittyImagesActive.Store(true)
+	if clearKittyImagesSeq() == "" {
+		t.Fatal("active graphics were not cleared")
+	}
+	if clearKittyImagesSeq() != "" {
+		t.Fatal("graphics cleanup was repeated")
 	}
 }

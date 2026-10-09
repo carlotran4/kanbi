@@ -116,11 +116,11 @@ func scanIntegrationRun(row interface{ Scan(...any) error }) (IntegrationRun, er
 }
 
 func (s *Store) IntegrationRunByPublicID(ctx context.Context, publicID string) (IntegrationRun, error) {
-	r, err := scanIntegrationRun(s.db.QueryRowContext(ctx, integrationRunSelect+` where public_id=?`, publicID))
+	r, err := scanIntegrationRun(s.reader().QueryRowContext(ctx, integrationRunSelect+` where public_id=?`, publicID))
 	if err != nil {
 		return IntegrationRun{}, err
 	}
-	rows, err := s.db.QueryContext(ctx, `select i.id,i.run_id,i.workspace_id,i.ticket_id,t.display_id,t.title,i.branch_name,i.head_sha,i.position from integration_run_items i join tickets t on t.id=i.ticket_id where i.run_id=? order by i.position`, r.ID)
+	rows, err := s.reader().QueryContext(ctx, `select i.id,i.run_id,i.workspace_id,i.ticket_id,t.display_id,t.title,i.branch_name,i.head_sha,i.position from integration_run_items i join tickets t on t.id=i.ticket_id where i.run_id=? order by i.position`, r.ID)
 	if err != nil {
 		return IntegrationRun{}, err
 	}
@@ -136,7 +136,7 @@ func (s *Store) IntegrationRunByPublicID(ctx context.Context, publicID string) (
 }
 
 func (s *Store) ListIntegrationRuns(ctx context.Context, boardID int64) ([]IntegrationRun, error) {
-	rows, err := s.db.QueryContext(ctx, integrationRunSelect+` where (?=0 or board_id=?) order by id desc`, boardID, boardID)
+	rows, err := s.reader().QueryContext(ctx, integrationRunSelect+` where (?=0 or board_id=?) order by id desc`, boardID, boardID)
 	if err != nil {
 		return nil, err
 	}

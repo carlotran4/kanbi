@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/carlotran4/kanbi/internal/tui/textarea"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/carlotran4/kanbi/internal/attachments"
@@ -339,6 +338,9 @@ func (m Model) updateEdit(key tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		m.currentEditBuffer().HandleKey(key.String(), key.Runes)
 	}
+	if m.editField == m.editNotesField() {
+		return m, clearKittyImagesCmd()
+	}
 	return m, nil
 }
 
@@ -478,7 +480,7 @@ func (m Model) editView() string {
 	if contentW < 30 {
 		contentW = 30
 	}
-	descriptionLines := inspectorDescriptionLines(m.height)
+	descriptionLines := minInt(inspectorDescriptionLines(m.height), maxInt(3, m.inspectorViewportHeight()-13))
 	if m.editSessionRefVisible {
 		descriptionLines--
 	}
@@ -554,11 +556,35 @@ func (m Model) editView() string {
 
 	lines = append(lines, "")
 	if m.editField == 1 {
-		m.bodyTA.SetWidth(contentW)
-		m.bodyTA.SetHeight(descriptionLines)
+		if m.bodyTA.Width() != contentW {
+			m.bodyTA.SetWidth(contentW)
+		}
+		if m.bodyTA.Height() != descriptionLines {
+			m.bodyTA.SetHeight(descriptionLines)
+		}
 		lines = append(lines, textareaOverlayView(m.bodyTA))
 		if completion := m.fileCompletionView(fileCompletionBody, contentW); completion != "" {
 			lines = append(lines, completion)
+		}
+	} else if m.editField == m.editNotesField() {
+		// Notes own the viewport while this tab is active. Keep description
+		// context compact, and reuse the plain preview instead of parsing a
+		// long Markdown body before every note navigation key.
+		preview := m.bodyPreview(storage.Ticket{Body: m.bodyTA.Value()}, contentW)
+		count := 0
+		previewRows := 3
+		if m.inspectorViewportHeight() <= 20 {
+			previewRows = 2
+		}
+		if m.inspectorViewportHeight() <= 16 {
+			previewRows = 1
+		}
+		for line := range strings.SplitSeq(preview, "\n") {
+			lines = append(lines, line)
+			count++
+			if count == previewRows {
+				break
+			}
 		}
 	} else {
 		body := strings.TrimSpace(m.bodyTA.Value())
@@ -575,7 +601,8 @@ func (m Model) editView() string {
 	}
 	lines = append(lines, "", notesHeading)
 	if m.editField == m.editNotesField() {
-		lines = append(lines, m.notesThreadView(contentW))
+		noteRows := maxInt(4, m.inspectorViewportHeight()-lipgloss.Height(strings.Join(lines, "\n"))-7)
+		lines = append(lines, m.notesThreadViewRows(contentW, noteRows))
 	} else {
 		lines = append(lines, m.notesCompactView())
 	}
@@ -823,7 +850,7 @@ func renderMarkdownForInspector(body string, width int, maxLines int) string {
 
 	var lines []string
 	truncated := false
-	for _, raw := range strings.Split(strings.TrimSpace(body), "\n") {
+	for raw := range strings.SplitSeq(strings.TrimSpace(body), "\n") {
 		if len(lines) >= maxLines {
 			truncated = true
 			break
@@ -848,12 +875,17 @@ func renderMarkdownForInspector(body string, width int, maxLines int) string {
 		}
 
 		text, style := markdownLineStyle(trimmed)
-		wrapped := wrapText(text, width, maxLines-len(lines))
+		remaining := maxLines - len(lines)
+		// One lookahead row is enough to detect overflow. Wrapping the entire
+		// description just to decide whether to show an ellipsis is expensive
+		// on every title/harness keystroke when the body is long.
+		wrapped := wrapText(text, width, remaining+1)
 		if len(wrapped) == 0 {
 			continue
 		}
-		if len(wrapped) < len(wrapText(text, width, 10_000)) {
+		if len(wrapped) > remaining {
 			truncated = true
+			wrapped = wrapped[:remaining]
 		}
 		for _, line := range wrapped {
 			lines = append(lines, style.Render(renderInlineMarkdown(line)))
@@ -1005,7 +1037,9 @@ func (m Model) updateNotesTab(key tea.KeyMsg) (Model, tea.Cmd) {
 				m.status = err.Error()
 			} else {
 				m.status = "deleted note"
+				previousIndex := m.noteIndex
 				m.loadNotes(t.ID)
+				m.noteIndex = maxInt(0, minInt(previousIndex, len(m.notes)-1))
 			}
 		}
 	}
@@ -1024,22 +1058,29 @@ func (m *Model) saveNote() {
 		m.noteIsNew = false
 		return
 	}
+	selectedID := m.noteEditID
 	if m.noteIsNew {
-		if _, err := m.actions.AddNote(m.ctx, t.ID, body); err != nil {
+		note, err := m.actions.AddNote(m.ctx, t.ID, body)
+		if err != nil {
 			m.status = err.Error()
-		} else {
-			m.status = "note added"
+			return
 		}
+		selectedID = note.ID
+		m.status = "note added"
 	} else {
 		if err := m.actions.UpdateNote(m.ctx, m.noteEditID, body); err != nil {
 			m.status = err.Error()
-		} else {
-			m.status = "note updated"
+			return
+		}
+		m.status = "note updated"
+	}
+	m.loadNotes(t.ID)
+	for i := range m.notes {
+		if m.notes[i].ID == selectedID {
+			m.noteIndex = i
+			break
 		}
 	}
-	m.noteEditing = false
-	m.noteIsNew = false
-	m.loadNotes(t.ID)
 }
 
 // notesCompactView renders a one-line summary for when notes are not the active tab.
@@ -1060,9 +1101,14 @@ func (m Model) notesCompactView() string {
 	return fmt.Sprintf("%s  %s", count, faint.Render(snippet))
 }
 
-// notesThreadView renders the full notes thread for when notes is the active tab.
+// notesThreadView renders a bounded window of the selected note and its successors.
 func (m Model) notesThreadView(innerWidth int) string {
+	return m.notesThreadViewRows(innerWidth, maxInt(4, m.height/2))
+}
+
+func (m Model) notesThreadViewRows(innerWidth, rowBudget int) string {
 	if m.noteEditing {
+		m.noteTA.SetHeight(maxInt(1, minInt(6, rowBudget-3)))
 		action := "New note"
 		if !m.noteIsNew {
 			action = "Edit note"
@@ -1087,32 +1133,36 @@ func (m Model) notesThreadView(innerWidth int) string {
 		previewWidth = 20
 	}
 
+	// Start at the selected note, with a compact history hint. Rendering work
+	// is bounded to visible notes; navigation can always reach the whole thread.
+	start := maxInt(0, minInt(m.noteIndex, len(m.notes)-1))
 	var lines []string
-	for i, n := range m.notes {
+	if start > 0 && rowBudget >= 5 {
+		lines = append(lines, lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("%d earlier notes · k", start)))
+	}
+	for i := start; i < len(m.notes) && len(lines) < rowBudget-2; i++ {
+		n := m.notes[i]
 		ts := n.CreatedAt.Local().Format("2006-01-02 15:04")
 		if !n.UpdatedAt.Equal(n.CreatedAt) {
 			ts += " (edited)"
 		}
-		var header string
-		if i == m.noteIndex {
+		header := lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("  [%d] %s", i+1, ts))
+		if i == start {
 			header = lipgloss.NewStyle().Foreground(palette.accent).Bold(true).Render(fmt.Sprintf("> [%d] %s", i+1, ts))
-		} else {
-			header = lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("  [%d] %s", i+1, ts))
 		}
 		lines = append(lines, header)
-
-		body := strings.TrimSpace(n.Body)
-		rendered := ""
-		if gr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(previewWidth)); err == nil {
-			if out, err := gr.Render(body); err == nil {
-				rendered = strings.TrimSpace(out)
+		rendered := m.renderNote(n.Body, previewWidth)
+		clipped := false
+		for bl := range strings.SplitSeq(rendered, "\n") {
+			if len(lines) >= rowBudget-2 {
+				clipped = true
+				break
 			}
-		}
-		if rendered == "" {
-			rendered = body
-		}
-		for _, bl := range strings.Split(rendered, "\n") {
 			lines = append(lines, "  "+bl)
+		}
+		if clipped || i < len(m.notes)-1 && len(lines) >= rowBudget-3 {
+			lines = append(lines, lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("… [%d/%d] · j/k for more notes", i+1, len(m.notes))))
+			break
 		}
 		lines = append(lines, "")
 	}

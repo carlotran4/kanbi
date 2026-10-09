@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/carlotran4/kanbi/internal/tui/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 

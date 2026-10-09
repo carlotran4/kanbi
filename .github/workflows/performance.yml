@@ -1,0 +1,76 @@
+name: Performance evidence
+
+on:
+  pull_request:
+    paths:
+      - 'internal/tui/**'
+      - 'internal/storage/**'
+      - 'internal/tmux/**'
+      - 'scripts/performance*'
+      - '.github/workflows/performance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          check-latest: true
+          cache: true
+      - name: Install tmux and SQLite
+        run: sudo apt-get update && sudo apt-get install -y tmux sqlite3 ripgrep
+      - name: Compare baseline and candidate on the same runner
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          KANBI_PERFORMANCE: '1'
+          KANBI_PERFORMANCE_TMUX: '1'
+        run: |
+          set -euo pipefail
+          lscpu
+          go version
+          tmux -V
+          baseline="$(mktemp -d)"
+          git worktree add --detach "$baseline" "$BASE_SHA"
+          trap 'git worktree remove --force "$baseline"' EXIT
+          cp internal/tui/performance*_test.go "$baseline/internal/tui/"
+          (cd "$baseline" && KANBI_PERFORMANCE_FPS=60 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1) | tee /tmp/kanbi-baseline.txt
+          : > /tmp/kanbi-followup-baseline.txt
+          # This issue's pre-follow-up commit may disappear from fetched history
+          # after a squash merge. Future PRs still compare their own base.
+          if git cat-file -e 001a82f38c1c6b7c5d4020bc1b1d45ee1bc336ae^{commit} 2>/dev/null; then
+            followup="$(mktemp -d)"
+            git worktree add --detach "$followup" 001a82f38c1c6b7c5d4020bc1b1d45ee1bc336ae
+            trap 'git worktree remove --force "$baseline"; git worktree remove --force "$followup"' EXIT
+            cp internal/tui/performance*_test.go "$followup/internal/tui/"
+            (cd "$followup" && KANBI_PERFORMANCE_FPS=60 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1) | tee /tmp/kanbi-followup-baseline.txt
+          fi
+          go fmt ./...
+          KANBI_PERFORMANCE_ENFORCE=1 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1 | tee /tmp/kanbi-candidate.txt
+          printf 'Baseline and candidate CPU/service timings; physical screen latency is not measured.\n' >> "$GITHUB_STEP_SUMMARY"
+          printf '\n```text\n' >> "$GITHUB_STEP_SUMMARY"
+          rg 'PERF |reference Go=' /tmp/kanbi-baseline.txt /tmp/kanbi-followup-baseline.txt /tmp/kanbi-candidate.txt >> "$GITHUB_STEP_SUMMARY"
+          printf '```\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Idle renderer CPU and traffic
+        env:
+          KANBI_PERFORMANCE: '1'
+        run: go test -v ./internal/tui -run '^TestPerformanceRendererIdle$' -count=3
+      - name: Deterministic, race, vet, and smoke verification
+        run: |
+          go test ./...
+          go test -race ./...
+          go vet ./...
+          ./scripts/smoke.sh --skip-checks
+      - name: Isolated real application frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/performance-ui.py

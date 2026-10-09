@@ -1,0 +1,62 @@
+Research measurements, 2026-10-08
+Production reference: 7dbde75a02f9906efc4530d91b23b9cf86dfdb8d
+Linux, AMD EPYC 9V74, 9 exposed CPUs, Go 1.26.7
+Writer-sink/component timings; not physical presentation.
+
+Isolated nested-module run: go test -v -count=1
+=== RUN   TestRenderer
+=== RUN   TestRenderer/v1/60FPS
+    renderer_test.go:133: renderer=v1 inline FPS=60 n=100 Send-to-write p50=10.351ms p95=15.312ms p99=16.292ms bytes/navigation=1184.0 writes/navigation=1.00
+=== RUN   TestRenderer/v1/120FPS
+    renderer_test.go:133: renderer=v1 inline FPS=120 n=100 Send-to-write p50=5.227ms p95=7.330ms p99=8.261ms bytes/navigation=1184.0 writes/navigation=1.00
+=== RUN   TestRenderer/v2/60FPS
+    renderer_test.go:133: renderer=v2 inline FPS=60 n=100 Send-to-write p50=10.624ms p95=15.620ms p99=15.746ms bytes/navigation=321.0 writes/navigation=1.00
+=== RUN   TestRenderer/v2/120FPS
+    renderer_test.go:133: renderer=v2 inline FPS=120 n=100 Send-to-write p50=5.581ms p95=7.682ms p99=7.785ms bytes/navigation=321.0 writes/navigation=1.00
+--- PASS: TestRenderer (6.13s)
+    --- PASS: TestRenderer/v1/60FPS (1.82s)
+    --- PASS: TestRenderer/v1/120FPS (1.22s)
+    --- PASS: TestRenderer/v2/60FPS (1.82s)
+    --- PASS: TestRenderer/v2/120FPS (1.28s)
+=== RUN   TestTextarea
+=== RUN   TestTextarea/bytes=1024/multiline=false
+    textarea_test.go:37: bubbles-v1 Update+View n=100 p50=0.665ms p95=1.022ms p99=1.314ms bytes/op=95324 allocs/op=979
+    textarea_test.go:37: bubbles-v2 Update+View n=100 p50=1.056ms p95=1.488ms p99=1.669ms bytes/op=148598 allocs/op=2973
+=== RUN   TestTextarea/bytes=1024/multiline=true
+    textarea_test.go:37: bubbles-v1 Update+View n=100 p50=0.627ms p95=0.890ms p99=1.206ms bytes/op=104988 allocs/op=1615
+    textarea_test.go:37: bubbles-v2 Update+View n=100 p50=1.457ms p95=1.894ms p99=2.234ms bytes/op=180063 allocs/op=3588
+=== RUN   TestTextarea/bytes=65536/multiline=false
+    textarea_test.go:37: bubbles-v1 Update+View n=100 p50=25.699ms p95=30.920ms p99=41.790ms bytes/op=4239674 allocs/op=42733
+    textarea_test.go:37: bubbles-v1 Update only n=100 p50=18.226ms p95=20.588ms p99=21.394ms bytes/op=2696875 allocs/op=30595
+    textarea_test.go:37: bubbles-v1 warm View only n=100 p50=6.835ms p95=7.605ms p99=7.886ms bytes/op=1524162 allocs/op=12147
+    textarea_test.go:37: bubbles-v2 Update+View n=100 p50=39.076ms p95=43.756ms p99=47.358ms bytes/op=5917135 allocs/op=55184
+=== RUN   TestTextarea/bytes=65536/multiline=true
+    textarea_test.go:37: bubbles-v1 Update+View n=100 p50=9.077ms p95=11.026ms p99=12.657ms bytes/op=2114190 allocs/op=10383
+    textarea_test.go:37: bubbles-v1 Update only n=100 p50=1.850ms p95=2.541ms p99=2.787ms bytes/op=741126 allocs/op=1725
+    textarea_test.go:37: bubbles-v1 warm View only n=100 p50=6.892ms p95=8.065ms p99=8.674ms bytes/op=1350801 allocs/op=8672
+    textarea_test.go:37: bubbles-v2 Update+View n=100 p50=21.715ms p95=24.460ms p99=25.393ms bytes/op=3372069 allocs/op=15427
+--- PASS: TestTextarea (14.09s)
+    --- PASS: TestTextarea/bytes=1024/multiline=false (0.19s)
+    --- PASS: TestTextarea/bytes=1024/multiline=true (0.22s)
+    --- PASS: TestTextarea/bytes=65536/multiline=false (9.51s)
+    --- PASS: TestTextarea/bytes=65536/multiline=true (4.17s)
+PASS
+ok  	kanbi-rendering-research	20.254s
+
+Isolated production program, inline/60 FPS:
+=== RUN   TestPerformanceProgram
+=== RUN   TestPerformanceProgram/simulated-300ms-observation
+    performance_program_test.go:142: PERF program-receipt-to-write-simulated-300ms-observation inline/60FPS n=50 p50=16.013ms p95=17.045ms p99=17.072ms bytes/trial=4467 writes/trial=11.0
+--- PASS: TestPerformanceProgram (4.55s)
+    --- PASS: TestPerformanceProgram/simulated-300ms-observation (4.55s)
+PASS
+ok  	github.com/carlotran4/kanbi/internal/tui	4.573s
+
+Isolated same-reference worktree, only test option WithFPS(120):
+=== RUN   TestPerformanceProgram
+=== RUN   TestPerformanceProgram/simulated-300ms-observation
+    performance_program_test.go:142: PERF program-receipt-to-write-simulated-300ms-observation inline/120FPS n=50 p50=8.012ms p95=9.036ms p99=9.068ms bytes/trial=4467 writes/trial=11.0
+--- PASS: TestPerformanceProgram (3.73s)
+    --- PASS: TestPerformanceProgram/simulated-300ms-observation (3.73s)
+PASS
+ok  	github.com/carlotran4/kanbi/internal/tui	3.755s

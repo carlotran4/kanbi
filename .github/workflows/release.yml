@@ -146,6 +146,7 @@ jobs:
             "  \"github_sha\": \"${GITHUB_SHA:-}\"" \
             "}" > package/BUILDINFO.json
           cp README.md LICENSE package/
+          cp internal/tui/textarea/LICENSE package/LICENSE-bubbles-textarea
 
           python3 -E - package/BUILDINFO.json "$version" "$commit" "$TARGET_OS" "$TARGET_ARCH" <<'PY'
           import json, sys
@@ -172,12 +173,12 @@ jobs:
           KANBI_SMOKE_BIN="$PWD/package/kanbi" ./scripts/smoke.sh --skip-checks
 
           archive="kanbi_${version}_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
-          tar -czf "$archive" -C package kanbi README.md LICENSE BUILDINFO.json
+          tar -czf "$archive" -C package kanbi README.md LICENSE LICENSE-bubbles-textarea BUILDINFO.json
           python3 -E - "$archive" <<'PY'
           import sys, tarfile
           with tarfile.open(sys.argv[1], "r:gz") as archive:
               names = sorted(archive.getnames())
-          expected = sorted(["kanbi", "README.md", "LICENSE", "BUILDINFO.json"])
+          expected = sorted(["kanbi", "README.md", "LICENSE", "LICENSE-bubbles-textarea", "BUILDINFO.json"])
           if names != expected:
               raise SystemExit(f"archive members={names!r}, want {expected!r}")
           PY

@@ -19,6 +19,7 @@ CGO_ENABLED=1 go build -trimpath \
   -ldflags "-s -w -X github.com/carlotran4/kanbi/internal/buildinfo.Version=$VERSION -X github.com/carlotran4/kanbi/internal/buildinfo.Commit=$COMMIT -X github.com/carlotran4/kanbi/internal/buildinfo.BuildDate=$BUILD_DATE" \
   -o "$PACKAGE_DIR/package/kanbi" ./cmd/kanbi
 cp README.md LICENSE "$PACKAGE_DIR/package/"
+cp internal/tui/textarea/LICENSE "$PACKAGE_DIR/package/LICENSE-bubbles-textarea"
 
 # provenance: machine-readable build record packaged with the binary for support/release audit.
 SCHEMA_VERSION="$("$PACKAGE_DIR/package/kanbi" version --json | sed -n 's/.*"schema_version"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n1)"
@@ -42,7 +43,7 @@ cat >"$PACKAGE_DIR/package/BUILDINFO.json" <<EOF
 EOF
 
 ARCHIVE="$OUT_DIR/kanbi_${VERSION}_${OS}_${ARCH}.tar.gz"
-tar -czf "$ARCHIVE" -C "$PACKAGE_DIR/package" kanbi README.md LICENSE BUILDINFO.json
+tar -czf "$ARCHIVE" -C "$PACKAGE_DIR/package" kanbi README.md LICENSE LICENSE-bubbles-textarea BUILDINFO.json
 (
   cd "$OUT_DIR"
   if command -v sha256sum >/dev/null 2>&1; then

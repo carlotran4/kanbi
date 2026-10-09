@@ -20,7 +20,7 @@ func (m Model) View() string {
 	}
 
 	// Always render the base board first so the selected modal can overlay it.
-	base := m.baseView()
+	base := m.cachedBaseView()
 	switch m.activeModalKind() {
 	case modalIntegration:
 		return overlayModal(base, fitModal(m.integrationView(), m.height, 0, true), m.width, m.height)
@@ -53,7 +53,7 @@ func (m Model) View() string {
 	case modalMasterFilter:
 		return overlayModal(base, fitModal(m.masterFilterView(), m.height, 0, true), m.width, m.height)
 	case modalEdit:
-		return overlayModal(base, fitModal(m.editView(), m.height, 0, true), m.width, m.height)
+		return overlayModal(base, fitModal(m.editView(), m.inspectorViewportHeight()+2, 0, true), m.width, m.height)
 	case modalStateMenu:
 		return overlayModal(base, fitModal(m.stateMenuView(), m.height, 0, true), m.width, m.height)
 	case modalColumnEdit:
@@ -115,6 +115,10 @@ func (m Model) baseView() string {
 		} else {
 			footer = append(footer, statusStyle.Render(trimToWidth(m.status, maxInt(1, m.width))))
 		}
+	}
+
+	if m.refreshError != "" {
+		footer = append(footer, statusStyle.Render(trimToWidth(m.refreshError, maxInt(1, m.width))))
 	}
 
 	headerRows := 2
@@ -367,7 +371,7 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 			lines = append(lines, padLine(fmt.Sprintf("ARCHIVED · %d", archivedCount), columnWidth))
 			archivedHeadingShown = true
 		}
-		lines = append(lines, cardView(ci == m.col && ti == m.card, col.Tickets[ti], columnWidth, m.masterBoard)...)
+		lines = append(lines, m.cachedCardView(ci == m.col && ti == m.card, col.Tickets[ti], columnWidth, m.masterBoard)...)
 	}
 	if isFocusColumn && pausedCount == 0 && !pausedHeadingShown && !showBelow {
 		lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
@@ -390,6 +394,18 @@ func hasFocusKey(status storage.FocusStatus, key string) bool {
 }
 
 func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []string {
+	preview := ""
+	if focused {
+		body := ticket.Body
+		if ticket.FocusPaused && ticket.LatestCheckpoint != nil {
+			body = "Next: " + ticket.LatestCheckpoint.NextAction
+		}
+		preview = renderBodyPreview(body, maxInt(10, width-8))
+	}
+	return cardViewWithPreview(focused, ticket, width, showBoard, preview)
+}
+
+func cardViewWithPreview(focused bool, ticket storage.Ticket, width int, showBoard bool, preview string) []string {
 	cardInnerWidth := width - 4
 	cursor := " "
 	if focused {
@@ -423,15 +439,6 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 
 	// Body preview — only shown on the focused card.
 	if focused {
-		previewWidth := cardInnerWidth - 4
-		if previewWidth < 10 {
-			previewWidth = 10
-		}
-		previewBody := ticket.Body
-		if ticket.FocusPaused && ticket.LatestCheckpoint != nil {
-			previewBody = "Next: " + ticket.LatestCheckpoint.NextAction
-		}
-		preview := renderBodyPreview(previewBody, previewWidth)
 		for _, pl := range strings.Split(preview, "\n") {
 			if strings.TrimSpace(pl) == "" {
 				continue
@@ -744,6 +751,8 @@ var (
 			Foreground(palette.headerText)
 )
 
+var previewMarkdownReplacer = strings.NewReplacer("**", "", "__", "", "*", "", "_", "", "##", "", "#", "", "`", "")
+
 // renderBodyPreview renders 1-2 lines of body preview for a card.
 // It skips glamour to avoid ANSI width measurement issues in card layout;
 // instead it word-wraps plain text and styles it faintly.
@@ -770,10 +779,7 @@ func renderBodyPreview(body string, width int) string {
 	// Plain-text wrap: take up to 2 lines from the first paragraph.
 	plain = firstParagraph
 	// Strip markdown syntax chars for a cleaner preview.
-	plain = strings.NewReplacer(
-		"**", "", "__", "", "*", "", "_", "",
-		"##", "", "#", "", "`", "",
-	).Replace(plain)
+	plain = previewMarkdownReplacer.Replace(plain)
 	lines := wrapText(strings.ReplaceAll(plain, "\n", " "), width, 2)
 	if len(lines) == 0 {
 		return lipgloss.NewStyle().Faint(true).Italic(true).Render("(no description)")
@@ -790,7 +796,7 @@ func firstPreviewParagraph(body string) string {
 }
 
 func firstMarkdownImageLine(body string) string {
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if markdownImageRE.MatchString(line) || bareImagePathRE.MatchString(line) {
 			return strings.TrimSpace(line)
 		}
@@ -932,14 +938,9 @@ func wrapText(text string, width int, maxLines int) []string {
 	if width <= 0 || maxLines <= 0 {
 		return nil
 	}
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return nil
-	}
-
 	var lines []string
 	current := ""
-	for _, word := range words {
+	for word := range strings.FieldsSeq(text) {
 		for runeLen(word) > width {
 			if current != "" {
 				lines = append(lines, current)

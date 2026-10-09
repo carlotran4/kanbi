@@ -179,9 +179,19 @@ func (s *Store) MarkWorkspaceState(ctx context.Context, id int64, state, lastErr
 
 // SaveWorkspaceStatusJSON stores the latest observed git status projection.
 func (s *Store) SaveWorkspaceStatusJSON(ctx context.Context, id int64, statusJSON string) error {
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `update ticket_workspaces set last_status_json=?, last_error=null, updated_at=? where id=?`, nullableString(statusJSON), now, id)
-	return requireAffected(res, err)
+	value := nullableString(statusJSON)
+	res, err := s.db.ExecContext(ctx, `update ticket_workspaces set last_status_json=?, last_error=null, updated_at=? where id=? and (last_status_json is not ? or last_error is not null)`, value, time.Now().UTC(), id, value)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n > 0 {
+		return err
+	}
+	// Preserve missing-row errors while treating an unchanged observation as a
+	// successful no-op. updated_at records a changed projection, not a heartbeat.
+	var existing int64
+	return s.reader().QueryRowContext(ctx, `select id from ticket_workspaces where id=?`, id).Scan(&existing)
 }
 
 // RecordWorkspaceObservationError preserves workspace lifecycle state while
