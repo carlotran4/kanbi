@@ -22,7 +22,7 @@ Session:   $SESSION
 EOF
 }
 
-tmux_ui() { tmux -S "$SOCKET" "$@"; }
+tmux_ui() { tmux -f /dev/null -S "$SOCKET" "$@"; }
 
 require_session() {
   tmux_ui has-session -t "$SESSION" 2>/dev/null || {
@@ -135,7 +135,9 @@ EOF
   assert_safe_fixture
 
   local command
-  printf -v command 'exec env KANBI_CONFIG=%q KANBI_DB=%q KANBI_STATE_DIR=%q KANBI_DATA_DIR=%q KANBI_TMUX_SESSION=%q TERM=xterm-256color %q' \
+  # Match the private tmux terminal so automatic styling does not issue OSC
+  # color queries to an unattached xterm and consume scripted keyboard input.
+  printf -v command 'exec env KANBI_CONFIG=%q KANBI_DB=%q KANBI_STATE_DIR=%q KANBI_DATA_DIR=%q KANBI_TMUX_SESSION=%q TERM=tmux-256color %q' \
     "$CONFIG" "$DB" "$STATE" "$DATA" "$SESSION" "$BIN"
   tmux_ui new-session -d -s "$SESSION" -n board -x 160 -y 45 "$command"
   sleep 1

@@ -28,8 +28,17 @@ def cells(line):
 
 
 def capture(label, *expected, selected=False):
-    time.sleep(0.12)
-    frame = ui("capture")
+    # Wait for the requested frame rather than assuming the terminal and
+    # background worker settle within a fixed 120 ms on every host.
+    deadline = time.monotonic() + 3
+    while True:
+        time.sleep(0.12)
+        frame = ui("capture")
+        ready = all(text in frame for text in expected)
+        if selected:
+            ready = ready and bool(re.search(r"│\s*> T-\d+", frame))
+        if ready or time.monotonic() >= deadline:
+            break
     print(f"UI FRAME {label} {width}x{height}\n{frame}", flush=True)
     lines = frame.splitlines()
     assert len(lines) <= height, (label, len(lines), height)
@@ -102,7 +111,7 @@ def main():
             key("Escape", selected=True)
             assert db.execute("select title from tickets where id=?", (ticket_id,)).fetchone()[0] == title
             key("e", "reopen inspector", "Notes")
-            key("BTab", "notes tab", "UI note 49")
+            key("BTab", "notes tab", "UI note 49", "notes · a add")
             key("k", "previous note", "UI note 48")
             key("e", "edit note", "Ctrl+S")
             ui("text", "PERF_NOTE_EDIT_")
