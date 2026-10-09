@@ -43,66 +43,86 @@ func (m *Model) boardContentHeight() int {
 	return h
 }
 
-// visibleCardRange uses the same row accounting for cursor following and
-// rendering. The vertical overflow hints consume rows from the card viewport.
-func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWidth int) (end int, showAbove, showBelow bool) {
-	avail := m.boardContentHeight()
-	isFocusColumn := m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey)
-	focusedCount, pausedCount, archivedCount := 0, 0, 0
-	if isFocusColumn {
-		for _, ticket := range col.Tickets {
-			switch focusTicketSection(ticket) {
-			case focusSectionPaused:
-				pausedCount++
-			case focusSectionArchived:
-				archivedCount++
-			default:
-				focusedCount++
-			}
+type focusColumnSummary struct {
+	enabled                                  bool
+	focusedCount, pausedCount, archivedCount int
+}
+
+func (m *Model) summarizeFocusColumn(col storage.Column) focusColumnSummary {
+	summary := focusColumnSummary{enabled: m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey)}
+	if !summary.enabled {
+		return summary
+	}
+	for _, ticket := range col.Tickets {
+		switch focusTicketSection(ticket) {
+		case focusSectionPaused:
+			summary.pausedCount++
+		case focusSectionArchived:
+			summary.archivedCount++
+		default:
+			summary.focusedCount++
 		}
-		// FOCUSED is always visible. Empty focused and paused sections add
-		// their compact messages outside cardView.
+	}
+	return summary
+}
+
+func (m *Model) cardViewportHeight(summary focusColumnSummary, scrollTop int) int {
+	avail := m.boardContentHeight()
+	if summary.enabled {
+		// FOCUSED is always visible. An empty focused section adds its compact
+		// message outside cardView.
 		avail--
-		if focusedCount == 0 {
+		if summary.focusedCount == 0 {
 			avail--
 		}
 	}
-	if avail < 1 {
-		avail = 1
+	if scrollTop > 0 {
+		avail-- // hidden-above hint
 	}
-	showAbove = scrollTop > 0
-	if showAbove {
-		avail--
-	}
-	if avail < 1 {
-		avail = 1
-	}
+	return maxInt(1, avail)
+}
 
+func (m *Model) cardHeightAt(ci int, col storage.Column, ti, scrollTop, columnWidth int, summary focusColumnSummary) int {
+	h := m.cachedCardHeight(col.Tickets[ti], columnWidth, ci == m.col && ti == m.card)
+	if !summary.enabled {
+		return h
+	}
+	section := focusTicketSection(col.Tickets[ti])
+	previousSection := -1
+	if ti > scrollTop {
+		previousSection = focusTicketSection(col.Tickets[ti-1])
+	}
+	if section == focusSectionPaused && (ti == scrollTop || previousSection != focusSectionPaused) {
+		// Keep PAUSED authoritative even when scrolling begins inside it.
+		h++
+	}
+	if section == focusSectionArchived && (ti == scrollTop || previousSection != focusSectionArchived) {
+		if summary.pausedCount == 0 {
+			h += 2 // empty PAUSED label/message
+		}
+		h++ // ARCHIVED label
+	}
+	if summary.pausedCount == 0 && summary.archivedCount == 0 && ti == len(col.Tickets)-1 {
+		// Reserve the empty PAUSED label/message only when the final focused
+		// card and that compact section can both fit.
+		h += 2
+	}
+	return h
+}
+
+// visibleCardRange uses the same row accounting for cursor following and
+// rendering. The vertical overflow hints consume rows from the card viewport.
+func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWidth int) (end int, showAbove, showBelow bool) {
+	return m.visibleCardRangeWithSummary(ci, col, scrollTop, columnWidth, m.summarizeFocusColumn(col))
+}
+
+func (m *Model) visibleCardRangeWithSummary(ci int, col storage.Column, scrollTop, columnWidth int, summary focusColumnSummary) (end int, showAbove, showBelow bool) {
+	avail := m.cardViewportHeight(summary, scrollTop)
+	showAbove = scrollTop > 0
 	used := 0
 	end = scrollTop - 1
 	for ti := scrollTop; ti < len(col.Tickets); ti++ {
-		h := m.cachedCardHeight(col.Tickets[ti], columnWidth, ci == m.col && ti == m.card)
-		section := focusTicketSection(col.Tickets[ti])
-		previousSection := -1
-		if ti > scrollTop {
-			previousSection = focusTicketSection(col.Tickets[ti-1])
-		}
-		if isFocusColumn && section == focusSectionPaused && (ti == scrollTop || previousSection != focusSectionPaused) {
-			// Keep PAUSED authoritative even when scrolling begins inside the
-			// paused partition.
-			h++
-		}
-		if isFocusColumn && section == focusSectionArchived && (ti == scrollTop || previousSection != focusSectionArchived) {
-			if pausedCount == 0 {
-				h += 2 // empty PAUSED label/message
-			}
-			h++ // ARCHIVED label
-		}
-		if isFocusColumn && pausedCount == 0 && archivedCount == 0 && ti == len(col.Tickets)-1 {
-			// Reserve the empty PAUSED label/message only when the final focused
-			// card and that compact section can both fit.
-			h += 2
-		}
+		h := m.cardHeightAt(ci, col, ti, scrollTop, columnWidth, summary)
 		reserveBelowHint := 0
 		if ti < len(col.Tickets)-1 {
 			reserveBelowHint = 1
@@ -121,6 +141,31 @@ func (m *Model) visibleCardRange(ci int, col storage.Column, scrollTop, columnWi
 	}
 	showBelow = end < len(col.Tickets)-1 && used < avail
 	return end, showAbove, showBelow
+}
+
+// scrollTopForCard finds the earliest retained viewport anchor that shows the
+// selected card. Walking backward from the selection bounds work by visible
+// rows; the old forward loop retried a full range for every intervening ticket.
+func (m *Model) scrollTopForCard(ci int, col storage.Column, current, selected, columnWidth int, summary focusColumnSummary) int {
+	best := selected
+	for candidate := selected; candidate >= current; candidate-- {
+		avail := m.cardViewportHeight(summary, candidate)
+		used := 0
+		for ti := candidate; ti <= selected; ti++ {
+			used += m.cardHeightAt(ci, col, ti, candidate, columnWidth, summary)
+			if used > avail {
+				break
+			}
+		}
+		if selected < len(col.Tickets)-1 {
+			used++ // lower overflow hint
+		}
+		if used > avail {
+			break
+		}
+		best = candidate
+	}
+	return best
 }
 
 // cardHeight returns the exact number of lines rendered by cardView at the
@@ -184,18 +229,14 @@ func (m *Model) vScrollFollow() {
 	}
 
 	columnWidth, _ := m.boardColumnLayout()
-	// Scroll down: advance offset until focused card is visible.
-	for {
-		visibleEnd, _, _ := m.visibleCardRange(m.col, col, m.colScroll[m.col], columnWidth)
-		if m.card <= visibleEnd {
-			break
-		}
-		m.colScroll[m.col]++
+	if m.card < m.colScroll[m.col] {
+		// Preserve ordinary no-backfill semantics: moving above the viewport
+		// anchors the selected card at the top rather than pulling older cards in.
+		m.colScroll[m.col] = m.card
+		return
 	}
-	// Scroll up: retreat offset if focused card is above visible window.
-	for m.card < m.colScroll[m.col] {
-		m.colScroll[m.col]--
-	}
+	summary := m.summarizeFocusColumn(col)
+	m.colScroll[m.col] = m.scrollTopForCard(m.col, col, m.colScroll[m.col], m.card, columnWidth, summary)
 }
 
 // Backfill is a resize operation. Ordinary navigation and refresh preserve
@@ -209,11 +250,12 @@ func (m *Model) vScrollBackfill() {
 		return
 	}
 	columnWidth, _ := m.boardColumnLayout()
+	summary := m.summarizeFocusColumn(col)
 	// Backfill newly available height after a resize while keeping the selected
 	// card visible. This prevents stale (+N more ▲) hints after widening.
 	for m.colScroll[m.col] > 0 {
 		candidate := m.colScroll[m.col] - 1
-		visibleEnd, _, _ := m.visibleCardRange(m.col, col, candidate, columnWidth)
+		visibleEnd, _, _ := m.visibleCardRangeWithSummary(m.col, col, candidate, columnWidth, summary)
 		if m.card > visibleEnd {
 			break
 		}

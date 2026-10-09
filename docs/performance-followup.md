@@ -48,6 +48,48 @@ changes input/component/protocol APIs. The current improvements avoid that extra
 migration risk. Physical terminal painting and the user's WSL environment remain
 unmeasured.
 
+## Focus Mode horizontal-navigation follow-up
+
+GH-362 reproduced a separate Focus-only path with four columns and 2,000 tickets
+per column, split evenly between focused and paused work. Moving horizontally at
+card 1,500 preserved the card index but entered a destination column whose viewport
+started at zero. The old `vScrollFollow` advanced that viewport one ticket at a
+time and recomputed the full focused/paused/archived counts on every attempt. This
+made the key update quadratic in the number of tickets; background observation was
+already asynchronous and was not the cause.
+
+The follow-up computes each Focus column summary once and finds the earliest valid
+destination viewport by walking backward only across rows that can be visible.
+Rendering reuses the same summary for section counts and range calculation. Focus
+capacity, checkpoint/history data, selected ticket index, viewport anchoring,
+editor state, and selected-card preview behavior are unchanged. A randomized
+comparison checks the optimized scroll result against the former incremental
+algorithm over focused, paused, and archived partitions.
+
+On one Linux amd64 host (Go 1.26.9, 12 CPUs), matched 30-sample `Update` probes for
+`h`, `l`, Left, and Right at 80x24 and 160x40 measured these ranges across all key
+and size cases:
+
+| Deep horizontal Update | Before p50 / p95 range | After p50 / p95 range |
+| --- | --- | --- |
+| Focus disabled | 15.060–23.672 / 28.810–72.325 ms | 0.134–0.471 / 0.260–1.054 ms |
+| Focus enabled | 171.369–184.404 / 221.932–289.094 ms | 0.235–0.963 / 0.483–1.933 ms |
+
+The separately measured stable `View` was not the reproduced blocker: before the
+fix its Focus-enabled medians were 1.140–3.721 ms; after the fix the full run was
+1.338–10.927 ms with shared-host/GC outliers on the 8,000-ticket synthetic frame,
+and a repeated representative wide `l`/Right subset was 3.918–4.712 ms. The
+remedy targets the synchronous navigation update rather than claiming a renderer
+improvement.
+
+A real Bubble Tea inline/120 FPS probe kept a refresh observation blocked while
+each key was read. Across ten trials per key/size case, Focus-enabled receipt-to-
+writer latency changed from 216.387–315.818 ms p50 and 332.066–491.684 ms p95 to
+8.055–32.281 ms p50 and 8.299–33.768 ms p95. The matching Focus-disabled after
+range was 7.995–25.015 ms p50 and 9.000–40.437 ms p95. These numbers include
+renderer scheduling and a deliberately large frame, but not physical terminal
+paint.
+
 ## Local paired evidence
 
 Same Linux amd64 host, AMD EPYC 9V74, nine exposed CPUs, Go 1.26.7. New measurement

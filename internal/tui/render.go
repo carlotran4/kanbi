@@ -289,19 +289,10 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 		borderStyle.Render(strings.Repeat("─", columnWidth)),
 	}
 
-	isFocusColumn := m.focus.Enabled && hasFocusKey(m.focus, col.WorkflowKey)
-	focusedCount, pausedCount, archivedCount := 0, 0, 0
+	summary := m.summarizeFocusColumn(col)
+	isFocusColumn := summary.enabled
+	focusedCount, pausedCount, archivedCount := summary.focusedCount, summary.pausedCount, summary.archivedCount
 	if isFocusColumn {
-		for _, ticket := range col.Tickets {
-			switch focusTicketSection(ticket) {
-			case focusSectionPaused:
-				pausedCount++
-			case focusSectionArchived:
-				archivedCount++
-			default:
-				focusedCount++
-			}
-		}
 		lines = append(lines, padLine(fmt.Sprintf("FOCUSED · %d", focusedCount), columnWidth))
 		if focusedCount == 0 {
 			lines = append(lines, mutedBorder.Render(padLine("No focused tickets", columnWidth)))
@@ -334,7 +325,7 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 		scrollTop = len(col.Tickets) - 1
 	}
 
-	visibleEnd, showAbove, showBelow := m.visibleCardRange(ci, col, scrollTop, columnWidth)
+	visibleEnd, showAbove, showBelow := m.visibleCardRangeWithSummary(ci, col, scrollTop, columnWidth, summary)
 	hiddenAbove := scrollTop
 	hiddenBelow := len(col.Tickets) - 1 - visibleEnd
 
