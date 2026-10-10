@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/carlotran4/kanbi/internal/config"
+	kanbiruntime "github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
-	"github.com/carlotran4/kanbi/internal/tmux"
 )
 
 // Opt-in measurements use identical source on the baseline and candidate.
@@ -43,7 +43,7 @@ func TestPerformanceEvidence(t *testing.T) {
 					createTicket(t, ctx, store, hiddenView.Columns[0].ID, fmt.Sprintf("Hidden %d", i), strings.Repeat("body ", 1640), "pi")
 				}
 			}
-			manager := tmux.NewManager(config.Defaults(config.Paths{}), store)
+			manager := kanbiruntime.NewManager(config.Defaults(config.Paths{}), store)
 			defer manager.Close()
 			service := NewService(store, manager)
 			m := New(ctx, service)

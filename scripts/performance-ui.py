@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Drive the project's isolated real tmux fixture and retain checked frames.
+"""Drive the project's isolated real Herdr fixture and retain checked frames.
 
 This measures functional behavior, not input-to-paint latency. Every navigation
 key is sent individually, then its rendered terminal frame is inspected.
 """
 import os
+import json
 from pathlib import Path
 import re
 import sqlite3
@@ -53,6 +54,7 @@ def capture(label, *expected, selected=False):
 
 def key(value, label=None, *expected, selected=False):
     ui("key", value)
+    time.sleep(0.15)
     return capture(label or value, *expected, selected=selected)
 
 
@@ -66,17 +68,21 @@ def resize(w, h):
 def main():
     print(ui("start"), flush=True)
     try:
-        # Real runtime observation also runs during the UI flow. These windows
-        # contain only a disposable sleeping shell, never a harness.
-        fixture = sqlite3.connect(ui("fixture-path").strip())
-        socket_dir = os.environ.get("CLAUDE_TMUX_SOCKET_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "claude-tmux-sockets"))
-        socket = os.environ.get("KANBI_UI_TMUX_SOCKET", os.path.join(socket_dir, "kanbi-ui.sock"))
-        session = os.environ.get("KANBI_UI_TMUX_SESSION", "kanbi-ui")
+        # Observe disposable shell panes; never launch authenticated harnesses.
+        db_path = Path(ui("fixture-path").strip())
+        fixture = sqlite3.connect(db_path)
+        record = json.loads((db_path.parent / "herdr-runtime.json").read_text())
+        env = {k: v for k, v in os.environ.items() if not k.startswith("HERDR_")}
+        env["HERDR_SOCKET_PATH"] = record["socket"]
+        def herdr(*args):
+            output = subprocess.check_output(["herdr", *args], env=env, text=True)
+            return json.loads(output)["result"] if output.strip() else None
         ticket_ids = fixture.execute("select t.id from tickets t join columns c on c.id=t.column_id where c.workflow_key='Open' order by t.id limit 10").fetchall()
         for index, (ticket_id,) in enumerate(ticket_ids):
             name = f"performance-runtime-{index}"
-            window = subprocess.check_output(["tmux", "-S", socket, "new-window", "-d", "-P", "-F", "#{window_id}", "-t", session + ":", "-n", name, "printf 'working on fixture\\n'; sleep 300"], text=True).strip()
-            fixture.execute("insert into sessions(ticket_id,harness,tmux_session_name,tmux_window_name,tmux_window_id,status,is_active,started_at,created_at,updated_at) values(?,'pi',?,?,?,'running',1,datetime('now'),datetime('now'),datetime('now'))", (ticket_id, session, name, window))
+            pane = herdr("tab", "create", "--workspace", record["workspace"], "--cwd", str(ROOT), "--label", name, "--no-focus")["root_pane"]["pane_id"]
+            herdr("pane", "run", pane, "printf 'working on fixture\\n'; sleep 300")
+            fixture.execute("insert into sessions(ticket_id,harness,tmux_session_name,tmux_window_name,multiplexer,mux_namespace,mux_container_name,mux_container_id,mux_metadata,status,is_active,started_at,created_at,updated_at) values(?,'pi','','','herdr',?,?,?,?,'running',1,datetime('now'),datetime('now'),datetime('now'))", (ticket_id, record["workspace"], name, pane, json.dumps({"pane_id": pane})))
         fixture.commit()
         fixture.close()
         capture("startup", "Select board")
@@ -111,7 +117,10 @@ def main():
             key("Escape", selected=True)
             assert db.execute("select title from tickets where id=?", (ticket_id,)).fetchone()[0] == title
             key("e", "reopen inspector", "Notes")
-            key("BTab", "notes tab", "UI note 49", "notes · a add")
+            key("Tab", "body field", "Ctrl+V")
+            key("Tab", "harness field", "harness")
+            key("Tab", "session ref field", "Ctrl+S")
+            key("Tab", "notes tab", "UI note 49", "notes · a add")
             key("k", "previous note", "UI note 48")
             key("e", "edit note", "Ctrl+S")
             ui("text", "PERF_NOTE_EDIT_")

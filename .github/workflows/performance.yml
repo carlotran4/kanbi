@@ -5,7 +5,8 @@ on:
     paths:
       - 'internal/tui/**'
       - 'internal/storage/**'
-      - 'internal/tmux/**'
+      - 'internal/runtime/**'
+      - 'internal/multiplexer/**'
       - 'scripts/performance*'
       - '.github/workflows/performance.yml'
 
@@ -25,39 +26,37 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
-      - name: Install tmux and SQLite
-        run: sudo apt-get update && sudo apt-get install -y tmux sqlite3 ripgrep
+      - name: Install runtime and SQLite
+        run: |
+          sudo apt-get update && sudo apt-get install -y tmux sqlite3 ripgrep
+          ./scripts/install-herdr-ci.sh "$RUNNER_TEMP/herdr-bin"
+          echo "$RUNNER_TEMP/herdr-bin" >> "$GITHUB_PATH"
       - name: Compare baseline and candidate on the same runner
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           KANBI_PERFORMANCE: '1'
-          KANBI_PERFORMANCE_TMUX: '1'
+          KANBI_PERFORMANCE_HERDR: '1'
         run: |
           set -euo pipefail
           lscpu
           go version
-          tmux -V
+          herdr --version
           baseline="$(mktemp -d)"
           git worktree add --detach "$baseline" "$BASE_SHA"
           trap 'git worktree remove --force "$baseline"' EXIT
-          cp internal/tui/performance*_test.go "$baseline/internal/tui/"
-          (cd "$baseline" && KANBI_PERFORMANCE_FPS=60 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1) | tee /tmp/kanbi-baseline.txt
-          : > /tmp/kanbi-followup-baseline.txt
-          # This issue's pre-follow-up commit may disappear from fetched history
-          # after a squash merge. Future PRs still compare their own base.
-          if git cat-file -e 001a82f38c1c6b7c5d4020bc1b1d45ee1bc336ae^{commit} 2>/dev/null; then
-            followup="$(mktemp -d)"
-            git worktree add --detach "$followup" 001a82f38c1c6b7c5d4020bc1b1d45ee1bc336ae
-            trap 'git worktree remove --force "$baseline"; git worktree remove --force "$followup"' EXIT
-            cp internal/tui/performance*_test.go "$followup/internal/tui/"
-            (cd "$followup" && KANBI_PERFORMANCE_FPS=60 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1) | tee /tmp/kanbi-followup-baseline.txt
+          if [[ -d "$baseline/internal/runtime" ]]; then
+            cp internal/tui/performance*_test.go "$baseline/internal/tui/"
+            cp scripts/herdr-fixture.py "$baseline/scripts/"
           fi
+          # Legacy tmux baselines keep their original measurement sources;
+          # copying Herdr imports into them would make the comparison fail.
+          (cd "$baseline" && KANBI_PERFORMANCE_FPS=60 KANBI_PERFORMANCE_TMUX=1 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1) | tee /tmp/kanbi-baseline.txt
           go fmt ./...
           KANBI_PERFORMANCE_ENFORCE=1 go test -v ./internal/tui -run '^TestPerformance(Evidence|Program|External|FileProjection)$' -count=1 | tee /tmp/kanbi-candidate.txt
           printf 'Baseline and candidate CPU/service timings; physical screen latency is not measured.\n' >> "$GITHUB_STEP_SUMMARY"
           printf '\n```text\n' >> "$GITHUB_STEP_SUMMARY"
-          rg 'PERF |reference Go=' /tmp/kanbi-baseline.txt /tmp/kanbi-followup-baseline.txt /tmp/kanbi-candidate.txt >> "$GITHUB_STEP_SUMMARY"
+          rg 'PERF |reference Go=' /tmp/kanbi-baseline.txt /tmp/kanbi-candidate.txt >> "$GITHUB_STEP_SUMMARY"
           printf '```\n' >> "$GITHUB_STEP_SUMMARY"
       - name: Idle renderer CPU and traffic
         env:

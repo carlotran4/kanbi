@@ -23,7 +23,7 @@ import (
 // This drives the real Bubble Tea input/update/renderer loop in production
 // inline mode. The writer is a measurement sink, not a physical terminal.
 // Observation delay is deliberately simulated and labeled separately from the
-// real-tmux fixture exercised by scripts/performance-ui.py.
+// real-Herdr fixture exercised by scripts/performance-ui.py.
 func TestPerformanceProgram(t *testing.T) {
 	if os.Getenv("KANBI_PERFORMANCE") != "1" {
 		t.Skip("opt-in input-to-write measurements")

@@ -196,38 +196,26 @@ func TestTerminalImageProtocolDetectsSixelFallback(t *testing.T) {
 	}
 }
 
-func TestTerminalEnvironmentCachesPositiveAndNegativeResults(t *testing.T) {
+func TestTerminalEnvironmentUsesCurrentProcessWithoutTmux(t *testing.T) {
 	dir := t.TempDir()
 	counter := filepath.Join(dir, "calls")
-	script := "#!/bin/sh\nprintf 'call\\n' >> '" + counter + "'\nif [ \"$3\" = POSITIVE ]; then printf 'POSITIVE=kitty\\n'; else exit 1; fi\n"
+	script := "#!/bin/sh\nprintf 'call\\n' >> '" + counter + "'\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("TMUX", "unique-test-terminal")
-	t.Setenv("TMUX_PANE", "%fixture")
-	t.Setenv("POSITIVE", "")
+	t.Setenv("TMUX", "legacy-parent")
+	t.Setenv("POSITIVE", " kitty ")
 	t.Setenv("NEGATIVE", "")
-	for i := 0; i < 3; i++ {
-		if terminalEnv("POSITIVE") != "kitty" || terminalEnv("NEGATIVE") != "" {
-			t.Fatal("invalid environment lookup")
-		}
+	if terminalEnv("POSITIVE") != "kitty" || terminalEnv("NEGATIVE") != "" {
+		t.Fatal("invalid process environment lookup")
 	}
-	data, err := os.ReadFile(counter)
-	if err != nil {
-		t.Fatal(err)
+	t.Setenv("POSITIVE", "wezterm")
+	if terminalEnv("POSITIVE") != "wezterm" {
+		t.Fatal("stale process environment lookup")
 	}
-	if strings.Count(string(data), "call") != 2 {
-		t.Fatalf("uncached terminal lookups: %s", data)
-	}
-	t.Setenv("TMUX_PANE", "%another")
-	_ = terminalEnv("NEGATIVE")
-	data, err = os.ReadFile(counter)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(string(data), "call") != 3 {
-		t.Fatal("cache leaked across terminal contexts")
+	if _, err := os.Stat(counter); !os.IsNotExist(err) {
+		t.Fatal("terminal lookup invoked retired tmux runtime")
 	}
 }
 

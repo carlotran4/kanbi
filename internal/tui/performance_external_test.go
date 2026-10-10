@@ -2,6 +2,7 @@ package tui
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,11 +12,11 @@ import (
 	"time"
 
 	"github.com/carlotran4/kanbi/internal/config"
+	kanbiruntime "github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
-	"github.com/carlotran4/kanbi/internal/tmux"
 )
 
-// Uses actual Git processes and optionally a private real tmux server. Both
+// Uses actual Git processes and optionally a private real Herdr server. Both
 // fixtures are disposable; no harness, provider, or user database is involved.
 func TestPerformanceExternal(t *testing.T) {
 	if os.Getenv("KANBI_PERFORMANCE") != "1" {
@@ -49,7 +50,7 @@ func TestPerformanceExternal(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		manager := tmux.NewManager(config.Defaults(config.Paths{}), store)
+		manager := kanbiruntime.NewManager(config.Defaults(config.Paths{}), store)
 		defer manager.Close()
 		// Report the uncached pass separately from steady polling; the cache has a
 		// five-second lifetime, so this measures one warm polling burst.
@@ -74,37 +75,59 @@ func TestPerformanceExternal(t *testing.T) {
 		}
 	})
 	t.Run("sessions=10", func(t *testing.T) {
-		if os.Getenv("KANBI_PERFORMANCE_TMUX") != "1" {
-			t.Skip("requires private real tmux server")
+		if os.Getenv("KANBI_PERFORMANCE_HERDR") != "1" {
+			t.Skip("requires private real Herdr server")
 		}
 		store, ctx := newTestStore(t)
 		view := defaultBoardView(t, ctx, store)
-		socket := filepath.Join(t.TempDir(), "tmux.sock")
-		run := func(args ...string) string {
-			t.Helper()
-			out, err := exec.Command("tmux", append([]string{"-S", socket}, args...)...).CombinedOutput()
-			if err != nil {
-				t.Fatalf("tmux %v: %v: %s", args, err, out)
-			}
-			return strings.TrimSpace(string(out))
+		root, err := filepath.Abs("../..")
+		if err != nil {
+			t.Fatal(err)
 		}
-		run("new-session", "-d", "-s", "perf", "-n", "placeholder", "sleep 120")
-		defer exec.Command("tmux", "-S", socket, "kill-server").Run()
-		// Let the unmodified runtime adapter select this isolated server.
-		t.Setenv("TMUX", socket+",0,0")
-		t.Setenv("TMUX_PANE", "")
+		work := filepath.Join(t.TempDir(), "herdr")
+		fixture := filepath.Join(root, "scripts/herdr-fixture.py")
+		if out, err := exec.Command("python3", fixture, "start", work, "160", "45").CombinedOutput(); err != nil {
+			t.Fatalf("start Herdr: %v: %s", err, out)
+		}
+		t.Cleanup(func() {
+			if out, err := exec.Command("python3", fixture, "stop", work).CombinedOutput(); err != nil {
+				t.Errorf("stop Herdr: %v: %s", err, out)
+			}
+		})
+		for _, name := range []string{"HERDR_SESSION", "HERDR_CLIENT_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV"} {
+			t.Setenv(name, "")
+		}
+		t.Setenv("HERDR_SOCKET_PATH", filepath.Join(work, "herdr.sock"))
+		run := func(args ...string) map[string]any {
+			t.Helper()
+			out, err := exec.Command("herdr", args...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("herdr %v: %v: %s", args, err, out)
+			}
+			if len(strings.TrimSpace(string(out))) == 0 {
+				return nil
+			}
+			var obj map[string]any
+			if err := json.Unmarshal(out, &obj); err != nil {
+				t.Fatal(err)
+			}
+			return obj["result"].(map[string]any)
+		}
+		space := run("workspace", "create", "--cwd", work, "--label", "performance", "--no-focus")["workspace"].(map[string]any)["workspace_id"].(string)
 		for i := 0; i < 10; i++ {
 			ticket := createTicket(t, ctx, store, view.Columns[0].ID, fmt.Sprintf("session %d", i), "body", "pi")
 			name := fmt.Sprintf("perf-ticket-%d", i)
-			id := run("new-window", "-d", "-P", "-F", "#{window_id}", "-t", "perf:", "-n", name, "printf 'working on fixture\\n'; sleep 120")
-			_, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: "perf", TmuxWindowName: name, TmuxWindowID: sql.NullString{String: id, Valid: true}, Status: "running"})
+			pane := run("tab", "create", "--workspace", space, "--cwd", work, "--label", name, "--no-focus")["root_pane"].(map[string]any)["pane_id"].(string)
+			run("pane", "run", pane, "printf 'working on fixture\\n'; sleep 120")
+			metadata, _ := json.Marshal(map[string]string{"pane_id": pane})
+			_, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", Multiplexer: "herdr", MuxNamespace: sql.NullString{String: space, Valid: true}, MuxContainerID: sql.NullString{String: pane, Valid: true}, MuxContainerName: sql.NullString{String: name, Valid: true}, MuxMetadata: sql.NullString{String: string(metadata), Valid: true}, Status: "running"})
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
-		manager := tmux.NewManager(config.Defaults(config.Paths{}), store)
+		manager := kanbiruntime.NewManager(config.Defaults(config.Paths{}), store)
 		defer manager.Close()
-		measurePerformance(t, "real-10-tmux-sessions-refresh", 30, func() {
+		measurePerformance(t, "real-10-herdr-sessions-refresh", 30, func() {
 			if err := manager.RefreshRuntime(ctx); err != nil {
 				t.Fatal(err)
 			}
