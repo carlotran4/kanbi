@@ -187,15 +187,21 @@ func TestInspectorCheckpointWorktreeAndColorCarry(t *testing.T) {
 	ticket.WorkspaceStatusJSON = sql.NullString{String: `{"dirty":true,"changed_files":3}`, Valid: true}
 	m.inspector.open = true
 	frame := m.inspectorView(35)
-	for _, want := range []string{"Real owning column", "LATEST PAUSE CHECKPOINT", "Pause reason", "Completed work", "Exact next action"} {
+	if strings.Index(frame, "Exact next action") > strings.Index(frame, "TASK") {
+		t.Fatal("pause next action must precede the task")
+	}
+	for _, want := range []string{"Real owning column", "LATEST PAUSE · NEXT ACTION", "Pause reason", "Completed work", "Exact next action"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("missing %q\n%s", want, frame)
 		}
 	}
-	ticket.Body = strings.Repeat("long task body ", 20000)
+	ticket.Body = strings.Repeat("long task body ", 20000) + "body tail sentinel"
+	if first := m.inspectorView(35); !strings.Contains(first, "Exact next action") {
+		t.Fatal("long task hid the next action at the top")
+	}
 	m.inspector.scroll = 1 << 20
-	if tail := m.inspectorView(35); !strings.Contains(tail, "Exact next action") {
-		t.Fatal("long task hid checkpoint")
+	if tail := m.inspectorView(35); !strings.Contains(tail, "body tail sentinel") {
+		t.Fatal("long task body was truncated")
 	}
 	m.inspector.scroll = 0
 	m.inspector.section = 2
@@ -208,5 +214,43 @@ func TestInspectorCheckpointWorktreeAndColorCarry(t *testing.T) {
 	lines := styledPreviewLines("\x1b[31mfirst\nsecond\n\x1b[0mthird\nfourth")
 	if !strings.HasPrefix(lines[1], "\x1b[31m") || lines[3] != "fourth" {
 		t.Fatalf("color carry %q", lines)
+	}
+}
+
+func TestInspectorTaskFormattingPreservesCodeAndBounds(t *testing.T) {
+	body := "# Plan\n\n- **Verify** the board\n\n```sh\n# literal comment\necho `date`\n```\n\x1b]52;c;secret\x07Tail"
+	lines := inspectorTaskLines(body, 20)
+	plain := ansiStrip(strings.Join(lines, "\n"))
+	for _, want := range []string{"Plan", "• Verify the board", "# literal comment", "echo `date`", "Tail"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("missing %q in %q", want, plain)
+		}
+	}
+	if strings.Contains(plain, "secret") {
+		t.Fatal("task emitted terminal controls")
+	}
+	for _, line := range lines {
+		if lipgloss.Width(line) > 20 {
+			t.Fatalf("markdown exceeds viewport: %q", line)
+		}
+	}
+}
+
+func TestInspectorScreenFreshnessRemainsVisibleWhenScrolled(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	v := defaultBoardView(t, ctx, store)
+	createTicket(t, ctx, store, v.Columns[0].ID, "Title", "Task", "pi")
+	m.reload()
+	m.inspector.open, m.inspector.section = true, 1
+	m.inspector.preview = multiplexer.TerminalPreview{Text: strings.Repeat("screen row\n", 100), Source: "visible screen", CapturedAt: time.Now().Add(-time.Minute)}
+	for _, size := range [][2]int{{160, 45}, {80, 24}} {
+		m.width, m.height = size[0], size[1]
+		m.inspector.scroll = 10000
+		frame := m.inspectorView(m.boardContentHeight() + 2)
+		for _, want := range []string{"STALE", "Read-only", "visible screen", "screen row"} {
+			if !strings.Contains(frame, want) {
+				t.Fatalf("%v lost %q after scrolling: %s", size, want, frame)
+			}
+		}
 	}
 }

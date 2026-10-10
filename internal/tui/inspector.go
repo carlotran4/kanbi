@@ -9,7 +9,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/carlotran4/kanbi/internal/app"
+	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/multiplexer"
+	"github.com/carlotran4/kanbi/internal/storage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -195,100 +197,149 @@ func (m *Model) inspectorView(height int) string {
 	if !ok {
 		return "Inspector · no selected ticket"
 	}
-	title := "INSPECTOR · Tab focus · i close"
-	if m.inspector.focused || m.inspectorNarrow() {
-		title = "INSPECTOR · scrolling · Esc return"
-	}
-	headers := []string{title, t.DisplayID + " " + t.Title}
+	muted := lipgloss.NewStyle().Foreground(palette.muted)
+	heading := lipgloss.NewStyle().Foreground(palette.accent).Bold(true)
+	warning := lipgloss.NewStyle().Foreground(palette.warning).Bold(true)
+	strong := lipgloss.NewStyle().Bold(true)
 	column := t.ColumnName
 	if column == "" && m.col >= 0 && m.col < len(m.view.Columns) {
 		column = m.view.Columns[m.col].Name
 	}
-	headers = append(headers, t.BoardName+" / "+column+" / "+t.Harness+" · "+runtimeLabel(t))
+	// Keep identity readable without spending a row on duplicate key hints.
+	headers := []string{heading.Render("INSPECTOR · " + t.DisplayID)}
+	title := strings.Split(ansi.Wrap(safePreviewANSI(t.Title), inner, ""), "\n")
+	for _, line := range title[:minInt(3, len(title))] {
+		headers = append(headers, strong.Render(line))
+	}
+	location := t.BoardName + " / " + column
+	headers = append(headers, muted.Render(location), inspectorRuntimeStyle(t).Render(cardStatusLine(t, inner)))
 	sections := []string{"Context", "Output", "Worktree"}
-	sections[m.inspector.section] = "[" + sections[m.inspector.section] + "]"
-	headers = append(headers, strings.Join(sections, " · ")+"  [/]")
-	var content string
+	for i, name := range sections {
+		if i == m.inspector.section {
+			sections[i] = heading.Render("[" + name + "]")
+		} else {
+			sections[i] = muted.Render(name)
+		}
+	}
+	headers = append(headers, strings.Join(sections, "  "), muted.Render(strings.Repeat("─", inner)))
+	var body []string
+	// Sanitize user and captured text before applying our own styling.
+	appendText := func(text string, style lipgloss.Style) {
+		for _, line := range strings.Split(ansi.Wrap(safePreviewANSI(text), inner, ""), "\n") {
+			body = append(body, style.Render(line))
+		}
+	}
+	gap := func() { body = append(body, "") }
+	field := func(label, value string) {
+		appendText(label, muted)
+		if strings.TrimSpace(value) == "" {
+			value = "Unavailable"
+		}
+		appendText(value, lipgloss.NewStyle())
+	}
 	switch m.inspector.section {
 	case 0:
-		content = "TASK\n" + t.Body
-		if ansi.StringWidth(t.DisplayID+" "+t.Title) > inner {
-			content = "TITLE\n" + t.Title + "\n\n" + content
-		}
-		if ansi.StringWidth(t.BoardName+" / "+column+" / "+t.Harness+" · "+runtimeLabel(t)) > inner {
-			content = "Board: " + t.BoardName + "\nColumn: " + column + "\n\n" + content
-		}
-		if strings.TrimSpace(t.Body) == "" {
-			content += "(No task body)"
-		}
 		if cp := t.LatestCheckpoint; cp != nil {
-			content += "\n\nLATEST PAUSE CHECKPOINT · " + cp.PausedAt.Format(time.RFC3339) + "\nWhy: " + cp.Why + "\nCompleted: " + cp.Completed + "\nNext: " + cp.NextAction
+			appendText("LATEST PAUSE · NEXT ACTION", warning)
+			appendText(cp.NextAction, strong)
+			gap()
+			field("Completed", cp.Completed)
+			field("Why paused", cp.Why)
+			appendText("Saved "+cp.PausedAt.Format(time.RFC3339), muted)
+			gap()
 		}
-		content += "\n\nRuntime: " + runtimeLabel(t) + "\nObservation source: " + t.LastDetectionSource.String
-		if t.LastDetectionSource.String == "" {
-			content += "unknown"
+		appendText("TASK", heading)
+		if strings.TrimSpace(t.Body) == "" {
+			appendText("(No task body)", muted)
+		} else {
+			body = append(body, inspectorTaskLines(t.Body, inner)...)
 		}
+		// Clipped identity remains available in scrollable detail.
+		if len(title) > 3 || ansi.StringWidth(location) > inner {
+			gap()
+			if len(title) > 3 {
+				field("Full title", t.Title)
+			}
+			if ansi.StringWidth(location) > inner {
+				field("Board", t.BoardName)
+				field("Column", column)
+			}
+		}
+		gap()
+		source := t.LastDetectionSource.String
+		if source == "" {
+			source = "unknown"
+		}
+		appendText("Runtime observation: "+source, muted)
 		if t.LastAttentionReason.String != "" {
-			content += "\nReason: " + t.LastAttentionReason.String
+			field("Attention reason", t.LastAttentionReason.String)
 		}
 	case 1:
 		p := m.inspector.preview
 		freshness := "Unavailable · no observation"
+		style := muted
 		if !p.CapturedAt.IsZero() {
-			freshness = fmt.Sprintf("Observed %ds ago · %s", maxInt(0, int(time.Since(p.CapturedAt).Seconds())), p.Source)
+			freshness = fmt.Sprintf("Observed %ds ago", maxInt(0, int(time.Since(p.CapturedAt).Seconds())))
 			if time.Since(p.CapturedAt) > 6*time.Second || m.inspector.err != "" {
 				freshness = "STALE · " + freshness
+				style = warning
 			}
 		} else if m.inspector.busy {
 			freshness = "Capturing read-only screen…"
 		}
-		headers = append(headers, freshness)
+		headers = append(headers, style.Render(freshness))
+		if p.Source != "" {
+			headers = append(headers, muted.Render("Read-only · "+safePreviewANSI(p.Source)))
+		}
 		if m.inspector.err != "" {
-			headers = append(headers, "Unavailable: "+m.inspector.err)
+			appendText("Unavailable: "+m.inspector.err, warning)
 		}
 		if p.Warning != "" {
-			headers = append(headers, p.Warning)
+			appendText(p.Warning, warning)
 		}
-		content = p.Text
+		gap()
+		content := p.Text
 		if len(content) > 256*1024 {
 			content = content[:256*1024]
 		}
 		if content == "" {
-			content = "(No terminal output available)"
+			appendText("(No terminal output available)", muted)
+		} else {
+			screen := styledPreviewLines(safePreviewANSI(content))
+			body = append(body, screen[:minInt(len(screen), 160)]...)
 		}
 	case 2:
-		content = ticketWorkspaceDetailLine(t)
+		appendText("WORKTREE", heading)
 		if !t.WorkspaceID.Valid {
-			content = "No ticket worktree.\nBoard directory: " + t.BoardWorkdir
+			appendText("No ticket worktree.", muted)
+			gap()
+			field("Board directory", t.BoardWorkdir)
 		} else {
-			content = "Branch: " + t.WorkspaceBranch.String + "\nSource: " + t.WorkspaceSourceBranch.String + "\nDirectory: " + t.WorkspaceLaunchCWD.String + "\nState: " + t.WorkspaceState.String + "\n" + content + "\nGit health: cached observation (age unknown)"
+			field("Branch", t.WorkspaceBranch.String)
+			field("Source branch", t.WorkspaceSourceBranch.String)
+			gap()
+			field("Directory", t.WorkspaceLaunchCWD.String)
+			field("State", t.WorkspaceState.String)
+			gap()
+			appendText("GIT HEALTH", heading)
+			if detail := ticketWorkspaceDetailLine(t); detail != "" {
+				appendText(detail, lipgloss.NewStyle())
+			}
+			appendText("Cached observation · age unknown", muted)
 			if !t.WorkspaceStatusJSON.Valid {
-				content += "\nGit observation unavailable"
+				appendText("Git observation unavailable", muted)
 			}
 			if t.WorkspaceLastError.String != "" {
-				content += "\nObservation unavailable: " + t.WorkspaceLastError.String
+				appendText("Observation unavailable: "+t.WorkspaceLastError.String, warning)
 			}
 		}
 	}
 	if len(headers) > maxInt(1, height-5) {
 		headers = headers[:maxInt(1, height-5)]
 	}
-	// Only SGR survives. Every line ends with reset so styling stays inside the panel.
 	var lines []string
 	for _, line := range headers {
-		lines = append(lines, ansi.Truncate(strings.ReplaceAll(safePreviewANSI(line), "\n", " "), inner, "~")+"\x1b[0m")
-	}
-	lines = append(lines, "")
-	content = safePreviewANSI(content)
-	if m.inspector.section != 1 {
-		content = ansi.Wrap(content, inner, "")
-	}
-	body := strings.Split(content, "\n")
-	if m.inspector.section == 1 {
-		if len(body) > 160 {
-			body = body[:160]
-		}
-		body = styledPreviewLines(strings.Join(body, "\n"))
+		lines = append(lines, ansi.Truncate(strings.ReplaceAll(safePreviewANSI(line), "\n", " "), inner, "…")+"\x1b[0m")
 	}
 	avail := maxInt(1, height-2-len(lines)-1)
 	offset := minInt(m.inspector.scroll, maxInt(0, len(body)-avail))
@@ -305,9 +356,53 @@ func (m *Model) inspectorView(height int) string {
 	for len(lines) < height-3 {
 		lines = append(lines, "")
 	}
-	lines = append(lines, ansi.Truncate(fmt.Sprintf("%d-%d/%d · hjkl scroll · Enter open", offset+1, minInt(len(body), offset+avail), len(body)), inner, "~"))
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(palette.accent).Padding(0, 1).Width(maxInt(1, width-2))
-	return style.Render(strings.Join(lines, "\n"))
+	position := fmt.Sprintf("%d–%d/%d", offset+1, minInt(len(body), offset+avail), len(body))
+	if offset+avail < len(body) {
+		position += " · ↓ more"
+	}
+	if m.inspector.section == 1 && horizontal > 0 {
+		position += fmt.Sprintf(" · col %d", horizontal+1)
+	}
+	lines = append(lines, muted.Render(ansi.Truncate(position, inner, "…")))
+	border := palette.muted
+	if m.inspector.focused || m.inspectorNarrow() {
+		border = palette.accent
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(0, 1).Width(maxInt(1, width-2)).Render(strings.Join(lines, "\n"))
+}
+
+func inspectorRuntimeStyle(t storage.Ticket) lipgloss.Style {
+	// Reuse card tone rules; keyboard focus never changes runtime attention.
+	style := lipgloss.NewStyle().Foreground(palette.muted)
+	if t.Runtime == kanban.StateNeedsPermission || t.Runtime == kanban.StateError || t.Runtime == kanban.StateRepairNeeded {
+		return style.Foreground(palette.error_).Bold(true)
+	}
+	if t.Runtime == kanban.StateWaitingForUser {
+		return style.Foreground(palette.warning).Bold(true)
+	}
+	return style
+}
+
+func inspectorTaskLines(body string, width int) []string {
+	var lines []string
+	code := false
+	for raw := range strings.SplitSeq(safePreviewANSI(body), "\n") {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			code = !code
+			lines = append(lines, lipgloss.NewStyle().Foreground(palette.muted).Render(raw))
+			continue
+		}
+		text, style := raw, lipgloss.NewStyle()
+		if !code {
+			text, style = markdownLineStyle(raw)
+			text = renderInlineMarkdown(text)
+		}
+		for _, line := range strings.Split(ansi.Wrap(text, width, ""), "\n") {
+			lines = append(lines, style.Render(line))
+		}
+	}
+	return lines
 }
 
 // safePreviewANSI allows printable text, line breaks, tabs and numeric SGR only.
