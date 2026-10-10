@@ -175,7 +175,7 @@ func (m Model) contextBar() string {
 		if m.inspector.focused {
 			return trimToWidth("i:close Esc:return Tab:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
 		}
-		return trimToWidth("i:close Esc:return Tab:focus [/]:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
+		return trimToWidth("i:close Esc:return Tab:panel (h/l:section) hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
 	items := []string{"Enter:send/open", "i:inspect", "n:new", "N:template", "T:templates", "e:ticket", "b:boards", "F:focus"}
 	if m.masterBoard {
