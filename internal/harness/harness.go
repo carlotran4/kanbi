@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -183,6 +184,8 @@ func CaptureSessionRefInCWD(name, promptText, cwd string, since time.Time) (stri
 	switch name {
 	case "pi":
 		return latestPiSessionInCWD(promptText, cwd, since)
+	case "codex":
+		return latestCodexHistorySessionInCWD(promptText, cwd, since)
 	case "copilot":
 		return latestCopilotSessionInCWD(promptText, cwd, since)
 	case "claude":
@@ -229,23 +232,38 @@ type codexHistoryEntry struct {
 	Text      string  `json:"text"`
 }
 
-// CodexPromptWithAttemptToken adds a machine-readable, per-launch marker to a
-// Codex prompt. Codex history records the complete prompt text, so this makes
-// otherwise identical concurrent prompts uniquely matchable during ref capture.
-func CodexPromptWithAttemptToken(promptText, attemptToken string) string {
-	return promptText + "\n\n<!-- kanbi-codex-attempt:" + attemptToken + " -->"
+type codexSessionMeta struct {
+	Type    string `json:"type"`
+	Payload struct {
+		ID        string `json:"id"`
+		SessionID string `json:"session_id"`
+		Timestamp string `json:"timestamp"`
+		CWD       string `json:"cwd"`
+	} `json:"payload"`
 }
 
 func latestCodexHistorySession(promptText string, since time.Time) (string, bool) {
-	home, err := os.UserHomeDir()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", false
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".codex", "history.jsonl"))
+	return latestCodexHistorySessionInCWD(promptText, cwd, since)
+}
+
+func latestCodexHistorySessionInCWD(promptText, cwd string, since time.Time) (string, bool) {
+	codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	if codexHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		codexHome = filepath.Join(home, ".codex")
+	}
+	data, err := os.ReadFile(filepath.Join(codexHome, "history.jsonl"))
 	if err != nil {
 		return "", false
 	}
-	var best codexHistoryEntry
+	candidates := make(map[string]struct{})
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -260,14 +278,60 @@ func latestCodexHistorySession(promptText string, since time.Time) (string, bool
 		if entryTime(entry).Before(since.Add(-2 * time.Second)) {
 			continue
 		}
-		if best.SessionID == "" || entry.Timestamp > best.Timestamp {
-			best = entry
+		candidates[entry.SessionID] = struct{}{}
+	}
+
+	var matched string
+	for sessionID := range candidates {
+		if !codexSessionMatchesLaunch(codexHome, sessionID, cwd, since) {
+			continue
+		}
+		if matched != "" && matched != sessionID {
+			return "", false
+		}
+		matched = sessionID
+	}
+	return matched, matched != ""
+}
+
+func codexSessionMatchesLaunch(codexHome, sessionID, cwd string, since time.Time) bool {
+	if strings.ContainsAny(sessionID, `/\\*?[]`) {
+		return false
+	}
+	pattern := filepath.Join(codexHome, "sessions", "*", "*", "*", "*"+sessionID+".jsonl")
+	paths, err := filepath.Glob(pattern)
+	if err != nil {
+		return false
+	}
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(file)
+		ok := scanner.Scan()
+		line := scanner.Bytes()
+		_ = file.Close()
+		if !ok {
+			continue
+		}
+		var meta codexSessionMeta
+		if err := json.Unmarshal(line, &meta); err != nil || meta.Type != "session_meta" {
+			continue
+		}
+		metaID := meta.Payload.ID
+		if metaID == "" {
+			metaID = meta.Payload.SessionID
+		}
+		createdAt, err := time.Parse(time.RFC3339Nano, meta.Payload.Timestamp)
+		if err != nil || createdAt.Before(since) {
+			continue
+		}
+		if metaID == sessionID && filepath.Clean(meta.Payload.CWD) == filepath.Clean(cwd) {
+			return true
 		}
 	}
-	if best.SessionID == "" {
-		return "", false
-	}
-	return best.SessionID, true
+	return false
 }
 
 func entryTime(entry codexHistoryEntry) time.Time {

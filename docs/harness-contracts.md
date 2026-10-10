@@ -57,23 +57,25 @@ The `--no-alt-screen` flag keeps Codex output in the normal scrollback buffer, w
 
 ### Session Ref Capture
 
-Codex writes session history to `~/.codex/history.jsonl` as newline-delimited JSON.
+Codex writes session history to `$CODEX_HOME/history.jsonl` (default `~/.codex/history.jsonl`) as newline-delimited JSON.
 
 Each entry has:
 ```json
 {"session_id": "<id>", "ts": <unix_float>, "text": "<prompt>"}
 ```
 
-Kanbi appends a random per-attempt HTML comment to the prompt argument it gives Codex. Codex records that complete prompt text in history, so the marker makes simultaneous launches with otherwise identical rendered prompts uniquely matchable without changing the Codex command name or flags.
+Kanbi sends Codex exactly the rendered ticket prompt; it does not append internal correlation metadata to user-visible or model-visible text.
 
-Capture logic in `harness.CaptureSessionRef` scans for an entry where:
-- `entry.text == promptText`, including that per-attempt marker
-- `entry.ts` is recent (within 2s of session start)
-- Picks the entry with the highest `ts` when multiple match
+Kanbi serializes prompted Codex launches sharing the same Codex home until their synchronous ref-capture attempt completes. Capture logic in `harness.CaptureSessionRefInCWD` first finds recent `history.jsonl` entries whose `text` exactly equals the rendered prompt. It then validates each candidate against the candidate session's `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` `session_meta` record:
 
-If synchronous capture misses the marked history entry, Kanbi does not later retry a plain prompt/timestamp-only Codex scan: that would no longer have enough evidence to safely attach a ref. The ticket follows the normal repair/start-fresh path instead.
+- the session id matches the history entry;
+- `session_meta.cwd` equals the immutable launch directory;
+- `session_meta.timestamp` is not earlier than the launch;
+- exactly one candidate satisfies all checks.
 
-**Verified:** start, ref capture, close, resume path, and concurrent identical-base prompt capture. See `TestCaptureCodexSessionRefFromHistory` and `TestCodexHistoryCaptureKeepsConcurrentIdenticalBasePromptsAttemptBound`.
+The launch lock prevents two Kanbi-started Codex sessions from racing while only one candidate is visible. Capture still rejects multiple matching candidates rather than risk attaching the wrong resume ref, including sessions launched outside Kanbi. Kanbi does not retry Codex capture later, when newer identical prompts could make an old launch ambiguous. Pane-first launches that cannot submit the prompt before the session row is completed likewise do not perform delayed Codex capture. The ticket follows the normal repair/start-fresh path when no unique ref can be proven.
+
+**Verified:** exact prompt launch without leaked metadata, unique cwd-bound ref capture, ambiguity rejection, close, and resume path. See `TestCodexOpenTicketSendsPromptAsArgument`, `TestCodexHistoryCapturesUniqueMatchingSessionInCWD`, and `TestCodexHistoryRejectsAmbiguousConcurrentIdenticalPrompts`.
 
 ### Exit Keys
 

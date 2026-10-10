@@ -17,6 +17,7 @@ import (
 )
 
 func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Launch", "body", "codex")
@@ -119,6 +120,7 @@ INSERT INTO turns(session_id,turn_index,user_message) VALUES(?,0,?);`,
 }
 
 func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Prompt Failure", "body", "codex")
@@ -165,6 +167,7 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 }
 
 func TestOpenTicketWithLegacyHerdrKeepsPromptArgument(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	store, ctx := newTmuxTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Legacy Herdr", "multiline\nbody with 'quotes' and $shell", "codex")

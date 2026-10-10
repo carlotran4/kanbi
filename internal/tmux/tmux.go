@@ -28,6 +28,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/storage"
 	workspacepkg "github.com/carlotran4/kanbi/internal/workspace"
+	"golang.org/x/sys/unix"
 )
 
 var ErrPromptAlreadySent = session.ErrPromptAlreadySent
@@ -338,10 +339,9 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 			return ticket, nil
 		}
 	}
-	// Codex prompt starts include a random per-attempt marker so the synchronous
-	// capture can bind its history row safely. That marker is intentionally not
-	// reconstructed here: a later prompt/timestamp-only scan could cross-assign
-	// an identical concurrent prompt.
+	// Codex capture correlates history with rollout metadata during launch.
+	// Do not retry it later: newer identical prompts can make an old launch
+	// ambiguous even when cwd and timestamps are checked.
 	if ticket.Harness == "codex" {
 		return ticket, nil
 	}
@@ -960,12 +960,44 @@ func readPiSessionRefFile(path, expectedToken string) (string, bool) {
 	return strings.TrimSpace(payload.SessionID), true
 }
 
-func (m *Manager) codexPromptWithAttemptToken(promptText string) (string, error) {
-	random := make([]byte, 16)
-	if _, err := rand.Read(random); err != nil {
-		return "", fmt.Errorf("create Codex session ref attempt token: %w", err)
+func (m *Manager) acquireCodexCaptureLock(ctx context.Context) (func(), error) {
+	codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	if codexHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve Codex home for session-ref lock: %w", err)
+		}
+		codexHome = filepath.Join(home, ".codex")
 	}
-	return harness.CodexPromptWithAttemptToken(promptText, hex.EncodeToString(random)), nil
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+		return nil, fmt.Errorf("create Codex home for session-ref lock: %w", err)
+	}
+	lockFile, err := os.OpenFile(filepath.Join(codexHome, ".kanbi-session-ref.flock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open Codex capture lock: %w", err)
+	}
+	for {
+		err = unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			var once sync.Once
+			return func() {
+				once.Do(func() {
+					_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+					_ = lockFile.Close()
+				})
+			}, nil
+		}
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
+			_ = lockFile.Close()
+			return nil, fmt.Errorf("lock Codex session-ref capture: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			_ = lockFile.Close()
+			return nil, ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
 
 func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText, cwd string, since time.Time, refFile, refToken string) (string, bool) {

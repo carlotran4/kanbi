@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -253,85 +252,82 @@ func TestParseSessionRefEdgeCases(t *testing.T) {
 	}
 }
 
-func TestCodexHistoryPicksMostRecentMatchingSession(t *testing.T) {
+func TestCodexHistoryCapturesUniqueMatchingSessionInCWD(t *testing.T) {
 	home := t.TempDir()
+	cwd := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
 	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	prompt := "# T-001: Demo\n\nBody"
-	// Three entries: one too old, two matching — should return the latest
 	history := `{"session_id":"old","ts":100,"text":"# T-001: Demo\n\nBody"}` + "\n" +
-		`{"session_id":"mid","ts":2000,"text":"# T-001: Demo\n\nBody"}` + "\n" +
-		`{"session_id":"newest","ts":3000,"text":"# T-001: Demo\n\nBody"}` + "\n" +
-		`{"session_id":"wrong","ts":9999,"text":"different prompt"}` + "\n"
+		`{"session_id":"matching","ts":2000,"text":"# T-001: Demo\n\nBody"}` + "\n" +
+		`{"session_id":"wrong-cwd","ts":2001,"text":"# T-001: Demo\n\nBody"}` + "\n" +
+		`{"session_id":"wrong-prompt","ts":2002,"text":"different prompt"}` + "\n"
 	if err := os.WriteFile(filepath.Join(home, ".codex", "history.jsonl"), []byte(history), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ref, ok := CaptureSessionRef("codex", prompt, time.Unix(1999, 0))
-	if !ok || ref != "newest" {
-		t.Errorf("ref = %q ok = %v, want newest/true", ref, ok)
+	writeCodexSessionMeta(t, home, "matching", cwd, time.Unix(2000, 0))
+	writeCodexSessionMeta(t, home, "wrong-cwd", t.TempDir(), time.Unix(2001, 0))
+
+	ref, ok := CaptureSessionRefInCWD("codex", prompt, cwd, time.Unix(1999, 0))
+	if !ok || ref != "matching" {
+		t.Errorf("ref = %q ok = %v, want matching/true", ref, ok)
 	}
 }
 
-func TestCodexHistoryCaptureKeepsConcurrentIdenticalBasePromptsAttemptBound(t *testing.T) {
+func TestCodexHistoryRejectsAmbiguousConcurrentIdenticalPrompts(t *testing.T) {
 	home := t.TempDir()
+	cwd := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
 	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-
-	basePrompt := "# T-001: Demo\n\nBody"
-	firstPrompt := CodexPromptWithAttemptToken(basePrompt, "attempt-one")
-	secondPrompt := CodexPromptWithAttemptToken(basePrompt, "attempt-two")
-	if firstPrompt == secondPrompt || !strings.HasPrefix(firstPrompt, basePrompt) || !strings.HasPrefix(secondPrompt, basePrompt) {
-		t.Fatalf("attempt prompts must preserve the shared base and differ: %q / %q", firstPrompt, secondPrompt)
-	}
-	history := `{"session_id":"first-session","ts":2000,"text":` + quote(firstPrompt) + `}` + "\n" +
-		`{"session_id":"second-session","ts":2001,"text":` + quote(secondPrompt) + `}` + "\n"
+	prompt := "# T-001: Demo\n\nBody"
+	history := `{"session_id":"first-session","ts":2000,"text":` + quote(prompt) + `}` + "\n" +
+		`{"session_id":"second-session","ts":2001,"text":` + quote(prompt) + `}` + "\n"
 	if err := os.WriteFile(filepath.Join(home, ".codex", "history.jsonl"), []byte(history), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeCodexSessionMeta(t, home, "first-session", cwd, time.Unix(2000, 0))
+	writeCodexSessionMeta(t, home, "second-session", cwd, time.Unix(2001, 0))
 
-	captures := []struct {
-		prompt string
-		want   string
-	}{{firstPrompt, "first-session"}, {secondPrompt, "second-session"}}
-	start := make(chan struct{})
-	results := make(chan string, len(captures))
-	var wg sync.WaitGroup
-	for _, capture := range captures {
-		capture := capture
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			ref, ok := CaptureSessionRef("codex", capture.prompt, time.Unix(1999, 0))
-			if !ok {
-				results <- ""
-				return
-			}
-			results <- ref
-		}()
+	if ref, ok := CaptureSessionRefInCWD("codex", prompt, cwd, time.Unix(1999, 0)); ok {
+		t.Fatalf("ambiguous capture returned %q", ref)
 	}
-	close(start)
-	wg.Wait()
-	close(results)
+}
 
-	seen := map[string]bool{}
-	for ref := range results {
-		seen[ref] = true
+func writeCodexSessionMeta(t *testing.T, home, sessionID, cwd string, createdAt time.Time) {
+	t.Helper()
+	dir := filepath.Join(home, ".codex", "sessions", "2026", "01", "01")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for _, capture := range captures {
-		if !seen[capture.want] {
-			t.Fatalf("concurrent capture did not retain %q: %#v", capture.want, seen)
-		}
+	payload := map[string]any{
+		"timestamp": createdAt.UTC().Format(time.RFC3339Nano),
+		"type":      "session_meta",
+		"payload": map[string]any{
+			"id":        sessionID,
+			"timestamp": createdAt.UTC().Format(time.RFC3339Nano),
+			"cwd":       cwd,
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "rollout-"+sessionID+".jsonl")
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestCodexHistoryReturnsNothingWhenFileAbsent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
 	// No ~/.codex/history.jsonl at all
 	_, ok := CaptureSessionRef("codex", "any prompt", time.Now())
 	if ok {
@@ -406,6 +402,7 @@ func TestParseSessionRef(t *testing.T) {
 func TestCaptureCodexSessionRefFromHistory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
 	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -415,6 +412,11 @@ func TestCaptureCodexSessionRefFromHistory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".codex", "history.jsonl"), []byte(history), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCodexSessionMeta(t, home, "new", cwd, time.Unix(2000, 0))
 	ref, ok := CaptureSessionRef("codex", prompt, time.Unix(1999, 0))
 	if !ok || ref != "new" {
 		t.Fatalf("ref=%q ok=%v", ref, ok)

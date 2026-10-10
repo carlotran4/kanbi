@@ -150,15 +150,16 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	var refFile string
 	var refToken string
 	var err error
+	if sendPrompt && ticket.Harness == "codex" && decision.Action != lifecycleActionResume {
+		unlock, lockErr := l.manager.acquireCodexCaptureLock(ctx)
+		if lockErr != nil {
+			return lockErr
+		}
+		defer unlock()
+	}
 	launchStartedAt := time.Now().UTC()
 	if sendPrompt {
 		renderedPrompt = prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
-		if ticket.Harness == "codex" {
-			renderedPrompt, err = l.manager.codexPromptWithAttemptToken(renderedPrompt)
-			if err != nil {
-				return err
-			}
-		}
 	}
 	if l.manager.defaultMultiplexerKind() != multiplexer.KindHerdr {
 		name, err = l.manager.availableWindowNameInSession(ctx, l.manager.Config.TmuxSession, name)
@@ -340,7 +341,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 				return harness.CaptureSessionRefInCWD(ticket.Harness, renderedPrompt, launchCWD, launchStartedAt)
 			})
 		}
-		if !ses.HarnessSessionRef.Valid && sendPrompt && !promptAlreadySent && (ticket.Harness == "codex" || ticket.Harness == "copilot") {
+		if !ses.HarnessSessionRef.Valid && sendPrompt && !promptAlreadySent && ticket.Harness == "copilot" {
 			harnessName := ticket.Harness
 			cwd := launchCWD
 			promptText := renderedPrompt

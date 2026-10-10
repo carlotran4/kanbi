@@ -1614,6 +1614,7 @@ func TestInitialPromptSubmitFailureCleansUpAttempt(t *testing.T) {
 }
 
 func TestCodexOpenTicketSendsPromptAsArgument(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	cfg := config.Defaults(config.Paths{})
 	runner := &fakeRunner{}
 	manager := &Manager{Config: cfg, Runner: runner}
@@ -1628,14 +1629,58 @@ func TestCodexOpenTicketSendsPromptAsArgument(t *testing.T) {
 		if len(c.args) > 0 && c.args[0] == "new-window" {
 			joined := strings.Join(c.args, "\n")
 			if strings.Contains(joined, "codex --no-alt-screen") && strings.Contains(joined, "# T-001: Codex Demo\n\nBody") {
-				if !strings.Contains(joined, "<!-- kanbi-codex-attempt:") {
-					t.Fatalf("codex prompt missing attempt marker: %+v", runner.calls)
+				if strings.Contains(joined, "kanbi-codex-attempt") {
+					t.Fatalf("codex prompt leaked internal attempt metadata: %+v", runner.calls)
 				}
 				return
 			}
 		}
 	}
 	t.Fatalf("codex new-window command missing prompt arg: %+v", runner.calls)
+}
+
+func TestCodexCaptureLockSerializesManagers(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	first := &Manager{Config: config.Defaults(config.Paths{StateDir: t.TempDir()})}
+	second := &Manager{Config: config.Defaults(config.Paths{StateDir: t.TempDir()})}
+
+	unlockFirst, err := first.acquireCodexCaptureLock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlockFirst()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	acquired := make(chan func(), 1)
+	errs := make(chan error, 1)
+	go func() {
+		unlock, err := second.acquireCodexCaptureLock(ctx)
+		if err != nil {
+			errs <- err
+			return
+		}
+		acquired <- unlock
+	}()
+
+	select {
+	case unlock := <-acquired:
+		unlock()
+		t.Fatal("second manager acquired Codex capture lock before release")
+	case err := <-errs:
+		t.Fatalf("second manager failed while waiting for lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	unlockFirst()
+	select {
+	case unlock := <-acquired:
+		unlock()
+	case err := <-errs:
+		t.Fatalf("second manager failed to acquire released lock: %v", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
 }
 
 func TestEnsureSessionCreatesMissingSession(t *testing.T) {
