@@ -22,8 +22,6 @@ func (m Model) View() string {
 	// Always render the base board first so the selected modal can overlay it.
 	base := m.cachedBaseView()
 	switch m.activeModalKind() {
-	case modalIntegration:
-		return overlayModal(base, fitModal(m.integrationView(), m.height, 0, true), m.width, m.height)
 	case modalFocusSettings:
 		return overlayModal(base, fitModal(m.focusSettingsView(), m.height, 0, true), m.width, m.height)
 	case modalFocusReplace:
@@ -109,9 +107,6 @@ func (m Model) baseView() string {
 		footerRule.Render(strings.Repeat("─", m.width)),
 		m.contextBar(),
 	}
-	if m.integrationNotice != "" {
-		footer = append(footer, lipgloss.NewStyle().Foreground(palette.warning).Bold(true).Render(trimToWidth(m.integrationNotice, maxInt(1, m.width))))
-	}
 	if m.status != "" {
 		if m.errOperation != "" {
 			footer = append(footer,
@@ -164,7 +159,7 @@ func focusHeaderLine(left, focusText string, width int) string {
 }
 
 func (m Model) contextBar() string {
-	items := []string{"Enter:send/open", "n:new", "N:template", "T:templates", "e:ticket", "I:integrate", "b:boards", "F:focus"}
+	items := []string{"Enter:send/open", "n:new", "N:template", "T:templates", "e:ticket", "b:boards", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
@@ -1033,9 +1028,9 @@ func (m Model) helpView() string {
 	row("x", "safely close session")
 	row("n/N/T · e/E", "new / template / manage · inspect / $EDITOR")
 	row("g / a / m", "open GitHub / archive / mark state")
+	row("worktree m / r", "merge into source / resolve conflicts")
 	row("H/L", "move ticket left/right")
 	row("J/K", "reorder ticket up/down")
-	row("I", "select worktrees for an agent-assisted integration run")
 
 	section("Boards and columns")
 	row("b / f", "board picker / Master filters")

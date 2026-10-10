@@ -89,6 +89,9 @@ func (a *Adapter) CurrentWorkspace(ctx context.Context) (string, error) {
 }
 
 func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (multiplexer.ContainerRef, error) {
+	if err := a.CheckLaunchContract(ctx); err != nil {
+		return multiplexer.ContainerRef{}, err
+	}
 	workspaceID := spec.Namespace
 	if workspaceID == "" {
 		var err error
@@ -97,23 +100,31 @@ func (a *Adapter) Launch(ctx context.Context, spec multiplexer.LaunchSpec) (mult
 			return multiplexer.ContainerRef{}, err
 		}
 	}
-	if a.SupportsPaneFirstAgentStart(ctx) {
-		return a.launchPaneFirst(ctx, spec, workspaceID)
-	}
-	return a.launchLegacy(ctx, spec, workspaceID)
+	return a.launchPaneFirst(ctx, spec, workspaceID)
 }
 
-// SupportsPaneFirstAgentStart reports whether the installed Herdr exposes the
-// current pane-first agent launch contract.
-func (a *Adapter) SupportsPaneFirstAgentStart(ctx context.Context) bool {
+// CheckLaunchContract rejects unsupported Herdr commands before creating resources.
+// Herdr 0.9.3 is the minimum tested release.
+func (a *Adapter) CheckLaunchContract(ctx context.Context) error {
 	out, err := a.run(ctx, "agent", "start", "--help")
-	return err == nil && strings.Contains(out, "--kind") && strings.Contains(out, "--pane")
+	if err != nil {
+		return herdrCommandError("check launch contract (install Herdr 0.9.3 or newer)", out, err)
+	}
+	return ValidateLaunchHelp(out)
+}
+
+// ValidateLaunchHelp checks the required agent launch command surface.
+func ValidateLaunchHelp(out string) error {
+	if !strings.Contains(out, "--kind") || !strings.Contains(out, "--pane") {
+		return errors.New("unsupported Herdr launch API; install Herdr 0.9.3 or newer with agent start --kind and --pane")
+	}
+	return nil
 }
 
 // UsesAgentStart distinguishes recognized-agent readiness from raw command launch.
-func (a *Adapter) UsesAgentStart(ctx context.Context, command []string, kind string) bool {
+func (a *Adapter) UsesAgentStart(command []string, kind string) bool {
 	_, _, _, err := paneFirstInvocation(multiplexer.LaunchSpec{Command: command, AgentKind: kind})
-	return err == nil && a.SupportsPaneFirstAgentStart(ctx)
+	return err == nil
 }
 
 func (a *Adapter) Rename(ctx context.Context, ref multiplexer.ContainerRef, name string) error {
@@ -206,41 +217,6 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	return multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: workspaceID, ID: agentTarget, Name: name, Metadata: metadata}, nil
 }
 
-func (a *Adapter) launchLegacy(ctx context.Context, spec multiplexer.LaunchSpec, workspaceID string) (multiplexer.ContainerRef, error) {
-	name := spec.Name
-	if name == "" {
-		name = "kanbi-agent"
-	}
-	args := []string{"agent", "start", name}
-	if spec.CWD != "" {
-		args = append(args, "--cwd", spec.CWD)
-	}
-	if workspaceID != "" {
-		args = append(args, "--workspace", workspaceID)
-	}
-	args = append(args, "--no-focus", "--")
-	args = append(args, spec.Command...)
-	out, err := a.run(ctx, args...)
-	if err != nil {
-		return multiplexer.ContainerRef{}, herdrCommandError("start agent", out, err)
-	}
-	info := parseObject(out)
-	paneID := firstString(info, "result.agent.pane_id", "result.pane_id", "result.paneId", "pane_id", "paneId", "pane.id")
-	if paneID != "" {
-		info["pane_id"] = paneID
-		moveOut, moveErr := a.moveToNewTab(ctx, paneID, workspaceID, name)
-		if moveErr == nil {
-			info = mergeObjects(info, moveOut)
-		}
-	}
-	agentTarget := firstString(info, "target", "agent_target", "agentTarget", "agent.name", "name", "result.agent.name")
-	if agentTarget == "" {
-		agentTarget = name
-	}
-	metadata := mergeMetadata(spec.Metadata, info)
-	return multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: workspaceID, ID: agentTarget, Name: name, Metadata: metadata}, nil
-}
-
 func (a *Adapter) Validate(ctx context.Context, ref multiplexer.ContainerRef) (bool, error) {
 	detection, err := a.Detect(ctx, ref)
 	if err != nil {
@@ -256,26 +232,6 @@ func (a *Adapter) Validate(ctx context.Context, ref multiplexer.ContainerRef) (b
 		return false, err
 	}
 	return true, nil
-}
-
-// moveToNewTab relocates a fresh pane into its own tab without focusing it.
-// The lifecycle caller focuses only after the agent has started and prompt
-// delivery has succeeded, so a failed launch cannot bounce the user back to a
-// previously focused agent when the temporary pane is cleaned up.
-func (a *Adapter) moveToNewTab(ctx context.Context, paneID, workspaceID, label string) (map[string]any, error) {
-	args := []string{"pane", "move", paneID, "--new-tab"}
-	if workspaceID != "" {
-		args = append(args, "--workspace", workspaceID)
-	}
-	if label != "" {
-		args = append(args, "--label", label)
-	}
-	args = append(args, "--no-focus")
-	out, err := a.run(ctx, args...)
-	if err != nil {
-		return nil, herdrCommandError("move agent pane to tab", out, err)
-	}
-	return parseObject(out), nil
 }
 
 func (a *Adapter) Focus(ctx context.Context, ref multiplexer.ContainerRef) error {

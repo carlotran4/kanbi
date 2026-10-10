@@ -42,7 +42,7 @@ Kanbi is a keyboard-first TUI. Pure headless automation should use the CLI (`--j
 
 | Multiplexer | Status | Verification |
 | --- | --- | --- |
-| Herdr | Only supported runtime; tested with 0.9.3 | Fake-runner tests, real Herdr fake-harness smoke, UI smoke; authenticated lifecycle opt-in |
+| Herdr | Only supported runtime; minimum supported release 0.9.3, with pane-first agent launch | Fake-runner tests, real Herdr fake-harness smoke, UI smoke; authenticated lifecycle opt-in |
 
 `kanbi doctor` requires a running, compatible Herdr server. CI installs checksum-pinned 0.9.3 binaries on Linux/macOS amd64/arm64. Legacy tmux rows and export fields remain readable as history; Kanbi no longer controls tmux containers.
 

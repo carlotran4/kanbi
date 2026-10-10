@@ -180,9 +180,9 @@ Each board UI runs in Herdr. New attempts store workspace/agent/pane metadata in
 
 If `BoardWorkdir` is empty, the configured multiplexer falls back to the current process working directory. Ticket container names include the board ID (`b{board_id}-...`) so duplicate board-local IDs do not collide within a runtime namespace.
 
-## Agent-assisted repository integration
+## Retired agent-assisted integration
 
-On a named Git-worktree board, `I` lists current ticket workspaces. Clean/ready rows are selectable with `Space`; dirty or repair states remain visible with textual reasons. `Enter` snapshots the selected branch heads and source head, creates a temporary integration checkout, and opens the configured integration agent. A repository/source cohort can have only one active run. Returning to `I` opens that run: `Enter` focuses the agent, `p` confirms a ready candidate promotion, and `x` confirms cancellation. Waiting-for-user, permission, and ready states appear in the board footer. Master integration selection is intentionally unavailable because repository/source grouping would be ambiguous.
+Agent-assisted integration (`I`) is retired; use `m` to confirm a direct ticket-worktree merge. Existing runs remain readable and can be explicitly cancelled through the compatibility CLI. See [retired integration recovery](state-management.md#retired-agent-assisted-integration) for history, candidate retention, and interrupted-promotion rules.
 
 ## CLI behavior
 

@@ -13,6 +13,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/boardruntime"
 	"github.com/carlotran4/kanbi/internal/buildinfo"
 	"github.com/carlotran4/kanbi/internal/config"
+	herdrmux "github.com/carlotran4/kanbi/internal/multiplexer/herdr"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -126,7 +127,15 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 				detail := "server not running or incompatible; start Herdr and check `herdr status --json`"
 				add(doctorFatal, "herdr", detail, errors.New(detail))
 			} else {
-				add(doctorOK, "herdr", "session "+cfg.Multiplexer.Herdr.Session, nil)
+				help, err := prober.commandOutput(herdrPath, "agent", "start", "--help")
+				if err == nil {
+					err = herdrmux.ValidateLaunchHelp(string(help))
+				}
+				if err != nil {
+					add(doctorFatal, "herdr", "requires Herdr 0.9.3 or newer with agent start --kind and --pane", err)
+				} else {
+					add(doctorOK, "herdr", "session "+cfg.Multiplexer.Herdr.Session, nil)
+				}
 			}
 		}
 	} else {

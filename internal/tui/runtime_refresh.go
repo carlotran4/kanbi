@@ -48,7 +48,6 @@ func (m Model) Close() {
 type boardSnapshot struct {
 	view  storage.BoardView
 	focus storage.FocusStatus
-	runs  []storage.IntegrationRun
 }
 
 type runtimeRefreshedMsg struct {
@@ -75,9 +74,6 @@ func (m Model) readSnapshot(ctx context.Context) (boardSnapshot, error) {
 	snapshot.focus, err = m.actions.FocusStatus(ctx)
 	if err != nil {
 		return snapshot, err
-	}
-	if snapshot.view.Board.ID != 0 && snapshot.view.Board.WorktreeMode == storage.WorktreeModeGit {
-		snapshot.runs, err = m.actions.ListIntegrationRuns(ctx, snapshot.view.Board.ID)
 	}
 	return snapshot, err
 }

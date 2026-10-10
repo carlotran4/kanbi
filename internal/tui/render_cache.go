@@ -17,7 +17,7 @@ type baseRenderKey struct {
 	version                                            uint64
 	width, height, col, card, colOffset, contentHeight int
 	second                                             int64
-	status, operation, next, notice, refreshError      string
+	status, operation, next, refreshError              string
 }
 type renderCache struct {
 	previews     map[textRenderKey]string
@@ -72,7 +72,7 @@ func (m *Model) cachedBaseView() string {
 		return m.baseView()
 	}
 	key := baseRenderKey{version: m.renderVersion, width: m.width, height: m.height, col: m.col, card: m.card, colOffset: m.colOffset,
-		contentHeight: m.boardContentHeight(), second: time.Now().Unix(), status: m.status, operation: m.errOperation, next: m.errNext, notice: m.integrationNotice, refreshError: m.refreshError}
+		contentHeight: m.boardContentHeight(), second: time.Now().Unix(), status: m.status, operation: m.errOperation, next: m.errNext, refreshError: m.refreshError}
 	if m.renderCache.base != "" && m.renderCache.baseKey == key {
 		return m.renderCache.base
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -33,7 +34,6 @@ type Herdr struct {
 	Binary            string `yaml:"binary"`
 	Session           string `yaml:"session"`
 	WorkspaceStrategy string `yaml:"workspace_strategy"`
-	TabStrategy       string `yaml:"tab_strategy"`
 	FocusOnOpen       bool   `yaml:"focus_on_open"`
 }
 
@@ -43,16 +43,9 @@ type Multiplexer struct {
 }
 
 type Timeouts struct {
-	IdleUnknownAfterSeconds    int `yaml:"idle_unknown_after_seconds"`
-	GracefulExitTimeoutSeconds int `yaml:"graceful_exit_timeout_seconds"`
-	PromptReadyTimeoutSeconds  int `yaml:"prompt_ready_timeout_seconds"`
-}
-
-// Diagnostics configures opt-in bounded private file logging under StateDir.
-// Logging is disabled (level off) unless set via config or KANBI_LOG_LEVEL.
-type Integration struct {
-	Harness           string `yaml:"harness"`
-	ValidationCommand string `yaml:"validation_command"`
+	IdleUnknownAfterSeconds    int     `yaml:"idle_unknown_after_seconds"`
+	GracefulExitTimeoutSeconds int     `yaml:"graceful_exit_timeout_seconds"`
+	PromptReadyTimeoutSeconds  float64 `yaml:"prompt_ready_timeout_seconds"`
 }
 
 // Focus is a global, cross-board commitment policy. WorkflowKeys use stable
@@ -63,6 +56,8 @@ type Focus struct {
 	WorkflowKeys []string `yaml:"workflow_keys"`
 }
 
+// Diagnostics configures opt-in bounded private file logging under StateDir.
+// Logging is disabled (level off) unless set via config or KANBI_LOG_LEVEL.
 type Diagnostics struct {
 	// Level is off|error|warn|info|debug. Default off.
 	Level string `yaml:"level"`
@@ -78,11 +73,9 @@ type Config struct {
 	DefaultHarness      string             `yaml:"default_harness"`
 	Multiplexer         Multiplexer        `yaml:"multiplexer"`
 	Diagnostics         Diagnostics        `yaml:"diagnostics"`
-	Integration         Integration        `yaml:"integration"`
 	Focus               Focus              `yaml:"focus"`
 	StatusBar           *statusbar.Config  `yaml:"status_bar"`
 	PromptReadyTimeout  time.Duration      `yaml:"-"`
-	PromptReadyRaw      string             `yaml:"prompt_ready_timeout"`
 	IdleUnknownAfter    time.Duration      `yaml:"-"`
 	GracefulExitTimeout time.Duration      `yaml:"-"`
 	Timeouts            Timeouts           `yaml:"timeouts"`
@@ -140,8 +133,7 @@ type Env struct {
 }
 
 type NormalizeOptions struct {
-	Env                         Env
-	NestedPromptReadyTimeoutSet bool
+	Env Env
 }
 
 func Defaults(paths Paths) Config {
@@ -150,11 +142,11 @@ func Defaults(paths Paths) Config {
 
 func Load() (Config, error) {
 	paths := ResolvePaths()
-	raw, nestedPromptReadyTimeoutSet, err := LoadRaw(paths.ConfigFile)
+	raw, err := LoadRaw(paths.ConfigFile)
 	if err != nil {
 		return Config{}, err
 	}
-	return Normalize(raw, paths, NormalizeOptions{Env: readEnv(), NestedPromptReadyTimeoutSet: nestedPromptReadyTimeoutSet})
+	return Normalize(raw, paths, NormalizeOptions{Env: readEnv()})
 }
 
 func SaveFocus(path string, focus Focus) error {
@@ -280,30 +272,38 @@ func setMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
 	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
 }
 
-func LoadRaw(path string) (Config, bool, error) {
+func LoadRaw(path string) (Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return Config{}, false, nil
+			return Config{}, nil
 		}
-		return Config{}, false, fmt.Errorf("read config %s: %w", path, err)
+		return Config{}, fmt.Errorf("read config %s: %w", path, err)
 	}
-	var raw Config
+	var raw struct {
+		Config            `yaml:",inline"`
+		LegacyPromptReady string `yaml:"prompt_ready_timeout"`
+	}
 	if err := yaml.Unmarshal(b, &raw); err != nil {
-		return Config{}, false, fmt.Errorf("load config %s: %w", path, err)
+		return Config{}, fmt.Errorf("load config %s: %w", path, err)
 	}
-	var presence struct {
-		Timeouts *struct {
-			PromptReadyTimeoutSeconds *int `yaml:"prompt_ready_timeout_seconds"`
-		} `yaml:"timeouts"`
+	if raw.LegacyPromptReady != "" && raw.Timeouts.PromptReadyTimeoutSeconds == 0 {
+		timeout, err := time.ParseDuration(raw.LegacyPromptReady)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid prompt_ready_timeout %q: %w", raw.LegacyPromptReady, err)
+		}
+		raw.Timeouts.PromptReadyTimeoutSeconds = timeout.Seconds()
+		if raw.Timeouts.PromptReadyTimeoutSeconds <= 0 {
+			return Config{}, errors.New("prompt_ready_timeout must be positive")
+		}
 	}
-	if err := yaml.Unmarshal(b, &presence); err != nil {
-		return Config{}, false, fmt.Errorf("load config %s: %w", path, err)
-	}
-	return raw, presence.Timeouts != nil && presence.Timeouts.PromptReadyTimeoutSeconds != nil, nil
+	return raw.Config, nil
 }
 
 func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
+	if seconds := raw.Timeouts.PromptReadyTimeoutSeconds; math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds >= float64(math.MaxInt64)/float64(time.Second) {
+		return Config{}, errors.New("prompt_ready_timeout_seconds must be a finite duration within the supported range")
+	}
 	cfg := defaultConfig(paths, opts.Env)
 	overlayRawConfig(&cfg, raw)
 	if opts.Env.DBPath != "" {
@@ -317,15 +317,7 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 		return Config{}, fmt.Errorf("multiplexer %q is no longer supported; set multiplexer.default: herdr", cfg.Multiplexer.Default)
 	}
 	applyDiagnosticsDefaults(&cfg, opts.Env)
-	if cfg.PromptReadyRaw == "" {
-		cfg.PromptReadyRaw = "5s"
-	}
-	timeout, err := time.ParseDuration(cfg.PromptReadyRaw)
-	if err != nil {
-		return Config{}, fmt.Errorf("invalid prompt_ready_timeout %q: %w", cfg.PromptReadyRaw, err)
-	}
-	cfg.PromptReadyTimeout = timeout
-	applyTimeoutDefaults(&cfg, raw.Timeouts.PromptReadyTimeoutSeconds, opts.NestedPromptReadyTimeoutSet)
+	applyTimeoutDefaults(&cfg)
 	mergeHarnessDefaults(&cfg)
 	if cfg.Focus.Limit <= 0 {
 		cfg.Focus.Limit = 3
@@ -380,13 +372,11 @@ func defaultConfig(paths Paths, env Env) Config {
 		Paths:               paths,
 		DBPath:              paths.DBFile,
 		DefaultHarness:      "pi",
-		Multiplexer:         Multiplexer{Default: "herdr", Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
+		Multiplexer:         Multiplexer{Default: "herdr", Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board"}},
 		Diagnostics:         Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
-		Integration:         Integration{Harness: "pi"},
 		Focus:               Focus{Enabled: false, Limit: 3},
 		StatusBar:           &statusBar,
 		PromptReadyTimeout:  5 * time.Second,
-		PromptReadyRaw:      "5s",
 		IdleUnknownAfter:    120 * time.Second,
 		GracefulExitTimeout: 15 * time.Second,
 		Timeouts: Timeouts{
@@ -417,14 +407,8 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	if raw.Multiplexer.Herdr.WorkspaceStrategy != "" {
 		cfg.Multiplexer.Herdr.WorkspaceStrategy = raw.Multiplexer.Herdr.WorkspaceStrategy
 	}
-	if raw.Multiplexer.Herdr.TabStrategy != "" {
-		cfg.Multiplexer.Herdr.TabStrategy = raw.Multiplexer.Herdr.TabStrategy
-	}
 	if raw.Multiplexer.Herdr.FocusOnOpen {
 		cfg.Multiplexer.Herdr.FocusOnOpen = raw.Multiplexer.Herdr.FocusOnOpen
-	}
-	if raw.PromptReadyRaw != "" {
-		cfg.PromptReadyRaw = raw.PromptReadyRaw
 	}
 	if raw.Timeouts.IdleUnknownAfterSeconds > 0 {
 		cfg.Timeouts.IdleUnknownAfterSeconds = raw.Timeouts.IdleUnknownAfterSeconds
@@ -437,12 +421,6 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	}
 	if raw.Harnesses != nil {
 		cfg.Harnesses = raw.Harnesses
-	}
-	if raw.Integration.Harness != "" {
-		cfg.Integration.Harness = raw.Integration.Harness
-	}
-	if raw.Integration.ValidationCommand != "" {
-		cfg.Integration.ValidationCommand = raw.Integration.ValidationCommand
 	}
 	if raw.Focus.Enabled {
 		cfg.Focus.Enabled = true
@@ -480,9 +458,6 @@ func syncMultiplexerConfig(cfg *Config) {
 	if cfg.Multiplexer.Herdr.WorkspaceStrategy == "" {
 		cfg.Multiplexer.Herdr.WorkspaceStrategy = "board"
 	}
-	if cfg.Multiplexer.Herdr.TabStrategy == "" {
-		cfg.Multiplexer.Herdr.TabStrategy = "tickets"
-	}
 }
 
 func mergeHarnessDefaults(cfg *Config) {
@@ -519,10 +494,7 @@ func mergeHarnessDefaults(cfg *Config) {
 	}
 }
 
-func applyTimeoutDefaults(cfg *Config, nestedPromptReadyTimeoutSeconds int, nestedPromptReadyTimeoutSet bool) {
-	if nestedPromptReadyTimeoutSet && nestedPromptReadyTimeoutSeconds > 0 {
-		cfg.PromptReadyTimeout = time.Duration(nestedPromptReadyTimeoutSeconds) * time.Second
-	}
+func applyTimeoutDefaults(cfg *Config) {
 	if cfg.Timeouts.IdleUnknownAfterSeconds <= 0 {
 		cfg.Timeouts.IdleUnknownAfterSeconds = 120
 	}
@@ -530,8 +502,9 @@ func applyTimeoutDefaults(cfg *Config, nestedPromptReadyTimeoutSeconds int, nest
 		cfg.Timeouts.GracefulExitTimeoutSeconds = 15
 	}
 	if cfg.Timeouts.PromptReadyTimeoutSeconds <= 0 {
-		cfg.Timeouts.PromptReadyTimeoutSeconds = int(cfg.PromptReadyTimeout / time.Second)
+		cfg.Timeouts.PromptReadyTimeoutSeconds = 5
 	}
+	cfg.PromptReadyTimeout = time.Duration(cfg.Timeouts.PromptReadyTimeoutSeconds * float64(time.Second))
 	cfg.IdleUnknownAfter = time.Duration(cfg.Timeouts.IdleUnknownAfterSeconds) * time.Second
 	cfg.GracefulExitTimeout = time.Duration(cfg.Timeouts.GracefulExitTimeoutSeconds) * time.Second
 }

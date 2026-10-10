@@ -14,7 +14,6 @@ func TestActiveModalKindPrecedence(t *testing.T) {
 		set  func(*Model)
 		want modalKind
 	}{
-		{"integration", func(m *Model) { m.integrationOpen = true }, modalIntegration},
 		{"settings", func(m *Model) { m.focusSettingsOpen = true }, modalFocusSettings},
 		{"replacement", func(m *Model) { m.focusReplaceOpen = true }, modalFocusReplace},
 		{"pause", func(m *Model) { m.pauseOpen = true }, modalPause},
@@ -64,7 +63,7 @@ func TestModalRoutingAndStatusUseActiveKind(t *testing.T) {
 
 func TestActiveModalsRenderWithin80x24(t *testing.T) {
 	setters := []func(*Model){
-		func(m *Model) { m.integrationOpen = true }, func(m *Model) { m.startFocusSettings() },
+		func(m *Model) { m.startFocusSettings() },
 		func(m *Model) { m.focusReplaceOpen = true }, func(m *Model) { m.startPause(storage.Ticket{ID: 1}) },
 		func(m *Model) { m.resumeOpen = true }, func(m *Model) { m.firstRun = true },
 		func(m *Model) { m.showHelp = true }, func(m *Model) { m.boardRenaming = true },

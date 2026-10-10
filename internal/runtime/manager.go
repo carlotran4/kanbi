@@ -183,8 +183,6 @@ func ticketLaunchCWD(ticket storage.Ticket) string {
 	return ticket.BoardWorkdir
 }
 
-func (m *Manager) defaultMultiplexerKind() multiplexer.Kind { return multiplexer.KindHerdr }
-
 func (m *Manager) herdrAdapter() *herdrmux.Adapter {
 	cfg := m.Config.Multiplexer.Herdr
 	return herdrmux.NewAdapter(herdrmux.Config{Binary: cfg.Binary, Session: cfg.Session, WorkspaceStrategy: cfg.WorkspaceStrategy, FocusOnOpen: cfg.FocusOnOpen})
@@ -368,9 +366,6 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	defer m.runtimeMu.Unlock()
 	if m.Store == nil {
 		return nil
-	}
-	if err := m.RefreshIntegrationRuns(ctx); err != nil {
-		return err
 	}
 	if service := m.workspaceService(); service != nil {
 		workspaces, err := m.Store.ListCurrentWorkspaces(ctx, 0)

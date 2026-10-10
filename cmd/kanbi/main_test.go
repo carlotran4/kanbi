@@ -681,7 +681,10 @@ func TestProbeDoctorMissingOptionalHarnessIsWarning(t *testing.T) {
 			}
 			return "", os.ErrNotExist
 		},
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
@@ -720,6 +723,9 @@ func TestProbeDoctorReportsConfiguredHerdr(t *testing.T) {
 			return "", os.ErrNotExist
 		},
 		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			if strings.Contains(name, "herdr") && len(args) == 2 && args[0] == "status" {
 				return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 			}
@@ -749,7 +755,10 @@ func TestProbeDoctorFailsWhenConfiguredHerdrMissing(t *testing.T) {
 			}
 			return "", os.ErrNotExist
 		},
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
@@ -770,7 +779,10 @@ func TestProbeDoctorFailsUnknownConfiguredMultiplexerWithoutOKResult(t *testing.
 	cfg.Multiplexer.Default = "mystery"
 	report := probeDoctor(context.Background(), cfg, doctorProber{
 		lookPath: func(string) (string, error) { return "/bin/tmux", nil },
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
@@ -800,6 +812,9 @@ func TestProbeDoctorHerdrDoesNotRequireTmux(t *testing.T) {
 			return "", os.ErrNotExist
 		},
 		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			if strings.Contains(name, "herdr") {
 				return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 			}
@@ -822,7 +837,10 @@ func TestProbeDoctorCanSimulatePathFailures(t *testing.T) {
 	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
 	report := probeDoctor(context.Background(), cfg, doctorProber{
 		lookPath: func(name string) (string, error) { return "/bin/" + name, nil },
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
@@ -1017,7 +1035,10 @@ func TestDoctorRejectsSuccessfulStatusWhenServerNotRunning(t *testing.T) {
 	cfg := config.Defaults(config.Paths{})
 	report := probeDoctor(context.Background(), cfg, doctorProber{
 		lookPath: func(name string) (string, error) { return "/bin/" + name, nil },
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":false,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },

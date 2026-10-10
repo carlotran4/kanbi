@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"database/sql"
 	"strings"
 
 	"github.com/carlotran4/kanbi/internal/multiplexer"
@@ -106,14 +105,4 @@ func ContainerRefFromIntegrationRun(run storage.IntegrationRun) multiplexer.Cont
 		ref.Metadata = run.MuxMetadata.String
 	}
 	return ref
-}
-
-// ApplyContainerRefToIntegrationRun encodes all generic multiplexer fields
-// without reconstructing integration-run lifecycle data.
-func ApplyContainerRefToIntegrationRun(run *storage.IntegrationRun, ref multiplexer.ContainerRef) {
-	run.Multiplexer = sql.NullString{String: string(ref.Kind), Valid: ref.Kind != ""}
-	run.MuxNamespace = sql.NullString{String: ref.Namespace, Valid: ref.Namespace != ""}
-	run.MuxContainerID = sql.NullString{String: ref.ID, Valid: ref.ID != ""}
-	run.MuxContainerName = sql.NullString{String: ref.Name, Valid: ref.Name != ""}
-	run.MuxMetadata = sql.NullString{String: ref.Metadata, Valid: ref.Metadata != ""}
 }

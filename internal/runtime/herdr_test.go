@@ -158,40 +158,6 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 	}
 }
 
-func TestOpenTicketWithLegacyHerdrKeepsPromptArgument(t *testing.T) {
-	t.Setenv("CODEX_HOME", t.TempDir())
-	store, ctx := newRuntimeTestStore(t)
-	view := defaultBoardView(t, ctx, store)
-	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Legacy Herdr", "multiline\nbody with 'quotes' and $shell", "codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin, logPath := writeFakeHerdr(t, map[string]string{
-		"workspace list":   `[]`,
-		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
-		"agent start":      `{"pane_id":"pane-123","agent":{"name":"agent-789"}}`,
-	})
-	cfg := config.Defaults(config.Paths{})
-	cfg.Multiplexer.Default = "herdr"
-	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store}
-
-	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
-		t.Fatal(err)
-	}
-	logBytes, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	log := string(logBytes)
-	if !strings.Contains(log, "agent start") || !strings.Contains(log, "# T-001: Legacy Herdr") || !strings.Contains(log, "multiline") {
-		t.Fatalf("legacy Herdr did not retain the argument-mode prompt; log=%s", log)
-	}
-	if strings.Contains(log, "pane send-text") {
-		t.Fatalf("legacy Herdr must not receive a duplicate pane prompt; log=%s", log)
-	}
-}
-
 func TestOpenTicketWithHerdrPasteModeUsesHerdrInput(t *testing.T) {
 	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -377,6 +343,12 @@ func TestRefreshRuntimePrefersHerdrNativeState(t *testing.T) {
 
 func writeFakeHerdr(t *testing.T, responses map[string]string) (string, string) {
 	t.Helper()
+	if _, ok := responses["agent start help"]; !ok {
+		responses["agent start help"] = "--kind --pane"
+	}
+	if _, ok := responses["tab create"]; !ok {
+		responses["tab create"] = `{"result":{"root_pane":{"pane_id":"pane-123"},"tab":{"tab_id":"tab-123"}}}`
+	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "herdr")
 	logPath := filepath.Join(dir, "herdr.log")

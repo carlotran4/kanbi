@@ -1559,7 +1559,6 @@ func TestMasterScrollKeepsViewWithinTerminalHeight(t *testing.T) {
 	model.width = 160
 	model.height = 40
 	model.reload()
-	model.integrationNotice = "integration candidate ready to promote · press I"
 	for ci := range model.view.Columns {
 		for ti := range model.view.Columns[ci].Tickets {
 			ticket := &model.view.Columns[ci].Tickets[ti]

@@ -42,7 +42,7 @@ kanbi doctor
 Requirements:
 
 - Linux or macOS
-- [Herdr](https://herdr.dev/docs/install/) (tested with 0.9.3)
+- [Herdr](https://herdr.dev/docs/install/) 0.9.3 or newer (requires `agent start --kind` and `--pane`)
 - Pi, Codex, GitHub Copilot CLI, or Claude Code, installed and authenticated
 
 See [Installation](./docs/installation.md) for downloads, checksum verification, upgrades, and source builds.
@@ -61,7 +61,7 @@ Runtime refresh preserves unsaved edits and keeps the last valid board visible w
 
 Choose `shared board directory` or `isolated Git worktrees` when creating a board. Existing boards can migrate with `b`, select the board, then `t` and confirm **Enable worktrees**. This is a durable board policy: once workspace history exists it cannot be switched back; create a separate shared-directory board instead. First ticket start asks for an editable branch name and records the currently checked-out branch as its source.
 
-Press `I` on a named worktree board to select clean ticket worktrees and launch a repository integration agent. Reopen `I` to focus the agent, review a ready candidate with `p`, or cancel with `x`. Integration agents use `integration.harness` (default `pi`) and optional `integration.validation_command` from config. The agent reports a committed candidate through `kanbi integration report`; Kanbi independently verifies and promotes it rather than trusting transcript text or allowing the agent to mutate source.
+Press `m` on a ticket with a Git worktree to confirm merging its committed branch into the recorded source checkout. Kanbi rechecks both checkouts, closes the ticket agent, and preserves its branch and session history for reopening. Agent-assisted integration (`I`) is retired. Existing run history is available through `kanbi integration list`; `kanbi integration cancel RUN_ID` closes an unfinished old run's recorded agent while preserving its candidate checkout and history. Interrupted promotions must be recovered with the previous Kanbi version.
 
 The header status bar is configurable with Starship-style modules and independently aligned left, center, and right zones. It can show the board, time, or cached output from bounded custom commands such as a weekly usage script. See [Configuration](./docs/configuration.md).
 

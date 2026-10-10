@@ -15,7 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/carlotran4/kanbi/internal/app"
-	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/statusbar"
@@ -128,14 +127,6 @@ type Model struct {
 	branchSendPrompt        bool
 	workspaceIntegrating    bool
 	workspaceActionTicket   storage.Ticket
-	integrationOpen         bool
-	integrationCandidates   []integrationpkg.Candidate
-	integrationSelected     map[int64]bool
-	integrationIndex        int
-	integrationRun          storage.IntegrationRun
-	integrationPromoting    bool
-	integrationCancelling   bool
-	integrationNotice       string
 	statusBar               statusbar.Config
 	statusBarResults        map[string]statusbar.ModuleResult
 	statusBarGeneration     uint64
@@ -292,12 +283,6 @@ type focusMoveTicketMsg struct {
 
 type focusSettingsSavedMsg struct {
 	policy storage.FocusPolicy
-	err    error
-}
-
-type integrationActionMsg struct {
-	action string
-	run    storage.IntegrationRun
 	err    error
 }
 
@@ -496,15 +481,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reload()
 		}
 		return m, nil
-	case integrationActionMsg:
-		if msg.err != nil {
-			m.setActionError(msg.action+" integration", msg.err, "Review the integration run, ticket branches, and source checkout, then retry.")
-		} else {
-			m.status = msg.action + " integration " + msg.run.PublicID
-			m.integrationRun = msg.run
-			m.reload()
-		}
-		return m, nil
 	case workspaceActionMsg:
 		if msg.err != nil {
 			m.setActionError(msg.action+" ticket workspace", msg.err, "Commit or repair the workspace and source checkout, refresh status, then retry.")
@@ -545,8 +521,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errNext = ""
 	}
 	switch kind {
-	case modalIntegration:
-		return m.updateIntegration(key)
 	case modalFocusSettings:
 		return m.updateFocusSettings(key)
 	case modalFocusReplace:
@@ -694,8 +668,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.startStateMenu()
 		}
-	case "I":
-		return m, m.openIntegration()
 	case "enter":
 		if t, ok := m.selectedTicket(); ok && m.focus.Enabled && t.FocusPaused {
 			m.startResume(t)
@@ -793,26 +765,6 @@ func (m *Model) applySnapshot(snapshot boardSnapshot) {
 	m.clamp()
 	m.syncScrollDimensions()
 	m.hScrollFollow()
-	m.integrationNotice = ""
-	if m.view.Board.ID != 0 && m.view.Board.WorktreeMode == storage.WorktreeModeGit {
-		if runs := snapshot.runs; len(runs) > 0 {
-			for _, run := range runs {
-				if m.integrationOpen && run.PublicID == m.integrationRun.PublicID {
-					m.integrationRun = run
-				}
-				switch run.State {
-				case storage.IntegrationStateWaitingForUser:
-					m.integrationNotice = "integration agent waiting for user · press I"
-				case storage.IntegrationStateNeedsPermission:
-					m.integrationNotice = "integration agent needs permission · press I"
-				case storage.IntegrationStateReady:
-					if m.integrationNotice == "" {
-						m.integrationNotice = "integration candidate ready to promote · press I"
-					}
-				}
-			}
-		}
-	}
 	m.vScrollFollow()
 }
 

@@ -43,37 +43,6 @@ func TestGitReadPrimitivesUsePorcelainCleanlinessAndRevisionBranch(t *testing.T)
 	}
 }
 
-func TestGitIsAncestorClassifiesNonAncestorAndErrors(t *testing.T) {
-	repo := testRepo(t)
-	git := Git{}
-	base, err := git.ResolveRevision(context.Background(), repo, "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, repo, "checkout", "-b", "feature")
-	if err := os.WriteFile(filepath.Join(repo, "feature"), []byte("feature\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, repo, "add", ".")
-	gitCmd(t, repo, "commit", "-m", "feature")
-	feature, err := git.ResolveRevision(context.Background(), repo, "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ancestor, err := git.IsAncestor(context.Background(), repo, base, feature)
-	if err != nil || !ancestor {
-		t.Fatalf("base ancestor = %v, %v", ancestor, err)
-	}
-	ancestor, err = git.IsAncestor(context.Background(), repo, feature, base)
-	if err != nil || ancestor {
-		t.Fatalf("feature non-ancestor = %v, %v", ancestor, err)
-	}
-	_, err = git.IsAncestor(context.Background(), repo, "missing-revision", feature)
-	if err == nil {
-		t.Fatal("missing revision unexpectedly classified as non-ancestor")
-	}
-}
-
 func TestRunValidationCommandHandlesBlankCWDAndFailureOutput(t *testing.T) {
 	ctx := context.Background()
 	out, err := RunValidationCommand(ctx, t.TempDir(), "   ")

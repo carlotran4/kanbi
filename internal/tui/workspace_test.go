@@ -84,3 +84,23 @@ func TestInspectorBranchLinesWrapWithoutLosingBranchName(t *testing.T) {
 		t.Fatalf("wrapped branch changed: got %q, want %q (lines=%v)", joined, branch, lines)
 	}
 }
+
+func TestDirectIntegrationRemainsWhileAgentIntegrationKeyIsRetired(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	createTicket(t, ctx, store, m.view.Columns[0].ID, "Merge me", "", "pi")
+	m.reload()
+	m.firstRun = false
+	m.boardPicker = false
+	m.view.Columns[m.col].Tickets[m.card].WorkspaceID = sql.NullInt64{Int64: 1, Valid: true}
+	updated, cmd := mustUpdate(t, m, "I")
+	if updated.activeModalKind() != modalNone || cmd != nil {
+		t.Fatal("retired I key triggered an action")
+	}
+	updated, _ = mustUpdate(t, m, "m")
+	if updated.activeModalKind() != modalWorkspaceIntegration {
+		t.Fatal("m no longer opens direct integration confirmation")
+	}
+	if strings.Contains(m.helpView(), "agent-assisted integration") || strings.Contains(m.contextBar(), "I:integrate") {
+		t.Fatal("help still advertises retired integration")
+	}
+}
