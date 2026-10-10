@@ -32,7 +32,7 @@ func LaunchHerdrBoard(cfg config.Config, exe string) error {
 }
 
 func EnsureHerdrAvailable(cfg config.Config) error {
-	if _, err := HerdrStatusCommand(cfg).CombinedOutput(); err == nil {
+	if out, err := HerdrStatusCommand(cfg).CombinedOutput(); err == nil && HerdrStatusReady(out) {
 		return nil
 	}
 	start := HerdrServerCommand(cfg)
@@ -57,8 +57,11 @@ func WaitForHerdrStatus(cfg config.Config, timeout time.Duration) ([]byte, error
 	var lastErr error
 	for {
 		out, err := HerdrStatusCommand(cfg).CombinedOutput()
-		if err == nil {
+		if err == nil && HerdrStatusReady(out) {
 			return out, nil
+		}
+		if err == nil {
+			err = fmt.Errorf("Herdr server not running or incompatible")
 		}
 		lastOut, lastErr = out, err
 		if time.Now().After(deadline) {
@@ -73,7 +76,7 @@ func HerdrUnavailableError(cfg config.Config, detail string) error {
 	if detail == "" {
 		detail = "unknown error"
 	}
-	advice := "run `herdr status` for details, start Herdr with `herdr`, or set `multiplexer.default: tmux`"
+	advice := "run `herdr status` for details, start Herdr with `herdr`, and verify the configured Herdr session"
 	if cfg.Paths.ConfigFile != "" {
 		advice += " in " + cfg.Paths.ConfigFile
 	}
@@ -87,8 +90,18 @@ func herdrBinary(cfg config.Config) string {
 	return "herdr"
 }
 
+func HerdrStatusReady(out []byte) bool {
+	var status struct {
+		Server struct {
+			Running    bool `json:"running"`
+			Compatible bool `json:"compatible"`
+		} `json:"server"`
+	}
+	return json.Unmarshal(out, &status) == nil && status.Server.Running && status.Server.Compatible
+}
+
 func HerdrStatusCommand(cfg config.Config) *exec.Cmd {
-	cmd := exec.Command(herdrBinary(cfg), "status")
+	cmd := exec.Command(herdrBinary(cfg), "status", "--json")
 	cmd.Env = HerdrCommandEnv(cfg)
 	return cmd
 }

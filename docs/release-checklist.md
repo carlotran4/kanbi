@@ -26,7 +26,7 @@ go vet ./...
 govulncheck ./...
 ./scripts/smoke.sh --skip-checks
 KANBI_SOAK_SECONDS=60 ./scripts/soak-runtime.sh
-go test ./internal/harness ./internal/tmux ./internal/storage ./internal/diagnostics
+go test ./internal/harness ./internal/runtime ./internal/storage ./internal/diagnostics
 ```
 
 - [ ] Diagnostics redaction and degraded support-bundle checks pass with synthetic secret/content canaries.
@@ -92,7 +92,7 @@ Attach the ignored `dist/verification/` result to the release issue. The drill m
 
 Before setting `KANBI_STABLE_RELEASE_APPROVAL` or publishing a stable major release:
 
-- [ ] Run all deterministic and applicable real tmux, Herdr, harness, GitHub, and Jira checks on the exact candidate; document unavailable environments and equivalent evidence without calling a skip a pass.
+- [ ] Run all deterministic and applicable real Herdr, harness, GitHub, and Jira checks on the exact candidate; document unavailable environments and equivalent evidence without calling a skip a pass.
 - [ ] Complete a multi-day, multi-process operational soak without data loss, duplicate mutation, persistent lock contention, or unbounded resource growth.
 - [ ] Run upgrade, downgrade-rejection, backup, restore, and rollback checks using the prior tagged artifact and exact candidate artifact.
 - [ ] Validate all four native artifacts and complete the keyboard-only, 80x24, light/dark, and degraded-state UX matrix in [`ux-readiness.md`](./ux-readiness.md).

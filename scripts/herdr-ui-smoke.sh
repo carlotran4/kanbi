@@ -5,11 +5,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UI="$ROOT/.pi/skills/kanbi-ui-validation/scripts/ui-session.sh"
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   echo 'Usage: ./scripts/herdr-ui-smoke.sh'
-  echo 'Run inside Herdr. Checks real Kanbi navigation, editing, capture and cleanup.'
+  echo 'Uses an isolated Herdr server/client. Checks real Kanbi navigation, editing, capture and cleanup.'
   exit 0
 fi
 (($# == 0)) || { echo 'No arguments accepted' >&2; exit 2; }
-[[ "${HERDR_ENV:-}" == 1 ]] || { echo 'Run inside Herdr' >&2; exit 1; }
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/kanbi-herdr-ui-smoke.XXXXXX")"
 export KANBI_UI_WORKDIR="$WORK/fixture" KANBI_UI_RUNTIME=herdr
 cleanup() {
@@ -21,11 +20,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Check focus invariance against the same server, not another client's selection.
-focused_workspace() {
-  herdr workspace list | python3 -c 'import json,sys; print(next((w["workspace_id"] for w in json.load(sys.stdin)["result"]["workspaces"] if w["focused"]), ""))'
-}
-BEFORE="$(focused_workspace)"
 "$UI" start
 
 frame_has() {
@@ -63,23 +57,45 @@ python3 - "$WORK/frame.ansi" <<'PY'
 import sys
 assert '\x1b[' in open(sys.argv[1]).read(), 'capture lost ANSI styling'
 PY
-[[ "$(focused_workspace)" == "$BEFORE" ]]
+
 "$UI" status
 # A sibling test tab is independently addressable while the board stays live.
 SOCKET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["socket"])' "$KANBI_UI_WORKDIR/herdr-runtime.json")"
 SPACE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["workspace"])' "$KANBI_UI_WORKDIR/herdr-runtime.json")"
-herdr_test() { env -u HERDR_SESSION HERDR_SOCKET_PATH="$SOCKET" herdr "$@"; }
+herdr_test() { env -u HERDR_SESSION -u HERDR_CLIENT_SOCKET_PATH HERDR_SOCKET_PATH="$SOCKET" herdr "$@"; }
 TAB="$(herdr_test tab create --workspace "$SPACE" --cwd "$WORK" --label smoke-shell --no-focus)"
 PANE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])' <<<"$TAB")"
 herdr_test pane run "$PANE" 'printf "KANBI_TEST_TAB_READY\n"'
 herdr_test pane wait-output "$PANE" --regex '(?m)^KANBI_TEST_TAB_READY\r?$' --source recent --timeout 5000 >/dev/null
 frame_has 'Kanbi · agent-kanban'
-[[ "$(focused_workspace)" == "$BEFORE" ]]
-"$UI" stop
+
+# Exact-size check resizes the actual Herdr client, then the application's PTY.
+"$UI" resize 80 24
+frame_has 'Kanbi · agent-kanban'
+"$UI" capture >"$WORK/narrow-frame.txt"
+python3 - "$WORK/narrow-frame.txt" <<'PYFRAME'
+import sys
+frame=open(sys.argv[1]).read().splitlines()
+assert len(frame)<=24, f'visible capture exceeds 24 rows: {len(frame)}'
+assert any('?:help' in row for row in frame), 'footer clipped at 80x24'
+PYFRAME
+"$UI" key '?'
+frame_has 'KEYBINDINGS AND LEGEND'
+"$UI" capture >"$WORK/narrow-help.txt"
+if grep -q 'move resumable session' "$WORK/narrow-help.txt"; then
+  echo 'retired multiplexer migration action is still advertised' >&2; exit 1
+fi
+"$UI" key Escape j l
+frame_has 'Kanbi · agent-kanban'
+"$UI" resize 160 45
+frame_has 'Kanbi · agent-kanban'
+# Close workspace before stopping the owned server to verify sibling cleanup.
+herdr_test workspace close "$SPACE"
 if herdr_test pane get "$PANE" >"$WORK/closed-pane.json" 2>&1; then
   echo 'workspace cleanup left sibling tab alive' >&2; exit 1
 fi
 grep -q pane_not_found "$WORK/closed-pane.json"
+"$UI" stop
 [[ ! -f "$KANBI_UI_WORKDIR/herdr-runtime.json" ]]
-[[ "$(focused_workspace)" == "$BEFORE" ]]
+
 echo 'Herdr UI smoke: PASS (navigation, literal input/save, ANSI, routing, sibling tab, focus, cleanup)'

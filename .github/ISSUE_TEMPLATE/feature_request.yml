@@ -28,5 +28,5 @@ body:
     attributes:
       label: Scope awareness
       options:
-        - label: I understand Kanbi keeps SQLite as durable truth, tmux as the default multiplexer, and does not aim for a web UI or background daemon in the current scope.
+        - label: I understand Kanbi keeps SQLite as durable truth, Herdr as the runtime, and does not aim for a web UI or background daemon in the current scope.
           required: true

@@ -61,7 +61,7 @@ Complex issues may take longer. We may ask for more detail or a private test bra
 
 ## Out of scope
 
-- Security of third-party agent CLIs (Pi, Codex, Copilot, Claude) or multiplexers (tmux, Herdr)
+- Security of third-party agent CLIs (Pi, Codex, Copilot, Claude) or multiplexers (Herdr)
 - Security of remote ticket providers (GitHub, Jira)
 - Issues that require physical access to an unlocked user account with local file read rights
 - Social engineering against repository maintainers

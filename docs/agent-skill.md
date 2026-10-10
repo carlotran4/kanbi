@@ -76,4 +76,4 @@ Kanbi remains fully usable without the skill. The TUI is the primary human inter
 
 ## Project UI validation skill
 
-Contributors validating the actual board UI should use the separate [kanbi-ui-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md). It creates a disposable database and non-focused Herdr workspace, then exposes frame capture, keys and literal text input. It includes a tmux fallback for exact terminal-size checks. This development fixture is separate from the administration skill and never reads the user's canonical database or launches authenticated agents.
+Contributors validating the actual board UI should use the separate [kanbi-ui-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md). It creates a disposable database and workspace in an owned isolated Herdr server/client, then exposes frame capture, keys and literal text input. It resizes its owned rendering client and verifies the application PTY for exact terminal-size checks. This development fixture is separate from the administration skill and never reads the user's canonical database or launches authenticated agents.

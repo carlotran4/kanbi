@@ -18,10 +18,10 @@ import (
 
 	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/prompt"
+	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/statusbar"
 	"github.com/carlotran4/kanbi/internal/storage"
-	"github.com/carlotran4/kanbi/internal/tmux"
 )
 
 type quitTestManager struct{ killed bool }
@@ -36,9 +36,6 @@ func (m *quitTestManager) PastePromptNow(context.Context, string, string) error 
 func (m *quitTestManager) CloseSession(context.Context, storage.Ticket) error           { return nil }
 func (m *quitTestManager) KillSession(context.Context) error                            { m.killed = true; return nil }
 func (m *quitTestManager) StartFreshTicket(context.Context, storage.Ticket, bool) error { return nil }
-func (m *quitTestManager) MoveTicketToDefaultMultiplexer(context.Context, storage.Ticket) error {
-	return nil
-}
 
 func TestCustomStatusBarRendersThreeZones(t *testing.T) {
 	store, ctx := newTestStore(t)
@@ -421,7 +418,7 @@ func TestModelPromptFallbackCanPasteNow(t *testing.T) {
 	}
 	wrapped := &openingStore{
 		Service: NewService(store, nil),
-		openErr: tmux.PromptReadyError{
+		openErr: runtime.PromptReadyError{
 			WindowName: "T-001-send-me",
 			Prompt:     "# T-001: Send me\n\nSend me",
 			Ready:      "READY",
@@ -440,31 +437,13 @@ func TestModelPromptFallbackCanPasteNow(t *testing.T) {
 	}
 }
 
-func TestModelMoveToDefaultMultiplexerHotkey(t *testing.T) {
-	store, ctx := newTestStore(t)
-	view := defaultBoardView(t, ctx, store)
-	_, _ = store.CreateTicket(ctx, view.Columns[0].ID, "Move me", "", "pi")
-	wrapped := &openingStore{Service: NewService(store, nil)}
-	model := New(ctx, wrapped)
-
-	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
-	model = runCmd(t, model, cmd)
-
-	if !wrapped.movedToDefault {
-		t.Fatalf("move to default multiplexer not invoked")
-	}
-	if !strings.Contains(model.status, "moved T-001 to default multiplexer") {
-		t.Fatalf("unexpected status: %q", model.status)
-	}
-}
-
 func TestModelRepairStartFresh(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Repair me", "", "pi")
 	wrapped := &openingStore{
 		Service: NewService(store, nil),
-		openErr: tmux.RepairNeededError{
+		openErr: runtime.RepairNeededError{
 			Ticket: ticket,
 			Reason: "missing ref",
 		},
@@ -525,11 +504,6 @@ func (s *openingStore) PastePromptNow(ctx context.Context, windowName, text stri
 func (s *openingStore) StartFreshTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
 	s.startedFresh = true
 	s.startedFreshSendPrompt = sendPrompt
-	return nil
-}
-
-func (s *openingStore) MoveTicketToDefaultMultiplexer(ctx context.Context, ticket storage.Ticket) error {
-	s.movedToDefault = true
 	return nil
 }
 
@@ -643,7 +617,7 @@ func TestRepairViewShowsReasonAndOptions(t *testing.T) {
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Repair me", "", "pi")
 	wrapped := &openingStore{
 		Service: NewService(store, nil),
-		openErr: tmux.RepairNeededError{
+		openErr: runtime.RepairNeededError{
 			Ticket: ticket,
 			Reason: "session started but no window or session ref is known",
 		},
@@ -1325,7 +1299,7 @@ func TestModelRepairEditRefThenOpen(t *testing.T) {
 		openErrFn: func() error {
 			repairCallCount++
 			if repairCallCount == 1 {
-				return tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"}
+				return runtime.RepairNeededError{Ticket: ticket, Reason: "no ref"}
 			}
 			return nil // second call is the resume after ref entry
 		},
@@ -1363,7 +1337,7 @@ func TestModelRepairRetryCallsOpen(t *testing.T) {
 		openErrFn: func() error {
 			callCount++
 			if callCount == 1 {
-				return tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"}
+				return runtime.RepairNeededError{Ticket: ticket, Reason: "no ref"}
 			}
 			return nil // second call (retry) succeeds
 		},
@@ -1387,7 +1361,7 @@ func TestModelEscCancelsRepair(t *testing.T) {
 
 	wrapped := &openingStore{
 		Service: NewService(store, nil),
-		openErr: tmux.RepairNeededError{Ticket: ticket, Reason: "no ref"},
+		openErr: runtime.RepairNeededError{Ticket: ticket, Reason: "no ref"},
 	}
 	model := New(ctx, wrapped)
 	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})

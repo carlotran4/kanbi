@@ -42,7 +42,7 @@ Use unit tests for pure logic:
 - harness command construction
 - output pattern detection
 
-Unit tests must not require tmux, real harness CLIs, or a real terminal.
+Unit tests must not require Herdr, real harness CLIs, or a real terminal.
 
 ### 2. Integration Tests With Temporary SQLite DB
 Use integration tests for DB-backed behavior:
@@ -77,19 +77,11 @@ Create fake harness binaries/scripts in temporary directories that simulate:
 
 The test should prepend the fake binary directory to `PATH`.
 
-### 4. Tmux Manager And Real-Tmux Tests
+### 4. Herdr Runtime Tests
 
-Deterministic manager tests in `internal/tmux` use injected fake command runners and belong in the normal `go test ./...` suite. They verify command construction, lifecycle decisions, stored-container routing, and failure handling without requiring a tmux binary or live server.
+Deterministic tests in `internal/runtime` and `internal/multiplexer/herdr` use fake command runners/CLI fixtures. Normal Go tests require no multiplexer server or authenticated harness.
 
-Tests that execute the real `tmux` binary are environment-dependent integration tests. Keep them clearly identified and make them skip when tmux is unavailable; they may run during `go test ./...` on hosts with tmux. Real-tmux tests should:
-
-- create a uniquely named test tmux session, e.g. `kanbi-test-$PID`
-- register cleanup immediately after creating the session
-- create a board window and isolated ticket windows
-- send/paste text into panes and capture pane output
-- remove only their own session during cleanup
-
-`scripts/smoke.sh` is the required real-tmux end-to-end check. It creates a unique temporary session, uses fake harnesses, and cleans up on exit. Do not describe an environment variable or build tag as supported unless the test implementation actually checks it.
+`scripts/smoke.sh` is the required real-Herdr fake-harness end-to-end check. It owns a private server, rendering client, config, XDG state and socket under a temporary directory, and cleans up on exit. Use `--skip-checks` after baseline checks; `KANBI_SMOKE_BIN` tests an already-built release binary.
 
 ### 5. TUI Model Tests
 Bubble Tea apps can be tested at the model/update level without rendering a real terminal.
@@ -108,17 +100,9 @@ Avoid screenshot/golden terminal tests in early v1 unless necessary.
 
 ### 6. Interactive TUI Validation
 
-For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, use the project-scoped `kanbi-ui-validation` skill after model tests. Its helper builds current source, seeds a disposable multi-board database, and launches the real Bubble Tea application in a non-focused Herdr workspace in the caller session. The helper pins the recorded socket and pane IDs for capture/input/cleanup. It disables real harness commands so ordinary UI validation cannot launch authenticated agents. Use `KANBI_UI_RUNTIME=tmux` with the same helper for exact-size checks: Herdr 0.9.3 exposes split resizing but no exact cell-size CLI. Each backend has a separate fixture; the tmux fallback uses a private socket.
+For TUI/UI changes, use the project `kanbi-ui-validation` skill after model tests. It builds source, seeds a private local multi-board database, disables real harnesses and sync, and launches the application in an owned Herdr server/client. Commands pin recorded IDs and the socket. Validate the reported size and 80x24 with `$UI resize WIDTH HEIGHT`; the helper resizes the actual client and verifies application PTY dimensions.
 
-Drive the UI one keypress at a time and capture frames before and after meaningful transitions. Validate the reported terminal size plus 80x24, and exercise Master, a named board, overflow, relevant modals, and resize behavior. Confirm the application header and footer remain visible and the focused control stays on-screen. The private tmux server starts without user configuration and uses `TERM=tmux-256color`, so personal key options and color queries to an unattached xterm cannot consume fixture input. Never copy or open the user's canonical database: the helper accepts no database path and only launches its deterministic local-backend, sync-disabled `kanbi-ui-test.db` fixture.
-
-Interactive validation supplements rather than replaces a deterministic regression test. The maintained workflow and examples live in [the UI-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md). The optional real-Herdr check runs inside Herdr:
-
-```bash
-./scripts/herdr-ui-smoke.sh
-```
-
-It creates its own workspace and database, drives Master/named-board/help/editor flows, saves literal input, verifies ANSI capture and routing despite changed inherited context, runs a command in an independently addressed sibling tab, checks workspace focus is preserved, and closes only its owned workspace (including the sibling tab). It never starts or stops a Herdr server. The regular fake-harness lifecycle smoke and CI remain tmux-backed; this UI check does not replace their coverage.
+`./scripts/herdr-ui-smoke.sh` checks Master/named-board/help/editor flows, literal input/save, ANSI capture, inherited-context routing, sibling tabs, 160x45 and 80x24, and cleanup. Only the temporary fixture enables nested Herdr; it never stops the parent server or changes user configuration.
 
 The opt-in performance comparisons and repeatable real UI driver are documented in [Performance issue #358: implementation and evidence](performance-358.md), including reference hardware, sample counts, timing/allocation results, reproduction commands, and remaining limits.
 
@@ -127,19 +111,19 @@ The opt-in performance comparisons and repeatable real UI driver are documented 
 
 Separate probe logic from output formatting so tests can simulate:
 
-- tmux missing
-- configured multiplexer (`tmux` default, optional `herdr`)
+- Herdr missing
+- Herdr runtime (the only supported multiplexer)
 - missing/unreachable configured Herdr binary
 - missing optional harness
 - unwritable config dir
 - unwritable DB dir
-- inside tmux vs outside tmux
+- inside Herdr vs outside Herdr
 
 Expected behavior:
 
 - configured multiplexer is displayed
-- missing tmux: fatal doctor failure for existing/default tmux runtime checks
-- selected Herdr missing or `herdr status` unavailable: warning with setup guidance
+- missing Herdr: fatal doctor failure
+- Herdr missing, not running, incompatible or unreachable: fatal with setup guidance
 - DB/config path unavailable: fatal doctor failure
 - a missing configured harness start binary (including `pi`, `codex`, `copilot`, or `claude` defaults): warning only
 
@@ -150,14 +134,13 @@ Maintain a script such as:
 ./scripts/smoke.sh
 ```
 
-By default, the smoke script should run baseline checks plus the tmux-backed end-to-end path and deterministic fake-multiplexer probes:
+By default, the smoke script should run baseline checks plus the Herdr-backed end-to-end path with an owned Herdr server/client:
 
 ```bash
 go fmt ./...
 go test ./...
 go vet ./...
 kanbi doctor
-# with a temporary config, also run kanbi doctor against a fake Herdr binary
 kanbi add "Smoke test ticket" --body "Verify smoke path" --harness pi
 kanbi list
 ```
@@ -260,10 +243,10 @@ A change is verified when:
 
 A multiplexer change is verified when:
 
-- config defaults still select `tmux`
+- config defaults select `herdr`
 - `multiplexer.default: herdr` is accepted without changing harness config
 - doctor reports the configured multiplexer
-- doctor preserves tmux checks
+- doctor checks running/compatible Herdr JSON status
 - fake Herdr scripts can simulate `herdr status` in deterministic tests/smoke
 - real Herdr lifecycle checks are opt-in only and not run by normal smoke
 
@@ -271,13 +254,13 @@ A multiplexer change is verified when:
 
 A change is verified when temporary Git repositories prove selection snapshots exact source/item SHAs, integration agents launch only in the managed candidate checkout, token-authenticated reports reject dirty/wrong/incomplete candidates, promotion closes agents and revalidates clean ticket/source worktrees, source updates once by fast-forward, crash-after-fast-forward reconciliation is idempotent, and cancellation never mutates ticket worktrees or source. TUI validation must cover `I` selection, disabled dirty rows, waiting/permission notice, ready detail, promotion confirmation, cancellation confirmation, scrolling, and 80x24.
 
-### Tmux Manager
+### Herdr Runtime Manager
 A change is verified when:
 
 - dedicated session is created if missing
 - board window exists
 - ticket window names include display ID and slug
-- title changes rename tmux window only
+- title changes rename the Herdr tab without changing the attempt
 - missing windows are detected on reconcile
 - cleanup removes only managed test/session resources
 
@@ -322,7 +305,7 @@ An autonomous agent should stop and ask before:
 - changing the product scope documented in current source-of-truth docs
 - adding a background daemon (in-process Start/Stop sync loops are not a daemon)
 - adding a web UI
-- removing tmux as the default v1 backend
+- changing runtime ownership or rewriting legacy history
 - making real harness behavior assumptions that cannot be simulated or verified
 - deleting ticket/session history
 - introducing external services
@@ -369,7 +352,7 @@ go test -race ./...
 go vet ./...
 govulncheck ./...   # if installed
 ./scripts/smoke.sh --skip-checks
-go test ./internal/harness ./internal/tmux ./internal/storage ./internal/ticketbackend
+go test ./internal/harness ./internal/runtime ./internal/storage ./internal/ticketbackend
 ```
 
 Deterministic failure-injection coverage for sync ownership lives in `internal/ticketbackend` (stop drain, scheduling-storm coalescing, lease renew/loss, pending create recover, GET retries, create-once). Optional longer soak (default 60s, race on, temp dirs only):
@@ -421,11 +404,11 @@ The script records a timestamped result under ignored `dist/verification/` and u
 
 ## CI And Release Verification
 
-GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux tmux smoke job. Keep deterministic tmux manager tests in the normal CI suite; real harness/provider checks remain opt-in. The scheduled daily and manually dispatched CI workflow runs `scripts/soak-runtime.sh` for 60 seconds with the race detector; its fake provider and temporary databases require no credentials and leave no external resources.
+GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux Herdr smoke job. Keep deterministic Herdr runtime tests in the normal CI suite; real harness/provider checks remain opt-in. The scheduled daily and manually dispatched CI workflow runs `scripts/soak-runtime.sh` for 60 seconds with the race detector; its fake provider and temporary databases require no credentials and leave no external resources.
 
 CI and release jobs select the Go patch recorded in `go.mod` with `go-version-file`; the minimum is Go 1.26.9 for the standard-library security fixes. Update that minimum when new security patches are required, so builds cannot silently select an older patch from the Actions version manifest. Dependabot checks Go modules and pinned GitHub Actions weekly.
 
-Supported release tags (`vMAJOR.MINOR.PATCH`, `vMAJOR.MINOR.PATCH-beta.N`, and `vMAJOR.MINOR.PATCH-rc.N`) trigger `.github/workflows/release.yml`. All `v0.x` and suffixed tags publish as prereleases; stable major versions remain workflow-locked until stable qualification is approved. Release builds use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every native job validates `BUILDINFO.json`, database initialization, backup/restore, and the fake-harness tmux lifecycle against the exact built binary. The bundle job requires four archives, verifies a shared `SHA256SUMS`, and records `BUNDLE_MANIFEST.txt`; workflow dispatch produces the same combined bundle without publishing. Before tagging, test the native local artifact path with:
+Supported release tags (`vMAJOR.MINOR.PATCH`, `vMAJOR.MINOR.PATCH-beta.N`, and `vMAJOR.MINOR.PATCH-rc.N`) trigger `.github/workflows/release.yml`. All `v0.x` and suffixed tags publish as prereleases; stable major versions remain workflow-locked until stable qualification is approved. Release builds use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every native job validates `BUILDINFO.json`, database initialization, backup/restore, and the fake-harness Herdr lifecycle against the exact built binary. The bundle job requires four archives, verifies a shared `SHA256SUMS`, and records `BUNDLE_MANIFEST.txt`; workflow dispatch produces the same combined bundle without publishing. Before tagging, test the native local artifact path with:
 
 ```bash
 ./scripts/build-release.sh 0.3.0-beta.1

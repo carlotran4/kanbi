@@ -191,7 +191,7 @@ func nullInt64Value(v sql.NullInt64) any {
 }
 
 func (s *Store) RenameSessionWindow(ctx context.Context, ticketID int64, name string) error {
-	_, err := s.db.ExecContext(ctx, `update sessions set tmux_window_name=?, mux_container_name=?, updated_at=? where ticket_id=? and is_active=1`, name, name, time.Now().UTC(), ticketID)
+	_, err := s.db.ExecContext(ctx, `update sessions set tmux_window_name=case when multiplexer='tmux' then ? else tmux_window_name end, mux_container_name=?, updated_at=? where ticket_id=? and is_active=1`, name, name, time.Now().UTC(), ticketID)
 	return err
 }
 

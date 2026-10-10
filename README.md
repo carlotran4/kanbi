@@ -15,7 +15,7 @@ Kanbi puts Pi, Codex, Copilot, and Claude sessions on a Kanban board. Each ticke
 
 Use separate boards for separate projects, or supervise everything from one Master view.
 
-> Kanbi is beta software for Linux and macOS. It uses tmux by default and requires at least one supported agent CLI.
+> Kanbi is beta software for Linux and macOS. It uses Herdr and requires at least one supported agent CLI.
 
 ## Why Kanbi?
 
@@ -42,7 +42,7 @@ kanbi doctor
 Requirements:
 
 - Linux or macOS
-- tmux
+- [Herdr](https://herdr.dev/docs/install/) (tested with 0.9.3)
 - Pi, Codex, GitHub Copilot CLI, or Claude Code, installed and authenticated
 
 See [Installation](./docs/installation.md) for downloads, checksum verification, upgrades, and source builds.
@@ -75,7 +75,7 @@ Press `?` for controls. The important distinction is:
 | | |
 | --- | --- |
 | Agent CLIs | Pi, Codex, GitHub Copilot CLI, Claude Code |
-| Runtime | tmux by default; Herdr opt-in |
+| Runtime | Herdr |
 | Ticket backends | Local, GitHub Issues, Jira |
 | Platforms | Linux x86-64/ARM64; macOS Intel/Apple Silicon |
 | Automation | CLI commands with JSON output; optional installable [Agent Skill](./docs/agent-skill.md) |

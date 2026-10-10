@@ -29,7 +29,7 @@ default_harness: pi
 diagnostics:
   level: debug
 multiplexer:
-  default: tmux
+  default: herdr
 github_token: ghp_abcdefghijklmnopqrstuvwxyz012345
 backend:
   api_token: "jira-secret-token"

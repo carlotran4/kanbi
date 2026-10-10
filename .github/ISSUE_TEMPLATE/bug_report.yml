@@ -42,8 +42,8 @@ body:
     attributes:
       label: Configured multiplexer
       options:
-        - tmux (default)
-        - herdr
+        - Herdr
+        - legacy tmux history (upgrading)
         - unknown / not sure
     validations:
       required: true

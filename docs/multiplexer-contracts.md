@@ -6,8 +6,7 @@ Kanbi launches agent harnesses inside a configured multiplexer runtime substrate
 
 - **Configured multiplexer**: the runtime substrate selected by `multiplexer.default` in config.
 - **Terminal container**: the live process container for one active Kanbi session.
-- **tmux window**: the terminal container type used by the default `tmux` implementation.
-- **Herdr pane/agent**: the terminal container type used by the optional `herdr` implementation.
+- **Herdr pane/agent**: the terminal container type used by the sole `herdr` implementation.
 - **Harness**: the agent CLI adapter (`pi`, `codex`, `copilot`, `claude`, fake smoke harnesses). Harnesses are separate from multiplexers.
 
 ## Adapter Contract
@@ -25,17 +24,11 @@ A multiplexer adapter must provide these operations for one terminal container:
 | Close | Close the container after graceful harness exit attempts. |
 | Detect | Report provider-native state when available, otherwise allow pane-output fallback. |
 
-Session rows persist the generic fields `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata`. Legacy tmux fields remain populated for tmux sessions and are backfilled into generic fields during migration. Repository integration agents use the same adapter launch/focus/read/close contract, but their container metadata belongs to `integration_runs`; Kanbi never creates a synthetic ticket session for them.
-
-## tmux Behavior
-
-`tmux` is the default implementation. Kanbi creates or reuses the configured tmux runtime session, keeps the board UI in a stable `board` window, and starts each ticket session in a separate tmux window.
-
-A tmux container is valid only when live tmux still reports the stored window id with the expected ticket window name. Name fallback must use the session row's stored tmux session name, not the current process's runtime session.
+Session rows persist the generic fields `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata`. Legacy tmux fields remain readable for historical rows and exports; new Herdr launches write generic references. Repository integration agents use the same adapter launch/focus/read/close contract, but their container metadata belongs to `integration_runs`; Kanbi never creates a synthetic ticket session for them.
 
 ## Herdr Behavior
 
-`herdr` is optional and opt-in through config:
+Herdr is the only supported runtime and the default:
 
 ```yaml
 multiplexer:
@@ -56,20 +49,20 @@ Kanbi launches harness commands through the Herdr CLI. Herdr concepts map as fol
 | Pane | Terminal container that runs the harness command. |
 | Agent | Herdr-detected coding agent identity/state inside the pane. |
 
-For current Herdr releases, Kanbi creates a dedicated tab with a shell pane in the selected workspace and working directory without focusing it, then starts the harness with Herdr's pane-first `agent start --kind <harness> --pane <id>` contract. Creating the tab directly avoids temporarily splitting the board pane and collapsing the home screen to half width during launch. A newly created Herdr pane can briefly report `agent_pane_busy` before its shell becomes available, so Kanbi retries that specific transient response for a bounded interval; other launch errors fail immediately and clean up the pane. Kanbi focuses the tab only after launch and initial prompt delivery succeed, preventing failed cleanup from returning the user to an unrelated existing agent. Initial ticket and integration prompts are delivered through literal pane input after the harness is ready rather than encoded as `agent start` arguments; this supports multiline Markdown without Herdr shell-argument rejection. The internal Herdr agent identifier is normalized to Herdr's lowercase 32-character format and includes a pane-bound suffix so retries cannot collide with completed Herdr agents, while the full ticket label remains the tab/container display name. Integration-run environment variables are applied while creating that pane. This Herdr API selects the harness's canonical executable; custom executable paths or wrapper commands must use the tmux multiplexer instead of being silently replaced. Before each launch Kanbi checks the local `agent start --help` capability surface; older Herdr releases that do not expose both `--kind` and `--pane` continue to use the legacy `agent start --cwd ... --workspace ... -- <command>` path, including its configured command.
+For current Herdr releases, Kanbi creates a dedicated tab with a shell pane in the selected workspace and working directory without focusing it, then starts the harness with Herdr's pane-first `agent start --kind <harness> --pane <id>` contract. Creating the tab directly avoids temporarily splitting the board pane and collapsing the home screen to half width during launch. A newly created Herdr pane can briefly report `agent_pane_busy` before its shell becomes available, so Kanbi retries that specific transient response for a bounded interval; other launch errors fail immediately and clean up the pane. Kanbi focuses the tab only after launch and initial prompt delivery succeed, preventing failed cleanup from returning the user to an unrelated existing agent. Initial ticket and integration prompts are delivered through literal pane input after the harness is ready rather than encoded as `agent start` arguments; this supports multiline Markdown without Herdr shell-argument rejection. The internal Herdr agent identifier is normalized to Herdr's lowercase 32-character format and includes a pane-bound suffix so retries cannot collide with completed Herdr agents, while the full ticket label remains the tab/container display name. Integration-run environment variables are applied while creating that pane. This Herdr API selects the harness's canonical executable; custom executable paths and wrapper commands launch through `pane run` with a shell-quoted `exec` command. They retain configured prompt argument/readiness/ref-marker behavior and do not scan native user histories. Before each launch Kanbi checks the local `agent start --help` capability surface; older Herdr releases that do not expose both `--kind` and `--pane` continue to use the legacy `agent start --cwd ... --workspace ... -- <command>` path, including its configured command.
 
 When Herdr reports an agent state, Kanbi prefers that native state for both ticket sessions and repository integration runs. If Herdr state is unavailable or `unknown`, Kanbi falls back to reading pane output and applying harness/pattern detection. For integration runs, native and transcript observation can project only active attention states; authenticated integration reports remain the only completion/readiness signal. Explicit Herdr `agent_not_found` and `pane_not_found` responses are authoritative container absence rather than generic command failures; Kanbi deactivates that ticket attempt as exited/resumable or repair-needed according to whether a verified harness session ref exists.
 
 ## Doctor And Verification
 
-`kanbi doctor` reports build/schema compatibility and the configured multiplexer. It always preserves existing tmux checks used by Kanbi's default board runtime. When Herdr is selected, doctor also checks the configured Herdr binary and runs `herdr status`; a missing or unreachable configured Herdr installation is fatal with setup guidance. An unknown configured multiplexer is also fatal. Missing optional harness commands remain warnings.
+`kanbi doctor` reports build/schema compatibility and checks `herdr status --json` for a running, compatible server. Missing Herdr, unavailable/incompatible servers and unsupported runtime settings are fatal. Missing optional harness commands remain warnings. It performs no tmux checks.
 
-Normal tests and `scripts/smoke.sh` use fake harnesses and a fake Herdr doctor probe. Real Herdr verification is opt-in only: install Herdr, configure `multiplexer.default: herdr`, then run targeted manual lifecycle checks in a disposable board/workspace.
+Normal tests use fake Herdr command runners. `scripts/smoke.sh` runs fake harnesses on a real, isolated Herdr server and client. Authenticated harness checks remain opt-in through `scripts/real-harness-lifecycle.sh`.
 
 ## Agent-driven UI verification
 
 The project [UI-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md) runs Kanbi as an ordinary terminal process in a disposable Herdr workspace. Agents use explicit pane IDs with `pane send-keys`, `pane send-text` and `pane read --source visible --format ansi`; agent prompt/readiness commands are for harnesses, not the board UI. The fixture uses local boards, disabled sync and disabled real harness commands. `scripts/herdr-ui-smoke.sh` verifies this workflow without changing user focus or stopping the parent server.
 
-Runtime IDs are server-local. The helper records the socket with the workspace/tab/pane IDs and pins it for all subsequent commands. An explicit `herdr --session <name>` selects a different session/socket even inside another Herdr session (verified with 0.9.3); do not mix IDs from those sessions. Normal UI interaction needs only a separate workspace. Server-shutdown experiments require a separately owned test session.
+Runtime IDs are server-local. The helper records and pins its socket and IDs. It owns an isolated server and a rendering client PTY with private configuration and XDG state; the caller's Herdr server and focus remain untouched. Temporary nested-client permission applies only to the fixture configuration.
 
-Exact-size validation still uses the helper's explicit `KANBI_UI_RUNTIME=tmux` fallback. Herdr 0.9.3's `pane resize` changes split ratios rather than exact terminal dimensions; changing child PTY dimensions with `stty` does not resize the rendered grid. Fake-harness lifecycle smoke remains tmux-backed because current Herdr `agent start` also requires recognized-agent readiness.
+Exact-size validation resizes the owned rendering client's outer PTY and lets Herdr resize the application. The helper verifies the application's PTY dimensions independently of layout rectangles. It needs no alternate runtime; `scripts/herdr-ui-smoke.sh` covers 160x45 and 80x24.

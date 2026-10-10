@@ -1,7 +1,6 @@
-package tmux
+package runtime
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"os"
@@ -18,7 +17,7 @@ import (
 
 func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Launch", "body", "codex")
 	bin, logPath := writeFakeHerdr(t, map[string]string{
@@ -33,7 +32,7 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = bin
 	cfg.Multiplexer.Herdr.FocusOnOpen = true
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 
 	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
 		t.Fatal(err)
@@ -62,7 +61,7 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 }
 
 func TestPaneFirstHerdrCapturesCopilotRefAfterPanePrompt(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Copilot Ref", "body", "copilot")
 	if err != nil {
@@ -101,7 +100,6 @@ INSERT INTO turns(session_id,turn_index,user_message) VALUES(?,0,?);`,
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = bin
 	manager := NewManager(cfg, store)
-	manager.Runner = &failIfTmuxRunner{t: t}
 	manager.RefCapturePollInterval = time.Millisecond
 	t.Cleanup(manager.Close)
 
@@ -117,7 +115,7 @@ INSERT INTO turns(session_id,turn_index,user_message) VALUES(?,0,?);`,
 
 func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Prompt Failure", "body", "codex")
 	if err != nil {
@@ -135,7 +133,7 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = bin
 	cfg.Multiplexer.Herdr.FocusOnOpen = true
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 
 	if err := manager.OpenTicket(ctx, ticket, true); err == nil {
 		t.Fatal("open unexpectedly succeeded")
@@ -162,7 +160,7 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 
 func TestOpenTicketWithLegacyHerdrKeepsPromptArgument(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Legacy Herdr", "multiline\nbody with 'quotes' and $shell", "codex")
 	if err != nil {
@@ -176,7 +174,7 @@ func TestOpenTicketWithLegacyHerdrKeepsPromptArgument(t *testing.T) {
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 
 	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
 		t.Fatal(err)
@@ -195,7 +193,7 @@ func TestOpenTicketWithLegacyHerdrKeepsPromptArgument(t *testing.T) {
 }
 
 func TestOpenTicketWithHerdrPasteModeUsesHerdrInput(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Paste", "body", "pi")
 	if err != nil {
@@ -214,7 +212,7 @@ func TestOpenTicketWithHerdrPasteModeUsesHerdrInput(t *testing.T) {
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = bin
 	cfg.Harnesses["paste"] = harness.Config{Start: []string{"fake-agent"}, PromptMode: harness.PromptModePaste, PromptReady: "PROMPT_READY", SessionRef: "SESSION_REF="}
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 
 	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
 		t.Fatal(err)
@@ -230,102 +228,8 @@ func TestOpenTicketWithHerdrPasteModeUsesHerdrInput(t *testing.T) {
 	}
 }
 
-func TestHerdrDefaultKeepsValidActiveTmuxSessionInTmux(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
-	view := defaultBoardView(t, ctx, store)
-	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Keep tmux", "", "pi")
-	windowName := TicketWindowName(ticket)
-	firstID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness:         "pi",
-		TmuxSessionName: "old-live-tmux",
-		TmuxWindowID:    sql.NullString{String: "@7", Valid: true},
-		TmuxWindowName:  windowName,
-		Multiplexer:     "tmux",
-		Status:          kanban.StateRunning,
-	})
-	cfg := config.Defaults(config.Paths{})
-	cfg.Multiplexer.Default = "herdr"
-	runner := &fakeRunner{windows: map[string]string{"@7": windowName}}
-	manager := &Manager{Config: cfg, Store: store, Runner: runner}
-
-	refreshed, _ := store.TicketByID(ctx, ticket.ID)
-	if err := manager.OpenTicket(ctx, refreshed, false); err != nil {
-		t.Fatal(err)
-	}
-	latest, ok, err := store.LatestSession(ctx, ticket.ID)
-	if err != nil || !ok {
-		t.Fatalf("latest session: ok=%v err=%v", ok, err)
-	}
-	if latest.ID != firstID || latest.Multiplexer != "tmux" {
-		t.Fatalf("valid active tmux session should be kept, got latest=%+v firstID=%d", latest, firstID)
-	}
-	for _, c := range runner.calls {
-		if len(c.args) > 0 && c.args[0] == "new-window" {
-			t.Fatalf("valid active tmux session under Herdr default must not launch replacement: %+v", c.args)
-		}
-	}
-}
-
-func TestMoveTicketToDefaultMultiplexerClosesTmuxAndResumesHerdr(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
-	view := defaultBoardView(t, ctx, store)
-	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Move active tmux", "", "pi")
-	windowName := TicketWindowName(ticket)
-	oldID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness:         "pi",
-		TmuxSessionName: "old-live-tmux",
-		TmuxWindowID:    sql.NullString{String: "@7", Valid: true},
-		TmuxWindowName:  windowName,
-		Multiplexer:     "tmux",
-		Status:          kanban.StateRunning,
-	})
-	if err := store.UpdateSessionRef(ctx, oldID, "move-ref-123"); err != nil {
-		t.Fatal(err)
-	}
-	bin, logPath := writeFakeHerdr(t, map[string]string{
-		"workspace list":   `[]`,
-		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
-		"agent start":      `{"pane_id":"pane-123","agent":{"name":"agent-789"}}`,
-	})
-	cfg := config.Defaults(config.Paths{})
-	cfg.Multiplexer.Default = "herdr"
-	cfg.Multiplexer.Herdr.Binary = bin
-	cfg.GracefulExitTimeout = time.Nanosecond
-	runner := &fakeRunner{windows: map[string]string{"@7": windowName}}
-	manager := &Manager{Config: cfg, Store: store, Runner: runner}
-
-	refreshed, _ := store.TicketByID(ctx, ticket.ID)
-	if err := manager.MoveTicketToDefaultMultiplexer(ctx, refreshed); err != nil {
-		t.Fatal(err)
-	}
-	latest, ok, err := store.LatestSession(ctx, ticket.ID)
-	if err != nil || !ok {
-		t.Fatalf("latest session: ok=%v err=%v", ok, err)
-	}
-	if latest.ID == oldID || latest.Multiplexer != "herdr" || latest.HarnessSessionRef.String != "move-ref-123" {
-		t.Fatalf("move should create Herdr resume session, got latest=%+v oldID=%d", latest, oldID)
-	}
-	var sentExit, killed bool
-	for _, c := range runner.calls {
-		if len(c.args) > 0 && c.args[0] == "send-keys" {
-			sentExit = true
-		}
-		if len(c.args) > 0 && c.args[0] == "kill-window" {
-			killed = true
-		}
-	}
-	if !sentExit || !killed {
-		t.Fatalf("expected graceful close attempts before Herdr resume, calls=%+v", runner.calls)
-	}
-	logBytes, _ := os.ReadFile(logPath)
-	log := string(logBytes)
-	if !strings.Contains(log, "agent start") || !strings.Contains(log, "pi --session move-ref-123") {
-		t.Fatalf("fake Herdr did not launch resume command; log=%s", log)
-	}
-}
-
 func TestHerdrResumeFailureReturnsRepairErrorAndDeactivatesClaim(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Bad Herdr ref", "", "pi")
 	if err != nil {
@@ -350,7 +254,7 @@ func TestHerdrResumeFailureReturnsRepairErrorAndDeactivatesClaim(t *testing.T) {
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store, Runner: &fakeRunner{}, ResumeCheckAfter: time.Millisecond}
+	manager := &Manager{Config: cfg, Store: store, ResumeCheckAfter: time.Millisecond}
 
 	refreshed, err := store.TicketByID(ctx, ticket.ID)
 	if err != nil {
@@ -370,51 +274,8 @@ func TestHerdrResumeFailureReturnsRepairErrorAndDeactivatesClaim(t *testing.T) {
 	}
 }
 
-func TestHerdrDefaultResumesStaleTmuxSessionWithRefIntoHerdr(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
-	view := defaultBoardView(t, ctx, store)
-	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Resume stale tmux", "", "pi")
-	oldID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness:         "pi",
-		TmuxSessionName: "old-missing-tmux",
-		TmuxWindowID:    sql.NullString{String: "@7", Valid: true},
-		TmuxWindowName:  TicketWindowName(ticket),
-		Multiplexer:     "tmux",
-		Status:          kanban.StateRunning,
-	})
-	if err := store.UpdateSessionRef(ctx, oldID, "resume-ref-123"); err != nil {
-		t.Fatal(err)
-	}
-	bin, logPath := writeFakeHerdr(t, map[string]string{
-		"workspace list":   `[]`,
-		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
-		"agent start":      `{"pane_id":"pane-123","agent":{"name":"agent-789"}}`,
-	})
-	cfg := config.Defaults(config.Paths{})
-	cfg.Multiplexer.Default = "herdr"
-	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store, Runner: &missingRuntimeSessionRunner{missingSession: "old-missing-tmux"}}
-
-	refreshed, _ := store.TicketByID(ctx, ticket.ID)
-	if err := manager.OpenTicket(ctx, refreshed, false); err != nil {
-		t.Fatal(err)
-	}
-	latest, ok, err := store.LatestSession(ctx, ticket.ID)
-	if err != nil || !ok {
-		t.Fatalf("latest session: ok=%v err=%v", ok, err)
-	}
-	if latest.ID == oldID || latest.Multiplexer != "herdr" || latest.HarnessSessionRef.String != "resume-ref-123" {
-		t.Fatalf("stale tmux session with ref should resume into Herdr, got latest=%+v oldID=%d", latest, oldID)
-	}
-	logBytes, _ := os.ReadFile(logPath)
-	log := string(logBytes)
-	if !strings.Contains(log, "agent start") || !strings.Contains(log, "pi --session resume-ref-123") {
-		t.Fatalf("fake Herdr did not launch resume command; log=%s", log)
-	}
-}
-
 func TestRefreshRuntimeDoesNotObserveHerdrLaunchClaimBeforeContainerIsAttached(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr starting", "", "pi")
 	if err != nil {
@@ -432,7 +293,7 @@ func TestRefreshRuntimeDoesNotObserveHerdrLaunchClaimBeforeContainerIsAttached(t
 	bin, _ := writeFakeHerdr(t, map[string]string{})
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 
 	if err := manager.RefreshRuntime(ctx); err != nil {
 		t.Fatal(err)
@@ -447,7 +308,7 @@ func TestRefreshRuntimeDoesNotObserveHerdrLaunchClaimBeforeContainerIsAttached(t
 }
 
 func TestRefreshRuntimeMarksMissingHerdrContainerExitedWhenResumable(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Missing Herdr", "", "pi")
 	_, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
@@ -469,7 +330,7 @@ func TestRefreshRuntimeMarksMissingHerdrContainerExitedWhenResumable(t *testing.
 	})
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 
 	if err := manager.RefreshRuntime(ctx); err != nil {
 		t.Fatal(err)
@@ -484,7 +345,7 @@ func TestRefreshRuntimeMarksMissingHerdrContainerExitedWhenResumable(t *testing.
 }
 
 func TestRefreshRuntimePrefersHerdrNativeState(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Herdr Refresh", "", "codex")
 	_, _ = store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
@@ -503,7 +364,7 @@ func TestRefreshRuntimePrefersHerdrNativeState(t *testing.T) {
 	})
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 
 	if err := manager.RefreshRuntime(ctx); err != nil {
 		t.Fatal(err)
@@ -512,13 +373,6 @@ func TestRefreshRuntimePrefersHerdrNativeState(t *testing.T) {
 	if got.Runtime != kanban.StateNeedsPermission || got.LastDetectionSource.String != "native" {
 		t.Fatalf("runtime = %s source=%s reason=%s", got.Runtime, got.LastDetectionSource.String, got.LastAttentionReason.String)
 	}
-}
-
-type failIfTmuxRunner struct{ t *testing.T }
-
-func (r *failIfTmuxRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
-	r.t.Fatalf("unexpected tmux command %s %v", name, args)
-	return "", nil
 }
 
 func writeFakeHerdr(t *testing.T, responses map[string]string) (string, string) {

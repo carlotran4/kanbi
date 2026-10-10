@@ -25,7 +25,6 @@ type SessionManager interface {
 	CloseSession(context.Context, storage.Ticket) error
 	KillSession(context.Context) error
 	StartFreshTicket(context.Context, storage.Ticket, bool) error
-	MoveTicketToDefaultMultiplexer(context.Context, storage.Ticket) error
 }
 
 type IntegrationRuntimeManager interface {
@@ -297,7 +296,7 @@ func (s *Service) UpdateTicket(ctx context.Context, id int64, title, body, harne
 		return err
 	}
 	title = strings.TrimSpace(title)
-	if before.Title != title && before.SessionActive && before.WindowName.Valid && (!before.Multiplexer.Valid || before.Multiplexer.String == "" || before.Multiplexer.String == "tmux") && s.Manager != nil {
+	if before.Title != title && before.SessionActive && before.Multiplexer.String == "herdr" && before.MuxContainerName.Valid && s.Manager != nil {
 		if err := s.Manager.RenameTicketWindow(ctx, before, title); err != nil {
 			return err
 		}
@@ -553,12 +552,6 @@ func (s *Service) StartFreshTicket(ctx context.Context, ticket storage.Ticket, s
 		return fmt.Errorf("start fresh unavailable")
 	}
 	return s.Manager.StartFreshTicket(ctx, ticket, send)
-}
-func (s *Service) MoveTicketToDefaultMultiplexer(ctx context.Context, ticket storage.Ticket) error {
-	if s.Manager == nil {
-		return fmt.Errorf("move to default multiplexer unavailable")
-	}
-	return s.Manager.MoveTicketToDefaultMultiplexer(ctx, ticket)
 }
 func (s *Service) PreflightTicketWorkspace(ctx context.Context, ticket storage.Ticket, branch string) (storage.WorkspacePreflight, error) {
 	manager, ok := s.Manager.(WorkspaceManager)

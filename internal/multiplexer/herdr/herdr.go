@@ -109,14 +109,32 @@ func (a *Adapter) SupportsPaneFirstAgentStart(ctx context.Context) bool {
 	return err == nil && strings.Contains(out, "--kind") && strings.Contains(out, "--pane")
 }
 
+// UsesAgentStart distinguishes recognized-agent readiness from raw command launch.
+func (a *Adapter) UsesAgentStart(ctx context.Context, command []string, kind string) bool {
+	_, _, _, err := paneFirstInvocation(multiplexer.LaunchSpec{Command: command, AgentKind: kind})
+	return err == nil && a.SupportsPaneFirstAgentStart(ctx)
+}
+
+func (a *Adapter) Rename(ctx context.Context, ref multiplexer.ContainerRef, name string) error {
+	tab := refMeta(ref, "tab_id", "result.tab.tab_id")
+	if tab == "" {
+		return nil
+	}
+	_, err := a.run(ctx, "tab", "rename", tab, name)
+	return err
+}
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
 func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSpec, workspaceID string) (multiplexer.ContainerRef, error) {
 	name := spec.Name
 	if name == "" {
 		name = "kanbi-agent"
 	}
-	kind, env, agentArgs, err := paneFirstInvocation(spec)
-	if err != nil {
-		return multiplexer.ContainerRef{}, err
+	kind, env, agentArgs, invocationErr := paneFirstInvocation(spec)
+	raw := invocationErr != nil
+	if raw {
+		env = nil
 	}
 
 	// Create the shell directly in its own tab. Splitting the board and then
@@ -159,7 +177,16 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	agentName := paneFirstAgentName(name, paneID)
 	args := []string{"agent", "start", agentName, "--kind", kind, "--pane", paneID, "--"}
 	args = append(args, agentArgs...)
-	startOut, err := a.startAgentWhenPaneReady(ctx, args)
+	var startOut string
+	if raw {
+		parts := make([]string, len(spec.Command))
+		for i, arg := range spec.Command {
+			parts[i] = shellQuote(arg)
+		}
+		startOut, err = a.run(ctx, "pane", "run", paneID, "exec "+strings.Join(parts, " "))
+	} else {
+		startOut, err = a.startAgentWhenPaneReady(ctx, args)
+	}
 	if err != nil {
 		return multiplexer.ContainerRef{}, cleanup(herdrCommandError("start agent", startOut, err))
 	}
@@ -167,6 +194,9 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	agentTarget := firstString(startInfo, "target", "agent_target", "agentTarget", "agent.name", "name", "result.agent.name")
 	if agentTarget == "" {
 		agentTarget = agentName
+		if raw {
+			agentTarget = paneID
+		}
 	}
 	info := mergeObjects(createInfo, startInfo)
 	info["pane_id"] = paneID
@@ -258,6 +288,11 @@ func (a *Adapter) Focus(ctx context.Context, ref multiplexer.ContainerRef) error
 	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = target
+	}
+	tabID := refMeta(ref, "tab_id", "result.tab.tab_id")
+	if tabID != "" {
+		_, err := a.run(ctx, "tab", "focus", tabID)
+		return err
 	}
 	_, err := a.run(ctx, "pane", "focus", "--pane", paneID)
 	return err
@@ -416,7 +451,7 @@ func paneFirstInvocation(spec multiplexer.LaunchSpec) (kind string, env, args []
 		return "", nil, nil, errors.New("herdr agent kind is empty")
 	}
 	if command[0] != kind {
-		return "", nil, nil, fmt.Errorf("pane-first Herdr requires canonical %q executable, but harness command starts with %q; use tmux for custom harness executables", kind, command[0])
+		return "", nil, nil, fmt.Errorf("pane-first Herdr requires canonical %q executable, but harness command starts with %q; custom harness executables use raw pane launch", kind, command[0])
 	}
 	return kind, env, command[1:], nil
 }

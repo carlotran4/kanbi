@@ -1,8 +1,8 @@
 ---
 name: kanbi-ui-validation
-description: Drive the real Kanbi UI in a disposable Herdr workspace to validate navigation, editing, modals and rendered frames. Use for Kanbi UI, layout, scrolling, keybinding, readability changes or visual bug reports; use the explicit tmux fallback for exact terminal sizes.
+description: Drive the real Kanbi UI in a disposable Herdr workspace to validate navigation, editing, modals and rendered frames. Use for Kanbi UI, layout, scrolling, keybinding, readability changes or visual bug reports.
 metadata:
-  requirements: bash, Go, Python 3, sqlite3 and a running Herdr session; tmux only for exact-size checks.
+  requirements: bash, Go, Python 3, sqlite3 and Herdr (tested with 0.9.3).
 ---
 
 # Kanbi UI Validation
@@ -11,7 +11,7 @@ Use the real application after deterministic tests for UI-related changes.
 
 ## Start and inspect
 
-From inside Herdr, at the repository root:
+At the repository root (including from inside Herdr):
 
 ```bash
 UI=.pi/skills/kanbi-ui-validation/scripts/ui-session.sh
@@ -21,7 +21,7 @@ $UI capture
 $UI capture --ansi
 ```
 
-The helper builds current source, seeds a private `kanbi-ui-test.db`, and creates a **non-focused workspace in the caller's Herdr session**. It prints and records the socket, workspace, tab and board pane IDs. Later commands pin that socket and target the recorded pane, even if the caller's inherited Herdr context changes. `status` reports initial PTY rows/columns and current Herdr layout; layout rectangles include decorations, so do not treat their width as the application's exact column count.
+The helper builds current source, seeds a private `kanbi-ui-test.db`, and creates a workspace in an **owned isolated Herdr server and rendering client**. It prints and records the socket, workspace, tab and board pane IDs. Later commands pin that socket and target the recorded pane, even if the caller's inherited Herdr context changes. `status` reports initial PTY rows/columns and current Herdr layout; layout rectangles include decorations. The fixture isolates socket, configuration and XDG state, and enables nesting only in that temporary configuration. It never modifies the parent server or user config.
 
 The fixture includes four local boards, overflow, elapsed error/resumable cards and Focus Mode handoffs. It accepts no production database path, refuses provider-backed/sync-enabled fixtures, and disables real harness commands. Enter in the board picker selects a board; Enter on a ticket may attempt a session launch. This fixture validates the board UI, **not authenticated agent lifecycle**.
 
@@ -50,22 +50,18 @@ $UI capture
 
 The board is an ordinary terminal process, so control it through `pane` commands, not `agent prompt`. For direct commands use the recorded socket and IDs from `status`. Do not use the user's focused pane or stale inherited caller IDs. Additional test tabs can be created with `herdr tab create --workspace <recorded-workspace> --cwd <fixture-directory> --no-focus`; parse returned IDs and use them for subsequent reads/input. Keep app paths bound to the fixture when running another Kanbi process. Workspace cleanup closes all its tabs.
 
-Only focus the printed board tab when the user requests visible interaction. Background validation should preserve user focus. Use a separate named **Herdr session** for experiments that stop a server; never stop the caller session to clean up a workspace.
+The fixture's client runs on an owned PTY, so it does not change user focus. For manual visible interaction, attach a separate client using the recorded socket. Never stop the parent Herdr server.
 
 ## Exact terminal sizes
 
-Herdr 0.9.3 exposes split-ratio resizing, not an exact cell-size CLI. `stty cols/rows` changes the child PTY without resizing Herdr's rendered grid and is not a valid substitute. For 80x24 or a reported failure size, run the explicit fallback:
-
 ```bash
-KANBI_UI_RUNTIME=tmux $UI start
-KANBI_UI_RUNTIME=tmux $UI resize 80 24
-KANBI_UI_RUNTIME=tmux $UI status
-KANBI_UI_RUNTIME=tmux $UI capture --ansi
-KANBI_UI_RUNTIME=tmux $UI key Enter
-KANBI_UI_RUNTIME=tmux $UI stop
+$UI resize 80 24
+$UI capture --ansi
+$UI key Enter
+$UI resize 160 45
 ```
 
-This uses a separate fixture and private socket. Herdr remains the default for ordinary interaction; exact-size checks still require tmux until Herdr provides equivalent sizing controls.
+The helper resizes the actual rendering client's PTY. Herdr then resizes the application's PTY and rendered grid; the helper polls the application PTY to verify the requested dimensions. Do not use `stty cols/rows` alone or infer application dimensions from layout rectangles. No alternate runtime is needed.
 
 ## Evidence and cleanup
 
@@ -78,4 +74,4 @@ $UI clean             # removes the owned fixture too
 ./scripts/herdr-ui-smoke.sh
 ```
 
-Always stop test workspaces. The opt-in smoke runs the real UI and checks navigation, literal text/save, ANSI capture, inherited-context isolation, sibling-tab commands, unchanged workspace focus and cleanup. Report terminal sizes, key sequence, observations and automated checks.
+Always stop test workspaces. The opt-in smoke runs the real UI and checks navigation, literal text/save, ANSI capture, inherited-context isolation, sibling-tab commands, exact terminal sizes and unchanged parent focus and cleanup. Report terminal sizes, key sequence, observations and automated checks.

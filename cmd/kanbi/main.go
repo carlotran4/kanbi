@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -22,9 +21,9 @@ import (
 	"github.com/carlotran4/kanbi/internal/config"
 	"github.com/carlotran4/kanbi/internal/diagnostics"
 	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
+	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/ticketbackend"
-	"github.com/carlotran4/kanbi/internal/tmux"
 	"github.com/carlotran4/kanbi/internal/tui"
 )
 
@@ -67,19 +66,6 @@ func run(args []string) error {
 				return err
 			}
 			return boardruntime.LaunchHerdrBoard(cfg, exe)
-		}
-		if shouldAttachTmuxForBoard(cfg) && !tmux.InsideTmux() && os.Getenv("KANBI_INNER") == "" {
-			exe, err := os.Executable()
-			if err != nil {
-				return err
-			}
-			return tmux.AttachCommand(cfg, exe).Run()
-		}
-		if tmux.InsideTmux() && os.Getenv("KANBI_TMUX_SESSION") == "" {
-			if sessionName, err := tmux.CurrentSessionName(ctx); err == nil && sessionName != "" {
-				cfg.TmuxSession = sessionName
-				cfg.Tmux.SessionName = sessionName
-			}
 		}
 		return runBoard(ctx, cfg)
 	}
@@ -244,16 +230,6 @@ func supportBundleDoctorProber() doctorProber {
 			// Read-only open: if the schema is still uninitialized, Collect reports degraded DB state.
 			return storage.Open(cfg.DBPath)
 		},
-		ensureTmuxSession: func(ctx context.Context, cfg config.Config) error {
-			session := strings.TrimSpace(cfg.TmuxSession)
-			if session == "" {
-				session = config.DefaultSession
-			}
-			if err := exec.CommandContext(ctx, "tmux", "has-session", "-t", session).Run(); err != nil {
-				return fmt.Errorf("tmux session %q not present (support-bundle does not create sessions)", session)
-			}
-			return nil
-		},
 	}
 }
 
@@ -277,7 +253,7 @@ func runSupportBundle(ctx context.Context, cfg config.Config, args []string) err
 	}
 
 	// Probe doctor without requiring success and without mutating runtime/app state.
-	// Unlike `kanbi doctor`, support-bundle must not create tmux sessions or run Init/migrations.
+	// Unlike `kanbi doctor`, support-bundle must not create runtime containers or run Init/migrations.
 	report := probeDoctor(ctx, cfg, supportBundleDoctorProber())
 	doctorRows := make([]diagnostics.DoctorResult, 0, len(report.Results))
 	for _, r := range report.Results {
@@ -300,7 +276,6 @@ func runSupportBundle(ctx context.Context, cfg config.Config, args []string) err
 			// Open without Init so support-bundle never mutates schema/state.
 			return storage.Open(dbPath)
 		},
-		InsideTmux: tmux.InsideTmux,
 	})
 	if err := diagnostics.WriteArchive(destination, bundle); err != nil {
 		return err
@@ -1017,9 +992,9 @@ func runOpen(ctx context.Context, cfg config.Config, args []string) error {
 			if err != nil {
 				return err
 			}
-			return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.open", "action": "opened", "ticket": cli.jsonTicket(ctx, updated, false), "container_name": tmux.TicketWindowName(ticket), "tmux_window_name": tmux.TicketWindowName(ticket)})
+			return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.open", "action": "opened", "ticket": cli.jsonTicket(ctx, updated, false), "container_name": runtime.TicketWindowName(ticket)})
 		}
-		fmt.Println("opened", ticket.BoardName, ticket.DisplayID, tmux.TicketWindowName(ticket))
+		fmt.Println("opened", ticket.BoardName, ticket.DisplayID, runtime.TicketWindowName(ticket))
 		return nil
 	})
 }
@@ -1436,7 +1411,7 @@ type cliContext struct {
 	ctx     context.Context
 	cfg     config.Config
 	store   *storage.Store
-	manager *tmux.Manager
+	manager *runtime.Manager
 	syncer  *ticketbackend.Manager
 	service *app.Service
 }
@@ -1474,9 +1449,9 @@ func (c *cliContext) Close() error {
 	return c.store.Close()
 }
 
-func (c *cliContext) Manager() *tmux.Manager {
+func (c *cliContext) Manager() *runtime.Manager {
 	if c.manager == nil {
-		c.manager = tmux.NewManagerWithContext(c.ctx, c.cfg, c.store)
+		c.manager = runtime.NewManagerWithContext(c.ctx, c.cfg, c.store)
 	}
 	return c.manager
 }
@@ -1496,12 +1471,8 @@ func (c *cliContext) Service() *app.Service {
 	return c.service
 }
 
-func shouldAttachTmuxForBoard(cfg config.Config) bool {
-	return strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default)) != "herdr"
-}
-
 func shouldLaunchHerdrBoard(cfg config.Config) bool {
-	return strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default)) == "herdr" && os.Getenv("HERDR_ENV") != "1"
+	return os.Getenv("HERDR_ENV") != "1"
 }
 
 func (c *cliContext) BoardByName(name string) (storage.Board, error) {

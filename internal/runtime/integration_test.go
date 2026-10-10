@@ -1,8 +1,7 @@
-package tmux
+package runtime
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +29,7 @@ func TestLaunchIntegrationWithHerdrUsesPaneFirstAgentStart(t *testing.T) {
 	cfg.DBPath = cfg.Paths.DBFile
 	cfg.Multiplexer.Default = "herdr"
 	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg}
 
 	runtime, err := manager.LaunchIntegration(ctx, integrationpkg.LaunchSpec{PublicID: "run-123", Name: "integration-run", CWD: "/tmp/integration-worktree", Harness: "pi", Prompt: "integrate exact commits", Token: "secret-token"})
 	if err != nil {
@@ -65,40 +64,12 @@ func TestLaunchIntegrationWithHerdrUsesPaneFirstAgentStart(t *testing.T) {
 	}
 }
 
-func TestLaunchIntegrationUsesManagedCWDPromptAndToken(t *testing.T) {
-	ctx := context.Background()
-	runner := &fakeRunner{}
-	cfg := config.Defaults(config.Paths{DBFile: "/tmp/kanbi-integration-test.db"})
-	cfg.DBPath = cfg.Paths.DBFile
-	manager := &Manager{Config: cfg, Runner: runner}
-	runtime, err := manager.LaunchIntegration(ctx, integrationpkg.LaunchSpec{PublicID: "run-123", Name: "integration-run", CWD: "/tmp/integration-worktree", Harness: "pi", Prompt: "integrate exact commits", Token: "secret-token"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.MuxContainerID.String == "" {
-		t.Fatalf("runtime=%+v", runtime)
-	}
-	for _, call := range runner.calls {
-		if len(call.args) == 0 || call.args[0] != "new-window" {
-			continue
-		}
-		joined := strings.Join(call.args, " ")
-		for _, want := range []string{"-c /tmp/integration-worktree", "KANBI_INTEGRATION_RUN_ID=run-123", "KANBI_INTEGRATION_TOKEN=secret-token", "integrate exact commits"} {
-			if !strings.Contains(joined, want) {
-				t.Fatalf("launch %q missing %q", joined, want)
-			}
-		}
-		return
-	}
-	t.Fatal("integration window was not launched")
-}
-
 func integrationObservationRun(t *testing.T, ref multiplexer.ContainerRef) (*storage.Store, context.Context, storage.IntegrationRun) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git unavailable")
 	}
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
@@ -173,7 +144,7 @@ func TestRefreshIntegrationRunsNativeHerdrStateWinsOverTranscript(t *testing.T) 
 	bin, _ := writeFakeHerdr(t, map[string]string{"agent get": `{"state":"blocked","message":"permission required"}`, "agent read": "waiting for user"})
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 	if err := manager.RefreshIntegrationRuns(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +159,7 @@ func TestRefreshIntegrationRunsFallsBackWhenNativeStateUnknown(t *testing.T) {
 	bin, _ := writeFakeHerdr(t, map[string]string{"agent get": `{"state":"unknown"}`, "agent read": "Approve command? yes/no"})
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Herdr.Binary = bin
-	manager := &Manager{Config: cfg, Store: store, Runner: &failIfTmuxRunner{t: t}}
+	manager := &Manager{Config: cfg, Store: store}
 	if err := manager.RefreshIntegrationRuns(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -198,44 +169,15 @@ func TestRefreshIntegrationRunsFallsBackWhenNativeStateUnknown(t *testing.T) {
 	}
 }
 
-func TestRefreshIntegrationRunsUsesTranscriptForTmux(t *testing.T) {
-	store, ctx, run := integrationObservationRun(t, multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: "runtime", ID: "@7", Name: "integration"})
-	cfg := config.Defaults(config.Paths{})
-	manager := &Manager{Config: cfg, Store: store, Runner: &fakeRunner{windows: map[string]string{"@7": "integration"}, pane: "waiting for user"}}
-	if err := manager.RefreshIntegrationRuns(ctx); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := store.IntegrationRunByPublicID(ctx, run.PublicID)
-	if got.State != storage.IntegrationStateWaitingForUser {
-		t.Fatalf("state=%s, want waiting_for_user", got.State)
-	}
-}
-
-func TestRefreshIntegrationRunsIgnoresStaleTmuxContainerID(t *testing.T) {
-	store, ctx, run := integrationObservationRun(t, multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: "runtime", ID: "@7", Name: "integration"})
-	cfg := config.Defaults(config.Paths{})
-	manager := &Manager{Config: cfg, Store: store, Runner: &fakeRunner{windows: map[string]string{"@7": "other-window"}, pane: "Approve command? yes/no"}}
-	if err := manager.RefreshIntegrationRuns(ctx); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := store.IntegrationRunByPublicID(ctx, run.PublicID)
-	if got.State != storage.IntegrationStateRunning {
-		t.Fatalf("state=%s, want unchanged running", got.State)
-	}
-	if err := manager.FocusIntegration(ctx, run); !errors.Is(err, multiplexer.ErrContainerNotFound) {
-		t.Fatalf("focus error=%v, want missing container", err)
-	}
-}
-
 func TestRefreshIntegrationRunsDoesNotRewriteTerminalAttentionStates(t *testing.T) {
 	for _, state := range []string{storage.IntegrationStateReady, storage.IntegrationStateBlocked} {
 		t.Run(state, func(t *testing.T) {
-			store, ctx, run := integrationObservationRun(t, multiplexer.ContainerRef{Kind: multiplexer.KindTmux, Namespace: "runtime", ID: "@7", Name: "integration"})
+			store, ctx, run := integrationObservationRun(t, multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: "runtime", ID: "@7", Name: "integration"})
 			if err := store.ReportIntegrationRun(ctx, run.PublicID, state, "", "test"); err != nil {
 				t.Fatal(err)
 			}
 			cfg := config.Defaults(config.Paths{})
-			manager := &Manager{Config: cfg, Store: store, Runner: &fakeRunner{windows: map[string]string{"@7": "integration"}, pane: "Approve command? yes/no"}}
+			manager := &Manager{Config: cfg, Store: store}
 			if err := manager.RefreshIntegrationRuns(ctx); err != nil {
 				t.Fatal(err)
 			}

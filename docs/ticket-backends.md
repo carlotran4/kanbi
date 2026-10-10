@@ -8,7 +8,7 @@ Kanbi supports one ticket metadata backend per board. Implemented backends are `
 - Only one ticket backend is active for a board.
 - SQLite remains the local cache/projection store for tickets and the canonical store for local runtime/session state.
 - The implemented GitHub and Atlassian/Jira backends own ticket metadata for their boards.
-- tmux session history remains local and is never synced to ticketing providers.
+- terminal session history remains local and is never synced to ticketing providers.
 - The long-running board/TUI process starts sync in the background on startup, then runs it periodically, and `kanbi sync` performs explicit on-demand sync. Startup does not block the TUI on remote/cloud ticket providers. There is no background daemon after Kanbi exits.
 - CLI ticket creation, update, move, and note-add mutations schedule only their owning board through `internal/app`; they do not start startup/periodic `SyncAll` for unrelated boards. A short-lived CLI context drains that manager-owned scheduled work before SQLite/process shutdown rather than leaving a provider goroutine behind or issuing a duplicate explicit sync.
 - `ticketbackend.Manager` owns all provider sync work: startup, periodic ticks, mutation-triggered `ScheduleBoardSync`, and on-demand CLI sync. Board-process shutdown cancels the manager context and drains in-flight board syncs; one-shot CLI shutdown drains scheduled work while the Store remains open; that work is bound to the command/signal context so interruption cancels it. Application code never owns free-floating sync goroutines.

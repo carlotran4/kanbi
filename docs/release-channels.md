@@ -25,7 +25,7 @@ Every channel uses `.github/workflows/release.yml` and the same native CGO matri
 - macOS amd64
 - macOS arm64
 
-Each native runner builds the binary, validates `BUILDINFO.json`, runs metadata/database/backup/restore checks against that exact binary, and runs the fake-harness tmux lifecycle against that exact binary. The bundle job requires four archives, produces and verifies `SHA256SUMS`, records `BUNDLE_MANIFEST.txt`, and uploads one combined Actions artifact. Tag pushes publish that already-validated bundle with the reviewed `docs/releases/vVERSION.md` file as the GitHub Release body. The workflow rejects a candidate when that notes file is absent or empty; generated notes are not a substitute for reviewed limitations, migration, rollback, support, and security guidance.
+Each native runner builds the binary, validates `BUILDINFO.json`, runs metadata/database/backup/restore checks against that exact binary, and runs the fake-harness Herdr lifecycle against that exact binary. The bundle job requires four archives, produces and verifies `SHA256SUMS`, records `BUNDLE_MANIFEST.txt`, and uploads one combined Actions artifact. Tag pushes publish that already-validated bundle with the reviewed `docs/releases/vVERSION.md` file as the GitHub Release body. The workflow rejects a candidate when that notes file is absent or empty; generated notes are not a substitute for reviewed limitations, migration, rollback, support, and security guidance.
 
 Workflow dispatch never publishes a GitHub Release. Use it first to qualify an exact commit and download the combined candidate bundle.
 

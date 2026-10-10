@@ -12,8 +12,7 @@ for arg in "$@"; do
       cat <<'USAGE'
 Usage: ./scripts/smoke.sh [--skip-checks]
 
-Runs the tmux-backed end-to-end smoke test with fake harnesses and a
-fake-Herdr doctor probe. By default this also runs go fmt, go test, and
+Runs the Herdr-backed end-to-end smoke test with fake harnesses. By default this also runs go fmt, go test, and
 go vet first. Use --skip-checks when those baseline checks have already
 passed in the same verification loop. Set KANBI_SMOKE_BIN to validate an
 existing release binary instead of rebuilding Kanbi from source.
@@ -29,15 +28,13 @@ USAGE
 done
 
 TMP="$(mktemp -d)"
-SESSION="kanbi-smoke-$$"
 BIN="$TMP/kanbi"
 FAKE_PI="$ROOT/scripts/fake-harnesses/pi"
 FAKE_CODEX="$ROOT/scripts/fake-harnesses/codex"
 FAKE_CLAUDE="$ROOT/scripts/fake-harnesses/claude"
-FAKE_HERDR="$TMP/herdr"
 
 cleanup() {
-  tmux kill-session -t "$SESSION" 2>/dev/null || true
+  python3 "$ROOT/scripts/herdr-fixture.py" stop "$TMP/runtime"
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -47,7 +44,7 @@ export GOCACHE="${GOCACHE:-/tmp/kanbi-go-build}"
 if [[ "$RUN_CHECKS" == "1" ]]; then
   # Run the repository checks before exporting smoke-only Kanbi paths. Those
   # variables intentionally affect application behavior and would otherwise
-  # leak into unit tests that exercise XDG and tmux configuration defaults.
+  # leak into unit tests that exercise XDG and runtime configuration defaults.
   go fmt ./...
   go test ./...
   go vet ./...
@@ -57,45 +54,32 @@ export KANBI_CONFIG="$TMP/config.yaml"
 export KANBI_DB="$TMP/kanbi.db"
 export KANBI_STATE_DIR="$TMP/state"
 export KANBI_DATA_DIR="$TMP/data"
-export KANBI_TMUX_SESSION="$SESSION"
-
-cat >"$FAKE_HERDR" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-case "${1:-}" in
-  status)
-    echo '{"ok":true,"fake":true}'
-    ;;
-  --version)
-    echo 'herdr fake-smoke'
-    ;;
-  *)
-    echo "fake herdr: unsupported $*" >&2
-    exit 2
-    ;;
-esac
-SH
-chmod +x "$FAKE_HERDR"
+python3 "$ROOT/scripts/herdr-fixture.py" start "$TMP/runtime" 160 45
+unset HERDR_SESSION HERDR_CLIENT_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_ENV
+eval "$(python3 "$ROOT/scripts/herdr-fixture.py" env "$TMP/runtime")"
 
 cat >"$KANBI_CONFIG" <<YAML
 db_path: "$KANBI_DB"
-tmux_session: "$SESSION"
+multiplexer:
+  default: herdr
 prompt_ready_timeout: 3s
 harnesses:
   pi:
     start: ["$FAKE_PI"]
     resume: ["$FAKE_PI", "--session", "{session_ref}"]
     prompt_mode: "arg"
-    prompt_ready: "PROMPT_READY"
     session_ref: "SESSION_REF="
+    prompt_ready: "PROMPT_READY"
   codex:
     start: ["$FAKE_CODEX", "--no-alt-screen"]
     resume: ["$FAKE_CODEX", "resume", "--no-alt-screen", "{session_ref}"]
     prompt_mode: "arg"
+    session_ref: "SESSION_REF="
   claude:
     start: ["$FAKE_CLAUDE"]
     resume: ["$FAKE_CLAUDE", "--resume", "{session_ref}"]
     prompt_mode: "arg"
+    session_ref: "SESSION_REF="
 YAML
 
 if [[ -n "${KANBI_SMOKE_BIN:-}" ]]; then
@@ -106,21 +90,7 @@ else
   go build -buildvcs=false -o "$BIN" ./cmd/kanbi
 fi
 
-# Ref capture must never inspect the operator's real harness histories.
-export HOME="$TMP/home"
-mkdir -p "$HOME"
-
 "$BIN" doctor
-HERDR_CONFIG="$TMP/herdr-config.yaml"
-cat >"$HERDR_CONFIG" <<YAML
-multiplexer:
-  default: herdr
-  herdr:
-    binary: "$FAKE_HERDR"
-    session: smoke
-YAML
-HERDR_DOCTOR_OUTPUT="$(KANBI_CONFIG="$HERDR_CONFIG" KANBI_DB="$TMP/herdr-doctor.db" "$BIN" doctor)"
-grep -q 'ok herdr session smoke' <<<"$HERDR_DOCTOR_OUTPUT"
 "$BIN" add "Smoke test ticket" --body "Verify smoke path" --harness pi
 LIST_OUTPUT="$("$BIN" list)"
 grep -q "T-001" <<<"$LIST_OUTPUT"
@@ -134,24 +104,31 @@ LIST_OUTPUT="$("$BIN" list)"
 grep -q "T-003" <<<"$LIST_OUTPUT"
 "$BIN" open T-003 --send-prompt
 
-tmux has-session -t "$SESSION"
-WINDOWS="$(tmux list-windows -t "$SESSION" -F '#{window_name}')"
-grep -q '^board$' <<<"$WINDOWS"
-grep -q '^b1-T-001-smoke-test-ticket$' <<<"$WINDOWS"
-grep -q '^b1-T-002-codex-smoke-ticket$' <<<"$WINDOWS"
-grep -q '^b1-T-003-claude-smoke-ticket$' <<<"$WINDOWS"
-ACTIVE_WINDOW_IDS="$(sqlite3 "$KANBI_DB" "select tmux_window_id from sessions where is_active=1")"
-grep -q '^@' <<<"$ACTIVE_WINDOW_IDS"
-
-sleep 0.5
-OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-001-smoke-test-ticket")"
-grep -q '# T-001: Smoke test ticket' <<<"$OUT"
-grep -q 'Verify smoke path' <<<"$OUT"
-CODEX_OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-002-codex-smoke-ticket")"
-grep -q '# T-002: Codex smoke ticket' <<<"$CODEX_OUT"
-grep -q 'Verify codex prompt arg' <<<"$CODEX_OUT"
-CLAUDE_OUT="$(tmux capture-pane -p -t "$SESSION:b1-T-003-claude-smoke-ticket")"
-grep -q '# T-003: Claude smoke ticket' <<<"$CLAUDE_OUT"
-grep -q 'Verify claude prompt arg' <<<"$CLAUDE_OUT"
-
-echo "smoke ok"
+[[ "$(sqlite3 "$KANBI_DB" "select count(*) from sessions where is_active=1 and multiplexer='herdr' and mux_container_id is not null;")" == 3 ]]
+[[ "$(sqlite3 "$KANBI_DB" "select count(*) from sessions where tmux_window_id is not null;")" == 0 ]]
+for number in 1 2 3; do
+  pane="$(sqlite3 "$KANBI_DB" "select json_extract(mux_metadata, '$.pane_id') from sessions where ticket_id=$number and is_active=1;")"
+  herdr pane wait-output "$pane" --match "# T-00$number:" --source recent --timeout 5000 >/dev/null
+  out="$(herdr pane read "$pane" --source recent --format text)"
+  case "$number" in
+    1) grep -q 'Verify smoke path' <<<"$out" ;;
+    2) grep -q 'Verify codex prompt arg' <<<"$out" ;;
+    3) grep -q 'Verify claude prompt arg' <<<"$out" ;;
+  esac
+done
+[[ "$(sqlite3 "$KANBI_DB" "select count(*) from sessions where is_active=1 and harness_session_ref is not null;")" == 3 ]]
+# Opening a live ticket focuses its recorded container without a second attempt.
+"$BIN" open T-001
+[[ "$(sqlite3 "$KANBI_DB" "select count(*) from sessions where ticket_id=1;")" == 1 ]]
+# Exit a raw-command pane and actually resume its stored ref into a new attempt.
+old_id="$(sqlite3 "$KANBI_DB" "select id from sessions where ticket_id=1 and is_active=1;")"
+old_ref="$(sqlite3 "$KANBI_DB" "select harness_session_ref from sessions where id=$old_id;")"
+pane="$(sqlite3 "$KANBI_DB" "select json_extract(mux_metadata, '$.pane_id') from sessions where id=$old_id;")"
+herdr pane close "$pane" >/dev/null
+"$BIN" open T-001
+[[ "$(sqlite3 "$KANBI_DB" "select count(*) from sessions where ticket_id=1;")" == 2 ]]
+[[ "$(sqlite3 "$KANBI_DB" "select sum(is_active) from sessions where ticket_id=1;")" == 1 ]]
+[[ "$(sqlite3 "$KANBI_DB" "select harness_session_ref from sessions where ticket_id=1 and is_active=1;")" == "$old_ref" ]]
+pane="$(sqlite3 "$KANBI_DB" "select json_extract(mux_metadata, '$.pane_id') from sessions where ticket_id=1 and is_active=1;")"
+herdr pane wait-output "$pane" --match "RESUMED $old_ref" --source recent --timeout 5000 >/dev/null
+echo "smoke ok (Herdr containers, prompts, refs, focus, actual resume, preserved attempts)"

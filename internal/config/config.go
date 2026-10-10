@@ -17,8 +17,7 @@ import (
 )
 
 const (
-	AppName        = "kanbi"
-	DefaultSession = "kanbi"
+	AppName = "kanbi"
 )
 
 type Paths struct {
@@ -30,11 +29,6 @@ type Paths struct {
 
 type Harness = harness.Config
 
-type Tmux struct {
-	SessionName     string `yaml:"session_name"`
-	BoardWindowName string `yaml:"board_window_name"`
-}
-
 type Herdr struct {
 	Binary            string `yaml:"binary"`
 	Session           string `yaml:"session"`
@@ -45,7 +39,6 @@ type Herdr struct {
 
 type Multiplexer struct {
 	Default string `yaml:"default"`
-	Tmux    Tmux   `yaml:"tmux"`
 	Herdr   Herdr  `yaml:"herdr"`
 }
 
@@ -83,8 +76,6 @@ type Config struct {
 	Paths               Paths
 	DBPath              string             `yaml:"db_path"`
 	DefaultHarness      string             `yaml:"default_harness"`
-	TmuxSession         string             `yaml:"tmux_session"`
-	Tmux                Tmux               `yaml:"tmux"`
 	Multiplexer         Multiplexer        `yaml:"multiplexer"`
 	Diagnostics         Diagnostics        `yaml:"diagnostics"`
 	Integration         Integration        `yaml:"integration"`
@@ -144,7 +135,6 @@ func ResolvePaths() Paths {
 
 type Env struct {
 	DBPath             string
-	TmuxSession        string
 	DefaultMultiplexer string
 	LogLevel           string
 }
@@ -319,15 +309,13 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 	if opts.Env.DBPath != "" {
 		cfg.DBPath = opts.Env.DBPath
 	}
-	if opts.Env.TmuxSession != "" {
-		cfg.TmuxSession = opts.Env.TmuxSession
-		cfg.Tmux.SessionName = opts.Env.TmuxSession
-		cfg.Multiplexer.Tmux.SessionName = opts.Env.TmuxSession
-	}
 	if opts.Env.DefaultMultiplexer != "" {
 		cfg.Multiplexer.Default = opts.Env.DefaultMultiplexer
 	}
 	syncMultiplexerConfig(&cfg)
+	if cfg.Multiplexer.Default != "herdr" {
+		return Config{}, fmt.Errorf("multiplexer %q is no longer supported; set multiplexer.default: herdr", cfg.Multiplexer.Default)
+	}
 	applyDiagnosticsDefaults(&cfg, opts.Env)
 	if cfg.PromptReadyRaw == "" {
 		cfg.PromptReadyRaw = "5s"
@@ -387,18 +375,12 @@ func (c Config) EnsureDirs() error {
 }
 
 func defaultConfig(paths Paths, env Env) Config {
-	tmuxSession := env.TmuxSession
-	if tmuxSession == "" {
-		tmuxSession = DefaultSession
-	}
 	statusBar := statusbar.DefaultConfig()
 	return Config{
 		Paths:               paths,
 		DBPath:              paths.DBFile,
 		DefaultHarness:      "pi",
-		TmuxSession:         tmuxSession,
-		Tmux:                Tmux{SessionName: tmuxSession, BoardWindowName: "board"},
-		Multiplexer:         Multiplexer{Default: "tmux", Tmux: Tmux{SessionName: tmuxSession, BoardWindowName: "board"}, Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
+		Multiplexer:         Multiplexer{Default: "herdr", Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: false}},
 		Diagnostics:         Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
 		Integration:         Integration{Harness: "pi"},
 		Focus:               Focus{Enabled: false, Limit: 3},
@@ -423,28 +405,8 @@ func overlayRawConfig(cfg *Config, raw Config) {
 	if raw.DefaultHarness != "" {
 		cfg.DefaultHarness = raw.DefaultHarness
 	}
-	if raw.TmuxSession != "" {
-		cfg.TmuxSession = raw.TmuxSession
-		cfg.Tmux.SessionName = raw.TmuxSession
-	}
-	if raw.Tmux.SessionName != "" {
-		if raw.TmuxSession == "" {
-			cfg.TmuxSession = raw.Tmux.SessionName
-		}
-		cfg.Tmux.SessionName = raw.Tmux.SessionName
-	}
-	if raw.Tmux.BoardWindowName != "" {
-		cfg.Tmux.BoardWindowName = raw.Tmux.BoardWindowName
-	}
 	if raw.Multiplexer.Default != "" {
 		cfg.Multiplexer.Default = raw.Multiplexer.Default
-	}
-	if raw.Multiplexer.Tmux.SessionName != "" {
-		cfg.TmuxSession = raw.Multiplexer.Tmux.SessionName
-		cfg.Tmux.SessionName = raw.Multiplexer.Tmux.SessionName
-	}
-	if raw.Multiplexer.Tmux.BoardWindowName != "" {
-		cfg.Tmux.BoardWindowName = raw.Multiplexer.Tmux.BoardWindowName
 	}
 	if raw.Multiplexer.Herdr.Binary != "" {
 		cfg.Multiplexer.Herdr.Binary = raw.Multiplexer.Herdr.Binary
@@ -507,23 +469,8 @@ func overlayRawConfig(cfg *Config, raw Config) {
 
 func syncMultiplexerConfig(cfg *Config) {
 	if cfg.Multiplexer.Default == "" {
-		cfg.Multiplexer.Default = "tmux"
+		cfg.Multiplexer.Default = "herdr"
 	}
-	if cfg.Tmux.SessionName == "" {
-		cfg.Tmux.SessionName = cfg.TmuxSession
-	}
-	if cfg.TmuxSession == "" {
-		cfg.TmuxSession = cfg.Tmux.SessionName
-	}
-	if cfg.TmuxSession == "" {
-		cfg.TmuxSession = DefaultSession
-		cfg.Tmux.SessionName = DefaultSession
-	}
-	if cfg.Tmux.BoardWindowName == "" {
-		cfg.Tmux.BoardWindowName = "board"
-	}
-	cfg.TmuxSession = cfg.Tmux.SessionName
-	cfg.Multiplexer.Tmux = cfg.Tmux
 	if cfg.Multiplexer.Herdr.Binary == "" {
 		cfg.Multiplexer.Herdr.Binary = "herdr"
 	}
@@ -608,7 +555,6 @@ func applyDiagnosticsDefaults(cfg *Config, env Env) {
 func readEnv() Env {
 	return Env{
 		DBPath:             os.Getenv("KANBI_DB"),
-		TmuxSession:        os.Getenv("KANBI_TMUX_SESSION"),
 		DefaultMultiplexer: os.Getenv("KANBI_MULTIPLEXER"),
 		LogLevel:           os.Getenv("KANBI_LOG_LEVEL"),
 	}

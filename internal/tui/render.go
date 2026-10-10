@@ -1002,17 +1002,7 @@ func stripKittyGraphics(s string) string {
 		}
 		s = s[:start] + s[start+end+2:]
 	}
-	for {
-		start := strings.Index(s, "\x1bPtmux;")
-		if start < 0 {
-			break
-		}
-		end := strings.Index(s[start:], "\x1b\\")
-		if end < 0 {
-			return s[:start]
-		}
-		s = s[:start] + s[start+end+2:]
-	}
+
 	return s
 }
 
@@ -1045,7 +1035,6 @@ func (m Model) helpView() string {
 	row("g / a / m", "open GitHub / archive / mark state")
 	row("H/L", "move ticket left/right")
 	row("J/K", "reorder ticket up/down")
-	row("M", "move resumable session to configured multiplexer")
 	row("I", "select worktrees for an agent-assisted integration run")
 
 	section("Boards and columns")

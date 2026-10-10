@@ -295,11 +295,6 @@ type focusSettingsSavedMsg struct {
 	err    error
 }
 
-type moveMultiplexerMsg struct {
-	displayID string
-	err       error
-}
-
 type integrationActionMsg struct {
 	action string
 	run    storage.IntegrationRun
@@ -501,14 +496,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reload()
 		}
 		return m, nil
-	case moveMultiplexerMsg:
-		if msg.err != nil {
-			m.setActionError("move ticket session", msg.err, "Run `kanbi doctor` and confirm a resumable session ref exists, then press M to retry.")
-		} else {
-			m.status = "moved " + msg.displayID + " to default multiplexer"
-			m.reload()
-		}
-		return m, nil
 	case integrationActionMsg:
 		if msg.err != nil {
 			m.setActionError(msg.action+" integration", msg.err, "Review the integration run, ticket branches, and source checkout, then retry.")
@@ -707,8 +694,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.startStateMenu()
 		}
-	case "M":
-		return m, m.moveToDefaultMultiplexerCmd()
 	case "I":
 		return m, m.openIntegration()
 	case "enter":
@@ -1173,22 +1158,6 @@ func (m *Model) closeSessionCmd() tea.Cmd {
 		return closeSessionMsg{
 			displayID: displayID,
 			err:       m.actions.CloseTicketSession(ctx, t),
-		}
-	}
-}
-
-func (m *Model) moveToDefaultMultiplexerCmd() tea.Cmd {
-	t, ok := m.selectedTicket()
-	if !ok {
-		return nil
-	}
-	m.status = "moving " + t.DisplayID + " to default multiplexer…"
-	ctx := m.ctx
-	displayID := t.DisplayID
-	return func() tea.Msg {
-		return moveMultiplexerMsg{
-			displayID: displayID,
-			err:       m.actions.MoveTicketToDefaultMultiplexer(ctx, t),
 		}
 	}
 }

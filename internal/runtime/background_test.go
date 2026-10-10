@@ -1,4 +1,4 @@
-package tmux
+package runtime
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 func TestAsyncSessionRefCaptureUpdatesExactInsertedAttempt(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Attempt binding", "", "pi")
 	if err != nil {
@@ -62,7 +62,7 @@ func TestAsyncSessionRefCaptureUpdatesExactInsertedAttempt(t *testing.T) {
 }
 
 func TestManagerCloseCancelsSessionRefCapture(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Cancel capture", "", "pi")
 	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
@@ -85,7 +85,7 @@ func TestManagerCloseCancelsSessionRefCapture(t *testing.T) {
 }
 
 func TestAsyncSessionRefPersistenceFailureIsReported(t *testing.T) {
-	store, ctx := newTmuxTestStore(t)
+	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket, _ := store.CreateTicket(ctx, view.Columns[0].ID, "Report failure", "", "pi")
 	sessionID, _ := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{

@@ -79,10 +79,10 @@ Creates a versioned, path-safe zip (`format: kanbi-support-bundle`) without muta
 | `README.txt` | human summary | redacted details only |
 | `field-policies.json` | this policy inventory | included |
 | `build.*` | version, commit, build date, go, os/arch, schema | included |
-| `platform.*` | OS/arch, TERM, shell, inside-tmux, limited env | home→`~`; tokens env values `[REDACTED]` |
+| `platform.*` | OS/arch, TERM, shell, limited env | home→`~`; tokens env values `[REDACTED]` |
 | `paths.*` | config/data/state/db paths | home redacted |
 | `config_redacted` | parsed user YAML | token/secret/password keys `[REDACTED]`; URLs sanitized |
-| `multiplexer.*` | default runtime, tmux/Herdr non-secret settings | included |
+| `multiplexer.*` | default runtime, Herdr non-secret settings | included |
 | `migrations` | schema_migrations version/name/applied_at | included when DB openable |
 | `schema_version` | max applied / binary schema | included |
 | `doctor` | severity/name/detail/error | redacted text |

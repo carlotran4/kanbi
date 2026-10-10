@@ -42,12 +42,9 @@ Kanbi is a keyboard-first TUI. Pure headless automation should use the CLI (`--j
 
 | Multiplexer | Status | Verification |
 | --- | --- | --- |
-| tmux (default) | Supported | Deterministic manager tests + `scripts/smoke.sh` real tmux |
-| Herdr (opt-in) | Supported when configured | Deterministic fake-Herdr doctor/smoke probes; **real Herdr lifecycle is opt-in manual only** |
+| Herdr | Only supported runtime; tested with 0.9.3 | Fake-runner tests, real Herdr fake-harness smoke, UI smoke; authenticated lifecycle opt-in |
 
-`kanbi doctor` treats a selected Herdr installation that is missing or whose `herdr status` fails as fatal. Existing tmux sessions remain controllable only when `tmux` is installed.
-
-Recommended: a maintained tmux 3.x series. Exact distro package versions are not pinned; smoke validates whichever `tmux` is on `PATH` in CI.
+`kanbi doctor` requires a running, compatible Herdr server. CI installs checksum-pinned 0.9.3 binaries on Linux/macOS amd64/arm64. Legacy tmux rows and export fields remain readable as history; Kanbi no longer controls tmux containers.
 
 ## SQLite schema
 
@@ -103,6 +100,6 @@ Provider API versions are whatever the live service returns for the documented c
 
 - [`docs/installation.md`](./installation.md) — install, upgrade, rollback
 - [`docs/harness-contracts.md`](./harness-contracts.md) — exact harness commands
-- [`docs/multiplexer-contracts.md`](./multiplexer-contracts.md) — tmux/Herdr contract
+- [`docs/multiplexer-contracts.md`](./multiplexer-contracts.md) — Herdr contract
 - [`docs/support.md`](./support.md) — diagnostics content and support process
 - [`docs/release-checklist.md`](./release-checklist.md) — release provenance steps

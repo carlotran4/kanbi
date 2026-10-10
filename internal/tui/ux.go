@@ -80,7 +80,7 @@ func (m Model) onboardingView() string {
 			"Welcome to Kanbi",
 			"",
 			"Kanbi runs agent CLIs in terminal containers. Before starting:",
-			"• Install tmux (the default runtime).",
+			"• Install Herdr (the session runtime).",
 			"• Install and authenticate at least one harness: pi, codex, copilot, or claude.",
 			"• Run `kanbi doctor` if a prerequisite is missing.",
 		},

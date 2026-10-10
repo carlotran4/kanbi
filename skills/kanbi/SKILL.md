@@ -10,7 +10,7 @@ metadata:
 
 # Kanbi
 
-Use Kanbi's CLI as the machine interface. Do not scrape the TUI, tmux, Herdr, or agent transcripts when the CLI provides the data.
+Use Kanbi's CLI as the machine interface. Do not scrape the TUI, Herdr, or agent transcripts when the CLI provides the data.
 
 ## Operating rules
 
@@ -49,6 +49,6 @@ Do not run these from general status or administration requests:
 
 - `kanbi open` or `kanbi open --send-prompt` starts, resumes, or focuses an agent session. Run it only when the user explicitly asks to open/start that exact ticket; include `--board`.
 - Board archive/delete, worktree-mode changes, import/export, backup/restore, and integration commands require explicit operation-specific intent. State the impact and ask for confirmation immediately before execution.
-- Never start fresh, repair a session, close a runtime container, or manipulate tmux/Herdr on Kanbi's behalf. Those lifecycle actions belong in Kanbi's interactive flow.
+- Never start fresh, repair a session, close a runtime container, or manipulate Herdr on Kanbi's behalf. Those lifecycle actions belong in Kanbi's interactive flow.
 
 When a requested operation is unsupported by the CLI, say so and direct the user to the Kanbi TUI rather than modifying its SQLite database directly.

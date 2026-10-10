@@ -7,16 +7,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/ticketbackend"
-	"github.com/carlotran4/kanbi/internal/tmux"
 	"github.com/carlotran4/kanbi/internal/tui"
 )
 
@@ -32,8 +31,6 @@ func setupCLI(t *testing.T) (runArgs func(args ...string) error, store func() *s
 	t.Setenv("KANBI_CONFIG", cfgPath)
 	t.Setenv("KANBI_DATA_DIR", dir)
 	t.Setenv("KANBI_STATE_DIR", dir)
-	// Use a unique tmux session name so tests don't collide with a real board
-	t.Setenv("KANBI_TMUX_SESSION", "kanbi-test-"+t.Name())
 
 	runArgs = func(args ...string) error {
 		return run(args)
@@ -417,71 +414,6 @@ func TestCLIJSONShowUpdateMoveNotesAndState(t *testing.T) {
 	}
 }
 
-func TestCLIUpdateRenamesLiveTmuxWindow(t *testing.T) {
-	run, openStore := setupCLI(t)
-	if err := run("add", "Original"); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	store := openStore()
-	ticket, err := store.TicketByDisplayID(ctx, "T-001")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldName := tmux.TicketWindowName(ticket)
-	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxSessionName: cfg.TmuxSession, TmuxWindowName: oldName, Status: "running"}); err != nil {
-		t.Fatal(err)
-	}
-
-	binDir := t.TempDir()
-	logPath := filepath.Join(binDir, "tmux.log")
-	fakeTmux := filepath.Join(binDir, "tmux")
-	if err := os.WriteFile(fakeTmux, []byte("#!/bin/sh\n"+
-		"if [ \"$1\" = list-windows ]; then printf '%s\\n' \"$KANBI_TEST_TMUX_WINDOW\"; exit 0; fi\n"+
-		"if [ \"$1\" = rename-window ]; then printf '%s\\n' \"$@\" >> \"$KANBI_TEST_TMUX_LOG\"; exit 0; fi\n"+
-		"exit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("KANBI_TEST_TMUX_WINDOW", oldName)
-	t.Setenv("KANBI_TEST_TMUX_LOG", logPath)
-	if err := run("update", "T-001", "--title", "Updated Title"); err != nil {
-		t.Fatal(err)
-	}
-
-	updated, err := store.TicketByID(ctx, ticket.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantName := tmux.TicketWindowName(updated)
-	if updated.Title != "Updated Title" {
-		t.Fatalf("stored title=%q", updated.Title)
-	}
-	session, ok, err := store.ActiveSession(ctx, ticket.ID)
-	if err != nil || !ok {
-		t.Fatalf("active session ok=%v err=%v", ok, err)
-	}
-	if session.TmuxWindowName != wantName {
-		t.Fatalf("stored window name=%q, want %q", session.TmuxWindowName, wantName)
-	}
-	log, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(log), "rename-window\n") || !strings.Contains(string(log), cfg.TmuxSession+":"+oldName+"\n") || !strings.Contains(string(log), wantName+"\n") {
-		t.Fatalf("rename invocation=%q, want target %q and name %q", log, cfg.TmuxSession+":"+oldName, wantName)
-	}
-}
-
-type cliGatedBackend struct {
-	started chan int64
-	release chan struct{}
-}
-
 func (b *cliGatedBackend) Kind() string { return ticketbackend.KindGitHub }
 func (b *cliGatedBackend) Sync(ctx context.Context, _ ticketbackend.SyncRepository, board storage.Board) (ticketbackend.Result, error) {
 	select {
@@ -650,193 +582,6 @@ func TestCLIContextResolvesBoardScopedTickets(t *testing.T) {
 	}
 }
 
-func TestRunBoardTUIIntegrationSwitchesBoards(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping TUI integration test in short mode")
-	}
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not installed")
-	}
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "kanbi")
-	build := exec.Command("go", "build", "-o", bin, ".")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build kanbi: %v\n%s", err, out)
-	}
-
-	dbPath := filepath.Join(dir, "test.db")
-	cfgPath := filepath.Join(dir, "config.yaml")
-	sessionName := "kanbi-it-" + sanitizeName(t.Name())
-	runScript := filepath.Join(dir, "run-board.sh")
-	if err := os.WriteFile(runScript, []byte("#!/bin/sh\n"+
-		"export KANBI_DB="+shellQuote(dbPath)+"\n"+
-		"export KANBI_CONFIG="+shellQuote(cfgPath)+"\n"+
-		"export KANBI_DATA_DIR="+shellQuote(dir)+"\n"+
-		"export KANBI_STATE_DIR="+shellQuote(dir)+"\n"+
-		"export KANBI_TMUX_SESSION="+shellQuote(sessionName)+"\n"+
-		"export TERM=xterm-256color\n"+
-		"exec "+shellQuote(bin)+" --board\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx := context.Background()
-	s, err := storage.Open(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	if err := s.Init(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defaultView, _ := s.BoardView(ctx)
-	if _, err := s.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi"); err != nil {
-		t.Fatal(err)
-	}
-	clientBoard, err := s.CreateBoard(ctx, "Client B")
-	if err != nil {
-		t.Fatal(err)
-	}
-	clientView, _ := s.BoardViewByID(ctx, clientBoard.ID)
-	if _, err := s.CreateTicket(ctx, clientView.Columns[0].ID, "Client task", "", "pi"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Drive the real binary in a real tmux pane. This exercises the compiled CLI,
-	// Bubble Tea input handling, startup picker, board switching, and rendering.
-	tmuxCmd(t, "kill-session", "-t", sessionName)
-	t.Cleanup(func() { tmuxCmd(t, "kill-session", "-t", sessionName) })
-	tmuxCmd(t, "new-session", "-d", "-s", sessionName, runScript)
-	output := waitForTmuxOutput(t, sessionName, "Select board")
-	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // select Master
-	output = waitForTmuxOutput(t, sessionName, "[Client B]")
-	tmuxCmd(t, "send-keys", "-t", sessionName, "n")
-	output = waitForTmuxOutput(t, sessionName, "Create ticket in which board?")
-	tmuxCmd(t, "send-keys", "-t", sessionName, "j")
-	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // create on Client B
-	output = waitForTmuxOutput(t, sessionName, "No description yet")
-	tmuxCmd(t, "send-keys", "-t", sessionName, "Escape")
-	waitForTmuxOutputWithout(t, sessionName, "Unsaved changes")
-	tmuxCmd(t, "send-keys", "-t", sessionName, "b")
-	output = waitForTmuxOutput(t, sessionName, "Select board")
-	tmuxCmd(t, "send-keys", "-t", sessionName, "C-m") // select Client B
-	output = waitForTmuxOutput(t, sessionName, "Kanbi Client B")
-	tmuxCmd(t, "send-keys", "-t", sessionName, "q")
-	for _, want := range []string{"New ticket", "Client task", "Kanbi Client B"} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("TUI output missing %q\n--- output ---\n%s", want, output)
-		}
-	}
-	clientView, err = s.BoardViewByID(ctx, clientBoard.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(clientView.Columns[0].Tickets) != 2 {
-		t.Fatalf("Master create should add a ticket to Client B, got %+v", clientView.Columns[0].Tickets)
-	}
-}
-
-// ---- TUI service wiring ----
-
-func TestTUIServiceOpenTicketRoutesSendPromptVsSwitch(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	t.Setenv("KANBI_DB", dbPath)
-	t.Setenv("KANBI_CONFIG", filepath.Join(dir, "config.yaml"))
-
-	ctx := context.Background()
-	cfg, _ := config.Load()
-	s, _ := storage.Open(dbPath)
-	t.Cleanup(func() { _ = s.Close() })
-	_ = s.Init(ctx)
-
-	view, _ := s.BoardView(ctx)
-	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "Route test", "", "pi")
-
-	mock := &mockOpener{}
-	// Use nil store on the manager so captureSessionRef is never attempted,
-	// keeping the test instant. Session row is created manually below.
-	manager := &tmux.Manager{Config: cfg, Store: nil, Runner: mock}
-	svc := tui.NewService(s, manager)
-
-	// sendPrompt=true → manager.OpenTicket → new-window
-	if err := svc.OpenTicket(ctx, ticket, true); err != nil {
-		t.Fatalf("open with send failed: %v", err)
-	}
-	if !mock.sawNewWindow {
-		t.Fatal("sendPrompt=true should call new-window")
-	}
-
-	// Manually record the active session so SwitchToTicket can find the window.
-	manager.Store = s
-	_, _ = s.UpsertActiveSession(ctx, ticket.ID, storage.Session{
-		Harness: "pi", TmuxSessionName: cfg.TmuxSession,
-		TmuxWindowName: tmux.TicketWindowName(ticket),
-		TmuxWindowID:   sql.NullString{String: "@7", Valid: true},
-		Status:         "running",
-	})
-	ticket, _ = s.TicketByID(ctx, ticket.ID)
-
-	// sendPrompt=false on ticket with active window → SwitchToTicket → switch-client
-	mock.sawSwitch = false
-	if err := svc.OpenTicket(ctx, ticket, false); err != nil {
-		t.Fatalf("open without send failed: %v", err)
-	}
-	if !mock.sawSwitch {
-		t.Fatal("sendPrompt=false on active ticket should call switch-client")
-	}
-}
-
-type mockOpener struct {
-	sawNewWindow bool
-	sawSwitch    bool
-	windows      map[string]string
-}
-
-func (m *mockOpener) Run(ctx context.Context, name string, args ...string) (string, error) {
-	if m.windows == nil {
-		m.windows = map[string]string{}
-	}
-	switch {
-	case len(args) > 0 && args[0] == "new-window":
-		m.sawNewWindow = true
-		winName := ""
-		for i, a := range args {
-			if a == "-n" && i+1 < len(args) {
-				winName = args[i+1]
-			}
-		}
-		m.windows["@7"] = winName
-		return "@7\n", nil
-	case len(args) > 0 && args[0] == "switch-client":
-		m.sawSwitch = true
-		return "", nil
-	case len(args) > 0 && args[0] == "list-windows":
-		var b strings.Builder
-		b.WriteString("board\n")
-		for _, n := range m.windows {
-			b.WriteString(n + "\n")
-		}
-		return b.String(), nil
-	case len(args) > 0 && args[0] == "display-message":
-		if len(args) > 0 && args[len(args)-1] == "#{window_name}" {
-			targetArg := args[len(args)-2]
-			targetID := targetArg
-			if idx := strings.Index(targetArg, ":"); idx >= 0 {
-				targetID = targetArg[idx+1:]
-			}
-			if name, ok := m.windows[targetID]; ok {
-				return name + "\n", nil
-			}
-			for _, n := range m.windows {
-				return n + "\n", nil
-			}
-		}
-		return "@7\n", nil
-	default:
-		return "", nil
-	}
-}
-
 func TestTUIServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -852,84 +597,11 @@ func TestTUIServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 	view, _ := s.BoardView(ctx)
 	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "No session", "", "pi")
 
-	svc := tui.NewService(s, tmux.NewManager(cfg, s))
+	svc := tui.NewService(s, runtime.NewManager(cfg, s))
 	err := svc.UpdateSessionRef(ctx, ticket, "some-ref")
 	if err == nil {
 		t.Fatal("expected error updating session ref with no session")
 	}
-}
-
-func sanitizeName(s string) string {
-	s = strings.ReplaceAll(s, "/", "-")
-	s = strings.ReplaceAll(s, " ", "-")
-	return s
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
-func tmuxCmd(t *testing.T, args ...string) string {
-	t.Helper()
-	out, err := exec.Command("tmux", args...).CombinedOutput()
-	// kill-session is allowed to fail during cleanup / pre-clean when absent.
-	if err != nil && !(len(args) > 0 && args[0] == "kill-session") {
-		t.Fatalf("tmux %s failed: %v\n%s", strings.Join(args, " "), err, out)
-	}
-	return string(out)
-}
-
-func waitForTmuxOutput(t *testing.T, sessionName, want string) string {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	var output string
-	for time.Now().Before(deadline) {
-		output = stripANSI(tmuxCmd(t, "capture-pane", "-p", "-t", sessionName))
-		if strings.Contains(output, want) {
-			return output
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %q\n--- output ---\n%s", want, output)
-	return output
-}
-
-func waitForTmuxOutputWithout(t *testing.T, sessionName, unwanted string) string {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	var output string
-	clearFrames := 0
-	for time.Now().Before(deadline) {
-		output = stripANSI(tmuxCmd(t, "capture-pane", "-p", "-t", sessionName))
-		if strings.Contains(output, unwanted) {
-			clearFrames = 0
-		} else {
-			clearFrames++
-			// Bubble Tea redraws can briefly expose an empty pane between frames.
-			// Require stable absence before sending the next input event.
-			if clearFrames >= 2 {
-				return output
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %q to disappear\n--- output ---\n%s", unwanted, output)
-	return output
-}
-
-func stripANSI(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
-			i += 2
-			for i < len(s) && (s[i] < '@' || s[i] > '~') {
-				i++
-			}
-			continue
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
 }
 
 func TestTUIServiceSupportsMasterFilterSelector(t *testing.T) {
@@ -971,111 +643,6 @@ func newMainTestStore(t *testing.T) (*storage.Store, context.Context) {
 	return s, ctx
 }
 
-// ---- fake runners for TUI service tests ----
-
-type routingRunner struct {
-	onNew    func()
-	onSwitch func()
-	// track windows created
-	windows map[string]string
-}
-
-func (r *routingRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
-	if r.windows == nil {
-		r.windows = map[string]string{}
-	}
-	switch {
-	case len(args) > 0 && args[0] == "new-window":
-		windowName := ""
-		for i, a := range args {
-			if a == "-n" && i+1 < len(args) {
-				windowName = args[i+1]
-			}
-		}
-		r.windows["@7"] = windowName
-		if r.onNew != nil {
-			r.onNew()
-		}
-		return "@7\n", nil
-	case len(args) > 0 && args[0] == "switch-client":
-		if r.onSwitch != nil {
-			r.onSwitch()
-		}
-		return "", nil
-	case len(args) > 0 && args[0] == "list-windows":
-		var b strings.Builder
-		b.WriteString("board\n")
-		for _, n := range r.windows {
-			b.WriteString(n + "\n")
-		}
-		return b.String(), nil
-	case len(args) > 0 && args[0] == "display-message":
-		for id, n := range r.windows {
-			if len(args) >= 2 && args[len(args)-2] == "-t" {
-				targetArg := args[len(args)-2]
-				targetID := targetArg
-				if idx := strings.Index(targetArg, ":"); idx >= 0 {
-					targetID = targetArg[idx+1:]
-				}
-				formatArg := args[len(args)-1]
-				if formatArg == "#{window_name}" {
-					if targetID == id {
-						return n + "\n", nil
-					}
-					return n + "\n", nil
-				}
-				if formatArg == "#{window_id}" {
-					if targetID == id || targetID == n {
-						return id + "\n", nil
-					}
-				}
-			}
-		}
-		if len(args) > 0 && args[len(args)-1] == "#{window_id}" {
-			for _, v := range r.windows {
-				_ = v
-				return "@7\n", nil
-			}
-		}
-		return "@7\n", nil
-	case len(args) > 0 && args[0] == "has-session":
-		return "", nil
-	default:
-		return "", nil
-	}
-}
-
-// Satisfy the tmux.Runner interface for the test runners above.
-// (Runner is defined in tmux package, these structs implement it.)
-var _ interface {
-	Run(ctx context.Context, name string, args ...string) (string, error)
-} = (*routingRunner)(nil)
-
-// Ensure os import is used.
-var _ = os.Getenv
-
-func TestBoardLaunchDependsOnConfiguredMultiplexer(t *testing.T) {
-	cfg := config.Defaults(config.Paths{})
-	if !shouldAttachTmuxForBoard(cfg) {
-		t.Fatal("tmux default should attach board in tmux")
-	}
-	if shouldLaunchHerdrBoard(cfg) {
-		t.Fatal("tmux default should not launch Herdr")
-	}
-	cfg.Multiplexer.Default = "herdr"
-	if shouldAttachTmuxForBoard(cfg) {
-		t.Fatal("herdr default should not wrap board in tmux")
-	}
-	t.Setenv("HERDR_ENV", "")
-	if !shouldLaunchHerdrBoard(cfg) {
-		t.Fatal("herdr default should launch board in Herdr when outside Herdr")
-	}
-	t.Setenv("HERDR_ENV", "1")
-	if shouldLaunchHerdrBoard(cfg) {
-		t.Fatal("should not recursively launch Herdr from inside a Herdr pane")
-	}
-}
-
 func TestJSONSessionIncludesGenericMultiplexerRefs(t *testing.T) {
 	got := jsonSession(storage.Session{
 		Multiplexer:      "herdr",
@@ -1095,31 +662,16 @@ type noopCloser struct{}
 
 func (noopCloser) Close() error { return nil }
 
-func TestProbeDoctorMissingTmuxIsFatal(t *testing.T) {
-	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
-	report := probeDoctor(context.Background(), cfg, doctorProber{
-		lookPath: func(name string) (string, error) {
-			return "", os.ErrNotExist
-		},
-	})
-
-	if err := report.FatalErr(); err == nil || !strings.Contains(err.Error(), "tmux is required") {
-		t.Fatalf("expected fatal missing tmux error, got %v", err)
-	}
-	assertDoctorResult(t, report, doctorOK, "multiplexer", "tmux")
-	assertDoctorResult(t, report, doctorFatal, "tmux", "is required")
-}
-
 func TestProbeDoctorMissingOptionalHarnessIsWarning(t *testing.T) {
 	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
-	cfg.TmuxSession = "kanbi-test"
+
 	cfg.Harnesses = map[string]config.Harness{
 		"pi":    {Start: []string{"pi"}},
 		"fake":  {Start: []string{"fake-harness"}},
 		"empty": {},
 	}
 	lookups := map[string]string{
-		"tmux":         "/bin/tmux",
+		"herdr":        "/bin/herdr",
 		"fake-harness": "/bin/fake-harness",
 	}
 	report := probeDoctor(context.Background(), cfg, doctorProber{
@@ -1129,10 +681,12 @@ func TestProbeDoctorMissingOptionalHarnessIsWarning(t *testing.T) {
 			}
 			return "", os.ErrNotExist
 		},
-		commandOutput: func(string, ...string) ([]byte, error) { return []byte("tmux 3.4\n"), nil },
-		openStore:     func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
-		ensureDirs:    func(config.Config) error { return nil },
-		insideTmux:    func() bool { return true },
+		commandOutput: func(string, ...string) ([]byte, error) {
+			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
+		},
+		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs: func(config.Config) error { return nil },
+
 		getenv: func(key string) string {
 			switch key {
 			case "SHELL":
@@ -1143,7 +697,6 @@ func TestProbeDoctorMissingOptionalHarnessIsWarning(t *testing.T) {
 				return ""
 			}
 		},
-		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
 	})
 
 	if err := report.FatalErr(); err != nil {
@@ -1167,16 +720,15 @@ func TestProbeDoctorReportsConfiguredHerdr(t *testing.T) {
 			return "", os.ErrNotExist
 		},
 		commandOutput: func(name string, args ...string) ([]byte, error) {
-			if strings.Contains(name, "herdr") && len(args) == 1 && args[0] == "status" {
-				return []byte("ok\n"), nil
+			if strings.Contains(name, "herdr") && len(args) == 2 && args[0] == "status" {
+				return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 			}
-			return []byte("tmux 3.4\n"), nil
+			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
-		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
-		ensureDirs:        func(config.Config) error { return nil },
-		insideTmux:        func() bool { return true },
-		getenv:            func(string) string { return "x" },
-		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
+		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs: func(config.Config) error { return nil },
+
+		getenv: func(string) string { return "x" },
 	})
 
 	if err := report.FatalErr(); err != nil {
@@ -1184,7 +736,7 @@ func TestProbeDoctorReportsConfiguredHerdr(t *testing.T) {
 	}
 	assertDoctorResult(t, report, doctorOK, "multiplexer", "herdr")
 	assertDoctorResult(t, report, doctorOK, "herdr", "session default")
-	assertDoctorResult(t, report, doctorOK, "tmux", "tmux 3.4")
+
 }
 
 func TestProbeDoctorFailsWhenConfiguredHerdrMissing(t *testing.T) {
@@ -1197,12 +749,13 @@ func TestProbeDoctorFailsWhenConfiguredHerdrMissing(t *testing.T) {
 			}
 			return "", os.ErrNotExist
 		},
-		commandOutput:     func(string, ...string) ([]byte, error) { return []byte("tmux 3.4\n"), nil },
-		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
-		ensureDirs:        func(config.Config) error { return nil },
-		insideTmux:        func() bool { return true },
-		getenv:            func(string) string { return "x" },
-		ensureTmuxSession: func(context.Context, config.Config) error { return errors.New("should not ensure tmux for Herdr") },
+		commandOutput: func(string, ...string) ([]byte, error) {
+			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
+		},
+		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs: func(config.Config) error { return nil },
+
+		getenv: func(string) string { return "x" },
 	})
 
 	if err := report.FatalErr(); err == nil {
@@ -1216,18 +769,19 @@ func TestProbeDoctorFailsUnknownConfiguredMultiplexerWithoutOKResult(t *testing.
 	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
 	cfg.Multiplexer.Default = "mystery"
 	report := probeDoctor(context.Background(), cfg, doctorProber{
-		lookPath:          func(string) (string, error) { return "/bin/tmux", nil },
-		commandOutput:     func(string, ...string) ([]byte, error) { return []byte("tmux 3.4\n"), nil },
-		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
-		ensureDirs:        func(config.Config) error { return nil },
-		insideTmux:        func() bool { return true },
-		getenv:            func(string) string { return "x" },
-		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
+		lookPath: func(string) (string, error) { return "/bin/tmux", nil },
+		commandOutput: func(string, ...string) ([]byte, error) {
+			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
+		},
+		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs: func(config.Config) error { return nil },
+
+		getenv: func(string) string { return "x" },
 	})
 	if err := report.FatalErr(); err == nil {
 		t.Fatal("expected unknown configured multiplexer to be fatal")
 	}
-	assertDoctorResult(t, report, doctorFatal, "multiplexer", "unknown configured multiplexer mystery; supported values are tmux and herdr")
+	assertDoctorResult(t, report, doctorFatal, "multiplexer", "unknown configured multiplexer mystery; only Herdr is supported")
 	for _, result := range report.Results {
 		if result.Name == "multiplexer" && result.Severity == doctorOK {
 			t.Fatalf("unknown multiplexer also reported OK: %+v", report.Results)
@@ -1247,31 +801,32 @@ func TestProbeDoctorHerdrDoesNotRequireTmux(t *testing.T) {
 		},
 		commandOutput: func(name string, args ...string) ([]byte, error) {
 			if strings.Contains(name, "herdr") {
-				return []byte("ok\n"), nil
+				return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 			}
 			return nil, os.ErrNotExist
 		},
-		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
-		ensureDirs:        func(config.Config) error { return nil },
-		insideTmux:        func() bool { return false },
-		getenv:            func(string) string { return "x" },
-		ensureTmuxSession: func(context.Context, config.Config) error { return errors.New("should not ensure tmux for Herdr") },
+		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs: func(config.Config) error { return nil },
+
+		getenv: func(string) string { return "x" },
 	})
 
 	if err := report.FatalErr(); err != nil {
 		t.Fatalf("expected no fatal error, got %v", err)
 	}
 	assertDoctorResult(t, report, doctorOK, "herdr", "session default")
-	assertDoctorResult(t, report, doctorWarn, "tmux", "not found; existing tmux sessions cannot be controlled")
+
 }
 
-func TestProbeDoctorCanSimulatePathAndTmuxStateFailures(t *testing.T) {
+func TestProbeDoctorCanSimulatePathFailures(t *testing.T) {
 	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
 	report := probeDoctor(context.Background(), cfg, doctorProber{
-		lookPath:      func(name string) (string, error) { return "/bin/" + name, nil },
-		commandOutput: func(string, ...string) ([]byte, error) { return []byte("tmux 3.4\n"), nil },
-		openStore:     func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
-		ensureDirs:    func(config.Config) error { return os.ErrPermission },
+		lookPath: func(name string) (string, error) { return "/bin/" + name, nil },
+		commandOutput: func(string, ...string) ([]byte, error) {
+			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
+		},
+		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs: func(config.Config) error { return os.ErrPermission },
 	})
 
 	if err := report.FatalErr(); err == nil || !strings.Contains(err.Error(), "permission") {
@@ -1279,25 +834,6 @@ func TestProbeDoctorCanSimulatePathAndTmuxStateFailures(t *testing.T) {
 	}
 	assertDoctorResult(t, report, doctorOK, "sqlite", cfg.DBPath)
 	assertDoctorResult(t, report, doctorFatal, "config", cfg.Paths.ConfigFile)
-}
-
-func TestProbeDoctorInsideOutsideTmuxResults(t *testing.T) {
-	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
-	base := doctorProber{
-		lookPath:          func(name string) (string, error) { return "/bin/" + name, nil },
-		commandOutput:     func(string, ...string) ([]byte, error) { return nil, os.ErrInvalid },
-		openStore:         func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
-		ensureDirs:        func(config.Config) error { return nil },
-		getenv:            func(string) string { return "" },
-		ensureTmuxSession: func(context.Context, config.Config) error { return nil },
-	}
-	base.insideTmux = func() bool { return false }
-	outside := probeDoctor(context.Background(), cfg, base)
-	assertDoctorResult(t, outside, doctorWarn, "not inside tmux", "")
-
-	base.insideTmux = func() bool { return true }
-	inside := probeDoctor(context.Background(), cfg, base)
-	assertDoctorResult(t, inside, doctorOK, "inside tmux", "")
 }
 
 func assertDoctorResult(t *testing.T, report doctorReport, severity doctorSeverity, name, detail string) {
@@ -1469,5 +1005,25 @@ func TestCLIBoardPackageCommandsUseConfiguredDataDirectory(t *testing.T) {
 	}
 	if err := run("boards", "import", archivePath, "--name", "Imported Default"); err != nil {
 		t.Fatalf("import board package: %v", err)
+	}
+}
+
+type cliGatedBackend struct {
+	started chan int64
+	release chan struct{}
+}
+
+func TestDoctorRejectsSuccessfulStatusWhenServerNotRunning(t *testing.T) {
+	cfg := config.Defaults(config.Paths{})
+	report := probeDoctor(context.Background(), cfg, doctorProber{
+		lookPath: func(name string) (string, error) { return "/bin/" + name, nil },
+		commandOutput: func(string, ...string) ([]byte, error) {
+			return []byte(`{"server":{"running":false,"compatible":true}}`), nil
+		},
+		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
+		ensureDirs: func(config.Config) error { return nil },
+	})
+	if err := report.FatalErr(); err == nil {
+		t.Fatal("successful status exit must not imply running server")
 	}
 }

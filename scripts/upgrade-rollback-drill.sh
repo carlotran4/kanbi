@@ -79,11 +79,11 @@ export KANBI_DATA_DIR="$WORK/data"
 export KANBI_STATE_DIR="$WORK/state"
 export KANBI_DB="$WORK/data/kanbi.db"
 export KANBI_TMUX_SESSION="kanbi-upgrade-drill-$$"
-# Avoid kicking interactive doctors that require tmux sessions when possible.
+# Avoid kicking interactive doctors that require Herdr servers when possible.
 cat >"$KANBI_CONFIG" <<'YAML'
 default_harness: pi
 multiplexer:
-  default: tmux
+  default: herdr
 diagnostics:
   level: off
 YAML
@@ -143,7 +143,7 @@ log "Pre-upgrade backup sha256=$PRE_UPGRADE_BACKUP_SHA256"
 
 log "=== Upgrade: open DB with NEW binary ==="
 "$NEW_BIN" version | tee -a "$WORK/drill.log"
-"$NEW_BIN" doctor --json >/dev/null || log "WARN: doctor returned non-zero (may be missing tmux in environment)"
+"$NEW_BIN" doctor --json >/dev/null || log "WARN: doctor returned non-zero (may be missing Herdr in environment)"
 "$NEW_BIN" list --board "Drill Board" --json | tee "$WORK/after-upgrade-list.json" | tee -a "$WORK/drill.log"
 "$NEW_BIN" show T-001 --board "Drill Board" --json | tee "$WORK/after-upgrade-show.json" | tee -a "$WORK/drill.log"
 

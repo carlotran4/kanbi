@@ -176,7 +176,7 @@ sequenceDiagram
 
 The working directory is selected from the ticket's owning board, including when the ticket is opened from Master. For an opted-in Git-worktree board, first start creates a ticket workspace and the terminal container launches in its recorded launch directory; legacy and opt-out sessions continue using the board cwd.
 
-Each board UI executable uses the configured multiplexer as its runtime substrate. With the default tmux implementation, new ticket windows are created in the runtime tmux session for the executable that launched them, and the session row stores that `tmux_session_name`. Other board instances use the stored container reference when validating, switching to, capturing, or closing an already-active ticket session. With Herdr, sessions store Herdr workspace/agent/pane metadata in the generic multiplexer fields.
+Each board UI runs in Herdr. New attempts store workspace/agent/pane metadata in generic multiplexer fields; every instance routes existing-session operations through those stored references.
 
 If `BoardWorkdir` is empty, the configured multiplexer falls back to the current process working directory. Ticket container names include the board ID (`b{board_id}-...`) so duplicate board-local IDs do not collide within a runtime namespace.
 

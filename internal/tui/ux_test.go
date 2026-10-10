@@ -125,7 +125,7 @@ func TestEmptyStartupShowsDismissibleActionableOnboarding(t *testing.T) {
 	model := NewWithPicker(ctx, NewService(store, nil))
 	model.width, model.height = 80, 24
 	view := ansiStrip(model.View())
-	for _, want := range []string{"Welcome to Kanbi", "tmux", "kanbi doctor", "Esc skip"} {
+	for _, want := range []string{"Welcome to Kanbi", "Herdr", "kanbi doctor", "Esc skip"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("first onboarding page missing %q:\n%s", want, view)
 		}
@@ -246,7 +246,7 @@ func TestHelpLegendFitsAndScrollsAt80x24(t *testing.T) {
 
 func TestActionErrorPreservesCauseAndRendersRemediation(t *testing.T) {
 	model := Model{width: 80, height: 24}
-	cause := errors.New("tmux executable not found")
+	cause := errors.New("Herdr executable not found")
 	model.setActionError("open ticket session", cause, "Run `kanbi doctor`, then retry.")
 	view := ansiStrip(model.baseView())
 	for _, want := range []string{"Failed operation: open ticket session", "Cause: " + cause.Error(), "Next: Run `kanbi doctor`, then retry."} {

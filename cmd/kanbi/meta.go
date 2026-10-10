@@ -115,7 +115,7 @@ Start, focus, resume, or repair a ticket session according to its durable lifecy
 Synchronize GitHub or Jira ticket metadata for one or all boards.`,
 	"doctor": `Usage: kanbi doctor [--json]
 
-Check build/schema information, paths, configured multiplexer, tmux compatibility, terminal, and harness commands. Fatal results return an error.`,
+Check build/schema information, paths, Herdr runtime, terminal, and harness commands. Fatal results return an error.`,
 	"support-bundle": `Usage: kanbi support-bundle PATH [--json]
 
 Write a versioned, path-safe support archive with build/schema metadata, redacted

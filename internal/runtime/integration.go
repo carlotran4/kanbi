@@ -1,4 +1,4 @@
-package tmux
+package runtime
 
 import (
 	"context"
@@ -22,7 +22,7 @@ func (m *Manager) LaunchIntegration(ctx context.Context, spec integrationpkg.Lau
 		return storage.IntegrationRun{}, fmt.Errorf("integration harness %s must support prompt arguments", spec.Harness)
 	}
 	kind := m.defaultMultiplexerKind()
-	herdrPaneFirst := kind == multiplexer.KindHerdr && m.herdrAdapter().SupportsPaneFirstAgentStart(ctx)
+	herdrPaneFirst := m.herdrAdapter().UsesAgentStart(ctx, command, spec.Harness)
 	if herdrPaneFirst {
 		command, err = harness.StartCommand(m.Config.Harnesses, spec.Harness)
 		if err != nil {
@@ -35,19 +35,7 @@ func (m *Manager) LaunchIntegration(ctx context.Context, spec integrationpkg.Lau
 	}
 	command = append([]string{"env", "KANBI_INTEGRATION_RUN_ID=" + spec.PublicID, "KANBI_INTEGRATION_TOKEN=" + spec.Token, "KANBI_INTEGRATION_KANBI_BIN=" + executable, "KANBI_DB=" + m.Config.DBPath}, command...)
 	name := spec.Name
-	namespace := ""
-	if kind == multiplexer.KindHerdr {
-		namespace = m.currentHerdrWorkspace(ctx)
-	} else {
-		if err := m.EnsureSession(ctx); err != nil {
-			return storage.IntegrationRun{}, err
-		}
-		name, err = m.availableWindowNameInSession(ctx, m.Config.TmuxSession, name)
-		if err != nil {
-			return storage.IntegrationRun{}, err
-		}
-		namespace = m.Config.TmuxSession
-	}
+	namespace := m.currentHerdrWorkspace(ctx)
 	adapter, err := m.multiplexerAdapter(kind)
 	if err != nil {
 		return storage.IntegrationRun{}, err

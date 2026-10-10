@@ -44,7 +44,7 @@ export KANBI_CACHE_DIR="$WORK/cache"
 
 cat >"$KANBI_CONFIG" <<YAML
 multiplexer:
-  default: tmux
+  default: herdr
 diagnostics:
   level: off
 YAML

@@ -90,14 +90,13 @@ type Bundle struct {
 
 // PlatformInfo is host/runtime metadata.
 type PlatformInfo struct {
-	GOOS       string `json:"goos"`
-	GOARCH     string `json:"goarch"`
-	GoVersion  string `json:"go_version"`
-	NumCPU     int    `json:"num_cpu"`
-	Term       string `json:"term,omitempty"`
-	ColorTerm  string `json:"colorterm,omitempty"`
-	Shell      string `json:"shell,omitempty"`
-	InsideTmux bool   `json:"inside_tmux"`
+	GOOS      string `json:"goos"`
+	GOARCH    string `json:"goarch"`
+	GoVersion string `json:"go_version"`
+	NumCPU    int    `json:"num_cpu"`
+	Term      string `json:"term,omitempty"`
+	ColorTerm string `json:"colorterm,omitempty"`
+	Shell     string `json:"shell,omitempty"`
 	// Env subset is presence/redacted only.
 	Env map[string]string `json:"env_redacted,omitempty"`
 }
@@ -113,7 +112,6 @@ type PathsInfo struct {
 // MultiplexerInfo summarizes configured runtime substrate without secrets.
 type MultiplexerInfo struct {
 	Default           string `json:"default"`
-	TmuxSession       string `json:"tmux_session,omitempty"`
 	HerdrBinary       string `json:"herdr_binary,omitempty"`
 	HerdrSession      string `json:"herdr_session,omitempty"`
 	WorkspaceStrategy string `json:"workspace_strategy,omitempty"`
@@ -133,7 +131,6 @@ type CollectOptions struct {
 	Doctor          []DoctorResult
 	LookPath        func(string) (string, error)
 	Getenv          func(string) string
-	InsideTmux      func() bool
 	OpenStore       func(ctx context.Context, dbPath string) (*storage.Store, error)
 	Now             func() time.Time
 	IncludeLogBytes int64
@@ -170,9 +167,6 @@ func Collect(ctx context.Context, opts CollectOptions) Bundle {
 	if opts.LookPath == nil {
 		opts.LookPath = lookPathDefault
 	}
-	if opts.InsideTmux == nil {
-		opts.InsideTmux = func() bool { return opts.Getenv("TMUX") != "" }
-	}
 	if opts.IncludeLogBytes <= 0 {
 		opts.IncludeLogBytes = 64 << 10
 	}
@@ -188,14 +182,13 @@ func Collect(ctx context.Context, opts CollectOptions) Bundle {
 	var degraded []string
 
 	platform := PlatformInfo{
-		GOOS:       runtime.GOOS,
-		GOARCH:     runtime.GOARCH,
-		GoVersion:  runtime.Version(),
-		NumCPU:     runtime.NumCPU(),
-		Term:       opts.Getenv("TERM"),
-		ColorTerm:  opts.Getenv("COLORTERM"),
-		Shell:      RedactPath(opts.Getenv("SHELL")),
-		InsideTmux: opts.InsideTmux(),
+		GOOS:      runtime.GOOS,
+		GOARCH:    runtime.GOARCH,
+		GoVersion: runtime.Version(),
+		NumCPU:    runtime.NumCPU(),
+		Term:      opts.Getenv("TERM"),
+		ColorTerm: opts.Getenv("COLORTERM"),
+		Shell:     RedactPath(opts.Getenv("SHELL")),
 		Env: SanitizeEnvMap(map[string]string{
 			"TERM":                 opts.Getenv("TERM"),
 			"COLORTERM":            opts.Getenv("COLORTERM"),
@@ -226,11 +219,10 @@ func Collect(ctx context.Context, opts CollectOptions) Bundle {
 
 	muxDefault := strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default))
 	if muxDefault == "" {
-		muxDefault = "tmux"
+		muxDefault = "herdr"
 	}
 	mux := MultiplexerInfo{
 		Default:           muxDefault,
-		TmuxSession:       cfg.TmuxSession,
 		HerdrBinary:       cfg.Multiplexer.Herdr.Binary,
 		HerdrSession:      cfg.Multiplexer.Herdr.Session,
 		WorkspaceStrategy: cfg.Multiplexer.Herdr.WorkspaceStrategy,

@@ -2,6 +2,22 @@
 
 Kanbi reads YAML configuration from `${XDG_CONFIG_HOME:-~/.config}/kanbi/config.yaml`. Set `KANBI_CONFIG` to use another file.
 
+## Herdr runtime
+
+Herdr is the sole runtime. Defaults require no multiplexer configuration:
+
+```yaml
+multiplexer:
+  default: herdr
+  herdr:
+    binary: herdr
+    session: default
+    workspace_strategy: board
+    focus_on_open: false
+```
+
+Explicit `multiplexer.default: tmux` (or `KANBI_MULTIPLEXER=tmux`) fails with migration guidance. Removed `tmux`, `tmux_session` YAML keys and `KANBI_TMUX_SESSION` are ignored; they do not launch tmux. Keep existing session history intact and follow [legacy-session migration](tmux-to-herdr-migration.md).
+
 ## Custom status bar
 
 The board header is a module-based status bar with independently anchored left, center, and right zones. Without configuration it remains `Kanbi <board>` on the left.
@@ -68,7 +84,6 @@ prompt_ready_timeout: 5s
 
 timeouts:
   idle_unknown_after_seconds: 120
-  graceful_exit_timeout_seconds: 15
   prompt_ready_timeout_seconds: 5
 ```
 

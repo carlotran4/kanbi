@@ -18,10 +18,10 @@ Read these in order before making non-trivial changes:
 ## Current Source of Truth
 
 - SQLite is canonical durable state.
-- The configured multiplexer is the runtime substrate; tmux is the default and Herdr is optional.
+- Herdr is the only supported runtime substrate.
 - A ticket is durable work metadata.
 - A session is one attempt to run an agent for a ticket.
-- A terminal container is the live process container for an active session (tmux window or Herdr pane/agent).
+- A terminal container is the live process container for an active session (Herdr pane/agent).
 - A harness session ref is the harness-native resume handle, when available.
 - Only one active session per ticket is allowed.
 - Starting fresh must preserve prior session history and create a new active session row.
@@ -49,12 +49,12 @@ go vet ./...
 
 Use plain `./scripts/smoke.sh` when you want the script to run fmt/test/vet itself.
 
-For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, also load the project `kanbi-ui-validation` skill and drive the real application in its disposable Herdr workspace (use the explicit tmux fallback for exact terminal sizes). Validate the relevant flow at the reported terminal size and at 80x24; do not rely only on model tests or inspect the user's live database.
+For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, also load the project `kanbi-ui-validation` skill and drive the real application in its disposable Herdr workspace (resize the owned Herdr client for exact terminal sizes). Validate the relevant flow at the reported terminal size and at 80x24; do not rely only on model tests or inspect the user's live database.
 
-For lifecycle, tmux, storage, or harness changes, also run focused tests:
+For lifecycle, runtime, storage, or harness changes, also run focused tests:
 
 ```bash
-go test ./internal/harness ./internal/tmux ./internal/storage
+go test ./internal/harness ./internal/runtime ./internal/storage
 ```
 
 For real harness changes, only after deterministic checks pass, use the opt-in script:
@@ -79,17 +79,17 @@ Stop and ask before:
 - adding a persistent background process;
 - changing supported harness command names;
 - making a harness appear resumable without verified session refs;
-- removing tmux as the default v1 runtime backend.
+- changing the Herdr runtime or rewriting legacy session ownership.
 
 ## Common Change Map
 
 | Change | Read | Edit | Test |
 | --- | --- | --- | --- |
 | TUI/card/keybinding | architecture, state docs, multi-board doc if relevant | `internal/tui` | `go test ./internal/tui` |
-| Lifecycle/session | state + lifecycle docs | `internal/tmux`, `internal/storage`, `internal/tui` | `go test ./internal/harness ./internal/tmux ./internal/storage` |
-| Harness | harness contracts + lifecycle docs | `internal/harness`, `internal/config`, `internal/tmux` | harness/storage/tmux tests, smoke, opt-in real harness if needed |
+| Lifecycle/session | state + lifecycle docs | `internal/runtime`, `internal/storage`, `internal/tui` | `go test ./internal/harness ./internal/runtime ./internal/storage` |
+| Harness | harness contracts + lifecycle docs | `internal/harness`, `internal/config`, `internal/runtime` | harness/storage/runtime tests, smoke, opt-in real harness if needed |
 | Storage/schema | state docs + multi-board doc if relevant | `internal/storage` | `go test ./internal/storage` plus focused lifecycle tests |
-| CLI | README + architecture | `cmd/kanbi`, storage/tmux as needed | `go test ./cmd/kanbi ./internal/storage` |
+| CLI | README + architecture | `cmd/kanbi`, storage/runtime as needed | `go test ./cmd/kanbi ./internal/storage` |
 | Verification scripts | autonomous verification doc | `scripts/*`, tests | changed script directly; baseline if dev loop changes |
 
 ## Documentation Expectations

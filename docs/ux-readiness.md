@@ -6,7 +6,7 @@ Kanbi's TUI is keyboard-first and does not use color, animation, or a standalone
 
 In an empty XDG environment, startup presents a dismissible three-page guide before the board picker. It covers:
 
-1. tmux and authenticated harness prerequisites, plus `kanbi doctor`;
+1. Herdr and authenticated harness prerequisites, plus `kanbi doctor`;
 2. board working directories, ticket creation, `Enter` start/open behavior, safe `x` close, and non-destructive `q` exit;
 3. resumability/repair, preserved session history, `kanbi backup PATH`, and in-app help.
 
@@ -58,7 +58,7 @@ kanbi
 
 First-run walkthrough checklist (last exercised 2026-07-12 in a disposable XDG environment; session lifecycle also exercised by `scripts/smoke.sh --skip-checks` with fake harnesses):
 
-- [x] Page 1 names tmux, supported harness authentication, and `kanbi doctor`.
+- [x] Page 1 names Herdr, supported harness authentication, and `kanbi doctor`.
 - [x] Pages 2–3 explain cwd, create/start/open/close/quit, repair/history, and backup.
 - [x] `Esc` skips immediately; completing the guide reaches the picker.
 - [x] Select the default board; smoke creates tickets and opens fake Pi/Codex/Claude sessions.
@@ -69,15 +69,15 @@ Terminal/theme/runtime matrix:
 
 | Layout | Theme/output | Runtime | Checks |
 | --- | --- | --- | --- |
-| 80x24 | dark | tmux | two 39-cell columns, horizontal/vertical focus-follow, inspector, filters, help, repair |
-| 80x24 | light | tmux | focus border/text contrast; waiting vs permission text |
-| 120x40 | dark | tmux | responsive width threshold, long ticket content, notes, long board/column names |
-| 120x40 | light | tmux | all semantic colors remain supplemental |
-| 60x18 | monochrome (`NO_COLOR=1` where supported) | tmux | textual states/indicators, clipped modal guidance, controls reachable |
-| 160x45 | dark | tmux | four equal expanded columns, compact runtime/Git rows, resize wide → narrow → wide |
+| 80x24 | dark | Herdr | two 39-cell columns, horizontal/vertical focus-follow, inspector, filters, help, repair |
+| 80x24 | light | Herdr | focus border/text contrast; waiting vs permission text |
+| 120x40 | dark | Herdr | responsive width threshold, long ticket content, notes, long board/column names |
+| 120x40 | light | Herdr | all semantic colors remain supplemental |
+| 60x18 | monochrome (`NO_COLOR=1` where supported) | Herdr | textual states/indicators, clipped modal guidance, controls reachable |
+| 160x45 | dark | Herdr | four equal expanded columns, compact runtime/Git rows, resize wide → narrow → wide |
 | 40x12 | monochrome | no session launch | 30-cell minimum, safe clipping, and `Ctrl+C` exit |
 
-Also include Unicode ticket titles/body, combining characters, emoji, very long unbroken words, provider sync failure, database-load failure, and a missing tmux/harness in the pass. Record terminal emulator, `TERM`, theme, tmux version, and any discrepancy in the release report.
+Also include Unicode ticket titles/body, combining characters, emoji, very long unbroken words, provider sync failure, database-load failure, and a missing Herdr/harness in the pass. Record terminal emulator, `TERM`, theme, Herdr version, and any discrepancy in the release report.
 
 ## Intentionally deferred limitations
 

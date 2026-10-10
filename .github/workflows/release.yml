@@ -28,8 +28,11 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
-      - name: Install tmux and SQLite CLI
-        run: sudo apt-get update && sudo apt-get install -y tmux sqlite3
+      - name: Install Herdr and SQLite CLI
+        run: |
+          sudo apt-get update && sudo apt-get install -y sqlite3
+          ./scripts/install-herdr-ci.sh "$RUNNER_TEMP/kanbi-herdr-bin"
+          echo "$RUNNER_TEMP/kanbi-herdr-bin" >> "$GITHUB_PATH"
       - name: Validate release version and channel
         shell: bash
         env:
@@ -102,14 +105,15 @@ jobs:
           set -euo pipefail
           if [[ "${RUNNER_OS}" == "Linux" ]]; then
             sudo apt-get update
-            sudo apt-get install -y tmux sqlite3
+            sudo apt-get install -y sqlite3
           else
-            brew install tmux sqlite
+            brew install sqlite
             sqlite_bin="$(brew --prefix sqlite)/bin"
             echo "$sqlite_bin" >> "$GITHUB_PATH"
             export PATH="$sqlite_bin:$PATH"
           fi
-          command -v tmux
+          ./scripts/install-herdr-ci.sh "$RUNNER_TEMP/kanbi-herdr-bin"
+          echo "$RUNNER_TEMP/kanbi-herdr-bin" >> "$GITHUB_PATH"
           command -v sqlite3
       - name: Build and validate native CGO artifact
         shell: bash

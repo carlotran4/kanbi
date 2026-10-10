@@ -1,6 +1,6 @@
 # Architecture
 
-Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses a multiplexer runtime backend; tmux remains the default backend and Herdr is supported as an opt-in backend.
+Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses a multiplexer runtime backend; Herdr is the only supported runtime.
 
 ## Core Model
 
@@ -14,8 +14,7 @@ flowchart LR
     Workspace --> Git[Git linked worktrees]
     App --> Manager[Runtime manager]
     Manager --> Policy[Session lifecycle policy]
-    Manager --> Mux[Configured multiplexer: tmux or Herdr]
-    Mux --> Tmux[tmux session/windows]
+    Manager --> Mux[Herdr]
     Mux --> Herdr[Herdr workspaces/panes/agents]
     Manager --> Harness[Pi/Codex/Copilot/Claude/Fake harness]
     Harness --> Ref[Harness session ref]
@@ -26,7 +25,7 @@ flowchart LR
 ```
 
 - **SQLite is canonical durable state for local boards and runtime/session state.** Tickets, columns, boards, session history, provider-note tombstones, cross-process sync leases, remote push pending tokens, and redacted runtime/sync diagnostics live there; the implemented GitHub and Atlassian/Jira backends own their boards' ticket metadata, which is cached/projected through SQLite. File databases use WAL mode and a busy timeout for concurrent Kanbi processes. Board, Focus, note, and integration projection reads use a separate read-only, query-only connection so a writer waiting for a lock does not monopolize their connection; private in-memory stores keep one connection. Foreign-key enforcement is enabled on every store connection and integrity is verified during initialization.
-- **The configured multiplexer is observed runtime state.** tmux windows are validated against live tmux. Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
+- **The configured multiplexer is observed runtime state.** Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions. The CLI retains inline rendering and allows up to 120 FPS. A small licensed textarea patch preserves Bubbles v1 editor semantics while avoiding offscreen styling and repeated printable-ASCII width scans; its upstream and differential regression suites live in `internal/tui/textarea`.
 - **Ticket backend adapters are board-scoped.** Each board has exactly one ticket metadata backend chosen at creation. `local`, `github`, and `atlassian` (Jira) are implemented today; the adapter seam remains prepared for Asana and similar systems.
@@ -36,7 +35,7 @@ Board projections use an eight-entry cache with a 64 MiB estimated snapshot budg
 
 ## Current Objective And Scope
 
-Keep Kanbi a trustworthy beta for multi-board ticket/session lifecycle management across Pi, Codex, Copilot, Claude, and fake harnesses. tmux remains the default runtime backend; Herdr support is opt-in through multiplexer config.
+Keep Kanbi a trustworthy beta for multi-board ticket/session lifecycle management across Pi, Codex, Copilot, Claude, and fake harnesses. Herdr owns the runtime terminal containers.
 
 Maintain these behaviors as boring, reliable, documented beta behavior:
 
@@ -62,7 +61,7 @@ Stop and ask before:
 - adding a persistent background process;
 - changing supported harness command names;
 - making any harness appear resumable without a stored or user-provided session ref;
-- removing tmux as the default runtime backend.
+- changing runtime ownership or rewriting legacy session history.
 
 ## Package Map
 
@@ -83,7 +82,7 @@ Stop and ask before:
 | `internal/integration` | Repository-scoped integration runs: exact source/ticket snapshots, managed integration checkout and prompt, token-authenticated agent reports, independent candidate verification, serialized promotion, and ticket-workspace retirement. |
 | `internal/ticketbackend` | Board-scoped ticket metadata backend registry and owned startup/periodic/mutation sync orchestration (cancel + WaitGroup drain). Providers receive a narrow sync repository. Implements timeouts, GET retry classification, durable find-or-link create recovery, the no-op `local` backend, GitHub Issues sync, and Atlassian/Jira sync. |
 | `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. Includes the Herdr adapter under `internal/multiplexer/herdr`. |
-| `internal/tmux` | tmux adapter and compatibility runtime manager. Launch execution, runtime polling, and reconciliation remain here while lifecycle policy lives in `internal/session`. |
+| `internal/runtime` | Herdr lifecycle runtime manager. Launch execution, runtime polling, and reconciliation remain here while lifecycle policy lives in `internal/session`. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
 | `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, status-bar scheduling, and terminal-gated image previews. |
 | `internal/statusbar` | Starship-style status modules, three-zone layout, configuration validation, and bounded custom-command execution. |
@@ -95,26 +94,9 @@ Stop and ask before:
 
 ## Runtime Topology
 
-Kanbi uses the configured multiplexer as its runtime substrate. tmux is the default implementation and uses sessions per board executable instance:
+Kanbi runs in Herdr. Outside Herdr, the CLI creates a focused board workspace and attaches a client; inside Herdr it runs directly. `KANBI_INNER=1` prevents recursive launches. Each ticket attempt runs in its own tab/pane alongside the board or in its board/project workspace.
 
-```text
-tmux session: kanbi-board-<pid>-<time>-1
-windows:
-  board
-  <board-id>-T-001-some-ticket
-  <board-id>-T-002-another-ticket
-
-tmux session: kanbi-board-<pid>-<time>-2
-windows:
-  board
-  <board-id>-T-003-other-ticket
-```
-
-The board process runs in the stable `board` window of its instance session. Each active ticket session gets its own tmux window in the runtime session owned by the board instance that launched it. The app uses windows, not panes, for ticket sessions.
-
-When tmux is the configured multiplexer and Kanbi is launched outside tmux, the CLI creates a unique board/client tmux session and sets that same session as the ticket runtime for the inner board process. When Herdr is the configured multiplexer and Kanbi is launched outside Herdr, the CLI starts the board UI in a focused Herdr pane and attaches to Herdr; when already inside Herdr, it runs the board directly to avoid nesting. When launched directly inside tmux without an explicit `KANBI_TMUX_SESSION`, the current tmux session is used as that executable's runtime for tmux-backed sessions. `KANBI_INNER=1` prevents recursive multiplexer launching.
-
-Session rows persist generic multiplexer container fields (`multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, `mux_metadata`) plus legacy tmux fields for tmux sessions. Other Kanbi instances can see these rows through SQLite and validate/switch/capture/close using the stored container reference instead of assuming their own runtime session.
+Session rows persist `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata`. Other Kanbi instances route operations through these stored references. Legacy tmux columns remain readable for exports and historical records, but no tmux commands are executed and legacy live attempts require explicit repair before a new attempt.
 
 ## Durable Data Relationships
 
@@ -138,11 +120,11 @@ erDiagram
 - A **session** is one attempt to run an agent for a ticket and snapshots its nullable workspace id and launch directory.
 - **Ticket notes** are durable notes per ticket; local-board notes remain personal/local, while the GitHub and Atlassian/Jira backends map notes to provider comments.
 - An **active session** is a session believed to own a live terminal container, but it must still pass validation before being trusted.
-- A **terminal container** is the live process container for an active session: a tmux window for tmux, or a Herdr pane/agent for Herdr.
+- A **terminal container** is the live process container for an active session: a Herdr pane/agent.
 - A **harness session ref** is the harness-native resume handle when the harness exposes one.
 - **Start fresh** creates a new active session attempt while preserving prior session rows.
 
-See [`docs/multiplexer-contracts.md`](./multiplexer-contracts.md) for the tmux/Herdr adapter contract and [`docs/tmux-to-herdr-migration.md`](./tmux-to-herdr-migration.md) for recommended migration semantics when changing existing boards from tmux to Herdr. See [`docs/multi-board-behavior.md`](./multi-board-behavior.md) for board aggregation and Master view behavior. See [`docs/ticket-backends.md`](./ticket-backends.md) for the board-scoped ticket backend model.
+See [`docs/multiplexer-contracts.md`](./multiplexer-contracts.md) for the Herdr adapter contract and [`docs/tmux-to-herdr-migration.md`](./tmux-to-herdr-migration.md) for legacy-session migration semantics. See [`docs/multi-board-behavior.md`](./multi-board-behavior.md) for board aggregation and Master view behavior. See [`docs/ticket-backends.md`](./ticket-backends.md) for the board-scoped ticket backend model.
 
 ## Ticket/Session Lifecycle Invariants
 
@@ -151,7 +133,7 @@ These are core architecture rules, not optional implementation details:
 1. Only one active session per ticket is allowed.
 2. Starting fresh deactivates any old active session and creates a new session row; it must not delete old session history.
 3. Opening an already-active valid window switches to it without creating a new session row.
-4. A stored terminal container id is valid only when the configured multiplexer validates it. For tmux, a stored window id is valid only when live tmux still reports that id with the expected ticket window name; name-based fallback must target the session row's stored tmux session name.
+4. A stored terminal container id is valid only when the configured multiplexer validates it.
 5. Inactive latest sessions project as terminal states such as `closed` or `error`, not `not_started`.
 6. `send prompt` is allowed only for never-started tickets.
 7. Repair/start-fresh flows must preserve history and avoid silently attaching a ticket to the wrong live window.
@@ -219,7 +201,7 @@ The inspector's read-only description wraps only its visible rows plus one looka
 
 ## Harness Architecture
 
-Built-in harness contracts are localized in `internal/harness`: command defaults, prompt mode, exit keys, ref capture, and docs anchors are grouped per supported harness. `internal/config` applies those defaults and preserves YAML overrides. `internal/session` owns the pure lifecycle decision table, while the compatibility runtime manager in `internal/tmux` still executes launches across tmux and Herdr adapters. Current supported harnesses:
+Built-in harness contracts are localized in `internal/harness`: command defaults, prompt mode, exit keys, ref capture, and docs anchors are grouped per supported harness. `internal/config` applies those defaults and preserves YAML overrides. `internal/session` owns the pure lifecycle decision table, while the runtime manager in `internal/runtime` executes launches through Herdr. Current supported harnesses:
 
 | Harness | Start with prompt | Resume | Ref source |
 | --- | --- | --- | --- |
@@ -238,8 +220,8 @@ Always update [`docs/harness-contracts.md`](./harness-contracts.md) when harness
 | Add/change CLI command | `cmd/kanbi/main.go`, command tests | `README.md` if user-facing |
 | Change config/defaults | `internal/config/*` | `README.md`, possibly `docs/harness-contracts.md` or `docs/multiplexer-contracts.md` |
 | Change schema/storage behavior | `internal/storage/*` | `docs/state-management.md` or lifecycle docs |
-| Change ticket/session lifecycle | `internal/tmux/*`, `internal/storage/*`, `internal/tui/*` | `docs/state-management.md`, `docs/ticket-session-lifecycle.md` |
-| Change harness command/ref capture | `internal/harness/*`, `internal/config/*`, `internal/tmux/*` | `docs/harness-contracts.md` |
+| Change ticket/session lifecycle | `internal/runtime/*`, `internal/storage/*`, `internal/tui/*` | `docs/state-management.md`, `docs/ticket-session-lifecycle.md` |
+| Change harness command/ref capture | `internal/harness/*`, `internal/config/*`, `internal/runtime/*` | `docs/harness-contracts.md` |
 | Change card rendering/keybindings | `internal/tui/model.go`, `internal/tui/model_test.go` | `README.md` or a controls doc if user-facing |
 | Change multi-board behavior | `internal/storage/*`, `internal/tui/*`, CLI board commands | `docs/multi-board-behavior.md`, `README.md` |
 | Change verification process | `scripts/*`, tests | `docs/autonomous-verification.md`, `AGENTS.md` if onboarding changes |
@@ -255,7 +237,7 @@ Indexes used by board projection, latest-session lookup, external identity looku
 - Prefer fast deterministic unit/model/storage tests.
 - Use fake harnesses for automated lifecycle coverage.
 - Keep real harness tests opt-in because they can consume quota and depend on auth/local history.
-- Tmux tests must isolate session names and clean up immediately.
+- Herdr tests must isolate configuration, state, socket, server and client, and clean up immediately.
 - After meaningful changes, follow the verification loop in [`AGENTS.md`](../AGENTS.md) and [`docs/autonomous-verification.md`](./autonomous-verification.md).
 
 ## Release And Compatibility

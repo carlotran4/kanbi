@@ -6,7 +6,7 @@ Thanks for helping improve Kanbi. This guide covers development setup, quality b
 
 1. Read [`AGENTS.md`](./AGENTS.md) and the current source-of-truth docs it lists (`docs/architecture.md`, state/lifecycle/harness/multiplexer docs).
 2. Prefer small, reviewable changes that match existing package boundaries.
-3. Do not expand product scope, flatten history, introduce a background daemon, or remove tmux as the default backend without maintainer agreement.
+3. Do not expand product scope, flatten history, introduce a background daemon, or change runtime ownership without maintainer agreement.
 
 ## Development setup
 
@@ -17,7 +17,7 @@ go test ./...
 ./scripts/install-dev.sh   # optional: PATH launcher that rebuilds on change
 ```
 
-Requirements: Go version from `go.mod`, a C compiler (CGO / `go-sqlite3`), and `tmux` for smoke tests.
+Requirements: Go version from `go.mod`, a C compiler (CGO / `go-sqlite3`), and Herdr, Python 3 and sqlite3 for smoke tests.
 
 ## Coding standards
 
@@ -41,7 +41,7 @@ go vet ./...
 Also run focused packages when you touch them (examples):
 
 ```bash
-go test ./internal/harness ./internal/tmux ./internal/storage
+go test ./internal/harness ./internal/runtime ./internal/storage
 go test ./internal/diagnostics
 ```
 

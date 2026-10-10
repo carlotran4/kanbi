@@ -1,7 +1,6 @@
-package tmux
+package runtime
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -11,12 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/carlotran4/kanbi/internal/config"
@@ -35,8 +32,6 @@ var ErrPromptAlreadySent = session.ErrPromptAlreadySent
 
 const defaultResumeCheckAfter = 2500 * time.Millisecond
 
-var boardSessionSeq atomic.Uint64
-
 //go:embed pi_session_ref_extension.ts
 var piSessionRefExtension string
 
@@ -44,25 +39,9 @@ type RepairNeededError = session.RepairNeededError
 type ResumeFailedError = session.ResumeFailedError
 type PromptReadyError = session.PromptReadyError
 
-type Runner interface {
-	Run(ctx context.Context, name string, args ...string) (string, error)
-}
-
-type ExecRunner struct{}
-
-func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
-	return out.String(), err
-}
-
 type Manager struct {
 	Config config.Config
 	Store  *storage.Store
-	Runner Runner
 
 	// BackgroundError receives asynchronous session-ref persistence failures.
 	// When nil, failures are written through the standard logger.
@@ -74,7 +53,7 @@ type Manager struct {
 	background *backgroundState
 
 	// ResumeCheckAfter is how long to wait after launching a resume command
-	// before deciding whether the tmux window survived startup. Zero uses the
+	// before deciding whether the Herdr container survived startup. Zero uses the
 	// production default.
 	ResumeCheckAfter time.Duration
 
@@ -97,7 +76,7 @@ func NewManager(cfg config.Config, store *storage.Store) *Manager {
 // NewManagerWithContext ties asynchronous manager work to the application
 // context. Call Close before closing the store to cancel and join that work.
 func NewManagerWithContext(ctx context.Context, cfg config.Config, store *storage.Store) *Manager {
-	return &Manager{Config: cfg, Store: store, Runner: ExecRunner{}, ResumeCheckAfter: defaultResumeCheckAfter, background: newBackgroundState(ctx)}
+	return &Manager{Config: cfg, Store: store, ResumeCheckAfter: defaultResumeCheckAfter, background: newBackgroundState(ctx)}
 }
 
 func (m *Manager) workspaceService() *workspacepkg.Service {
@@ -204,12 +183,7 @@ func ticketLaunchCWD(ticket storage.Ticket) string {
 	return ticket.BoardWorkdir
 }
 
-func (m *Manager) defaultMultiplexerKind() multiplexer.Kind {
-	if strings.EqualFold(m.Config.Multiplexer.Default, string(multiplexer.KindHerdr)) {
-		return multiplexer.KindHerdr
-	}
-	return multiplexer.KindTmux
-}
+func (m *Manager) defaultMultiplexerKind() multiplexer.Kind { return multiplexer.KindHerdr }
 
 func (m *Manager) herdrAdapter() *herdrmux.Adapter {
 	cfg := m.Config.Multiplexer.Herdr
@@ -217,22 +191,12 @@ func (m *Manager) herdrAdapter() *herdrmux.Adapter {
 }
 
 func (m *Manager) multiplexerAdapter(kind multiplexer.Kind) (multiplexer.Interface, error) {
-	// Empty durable kinds predate the generic multiplexer columns and are tmux.
-	// Any non-empty unknown kind is rejected rather than being attached through
-	// the wrong runtime provider.
-	if kind == "" {
-		kind = multiplexer.KindTmux
+	if kind != multiplexer.KindHerdr {
+		return nil, fmt.Errorf("runtime %q is retired or unsupported; close its terminal externally and start a new Herdr attempt", kind)
 	}
-	registry, err := session.NewRegistry(NewMultiplexerAdapter(m), m.herdrAdapter())
-	if err != nil {
-		return nil, err
-	}
-	return registry.For(kind)
+	return m.herdrAdapter(), nil
 }
 
-// currentHerdrWorkspace returns the Herdr workspace this Kanbi process is
-// running in, resolved once and cached. Tickets are launched as new tabs in
-// this workspace so opening a ticket never spawns a separate Herdr space.
 func (m *Manager) currentHerdrWorkspace(ctx context.Context) string {
 	m.herdrWorkspaceOnce.Do(func() {
 		if id, err := m.herdrAdapter().CurrentWorkspace(ctx); err == nil {
@@ -242,31 +206,7 @@ func (m *Manager) currentHerdrWorkspace(ctx context.Context) string {
 	return m.herdrWorkspaceID
 }
 
-func (m *Manager) EnsureSession(ctx context.Context) error {
-	if _, err := m.run(ctx, "has-session", "-t", m.Config.TmuxSession); err == nil {
-		return m.EnsureBoardWindow(ctx)
-	}
-	if _, err := m.run(ctx, "new-session", "-d", "-s", m.Config.TmuxSession, "-n", m.Config.Tmux.BoardWindowName); err != nil {
-		return fmt.Errorf("create tmux session: %w", err)
-	}
-	return nil
-}
-
-func (m *Manager) EnsureBoardWindow(ctx context.Context) error {
-	name := m.Config.Tmux.BoardWindowName
-	if name == "" {
-		name = "board"
-	}
-	exists, err := m.windowExistsInSession(ctx, m.Config.TmuxSession, name)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-	_, err = m.run(ctx, newWindowArgs(m.Config.TmuxSession, name, "")...)
-	return err
-}
+func (m *Manager) EnsureSession(ctx context.Context) error { return m.herdrAdapter().Ensure(ctx, "") }
 
 func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
 	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt})
@@ -276,41 +216,12 @@ func (m *Manager) StartFreshTicket(ctx context.Context, ticket storage.Ticket, s
 	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt, StartFresh: true})
 }
 
-func (m *Manager) MoveTicketToDefaultMultiplexer(ctx context.Context, ticket storage.Ticket) error {
-	if m.defaultMultiplexerKind() != multiplexer.KindHerdr {
-		return fmt.Errorf("move unavailable: configured multiplexer is not Herdr")
-	}
-	if !ticket.SessionRef.Valid || strings.TrimSpace(ticket.SessionRef.String) == "" {
-		return fmt.Errorf("cannot move %s to Herdr: no harness session ref; start fresh instead", ticket.DisplayID)
-	}
-	if ticket.Multiplexer.Valid && ticket.Multiplexer.String == string(multiplexer.KindHerdr) {
-		return fmt.Errorf("%s is already using Herdr", ticket.DisplayID)
-	}
-	if ticket.SessionActive {
-		if err := m.CloseSession(ctx, ticket); err != nil {
-			return fmt.Errorf("close tmux before Herdr resume: %w", err)
-		}
-	}
-	updated := ticket
-	if m.Store != nil {
-		fresh, err := m.Store.TicketByID(ctx, ticket.ID)
-		if err != nil {
-			return err
-		}
-		updated = fresh
-	}
-	if !updated.SessionRef.Valid || strings.TrimSpace(updated.SessionRef.String) == "" {
-		updated.SessionRef = ticket.SessionRef
-	}
-	return m.OpenTicket(ctx, updated, false)
-}
-
 func (m *Manager) SwitchToTicket(ctx context.Context, ticket storage.Ticket) error {
 	return m.OpenTicket(ctx, ticket, false)
 }
 
 func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.Ticket) (storage.Ticket, error) {
-	if m.Store == nil || !ticket.SessionID.Valid {
+	if m.Store == nil || !ticket.SessionID.Valid || !m.nativeHarness(ticket.Harness) || (ticket.SessionActive && ContainerRefFromTicket(ticket).Kind != multiplexer.KindHerdr) {
 		return ticket, nil
 	}
 	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
@@ -357,21 +268,23 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 }
 
 func (m *Manager) RenameTicketWindow(ctx context.Context, ticket storage.Ticket, title string) error {
-	oldName := TicketWindowName(ticket)
+	if !ticket.SessionActive {
+		return nil
+	}
+	ref := ContainerRefFromTicket(ticket)
+	if ref.Kind != multiplexer.KindHerdr {
+		return nil
+	}
+	valid, err := m.herdrAdapter().Validate(ctx, ref)
+	if err != nil || !valid {
+		return err
+	}
 	updated := ticket
 	updated.Title = title
-	newName := TicketWindowName(updated)
-	ref, exists, err := m.ticketWindowRef(ctx, ticket, oldName)
-	if err != nil || !exists {
+	if err := m.herdrAdapter().Rename(ctx, ref, TicketWindowName(updated)); err != nil {
 		return err
 	}
-	if _, err := m.run(ctx, "rename-window", "-t", targetRef(ticketRuntimeSessionName(m.Config.TmuxSession, ticket), ref), newName); err != nil {
-		return err
-	}
-	if m.Store != nil {
-		return m.Store.RenameSessionWindow(ctx, ticket.ID, newName)
-	}
-	return nil
+	return m.Store.RenameSessionWindow(ctx, ticket.ID, TicketWindowName(updated))
 }
 
 func (m *Manager) Reconcile(ctx context.Context) error {
@@ -407,45 +320,38 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			return err
 		}
 		sessionID := ticket.SessionID
-		if !sessionID.Valid || !ticket.SessionActive {
+		if !sessionID.Valid || !ticket.SessionActive || ticket.Runtime == kanban.StateStarting {
 			continue
 		}
-		if ticket.Multiplexer.Valid && ticket.Multiplexer.String == string(multiplexer.KindHerdr) {
-			adapter := m.herdrAdapter()
-			ref := ContainerRefFromTicket(ticket)
-			valid, validateErr := adapter.Validate(ctx, ref)
-			if validateErr != nil {
-				if err := m.Store.RecordSessionObservationFailure(ctx, sessionID.Int64, "herdr", validateErr.Error()); err != nil {
-					return err
-				}
-				continue
-			}
-			if !valid {
-				if err := m.Store.MarkSessionMissing(ctx, sessionID.Int64); err != nil {
-					return err
-				}
-				continue
-			}
-			detection, _ := adapter.Detect(ctx, ref)
-			if detection.Source == multiplexer.DetectionSourceUnknown {
-				continue
-			}
-			if err := m.Store.UpdateSessionRuntime(ctx, sessionID.Int64, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
+		if ContainerRefFromTicket(ticket).Kind != multiplexer.KindHerdr {
+			if err := m.Store.RecordSessionObservationFailure(ctx, sessionID.Int64, "system", "legacy runtime retired; terminal was not inspected or closed"); err != nil {
 				return err
 			}
 			continue
 		}
-		_, exists, err := m.ticketWindowRef(ctx, ticket, ticket.WindowName.String)
-		if err != nil {
-			return err
+
+		adapter := m.herdrAdapter()
+		ref := ContainerRefFromTicket(ticket)
+		valid, validateErr := adapter.Validate(ctx, ref)
+		if validateErr != nil {
+			if err := m.Store.RecordSessionObservationFailure(ctx, sessionID.Int64, "herdr", validateErr.Error()); err != nil {
+				return err
+			}
+			continue
 		}
-		if !exists {
+		if !valid {
 			if err := m.Store.MarkSessionMissing(ctx, sessionID.Int64); err != nil {
 				return err
 			}
 			continue
 		}
-		_ = m.Store.UpdateSessionRuntime(ctx, sessionID.Int64, ticket.Runtime, "tmux", "", "", false)
+		detection, _ := adapter.Detect(ctx, ref)
+		if detection.Source == multiplexer.DetectionSourceUnknown {
+			continue
+		}
+		if err := m.Store.UpdateSessionRuntime(ctx, sessionID.Int64, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -529,35 +435,21 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		if ses.Status == kanban.StateStarting || ses.Status == kanban.StateClosing {
 			continue
 		}
-		var out string
-		detectionSource := "tmux"
-		if ses.Multiplexer == string(multiplexer.KindHerdr) {
-			adapter := m.herdrAdapter()
-			containerRef := ContainerRefFromSession(ses)
-			detection, _ := adapter.Detect(ctx, containerRef)
-			if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
-				if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
-					return err
-				}
-				continue
-			}
-			out, err = adapter.Read(ctx, containerRef, multiplexer.ReadOptions{Lines: 200})
-			detectionSource = "herdr"
-		} else {
-			var ref string
-			var exists bool
-			ref, exists, err = m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
-			if err != nil {
+		containerRef := ContainerRefFromSession(ses)
+		if containerRef.Kind != multiplexer.KindHerdr {
+			continue
+		}
+		detectionSource := "herdr"
+		adapter := m.herdrAdapter()
+		detection, _ := adapter.Detect(ctx, containerRef)
+		if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
+			if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
 				return err
 			}
-			if !exists {
-				if err := m.Store.MarkObservedSessionMissing(ctx, ses); err != nil {
-					return err
-				}
-				continue
-			}
-			out, err = m.capturePaneRef(ctx, ses.TmuxSessionName, ref)
+			continue
 		}
+		out, err := adapter.Read(ctx, containerRef, multiplexer.ReadOptions{Lines: 200})
+
 		if err != nil {
 			if errors.Is(err, multiplexer.ErrContainerNotFound) {
 				if markErr := m.Store.MarkObservedSessionMissing(ctx, ses); markErr != nil {
@@ -602,59 +494,30 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 	if err != nil || !ok {
 		return err
 	}
-	var ref string
-	if ses.Multiplexer == string(multiplexer.KindHerdr) {
-		containerRef := ContainerRefFromSession(ses)
-		if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateClosing, "system", "graceful close requested", "", false); err != nil {
-			return err
-		}
-		adapter := m.herdrAdapter()
-		for _, key := range harness.ExitKeys(m.Config.Harnesses, ses.Harness) {
-			if isTextExitCommand(key) {
-				if err := adapter.SendText(ctx, containerRef, key); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := adapter.SendKeys(ctx, containerRef, key); err != nil {
-				return err
-			}
-		}
-		if err := adapter.Close(ctx, containerRef); err != nil {
-			return err
-		}
-		return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "herdr", "pane closed")
+	if ses.Multiplexer != string(multiplexer.KindHerdr) {
+		return fmt.Errorf("legacy runtime retired; close its terminal externally")
 	}
-	ref, exists, err := m.ticketWindowRefInSession(ctx, ses.TmuxSessionName, ticket, ses.TmuxWindowName)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return m.Store.MarkSessionMissing(ctx, ses.ID)
-	}
+
+	containerRef := ContainerRefFromSession(ses)
 	if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateClosing, "system", "graceful close requested", "", false); err != nil {
 		return err
 	}
+	adapter := m.herdrAdapter()
 	for _, key := range harness.ExitKeys(m.Config.Harnesses, ses.Harness) {
-		if _, err := m.run(ctx, "send-keys", "-t", targetRef(ses.TmuxSessionName, ref), key); err != nil {
+		if isTextExitCommand(key) {
+			if err := adapter.SendText(ctx, containerRef, key); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := adapter.SendKeys(ctx, containerRef, key); err != nil {
 			return err
 		}
 	}
-	deadline := time.Now().Add(m.Config.GracefulExitTimeout)
-	for time.Now().Before(deadline) {
-		exists, err := m.windowRefExistsInSession(ctx, ses.TmuxSessionName, ref)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "tmux", "window exited")
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	if _, err := m.run(ctx, "kill-window", "-t", targetRef(ses.TmuxSessionName, ref)); err != nil {
+	if err := adapter.Close(ctx, containerRef); err != nil {
 		return err
 	}
-	return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "tmux", "graceful exit timed out; window closed")
+	return m.Store.MarkSessionClosed(ctx, ses.ID, kanban.StateClosed, "herdr", "pane closed")
 }
 
 func (m *Manager) WaitAndSendPrompt(ctx context.Context, adapter multiplexer.Interface, ref multiplexer.ContainerRef, readOptions multiplexer.ReadOptions, text, ready string, timeout time.Duration) error {
@@ -679,31 +542,17 @@ func (m *Manager) WaitAndSendPrompt(ctx context.Context, adapter multiplexer.Int
 // used for an explicit paused-work handoff after the normal resume succeeds.
 func (m *Manager) SendTicketMessage(ctx context.Context, ticket storage.Ticket, text string) error {
 	ref := ContainerRefFromTicket(ticket)
+	adapter, err := m.multiplexerAdapter(ref.Kind)
+	if err != nil {
+		return err
+	}
 	if ref.Target() == "" {
-		return ErrWindowMissing
+		return multiplexer.ErrContainerNotFound
 	}
-	if ref.Kind == multiplexer.KindHerdr {
-		if err := m.herdrAdapter().SendText(ctx, ref, text); err != nil {
-			return err
-		}
-		return m.herdrAdapter().SendKeys(ctx, ref, "Enter")
-	}
-	adapter := NewMultiplexerAdapter(m)
 	if err := adapter.SendText(ctx, ref, text); err != nil {
 		return err
 	}
 	return adapter.SendKeys(ctx, ref, "Enter")
-}
-
-func (m *Manager) PastePromptNow(ctx context.Context, windowName, text string) error {
-	if _, err := m.run(ctx, "set-buffer", "--", text); err != nil {
-		return err
-	}
-	if _, err := m.run(ctx, "paste-buffer", "-t", target(m.Config.TmuxSession, windowName)); err != nil {
-		return err
-	}
-	_, err := m.run(ctx, "send-keys", "-t", target(m.Config.TmuxSession, windowName), "Enter")
-	return err
 }
 
 func isTextExitCommand(key string) bool {
@@ -715,16 +564,7 @@ func isTextExitCommand(key string) bool {
 	}
 }
 
-// waitWindowLive waits a fixed interval after launching a resume window, then
-// checks whether the window is still present. tmux new-window succeeds regardless
-// of whether the launched process survives, so we must verify liveness separately.
-//
-// If the window is gone at check time, the harness rejected the session ref
-// (e.g. "No session found matching '...'") and we return an error so the
-// caller can surface a ResumeFailedError instead of recording a phantom session.
-//
-// The wait duration must exceed the typical time a failing harness takes to
-// display its error and exit. For pi, a bad --session ref causes exit in ~1.8s.
+// waitHerdrContainerLive checks that a resume attempt survives startup.
 func (m *Manager) waitHerdrContainerLive(ctx context.Context, ref multiplexer.ContainerRef, checkAfter time.Duration) error {
 	select {
 	case <-ctx.Done():
@@ -735,148 +575,6 @@ func (m *Manager) waitHerdrContainerLive(ctx context.Context, ref multiplexer.Co
 		return fmt.Errorf("Herdr pane exited immediately (harness may have rejected the session ref): %w", err)
 	}
 	return nil
-}
-
-func (m *Manager) waitWindowLive(ctx context.Context, sessionName, windowID, windowName string, checkAfter time.Duration) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(checkAfter):
-	}
-	exists, _ := m.windowRefExistsInSession(ctx, sessionName, windowID)
-	if !exists {
-		// Fallback: check by name in case window ID is stale.
-		exists, _ = m.windowExistsInSession(ctx, sessionName, windowName)
-	}
-	if !exists {
-		return fmt.Errorf("window exited immediately (harness may have rejected the session ref)")
-	}
-	return nil
-}
-
-func (m *Manager) capturePaneRef(ctx context.Context, sessionName, ref string) (string, error) {
-	return m.run(ctx, "capture-pane", "-p", "-t", targetRef(sessionName, ref))
-}
-
-func (m *Manager) windowExistsInSession(ctx context.Context, sessionName, windowName string) (bool, error) {
-	_, err := m.windowIDByNameInSession(ctx, sessionName, windowName)
-	if errors.Is(err, ErrWindowMissing) {
-		return false, nil
-	}
-	return err == nil, err
-}
-
-func (m *Manager) availableWindowNameInSession(ctx context.Context, sessionName, base string) (string, error) {
-	for i := 0; ; i++ {
-		name := base
-		if i > 0 {
-			name = fmt.Sprintf("%s-%d", base, i+1)
-		}
-		exists, err := m.windowExistsInSession(ctx, sessionName, name)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return name, nil
-		}
-	}
-}
-
-func (m *Manager) windowIDByNameInSession(ctx context.Context, sessionName, windowName string) (string, error) {
-	out, err := m.run(ctx, "list-windows", "-t", sessionName, "-F", "#{window_name}")
-	if err != nil {
-		if isTmuxMissingTarget(out, err) {
-			return "", ErrWindowMissing
-		}
-		return "", err
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
-		}
-		if line == windowName {
-			return m.displayWindowIDInSession(ctx, sessionName, windowName)
-		}
-	}
-	return "", ErrWindowMissing
-}
-
-func (m *Manager) displayWindowIDInSession(ctx context.Context, sessionName, windowName string) (string, error) {
-	out, err := m.run(ctx, "display-message", "-p", "-t", target(sessionName, windowName), "#{window_id}")
-	return strings.TrimSpace(out), err
-}
-
-func (m *Manager) windowRefExistsInSession(ctx context.Context, sessionName, ref string) (bool, error) {
-	if ref == "" {
-		return false, nil
-	}
-	if strings.HasPrefix(ref, "@") {
-		out, err := m.run(ctx, "display-message", "-p", "-t", targetRef(sessionName, ref), "#{window_id}")
-		if err != nil {
-			return false, nil
-		}
-		// tmux returns exit 0 with empty output when the window ID no longer exists.
-		return strings.TrimSpace(out) != "", nil
-	}
-	return m.windowExistsInSession(ctx, sessionName, ref)
-}
-
-func (m *Manager) ticketWindowRef(ctx context.Context, ticket storage.Ticket, fallbackName string) (string, bool, error) {
-	return m.ticketWindowRefInSession(ctx, ticketRuntimeSessionName(m.Config.TmuxSession, ticket), ticket, fallbackName)
-}
-
-func (m *Manager) ticketWindowRefInSession(ctx context.Context, sessionName string, ticket storage.Ticket, fallbackName string) (string, bool, error) {
-	expectedName := fallbackName
-	if ticket.WindowName.Valid && ticket.WindowName.String != "" {
-		expectedName = ticket.WindowName.String
-	}
-	if ticket.SessionActive && ticket.WindowID.Valid && ticket.WindowID.String != "" {
-		actualName, exists, err := m.windowNameByIDInSession(ctx, sessionName, ticket.WindowID.String)
-		if err != nil {
-			return "", false, err
-		}
-		if exists && actualName == expectedName {
-			return ticket.WindowID.String, true, nil
-		}
-	}
-	if expectedName == "" {
-		return "", false, nil
-	}
-	exists, err := m.windowExistsInSession(ctx, sessionName, expectedName)
-	if err != nil {
-		return "", false, err
-	}
-	return expectedName, exists, nil
-}
-
-func (m *Manager) windowNameByIDInSession(ctx context.Context, sessionName, id string) (string, bool, error) {
-	out, err := m.run(ctx, "display-message", "-p", "-t", targetRef(sessionName, id), "#{window_name}")
-	if err != nil {
-		return "", false, nil
-	}
-	return strings.TrimSpace(out), true, nil
-}
-
-// KillSession kills the entire tmux session, closing all windows.
-func (m *Manager) KillSession(ctx context.Context) error {
-	_, err := m.run(ctx, "kill-session", "-t", m.Config.TmuxSession)
-	return err
-}
-
-func (m *Manager) run(ctx context.Context, args ...string) (string, error) {
-	out, err := m.Runner.Run(ctx, "tmux", args...)
-	if err != nil && strings.TrimSpace(out) != "" {
-		return out, fmt.Errorf("%w: %s", err, strings.TrimSpace(out))
-	}
-	return out, err
-}
-
-func isTmuxMissingTarget(out string, err error) bool {
-	if err == nil {
-		return false
-	}
-	combined := strings.ToLower(strings.TrimSpace(out + " " + err.Error()))
-	return strings.Contains(combined, "can't find session") || strings.Contains(combined, "can't find window")
 }
 
 func (m *Manager) commandWithPiSessionRefCapture(ticket storage.Ticket, command []string) ([]string, string, string, error) {
@@ -1000,11 +698,21 @@ func (m *Manager) acquireCodexCaptureLock(ctx context.Context) (func(), error) {
 	}
 }
 
+// Native history is meaningful only for the canonical harness executable.
+// Custom commands use their configured output marker and never scan user histories.
+func (m *Manager) nativeHarness(name string) bool {
+	h := m.Config.Harnesses[name]
+	return len(h.Start) > 0 && h.Start[0] == name
+}
+
 func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText, cwd string, since time.Time, refFile, refToken string) (string, bool) {
 	if harnessName == "pi" && refFile != "" {
 		if ref, ok := readPiSessionRefFile(refFile, refToken); ok {
 			return ref, true
 		}
+	}
+	if !m.nativeHarness(harnessName) {
+		return "", false
 	}
 	// Copilot writes to session-store.db asynchronously and may take several
 	// seconds after process start. Pi writes its JSONL file asynchronously too.
@@ -1058,78 +766,6 @@ func ShellCommand(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
-func newWindowArgs(session, name, cwd string) []string {
-	args := []string{"new-window", "-d", "-P", "-F", "#{window_id}"}
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	if cwd != "" {
-		args = append(args, "-c", cwd)
-	}
-	args = append(args, "-t", session, "-n", name)
-	return args
-}
-
-func InsideTmux() bool {
-	return os.Getenv("TMUX") != ""
-}
-
-func CurrentSessionName(ctx context.Context) (string, error) {
-	out, err := ExecRunner{}.Run(ctx, "tmux", "display-message", "-p", "#S")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(out), nil
-}
-
-func AttachCommand(cfg config.Config, exe string) *exec.Cmd {
-	board := cfg.Tmux.BoardWindowName
-	if board == "" {
-		board = "board"
-	}
-	sessionName := boardClientSessionName(cfg.TmuxSession)
-	cmd := exec.Command("tmux", "new-session", "-s", sessionName, "-n", board, "env", "KANBI_INNER=1", "KANBI_TMUX_SESSION="+sessionName, exe, "--board")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd
-}
-
-func boardClientSessionName(mainSession string) string {
-	if mainSession == "" {
-		mainSession = config.DefaultSession
-	}
-	return fmt.Sprintf("%s-board-%d-%d-%d", mainSession, os.Getpid(), time.Now().UnixNano(), boardSessionSeq.Add(1))
-}
-
-func target(session, window string) string {
-	return session + ":" + window
-}
-
-func targetRef(session, ref string) string {
-	if ref == "" || session == "" {
-		return ref
-	}
-	if strings.Contains(ref, ":") {
-		return ref
-	}
-	return target(session, ref)
-}
-
-func windowRef(ticket storage.Ticket, fallbackName string) string {
-	if ticket.WindowID.Valid && ticket.WindowID.String != "" {
-		return ticket.WindowID.String
-	}
-	return fallbackName
-}
-
-func ticketRuntimeSessionName(defaultSession string, ticket storage.Ticket) string {
-	if ticket.TmuxSessionName.Valid && ticket.TmuxSessionName.String != "" {
-		return ticket.TmuxSessionName.String
-	}
-	return defaultSession
-}
-
 func slug(s string) string {
 	s = strings.ToLower(s)
 	re := regexp.MustCompile(`[^a-z0-9]+`)
@@ -1156,4 +792,40 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-var ErrWindowMissing = errors.New("tmux window missing")
+var ErrWindowMissing = multiplexer.ErrContainerNotFound
+
+// KillSession closes Kanbi-owned containers, never the Herdr server or other workspaces.
+func (m *Manager) KillSession(ctx context.Context) error {
+	if m.Store == nil {
+		return nil
+	}
+	tickets, err := m.Store.ListTickets(ctx, false)
+	if err != nil {
+		return err
+	}
+	for _, ticket := range tickets {
+		if ticket.SessionActive && ContainerRefFromTicket(ticket).Kind == multiplexer.KindHerdr {
+			if err := m.CloseSession(ctx, ticket); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (m *Manager) PastePromptNow(ctx context.Context, name, text string) error {
+	if m.Store == nil {
+		return multiplexer.ErrContainerNotFound
+	}
+	tickets, err := m.Store.ListTickets(ctx, false)
+	if err != nil {
+		return err
+	}
+	for _, ticket := range tickets {
+		ref := ContainerRefFromTicket(ticket)
+		if ref.Name == name && ticket.SessionActive {
+			return m.SendTicketMessage(ctx, ticket, text)
+		}
+	}
+	return multiplexer.ErrContainerNotFound
+}

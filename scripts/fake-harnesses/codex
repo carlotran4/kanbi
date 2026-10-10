@@ -2,6 +2,7 @@
 set -euo pipefail
 
 echo "FAKE_CODEX_START"
+echo "SESSION_REF=fake-codex"
 echo "ARGS:$*"
 
 if (($# > 0)); then

@@ -91,8 +91,8 @@ insert into sessions (
   multiplexer, mux_container_name, status, is_active, created_at, updated_at, started_at, closed_at,
   last_state_change_at, last_detected_state, last_detection_source
 )
-select t.id, t.harness, 'fixture-ref-' || t.id, 'kanbi-ui-fixture',
-       'fixture-' || t.id, 'herdr', 'fixture-' || t.id, 'error', 0,
+select t.id, t.harness, 'fixture-ref-' || t.id, '',
+       '', 'herdr', 'fixture-' || t.id, 'error', 0,
        datetime('now', '-37 days'), datetime('now', '-37 days'),
        datetime('now', '-37 days'), datetime('now', '-37 days'),
        datetime('now', '-37 days'), 'error', 'fixture'

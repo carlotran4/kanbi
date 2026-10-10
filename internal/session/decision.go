@@ -62,13 +62,13 @@ func Decide(req Request) (Decision, error) {
 		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
 			return Decision{Ticket: ticket, Action: ActionResume, ReplaceActive: true}, nil
 		}
-		return Decision{Ticket: ticket, Action: ActionRepair, Reason: "tmux window is missing and no session ref is known"}, nil
+		return Decision{Ticket: ticket, Action: ActionRepair, Reason: "terminal container is missing and no session ref is known"}, nil
 	}
 	if ticket.SessionID.Valid {
 		if ticket.SessionRef.Valid && ticket.SessionRef.String != "" {
 			return Decision{Ticket: ticket, Action: ActionResume}, nil
 		}
-		return Decision{Ticket: ticket, Action: ActionRepair, Reason: "ticket has no active window and no session ref is known"}, nil
+		return Decision{Ticket: ticket, Action: ActionRepair, Reason: "ticket has no active container and no session ref is known"}, nil
 	}
 	return Decision{Ticket: ticket, Action: ActionStart}, nil
 }

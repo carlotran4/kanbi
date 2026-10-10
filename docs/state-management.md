@@ -1,6 +1,6 @@
 # Kanbi State Management
 
-This document defines the state model the implementation should follow. SQLite is the canonical record; the configured multiplexer (tmux by default, Herdr when opted in) is an observed runtime substrate; the TUI is a projection plus command surface.
+This document defines the state model the implementation should follow. SQLite is the canonical record; Herdr is an observed runtime substrate; the TUI is a projection plus command surface.
 
 ## Runtime State Machine
 
@@ -51,10 +51,10 @@ stateDiagram-v2
     inactive_error --> active_session: repair or start fresh
 ```
 
-- `sessions.is_active = 1` means the session owns the ticket's single runtime slot. A `starting` row is a durable pre-launch claim and may not have a container reference yet; after launch it represents the live tmux window or Herdr agent/pane owned by the ticket. Sessions also snapshot nullable `workspace_id` and `launch_cwd`; all harness-ref capture, validation, recovery, and resume checks use that launch directory instead of assuming the board cwd.
+- `sessions.is_active = 1` means the session owns the ticket's single runtime slot. A `starting` row is a durable pre-launch claim and may not have a container reference yet; after launch it represents the live Herdr agent/pane owned by the ticket. Sessions also snapshot nullable `workspace_id` and `launch_cwd`; all harness-ref capture, validation, recovery, and resume checks use that launch directory instead of assuming the board cwd.
 - `sessions.is_active = 0` does not mean the ticket is `not_started`. The ticket should project the latest session's terminal state (`closed`, `error`, `exited`) and any `session_ref`.
-- A tmux `window_id` is valid only if tmux still reports that id with the expected ticket window name. Name fallback must use the session row's stored `tmux_session_name`, not the current process's runtime session. Window ids can be reused after windows close. Herdr sessions store generic `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata` fields; Herdr-native agent status is authoritative when it is not `unknown`.
-- Only one active session per ticket is allowed and SQLite enforces that invariant. Start/resume first writes a `starting` claim before launching a container, so concurrent Kanbi processes cannot both launch the same ticket. Starting fresh clears the prior attempt's legacy and generic runtime references in the lifecycle request, atomically deactivates the old active session, and creates the new claim in the currently configured multiplexer. tmux launches use the current executable's runtime tmux session; if a same-named tmux window already exists in that runtime session, the new window uses a unique suffix. Herdr launches use the configured Herdr session/workspace strategy.
+- Herdr sessions store generic `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata` fields; Herdr-native agent status is authoritative when it is not `unknown`.
+- Only one active session per ticket is allowed and SQLite enforces that invariant. Start/resume first writes a `starting` claim before launching a container, so concurrent Kanbi processes cannot both launch the same ticket. Starting fresh clears the prior attempt's legacy and generic runtime references in the lifecycle request, atomically deactivates the old active session, and creates the new claim in the currently configured multiplexer. Herdr launches use the configured Herdr session/workspace strategy.
 - Launch, resume-liveness, persistence, and paste-prompt failures transition the claim to inactive `error`; any container created for the failed attempt is closed best-effort so it cannot remain untracked.
 - A terminal container that disappears after a successful launch is not itself evidence of session failure. It becomes inactive `exited` when a verified harness session ref exists, or `repair_needed` when it does not. Legacy inactive `error` rows recorded specifically as a missing tmux window project the same way—`exited` with a ref and `repair_needed` without one—without rewriting session history.
 - A multiplexer command failure alone is only an observation failure. When Herdr returns its explicit `agent_not_found` or `pane_not_found` code, however, that is authoritative container absence and follows the exited/repair rule above.
@@ -181,15 +181,15 @@ The current implementation is intentionally split this way:
 
 - `internal/storage`: owns canonical ticket/session rows, ticket notes and deletion tombstones, per-board provider sync leases, remote push pending state tokens, redacted `runtime_diagnostics`, and the ticket projection used by `BoardView`. Linked-note tombstones are hidden from normal reads but visible to sync, preventing a still-present remote comment from being re-imported.
 - `internal/ticketbackend`: owns startup/periodic/mutation-triggered provider sync, HTTP timeouts/retry class for reads, durable find-or-link create recovery, and sync diagnostic writes. Manager stop drains in-flight board syncs.
-- `internal/tmux`: owns lifecycle orchestration, tmux validation, Herdr adapter dispatch, start/resume/switch/close, managed session-ref capture (cancel+WaitGroup), runtime refresh, and repair errors.
+- `internal/runtime`: owns lifecycle orchestration, Herdr validation and launch, start/resume/switch/close, managed session-ref capture (cancel+WaitGroup), runtime refresh, and repair errors.
 - `internal/tui`: owns transient UI states such as edit mode, repair screen, prompt fallback, column edit, manual mark menu, and bootstrap degraded banners (provider sync / runtime reconciliation). An open ticket editor snapshots the ticket identity it was opened for; refreshes may change the board projection and cursor position, but editor saves, notes, attachments, rendering, and external-editor results remain bound to that stable ticket ID.
 
 State bugs to avoid:
 
 - Do not derive ticket runtime from only active sessions. A closed or error latest session is still meaningful board state.
 - Do not treat every latest session as active. `is_active` must be projected separately from `status`.
-- Do not trust `tmux_window_id` without confirming tmux still reports the expected ticket window name for that id. Do not treat Herdr `unknown`/unavailable agent state as authoritative; fall back to pane-output/harness detection.
-- Do not validate or control an existing active session against the current process's tmux session; use the stored `tmux_session_name` from the session row.
+- Do not treat Herdr `unknown`/unavailable agent state as authoritative; fall back to pane-output/harness detection.
+- Route Herdr operations through the stored container reference. Legacy tmux rows remain history; runtime removal never fabricates closure or Herdr IDs.
 - Do not create a new DB session row just because a valid active ticket window was opened again.
 - Do not let heuristic watcher output immediately overwrite a manual runtime override.
 - Do not close sessions from runtime detection; wait/permission classification is advisory and may be imperfect.

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"reflect"
 	"testing"
@@ -114,7 +115,7 @@ func TestUpdateTicketRenamesBeforePersistenceAndSchedulesAfterSuccess(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxWindowName: "live", Status: "running"}); err != nil {
+	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", Multiplexer: "herdr", MuxContainerName: sql.NullString{String: "live", Valid: true}, Status: "running"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.UpdateTicket(ctx, ticket.ID, "Updated", "body", "pi"); err != nil {
@@ -141,7 +142,7 @@ func TestRejectedTicketMutationsHaveNoRuntimeOrSyncSideEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", TmuxWindowName: "live", Status: "running"}); err != nil {
+	if _, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", Multiplexer: "herdr", MuxContainerName: sql.NullString{String: "live", Valid: true}, Status: "running"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.UpdateTicket(ctx, ticket.ID, "Changed", "changed", "unsupported"); err == nil {

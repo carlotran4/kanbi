@@ -88,10 +88,7 @@ func TestNormalizeDefaultsFromInMemoryRawConfig(t *testing.T) {
 	if cfg.Diagnostics.Level != "off" {
 		t.Fatalf("diagnostics default=%+v", cfg.Diagnostics)
 	}
-	if cfg.TmuxSession != DefaultSession || cfg.Tmux.SessionName != DefaultSession || cfg.Tmux.BoardWindowName != "board" {
-		t.Fatalf("tmux defaults not applied: %+v", cfg)
-	}
-	if cfg.Multiplexer.Default != "tmux" || cfg.Multiplexer.Tmux != cfg.Tmux || cfg.Multiplexer.Herdr.Binary != "herdr" {
+	if cfg.Multiplexer.Default != "herdr" || cfg.Multiplexer.Herdr.Binary != "herdr" {
 		t.Fatalf("multiplexer defaults not applied: %+v", cfg.Multiplexer)
 	}
 	if cfg.PromptReadyTimeout != 5*time.Second || cfg.IdleUnknownAfter != 120*time.Second || cfg.GracefulExitTimeout != 15*time.Second {
@@ -160,12 +157,12 @@ func TestNormalizeRejectsInvalidStatusBar(t *testing.T) {
 
 func TestNormalizeEnvOverridesInMemoryRawConfig(t *testing.T) {
 	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
-	raw := Config{DBPath: "/from/config.db", TmuxSession: "from-config"}
-	cfg, err := Normalize(raw, paths, NormalizeOptions{Env: Env{DBPath: "/from/env.db", TmuxSession: "from-env"}})
+	raw := Config{DBPath: "/from/config.db"}
+	cfg, err := Normalize(raw, paths, NormalizeOptions{Env: Env{DBPath: "/from/env.db"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DBPath != "/from/env.db" || cfg.TmuxSession != "from-env" || cfg.Tmux.SessionName != "from-env" {
+	if cfg.DBPath != "/from/env.db" {
 		t.Fatalf("env overrides not applied during normalize: %+v", cfg)
 	}
 }
@@ -174,7 +171,6 @@ func TestNormalizeMultiplexerConfigAndEnvOverride(t *testing.T) {
 	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
 	raw := Config{Multiplexer: Multiplexer{
 		Default: "tmux",
-		Tmux:    Tmux{SessionName: "mux-session", BoardWindowName: "mux-board"},
 		Herdr:   Herdr{Binary: "/bin/herdr", Session: "work", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: true},
 	}}
 	cfg, err := Normalize(raw, paths, NormalizeOptions{Env: Env{DefaultMultiplexer: "herdr"}})
@@ -184,22 +180,15 @@ func TestNormalizeMultiplexerConfigAndEnvOverride(t *testing.T) {
 	if cfg.Multiplexer.Default != "herdr" {
 		t.Fatalf("env multiplexer override not applied: %+v", cfg.Multiplexer)
 	}
-	if cfg.TmuxSession != "mux-session" || cfg.Tmux.SessionName != "mux-session" || cfg.Tmux.BoardWindowName != "mux-board" || cfg.Multiplexer.Tmux != cfg.Tmux {
-		t.Fatalf("multiplexer tmux config did not sync legacy fields: %+v", cfg)
-	}
 	if cfg.Multiplexer.Herdr.Binary != "/bin/herdr" || cfg.Multiplexer.Herdr.Session != "work" || !cfg.Multiplexer.Herdr.FocusOnOpen {
 		t.Fatalf("herdr config not applied: %+v", cfg.Multiplexer.Herdr)
 	}
 }
 
-func TestNormalizeLegacyTmuxConfigSyncsMultiplexer(t *testing.T) {
-	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
-	cfg, err := Normalize(Config{TmuxSession: "legacy", Tmux: Tmux{BoardWindowName: "legacy-board"}}, paths, NormalizeOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Multiplexer.Default != "tmux" || cfg.Multiplexer.Tmux.SessionName != "legacy" || cfg.Multiplexer.Tmux.BoardWindowName != "legacy-board" {
-		t.Fatalf("legacy tmux did not sync multiplexer config: %+v", cfg)
+func TestNormalizeRejectsRetiredRuntime(t *testing.T) {
+	_, err := Normalize(Config{Multiplexer: Multiplexer{Default: "tmux"}}, Paths{}, NormalizeOptions{})
+	if err == nil || !strings.Contains(err.Error(), "set multiplexer.default: herdr") {
+		t.Fatalf("expected migration guidance: %v", err)
 	}
 }
 
@@ -262,7 +251,7 @@ harnesses:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DBPath != "/tmp/custom.db" || cfg.TmuxSession != "custom-session" {
+	if cfg.DBPath != "/tmp/custom.db" {
 		t.Fatalf("override failed: %+v", cfg)
 	}
 	if cfg.PromptReadyTimeout != 2*time.Second {
@@ -362,7 +351,7 @@ timeouts:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DefaultHarness != "codex" || cfg.TmuxSession != "spec-session" || cfg.Tmux.BoardWindowName != "board-main" {
+	if cfg.DefaultHarness != "codex" {
 		t.Fatalf("nested config not applied: %+v", cfg)
 	}
 	if cfg.PromptReadyTimeout != 3*time.Second || cfg.IdleUnknownAfter != 5*time.Second || cfg.GracefulExitTimeout != 2*time.Second {

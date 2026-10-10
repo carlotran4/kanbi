@@ -44,7 +44,7 @@ func TestHerdrBoardLaunchStartsServerWhenUnavailable(t *testing.T) {
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> " + ShellQuoteArg(callsPath) + "\n" +
 		"if [ \"$1\" = status ]; then\n" +
-		"  if [ -f " + ShellQuoteArg(serverStartedPath) + " ]; then echo ok; exit 0; fi\n" +
+		"  if [ -f " + ShellQuoteArg(serverStartedPath) + " ]; then echo '{\"server\":{\"running\":true,\"compatible\":true}}'; exit 0; fi\n" +
 		"  echo unavailable >&2; exit 1\n" +
 		"fi\n" +
 		"if [ \"$1\" = server ]; then touch " + ShellQuoteArg(serverStartedPath) + "; exit 0; fi\n" +
@@ -61,14 +61,14 @@ func TestHerdrBoardLaunchStartsServerWhenUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Fields(strings.TrimSpace(string(calls)))
+	got := strings.Split(strings.TrimSpace(string(calls)), "\n")
 	serverCalls := 0
 	for _, call := range got {
 		if call == "server" {
 			serverCalls++
 		}
 	}
-	if len(got) < 3 || got[0] != "status" || got[len(got)-1] != "status" || serverCalls != 1 {
+	if len(got) < 3 || got[0] != "status --json" || got[len(got)-1] != "status --json" || serverCalls != 1 {
 		t.Fatalf("unexpected Herdr calls: %v", got)
 	}
 }

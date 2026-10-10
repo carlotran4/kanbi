@@ -25,7 +25,6 @@ type DetectionSource string
 const (
 	DetectionSourceUnknown   DetectionSource = "unknown"
 	DetectionSourceNative    DetectionSource = "native"
-	DetectionSourceTmux      DetectionSource = "tmux"
 	DetectionSourceHeuristic DetectionSource = "heuristic"
 	DetectionSourcePattern   DetectionSource = "pattern"
 )
@@ -41,7 +40,7 @@ const (
 )
 
 // ContainerRef is the provider-neutral durable reference to a runtime container.
-// For tmux, Namespace is the session name and ID/Name are window id/name.
+// Legacy tmux ownership is retained for history; live refs identify Herdr panes.
 type ContainerRef struct {
 	Kind      Kind
 	Namespace string
@@ -75,7 +74,7 @@ type ReadOptions struct {
 }
 
 // Detection is a provider-neutral runtime-state observation. The Source and
-// Confidence fields make room for future authoritative provider state while tmux
+// Confidence fields make room for future authoritative provider state while Herdr
 // pane output remains a fallback.
 type Detection struct {
 	State      string

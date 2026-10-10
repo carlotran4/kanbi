@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"hash/fnv"
@@ -10,14 +9,11 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -79,48 +75,9 @@ func supportsSixelGraphics() bool {
 	return strings.Contains(term, "sixel") || strings.Contains(term, "mlterm")
 }
 
-type terminalEnvKey struct{ tmux, pane, name string }
-type terminalEnvValue struct {
-	value string
-	at    time.Time
-}
-
-var terminalEnvironmentCache = struct {
-	sync.Mutex
-	values map[terminalEnvKey]terminalEnvValue
-}{values: make(map[terminalEnvKey]terminalEnvValue)}
 var kittyImagesActive atomic.Bool
 
-func terminalEnv(name string) string {
-	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-		return value
-	}
-	tmuxContext := strings.TrimSpace(os.Getenv("TMUX"))
-	if tmuxContext == "" {
-		return ""
-	}
-	key := terminalEnvKey{tmux: tmuxContext, pane: os.Getenv("TMUX_PANE"), name: name}
-	terminalEnvironmentCache.Lock()
-	defer terminalEnvironmentCache.Unlock()
-	if value, ok := terminalEnvironmentCache.values[key]; ok && time.Since(value.at) < 30*time.Second {
-		return value.value
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "tmux", "show-environment", "-g", name).Output()
-	value := ""
-	if err == nil {
-		line := strings.TrimSpace(string(out))
-		if strings.HasPrefix(line, name+"=") {
-			value = strings.TrimPrefix(line, name+"=")
-		}
-	}
-	if len(terminalEnvironmentCache.values) >= 256 {
-		clear(terminalEnvironmentCache.values)
-	}
-	terminalEnvironmentCache.values[key] = terminalEnvValue{value: value, at: time.Now()}
-	return value
-}
+func terminalEnv(name string) string { return strings.TrimSpace(os.Getenv(name)) }
 
 func renderMarkdownImagesInline(line string, cols int, maxRows int) []string {
 	return renderMarkdownImagesInlineWithGraphics(line, cols, maxRows, true)
@@ -220,7 +177,7 @@ func renderKittyImage(path string, cols int, rows int) []string {
 	// file payloads; otherwise they report EINVAL: dimensions required.
 	// C=1 keeps cursor movement predictable for TUI layouts, c/r bound the image
 	// to terminal cells.
-	esc := tmuxPassthrough(fmt.Sprintf("\x1b_Ga=T,t=f,f=%d,s=%d,v=%d,i=%d,C=1,c=%d,r=%d,q=2;%s\x1b\\", format, pxW, pxH, id, cols, rows, payload))
+	esc := fmt.Sprintf("\x1b_Ga=T,t=f,f=%d,s=%d,v=%d,i=%d,C=1,c=%d,r=%d,q=2;%s\x1b\\", format, pxW, pxH, id, cols, rows, payload)
 	lines := make([]string, rows)
 	lines[0] = esc
 	for i := 1; i < rows-1; i++ {
@@ -261,15 +218,8 @@ func kittyImageID(path string) uint32 {
 	return h.Sum32()
 }
 
-func tmuxPassthrough(seq string) string {
-	if strings.TrimSpace(os.Getenv("TMUX")) == "" {
-		return seq
-	}
-	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
-}
-
 func containsImageEscape(s string) bool {
-	return strings.Contains(s, "\x1b_G") || strings.Contains(s, "\x1bPtmux;")
+	return strings.Contains(s, "\x1b_G")
 }
 
 func clearKittyImagesCmd() tea.Cmd {
@@ -302,7 +252,7 @@ func clearKittyImagesSeq() string {
 		return ""
 	}
 	kittyImagesActive.Store(false)
-	return tmuxPassthrough("\x1b_Ga=d,d=A,q=2\x1b\\")
+	return "\x1b_Ga=d,d=A,q=2\x1b\\"
 }
 
 func stripKittyGraphicsResponseFragments(s string) string {

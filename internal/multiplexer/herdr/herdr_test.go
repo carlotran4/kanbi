@@ -175,23 +175,28 @@ func TestLaunchPaneFirstCleansUpPaneWhenAgentStartFails(t *testing.T) {
 	}
 }
 
-func TestLaunchPaneFirstRejectsCustomExecutableInsteadOfSilentlyReplacingIt(t *testing.T) {
-	r := &fakeRunner{out: map[string]string{
-		"agent start --help": `--kind <KIND> --pane <ID>`,
-	}}
-	adapter := NewAdapter(Config{Binary: "herdr", Session: "test"})
+func TestLaunchCustomExecutableInRawPane(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{"agent start --help": "--kind <KIND> --pane <ID>", "tab create --workspace w1 --label demo --no-focus": `{"result":{"root_pane":{"pane_id":"w1:p1"},"tab":{"tab_id":"w1:t1"}}}`}}
+	adapter := NewAdapter(Config{})
 	adapter.Runner = r
-
-	_, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{
-		Name: "b1-T-001-demo", Namespace: "w1", AgentKind: "pi", Command: []string{"/opt/wrappers/pi", "hello"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "use tmux for custom harness executables") {
-		t.Fatalf("Launch error = %v, want actionable custom executable error", err)
+	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{Name: "demo", Namespace: "w1", AgentKind: "pi", Command: []string{"/opt/wrappers/pi", "hello ' literal"}})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if ref.ID != "w1:p1" {
+		t.Fatalf("ref=%+v", ref)
+	}
+	found := false
 	for _, call := range r.calls {
-		if len(call) > 2 && (call[1] == "pane" || call[1] == "tab") {
-			t.Fatalf("custom executable validation should happen before pane creation: %v", call)
+		if strings.Contains(strings.Join(call, " "), "pane run w1:p1 exec") {
+			found = true
 		}
+		if len(call) > 2 && call[1] == "agent" && call[2] == "start" && call[len(call)-1] != "--help" {
+			t.Fatalf("replaced custom command: %v", call)
+		}
+	}
+	if !found {
+		t.Fatalf("no raw launch: %v", r.calls)
 	}
 }
 

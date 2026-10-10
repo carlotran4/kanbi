@@ -57,8 +57,11 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
-      - name: Install tmux and SQLite CLI
-        run: sudo apt-get update && sudo apt-get install -y tmux sqlite3
+      - name: Install Herdr and SQLite CLI
+        run: |
+          sudo apt-get update && sudo apt-get install -y sqlite3
+          ./scripts/install-herdr-ci.sh "$RUNNER_TEMP/kanbi-herdr-bin"
+          echo "$RUNNER_TEMP/kanbi-herdr-bin" >> "$GITHUB_PATH"
       - name: Build and smoke the packaged artifact path
         shell: bash
         run: |
@@ -72,3 +75,5 @@ jobs:
           tar -xzf "$archive" -C "$work"
           ./scripts/release-artifact-smoke.sh "$work/kanbi" "$version" "$commit" "$work/BUILDINFO.json"
           KANBI_SMOKE_BIN="$work/kanbi" ./scripts/smoke.sh --skip-checks
+      - name: Herdr UI validation at 160x45 and 80x24
+        run: ./scripts/herdr-ui-smoke.sh

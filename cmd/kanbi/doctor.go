@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/carlotran4/kanbi/internal/boardruntime"
 	"github.com/carlotran4/kanbi/internal/buildinfo"
 	"github.com/carlotran4/kanbi/internal/config"
 	"github.com/carlotran4/kanbi/internal/storage"
-	"github.com/carlotran4/kanbi/internal/tmux"
 )
 
 type doctorSeverity string
@@ -51,33 +51,21 @@ func (r doctorReport) FatalErr() error {
 }
 
 type doctorProber struct {
-	lookPath          func(string) (string, error)
-	commandOutput     func(string, ...string) ([]byte, error)
-	openStore         func(context.Context, config.Config) (io.Closer, error)
-	ensureDirs        func(config.Config) error
-	insideTmux        func() bool
-	getenv            func(string) string
-	ensureTmuxSession func(context.Context, config.Config) error
+	lookPath      func(string) (string, error)
+	commandOutput func(string, ...string) ([]byte, error)
+	openStore     func(context.Context, config.Config) (io.Closer, error)
+	ensureDirs    func(config.Config) error
+	getenv        func(string) string
 }
 
 func defaultDoctorProber() doctorProber {
 	return doctorProber{
-		lookPath:      exec.LookPath,
-		commandOutput: func(name string, args ...string) ([]byte, error) { return exec.Command(name, args...).CombinedOutput() },
+		lookPath: exec.LookPath,
 		openStore: func(ctx context.Context, cfg config.Config) (io.Closer, error) {
 			return openStore(ctx, cfg)
 		},
 		ensureDirs: config.Config.EnsureDirs,
-		insideTmux: tmux.InsideTmux,
 		getenv:     os.Getenv,
-		ensureTmuxSession: func(ctx context.Context, cfg config.Config) error {
-			cli, err := newCLIContext(ctx, cfg)
-			if err != nil {
-				return err
-			}
-			defer cli.Close()
-			return cli.Manager().EnsureSession(ctx)
-		},
 	}
 }
 
@@ -86,7 +74,11 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 		prober.lookPath = exec.LookPath
 	}
 	if prober.commandOutput == nil {
-		prober.commandOutput = func(name string, args ...string) ([]byte, error) { return exec.Command(name, args...).CombinedOutput() }
+		prober.commandOutput = func(name string, args ...string) ([]byte, error) {
+			cmd := exec.CommandContext(ctx, name, args...)
+			cmd.Env = boardruntime.HerdrCommandEnv(cfg)
+			return cmd.CombinedOutput()
+		}
 	}
 	if prober.openStore == nil {
 		prober.openStore = func(ctx context.Context, cfg config.Config) (io.Closer, error) { return openStore(ctx, cfg) }
@@ -94,21 +86,8 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 	if prober.ensureDirs == nil {
 		prober.ensureDirs = config.Config.EnsureDirs
 	}
-	if prober.insideTmux == nil {
-		prober.insideTmux = tmux.InsideTmux
-	}
 	if prober.getenv == nil {
 		prober.getenv = os.Getenv
-	}
-	if prober.ensureTmuxSession == nil {
-		prober.ensureTmuxSession = func(ctx context.Context, cfg config.Config) error {
-			cli, err := newCLIContext(ctx, cfg)
-			if err != nil {
-				return err
-			}
-			defer cli.Close()
-			return cli.Manager().EnsureSession(ctx)
-		}
 	}
 
 	var results []doctorResult
@@ -121,9 +100,9 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 
 	configuredMux := strings.ToLower(strings.TrimSpace(cfg.Multiplexer.Default))
 	if configuredMux == "" {
-		configuredMux = "tmux"
+		configuredMux = "herdr"
 	}
-	if configuredMux == "tmux" || configuredMux == "herdr" {
+	if configuredMux == "herdr" {
 		add(doctorOK, "multiplexer", configuredMux, nil)
 	}
 
@@ -136,31 +115,23 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 		if err != nil {
 			detail := "configured Herdr binary not found; install Herdr or set multiplexer.herdr.binary"
 			add(doctorFatal, "herdr", detail, errors.New(detail))
-		} else if out, err := prober.commandOutput(herdrPath, "status"); err != nil {
+		} else if out, err := prober.commandOutput(herdrPath, "status", "--json"); err != nil {
 			detail := strings.TrimSpace(string(out))
 			if detail == "" {
 				detail = "status unavailable; run `herdr` once or check `herdr status`"
 			}
 			add(doctorFatal, "herdr", detail, fmt.Errorf("configured Herdr is unavailable: %w", err))
 		} else {
-			add(doctorOK, "herdr", "session "+cfg.Multiplexer.Herdr.Session, nil)
+			if !boardruntime.HerdrStatusReady(out) {
+				detail := "server not running or incompatible; start Herdr and check `herdr status --json`"
+				add(doctorFatal, "herdr", detail, errors.New(detail))
+			} else {
+				add(doctorOK, "herdr", "session "+cfg.Multiplexer.Herdr.Session, nil)
+			}
 		}
-	} else if configuredMux != "tmux" {
-		detail := "unknown configured multiplexer " + configuredMux + "; supported values are tmux and herdr"
-		add(doctorFatal, "multiplexer", detail, errors.New(detail))
-	}
-
-	tmuxPath, err := prober.lookPath("tmux")
-	if err != nil {
-		if configuredMux == "tmux" {
-			add(doctorFatal, "tmux", "is required", fmt.Errorf("tmux is required: %w", err))
-			return doctorReport{Results: results}
-		}
-		add(doctorWarn, "tmux", "not found; existing tmux sessions cannot be controlled", nil)
-	} else if out, err := prober.commandOutput(tmuxPath, "-V"); err == nil {
-		add(doctorOK, "tmux", strings.TrimSpace(string(out)), nil)
 	} else {
-		add(doctorOK, "tmux", "", nil)
+		detail := "unknown configured multiplexer " + configuredMux + "; only Herdr is supported"
+		add(doctorFatal, "multiplexer", detail, errors.New(detail))
 	}
 
 	store, err := prober.openStore(ctx, cfg)
@@ -182,23 +153,10 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 	} else {
 		add(doctorWarn, "shell", "not detected", nil)
 	}
-	if prober.insideTmux() {
-		add(doctorOK, "inside tmux", "", nil)
-	} else {
-		add(doctorWarn, "not inside tmux", "", nil)
-	}
 	if term := prober.getenv("TERM"); term != "" {
 		add(doctorOK, "terminal", term, nil)
 	} else {
 		add(doctorWarn, "terminal", "unknown", nil)
-	}
-
-	if configuredMux == "tmux" {
-		if err := prober.ensureTmuxSession(ctx, cfg); err != nil {
-			add(doctorFatal, "tmux session", cfg.TmuxSession, fmt.Errorf("tmux session unusable: %w", err))
-			return doctorReport{Results: results}
-		}
-		add(doctorOK, "tmux session", cfg.TmuxSession, nil)
 	}
 
 	for _, name := range sortedHarnessNames(cfg.Harnesses) {
