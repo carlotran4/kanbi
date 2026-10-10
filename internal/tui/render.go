@@ -425,7 +425,7 @@ func cardViewWithPreview(focused bool, ticket storage.Ticket, width int, showBoa
 		cursor = ">"
 	}
 
-	titleLines := wrapText(cardTitle(ticket, showBoard), cardInnerWidth-2, 3)
+	titleLines := wrapText(cardTitle(ticket, cardInnerWidth-2, showBoard), cardInnerWidth-2, 3)
 	if len(titleLines) == 0 {
 		titleLines = []string{ticket.DisplayID}
 	}
@@ -438,7 +438,7 @@ func cardViewWithPreview(focused bool, ticket storage.Ticket, width int, showBoa
 		content = append(content, padLine(prefix+line, cardInnerWidth))
 	}
 
-	stateText := cardStatusLine(ticket, cardInnerWidth-2)
+	stateText := cardMetadataLine(ticket, cardInnerWidth-2, showBoard)
 	stateStyle := lipgloss.NewStyle().Foreground(palette.muted)
 	if ticket.Runtime == kanban.StateNeedsPermission || ticket.Runtime == kanban.StateError || ticket.Runtime == kanban.StateRepairNeeded {
 		stateStyle = lipgloss.NewStyle().Foreground(palette.error_).Bold(true)
@@ -487,23 +487,52 @@ func cardViewWithPreview(focused bool, ticket storage.Ticket, width int, showBoa
 	return lines
 }
 
-func cardTitle(ticket storage.Ticket, showBoard bool) string {
-	if showBoard && ticket.BoardName != "" {
+func cardTitle(ticket storage.Ticket, width int, showBoard bool) string {
+	if showBoard && ticket.BoardName != "" && cardBoardLabel(ticket, width) == "" {
 		return ticket.DisplayID + " [" + ticket.BoardName + "] " + ticket.Title
 	}
 	return ticket.DisplayID + " " + ticket.Title
 }
 
 func cardStatusLine(ticket storage.Ticket, width int) string {
+	return cardElapsedLine(ticket, cardRuntimeLine(ticket, width), width)
+}
+
+func cardElapsedLine(ticket storage.Ticket, line string, width int) string {
+	if elapsed := elapsedLabel(ticket); elapsed != "" {
+		withElapsed := line + " · " + elapsed
+		if lipgloss.Width(withElapsed) <= width {
+			line = withElapsed
+		}
+	}
+	return line
+}
+
+// Board identity takes precedence over optional elapsed time in Master. If the
+// runtime row has no useful room for it, cardTitle retains the owning board.
+func cardBoardLabel(ticket storage.Ticket, width int) string {
+	available := width - lipgloss.Width(cardRuntimeLine(ticket, width)) - 3
+	if available < 4 || ticket.BoardName == "" {
+		return ""
+	}
+	return ansi.Truncate(ticket.BoardName, available, "…")
+}
+
+func cardMetadataLine(ticket storage.Ticket, width int, showBoard bool) string {
+	if showBoard {
+		if board := cardBoardLabel(ticket, width); board != "" {
+			return cardElapsedLine(ticket, cardRuntimeLine(ticket, width)+" · "+board, width)
+		}
+	}
+	return cardStatusLine(ticket, width)
+}
+
+func cardRuntimeLine(ticket storage.Ticket, width int) string {
 	harness := strings.TrimSpace(ticket.Harness)
 	if harness == "" {
 		harness = "pi"
 	}
 	indicator, label := runtimeIndicator(ticket), runtimeLabel(ticket)
-	fixedWidth := lipgloss.Width(indicator) + 1 + 2 + lipgloss.Width(label)
-	if maxHarnessWidth := width - fixedWidth; lipgloss.Width(harness) > maxHarnessWidth {
-		harness = trimToWidth(harness, maxInt(1, maxHarnessWidth))
-	}
 	prefix := ""
 	if ticket.FocusMember {
 		if ticket.FocusPaused {
@@ -511,15 +540,27 @@ func cardStatusLine(ticket storage.Ticket, width int) string {
 		} else {
 			prefix = "◆ focus · "
 		}
-	}
-	line := fmt.Sprintf("%s%s %s  %s", prefix, indicator, harness, label)
-	if elapsed := elapsedLabel(ticket); elapsed != "" {
-		withElapsed := line + " · " + elapsed
-		if lipgloss.Width(withElapsed) <= width {
-			line = withElapsed
+		// The ordinary dot adds no information after a Focus separator. Keep
+		// meaningful runtime indicators (running, permission, resumable, etc.).
+		if indicator == "·" {
+			indicator = ""
 		}
 	}
-	return trimToWidth(line, width)
+	if indicator != "" {
+		prefix += indicator + " "
+	}
+	separator := "  "
+	if ticket.FocusMember {
+		separator = " "
+		if lipgloss.Width(prefix)+1+1+lipgloss.Width(label) > width {
+			prefix = strings.TrimPrefix(strings.TrimPrefix(prefix, "⏸ "), "◆ ")
+		}
+	}
+	fixedWidth := lipgloss.Width(prefix) + len(separator) + lipgloss.Width(label)
+	if maxHarnessWidth := width - fixedWidth; lipgloss.Width(harness) > maxHarnessWidth {
+		harness = trimToWidth(harness, maxInt(1, maxHarnessWidth))
+	}
+	return trimToWidth(prefix+harness+separator+label, width)
 }
 
 func runtimeLabel(ticket storage.Ticket) string {
@@ -723,6 +764,7 @@ func elapsedLabel(ticket storage.Ticket) string {
 // value object instead of chasing color literals across render code.
 type theme struct {
 	muted            lipgloss.TerminalColor // borders, separators, dim chrome
+	backdrop         lipgloss.TerminalColor // inactive content behind modals
 	accent           lipgloss.TerminalColor // focused column header, focused card border
 	warning          lipgloss.TerminalColor // waiting_for_user
 	error_           lipgloss.TerminalColor // error, needs_permission
@@ -740,6 +782,7 @@ type theme struct {
 // interface keeps reasonable contrast across light and dark terminal themes.
 var palette = theme{
 	muted:            lipgloss.AdaptiveColor{Light: "245", Dark: "240"},
+	backdrop:         lipgloss.AdaptiveColor{Light: "248", Dark: "238"},
 	accent:           lipgloss.AdaptiveColor{Light: "25", Dark: "75"},
 	warning:          lipgloss.AdaptiveColor{Light: "130", Dark: "214"},
 	error_:           lipgloss.AdaptiveColor{Light: "124", Dark: "203"},
@@ -856,12 +899,12 @@ func popupWidth(termWidth int) int {
 
 // overlayModal renders boardContent dimmed and composites popup centered on top.
 func overlayModal(boardContent string, popup string, termWidth, termHeight int) string {
-	// Strip existing ANSI from each board line before applying dim, so the faint
-	// style actually takes hold rather than being ignored by already-styled text.
-	dimStyle := lipgloss.NewStyle().Faint(true)
+	// An explicit adaptive color works even when the terminal ignores faint.
+	// Strip prior styling/graphics so attention colors cannot compete with the popup.
+	dimStyle := lipgloss.NewStyle().Foreground(palette.backdrop)
 	bgLines := strings.Split(boardContent, "\n")
 	for i, l := range bgLines {
-		bgLines[i] = dimStyle.Render(ansiStrip(l))
+		bgLines[i] = padLine(ansi.Truncate(ansi.Strip(l), maxInt(1, termWidth), ""), maxInt(1, termWidth))
 	}
 	// Fit the background to the actual terminal. This prevents a tall board from
 	// pushing modal controls below the visible area in constrained layouts.
@@ -869,7 +912,7 @@ func overlayModal(boardContent string, popup string, termWidth, termHeight int) 
 		bgLines = bgLines[:termHeight]
 	}
 	for len(bgLines) < termHeight {
-		bgLines = append(bgLines, "")
+		bgLines = append(bgLines, strings.Repeat(" ", maxInt(1, termWidth)))
 	}
 
 	// Split popup into lines.
@@ -899,21 +942,21 @@ func overlayModal(boardContent string, popup string, termWidth, termHeight int) 
 			break
 		}
 		bg := bgLines[row]
-		// Strip ANSI from bg line to get plain runes for splicing.
-		visible := []rune(lipgloss.NewStyle().Render(strings.Repeat(" ", startCol)))
-		_ = visible
-		// Build: left-pad of startCol spaces + popup line + (background discarded).
-		left := ""
-		if startCol > 0 {
-			// Preserve the dimmed background on the left margin.
-			bgRunes := []rune(ansiStrip(bg))
-			if startCol <= len(bgRunes) {
-				left = dimStyle.Render(string(bgRunes[:startCol]))
-			} else {
-				left = dimStyle.Render(padLine("", startCol))
-			}
+		left := dimStyle.Render(padLine(ansi.Cut(bg, 0, startCol), startCol))
+		rightStart := startCol + popupW
+		rightText := ansi.Cut(bg, rightStart, maxInt(1, termWidth))
+		// A cut through a wide glyph omits the whole glyph. Replace its exposed
+		// cells with spaces rather than shifting the rest of the backdrop.
+		if missing := rightStart - ansi.StringWidth(ansi.Cut(bg, 0, rightStart)); missing > 0 {
+			rightText = strings.Repeat(" ", missing) + rightText
 		}
-		bgLines[row] = left + pl
+		right := dimStyle.Render(padLine(rightText, maxInt(0, termWidth-rightStart)))
+		bgLines[row] = left + padLine(pl, popupW) + right
+	}
+	for i, line := range bgLines {
+		if i < startRow || i >= startRow+popupH {
+			bgLines[i] = dimStyle.Render(line)
+		}
 	}
 	return strings.Join(bgLines, "\n")
 }

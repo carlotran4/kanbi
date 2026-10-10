@@ -294,7 +294,7 @@ func (m *Model) inspectorView(height int) string {
 		}
 	case 1:
 		p := m.inspector.preview
-		freshness := "Unavailable · no observation"
+		freshness := ""
 		style := muted
 		if !p.CapturedAt.IsZero() {
 			freshness = fmt.Sprintf("Observed %ds ago", maxInt(0, int(time.Since(p.CapturedAt).Seconds())))
@@ -302,32 +302,50 @@ func (m *Model) inspectorView(height int) string {
 				freshness = "STALE · " + freshness
 				style = warning
 			}
-		} else if m.inspector.busy {
+		} else if m.inspector.busy && p.Text != "" {
 			freshness = "Capturing read-only screen…"
 		}
 		// Keep freshness pinned, while the footer identifies the capture source.
 		if strings.HasPrefix(p.Source, "visible screen") {
 			freshness += " · screen"
 		}
-		headers = append(headers, style.Render(freshness))
+		if freshness != "" {
+			headers = append(headers, style.Render(freshness))
+		}
 		if p.Source != "" && !strings.HasPrefix(p.Source, "visible screen") {
 			// A transcript fallback must remain explicit even at the top of a long screen.
 			headers = append(headers, muted.Render(safePreviewANSI(p.Source)))
 		}
-		if m.inspector.err != "" {
+		if m.inspector.err != "" && p.Text != "" {
 			appendText("Unavailable: "+m.inspector.err, warning)
 		}
 		if p.Warning != "" {
 			appendText(p.Warning, warning)
 		}
-		gap()
 		content := p.Text
 		if len(content) > 256*1024 {
 			content = content[:256*1024]
 		}
 		if content == "" {
-			appendText("(No terminal output available)", muted)
+			switch {
+			case m.inspector.busy && m.inspector.err == "":
+				appendText("Capturing terminal output…", muted)
+			case !p.CapturedAt.IsZero() && m.inspector.err == "":
+				appendText("Terminal screen is empty.", muted)
+			default:
+				appendText("No terminal output", strong)
+				reason := m.inspector.err
+				if !t.SessionActive {
+					reason = "No active agent session."
+				} else if reason == "" {
+					reason = "No screen snapshot has been captured yet."
+				}
+				appendText(reason, muted)
+				gap()
+				appendText("Enter to open the agent.", muted)
+			}
 		} else {
+			gap()
 			screen := styledPreviewLines(safePreviewANSI(content))
 			body = append(body, screen[:minInt(len(screen), 160)]...)
 		}

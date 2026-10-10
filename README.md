@@ -15,6 +15,8 @@ Kanbi puts Pi, Codex, Copilot, and Claude sessions on a Kanban board. Each ticke
 
 Use separate boards for separate projects, or supervise everything from one Master view.
 
+Master cards put the owning board in the existing metadata row when space permits, keeping titles compact; crowded cards retain the board label in the title. The board picker shows the selected board's shortened directory and keeps navigation and management controls visible while its list scrolls. Popups use a subdued backdrop to distinguish their controls from the board underneath.
+
 > Kanbi is beta software for Linux and macOS. It uses Herdr and requires at least one supported agent CLI.
 
 ## Why Kanbi?

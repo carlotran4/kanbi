@@ -185,7 +185,7 @@ func cardHeightEx(ticket storage.Ticket, width int, focused, showBoard bool) int
 
 func cardHeightWithPreview(ticket storage.Ticket, width int, showBoard bool, preview string) int {
 	cardInnerWidth := width - 4
-	titleLines := wrapText(cardTitle(ticket, showBoard), cardInnerWidth-2, 3)
+	titleLines := wrapText(cardTitle(ticket, cardInnerWidth-2, showBoard), cardInnerWidth-2, 3)
 	if len(titleLines) == 0 {
 		titleLines = []string{ticket.DisplayID}
 	}

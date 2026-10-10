@@ -85,6 +85,7 @@ Projection rules:
 - Tickets with a latest active session project that session's runtime status and a validated-container indicator when one exists.
 - Tickets with a latest inactive session project that terminal status (`closed`, `error`, `exited`) and resumability when a verified ref exists.
 - Every card has one compact runtime row containing an icon, harness, textual runtime, and elapsed time when it fits. Text remains authoritative and color is supplemental: `·` is ordinary/inactive, `◐` is starting/closing, `●` is validated running, `?` is waiting, `!` is permission/repair, `◌` is idle, `○` is resumable, and `×` is non-resumable error.
+- Focus metadata omits the ordinary `·` icon after its separator, avoiding doubled dots. Meaningful runtime indicators remain visible; narrow rows shorten the harness and may omit the decorative Focus icon before truncating runtime labels. Master board identity uses spare metadata space before optional elapsed time, with a title-label fallback when space is insufficient.
 - `●` is shown only for an active session with a validated terminal container. `○` is shown only when no active container exists and a verified `session_ref` does.
 - Cards do not repeat normal container absence on a separate session line. The inspector and in-product `?` help provide the expanded semantics.
 - Worktree-backed cards show one concise Git health row, prioritizing repair/conflict/cleanup state over dirty/divergence/mergeability details. The full branch name remains available in the ticket inspector.

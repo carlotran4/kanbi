@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/carlotran4/kanbi/internal/boardpackage"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -233,6 +234,9 @@ func (m Model) updateBoardPicker(key tea.KeyMsg) Model {
 }
 
 func (m Model) boardPickerView() string {
+	popupW := minInt(96, popupWidth(m.width))
+	contentWidth := modalContentWidth(popupW)
+	muted := lipgloss.NewStyle().Foreground(palette.muted)
 	var lines []string
 	title := "Select board"
 	if m.boardPickerMode == "create" {
@@ -262,7 +266,7 @@ func (m Model) boardPickerView() string {
 	if m.boardPickerMode == "create" || m.boardPickerMode == "template-create" || m.boardPickerMode == "template-manage" {
 		masterLabel = "Master (choose a real board below)"
 	}
-	lines = append(lines, row(0, masterLabel))
+	rows := []string{row(0, masterLabel)}
 	for i, board := range m.boards {
 		label := board.Name
 		if board.WorktreeMode == storage.WorktreeModeGit {
@@ -274,27 +278,70 @@ func (m Model) boardPickerView() string {
 			label += "  " + lipgloss.NewStyle().Faint(true).Render("[sync off]")
 		}
 		if board.LastSyncError.Valid && strings.TrimSpace(board.LastSyncError.String) != "" {
-			label += "  " + lipgloss.NewStyle().Foreground(palette.error_).Render("provider sync degraded (local data available)")
+			label += "  " + lipgloss.NewStyle().Foreground(palette.error_).Render("[sync error]")
 		}
+		rows = append(rows, row(i+1, label))
+	}
+	details := []string{""}
+	if m.boardIndex > 0 && m.boardIndex <= len(m.boards) {
+		board := m.boards[m.boardIndex-1]
 		if board.Workdir != "" {
-			label += "  " + lipgloss.NewStyle().Faint(true).Render(board.Workdir)
+			pathWidth := maxInt(1, contentWidth-lipgloss.Width("Directory: "))
+			path := board.Workdir
+			if w := ansi.StringWidth(path); w > pathWidth {
+				path = "…" + ansi.Cut(path, w-pathWidth+1, w)
+			}
+			details = append(details, muted.Render("Directory: "+path))
 		}
 		if board.LastSyncError.Valid && strings.TrimSpace(board.LastSyncError.String) != "" {
-			label += "  " + lipgloss.NewStyle().Faint(true).Render("Cause: "+trimToWidth(board.LastSyncError.String, 32)+" Next: kanbi sync --board "+board.Name)
+			details = append(details,
+				lipgloss.NewStyle().Foreground(palette.error_).Render("Provider sync degraded · local data available"),
+				muted.Render("Cause: "+trimToWidth(board.LastSyncError.String, maxInt(1, contentWidth-7))),
+				muted.Render("Next: kanbi sync --board "+board.Name),
+			)
 		}
-		lines = append(lines, row(i+1, label))
-	}
-	lines = append(lines, "")
-	var hint string
-	if m.boardPickerMode == "create" {
-		hint = "Enter create · j/k move · Esc cancel"
-	} else if m.boardPickerMode == "template-create" || m.boardPickerMode == "template-manage" {
-		hint = "Enter select · j/k move · Esc cancel"
 	} else {
-		hint = "Enter select · c create · r rename · w cwd · t enable worktrees · a archive · s sync · e export · i import · A archived · d delete · j/k · Esc"
+		details = append(details, muted.Render("All active boards in one view"))
 	}
-	lines = append(lines, lipgloss.NewStyle().Faint(true).Render(hint))
-	popupW := popupWidth(m.width)
+	details = append(details, "")
+	var hints []string
+	if m.boardPickerMode == "create" {
+		hints = []string{"Enter create · j/k move · Esc cancel"}
+	} else if m.boardPickerMode == "template-create" || m.boardPickerMode == "template-manage" {
+		hints = []string{"Enter select · j/k move · Esc cancel"}
+	} else {
+		hints = []string{
+			"Enter select · j/k move · Esc cancel",
+			"c create · r rename · w cwd · t worktrees · a archive · s sync",
+			"e export · i import · A archived · d delete",
+		}
+	}
+	for i, hint := range hints {
+		for _, line := range wrapText(hint, contentWidth, 10) {
+			if i == 0 {
+				details = append(details, line)
+			} else {
+				details = append(details, muted.Render(line))
+			}
+		}
+	}
+	// Window only the board list, keeping selected details and controls visible.
+	budget := m.height - 6 - len(lines) - len(details)
+	if m.height > 0 && len(rows) > budget {
+		count := maxInt(1, budget-2)
+		start := minInt(maxInt(0, m.boardIndex-count/2), maxInt(0, len(rows)-count))
+		end := minInt(len(rows), start+count)
+		if start > 0 {
+			lines = append(lines, muted.Render(fmt.Sprintf("↑ %d more", start)))
+		}
+		lines = append(lines, rows[start:end]...)
+		if end < len(rows) {
+			lines = append(lines, muted.Render(fmt.Sprintf("↓ %d more", len(rows)-end)))
+		}
+	} else {
+		lines = append(lines, rows...)
+	}
+	lines = append(lines, details...)
 	return modalFrame(lines, popupW, palette.accent)
 }
 
