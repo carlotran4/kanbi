@@ -65,3 +65,11 @@ When Herdr reports an agent state, Kanbi prefers that native state for both tick
 `kanbi doctor` reports build/schema compatibility and the configured multiplexer. It always preserves existing tmux checks used by Kanbi's default board runtime. When Herdr is selected, doctor also checks the configured Herdr binary and runs `herdr status`; a missing or unreachable configured Herdr installation is fatal with setup guidance. An unknown configured multiplexer is also fatal. Missing optional harness commands remain warnings.
 
 Normal tests and `scripts/smoke.sh` use fake harnesses and a fake Herdr doctor probe. Real Herdr verification is opt-in only: install Herdr, configure `multiplexer.default: herdr`, then run targeted manual lifecycle checks in a disposable board/workspace.
+
+## Agent-driven UI verification
+
+The project [UI-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md) runs Kanbi as an ordinary terminal process in a disposable Herdr workspace. Agents use explicit pane IDs with `pane send-keys`, `pane send-text` and `pane read --source visible --format ansi`; agent prompt/readiness commands are for harnesses, not the board UI. The fixture uses local boards, disabled sync and disabled real harness commands. `scripts/herdr-ui-smoke.sh` verifies this workflow without changing user focus or stopping the parent server.
+
+Runtime IDs are server-local. The helper records the socket with the workspace/tab/pane IDs and pins it for all subsequent commands. An explicit `herdr --session <name>` selects a different session/socket even inside another Herdr session (verified with 0.9.3); do not mix IDs from those sessions. Normal UI interaction needs only a separate workspace. Server-shutdown experiments require a separately owned test session.
+
+Exact-size validation still uses the helper's explicit `KANBI_UI_RUNTIME=tmux` fallback. Herdr 0.9.3's `pane resize` changes split ratios rather than exact terminal dimensions; changing child PTY dimensions with `stty` does not resize the rendered grid. Fake-harness lifecycle smoke remains tmux-backed because current Herdr `agent start` also requires recognized-agent readiness.

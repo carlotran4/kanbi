@@ -108,11 +108,17 @@ Avoid screenshot/golden terminal tests in early v1 unless necessary.
 
 ### 6. Interactive TUI Validation
 
-For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, use the project-scoped `kanbi-ui-validation` skill after model tests. Its helper builds current source, seeds a disposable multi-board database, and launches the real Bubble Tea application on a private tmux socket.
+For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, use the project-scoped `kanbi-ui-validation` skill after model tests. Its helper builds current source, seeds a disposable multi-board database, and launches the real Bubble Tea application in a non-focused Herdr workspace in the caller session. The helper pins the recorded socket and pane IDs for capture/input/cleanup. It disables real harness commands so ordinary UI validation cannot launch authenticated agents. Use `KANBI_UI_RUNTIME=tmux` with the same helper for exact-size checks: Herdr 0.9.3 exposes split resizing but no exact cell-size CLI. Each backend has a separate fixture; the tmux fallback uses a private socket.
 
 Drive the UI one keypress at a time and capture frames before and after meaningful transitions. Validate the reported terminal size plus 80x24, and exercise Master, a named board, overflow, relevant modals, and resize behavior. Confirm the application header and footer remain visible and the focused control stays on-screen. The private tmux server starts without user configuration and uses `TERM=tmux-256color`, so personal key options and color queries to an unattached xterm cannot consume fixture input. Never copy or open the user's canonical database: the helper accepts no database path and only launches its deterministic local-backend, sync-disabled `kanbi-ui-test.db` fixture.
 
-Interactive validation supplements rather than replaces a deterministic regression test.
+Interactive validation supplements rather than replaces a deterministic regression test. The maintained workflow and examples live in [the UI-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md). The optional real-Herdr check runs inside Herdr:
+
+```bash
+./scripts/herdr-ui-smoke.sh
+```
+
+It creates its own workspace and database, drives Master/named-board/help/editor flows, saves literal input, verifies ANSI capture and routing despite changed inherited context, runs a command in an independently addressed sibling tab, checks workspace focus is preserved, and closes only its owned workspace (including the sibling tab). It never starts or stops a Herdr server. The regular fake-harness lifecycle smoke and CI remain tmux-backed; this UI check does not replace their coverage.
 
 The opt-in performance comparisons and repeatable real UI driver are documented in [Performance issue #358: implementation and evidence](performance-358.md), including reference hardware, sample counts, timing/allocation results, reproduction commands, and remaining limits.
 
@@ -324,7 +330,7 @@ An autonomous agent should stop and ask before:
 
 ## Opt-In Real Multiplexer Checks
 
-Real Herdr checks are not part of normal smoke or CI because they depend on a locally installed Herdr server/session and can alter the user's workspaces. To verify manually, install Herdr, run `herdr` once, configure a disposable Kanbi config with `multiplexer.default: herdr`, run `kanbi doctor`, then open a disposable ticket and confirm the Herdr pane/agent is created and focusable.
+Real Herdr checks are opt-in and are not part of normal smoke or CI. `scripts/herdr-ui-smoke.sh` uses an existing Herdr session and isolates UI interaction in a disposable, non-focused workspace; real harness lifecycle checks additionally require installed/authenticated agents. To verify manually, install Herdr, run `herdr` once, configure a disposable Kanbi config with `multiplexer.default: herdr`, run `kanbi doctor`, then open a disposable ticket and confirm the Herdr pane/agent is created and focusable.
 
 ## Opt-In Real Backend Smoke Tests
 

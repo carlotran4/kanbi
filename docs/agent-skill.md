@@ -73,3 +73,7 @@ The skill never makes unsupported direct database changes. If a workflow is avai
 ## Why this is optional
 
 Kanbi remains fully usable without the skill. The TUI is the primary human interface and the CLI remains the stable automation interface. The skill is a thin, portable policy layer for natural-language agent use; it does not add a daemon, API, or alternate state store.
+
+## Project UI validation skill
+
+Contributors validating the actual board UI should use the separate [kanbi-ui-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md). It creates a disposable database and non-focused Herdr workspace, then exposes frame capture, keys and literal text input. It includes a tmux fallback for exact terminal-size checks. This development fixture is separate from the administration skill and never reads the user's canonical database or launches authenticated agents.

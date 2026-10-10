@@ -49,7 +49,7 @@ go vet ./...
 
 Use plain `./scripts/smoke.sh` when you want the script to run fmt/test/vet itself.
 
-For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, also load the project `kanbi-ui-validation` skill and drive the real application in its isolated tmux fixture. Validate the relevant flow at the reported terminal size and at 80x24; do not rely only on model tests or inspect the user's live database.
+For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, also load the project `kanbi-ui-validation` skill and drive the real application in its disposable Herdr workspace (use the explicit tmux fallback for exact terminal sizes). Validate the relevant flow at the reported terminal size and at 80x24; do not rely only on model tests or inspect the user's live database.
 
 For lifecycle, tmux, storage, or harness changes, also run focused tests:
 
