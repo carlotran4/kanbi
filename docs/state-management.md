@@ -148,11 +148,9 @@ Successful integration closes the agent, merges into the exact recorded source, 
 
 Git status is observed state stored as a bounded JSON snapshot; observation errors belong to the workspace and do not fail the harness session.
 
-## Repository Integration Runs
+## Retired agent-assisted integration
 
-Repository integration runs are durable repository-scoped operations, not synthetic tickets or ticket sessions. SQLite stores the exact source SHA, ordered selected workspace/branch SHAs, managed candidate checkout, runtime container reference, token hash, candidate report, and lifecycle (`planning`, `running`, `waiting_for_user`, `needs_permission`, `ready`, `blocked`, `promoting`, `promoted`, `failed`, or `cancelled`). Only one active run may target a Git common directory/source branch.
-
-The integration agent works only in the candidate checkout and reports through the token-authenticated `kanbi integration report` command. Native runtime detection may project only active attention states (`waiting_for_user` or `needs_permission`, with other live native states normalized to `running`); transcript text is fallback attention evidence only and never completion evidence. Native idle state, container absence, and observation errors never promote or fail a run: an observation error leaves its current state unchanged. Promotion records durable `promoting` intent, revalidates source/candidate/item heads and clean worktrees after closing ticket agents, runs configured validation, and fast-forwards source once. Startup/retry reconciliation recognizes when source already equals the candidate and completes bookkeeping without repeating the merge. Active runs block board archive, export, and deletion.
+The `I` workflow and integration-agent launch/report/promotion lifecycle are retired. Ticket worktree integration uses `m` and the direct merge flow. Existing `integration_runs` and `integration_run_items` tables, migrations, and history remain intact; no migration rewrites their states or closes agents automatically. `kanbi integration list` inspects history. `kanbi integration cancel RUN_ID` validates and closes only that unfinished run's recorded container before marking it cancelled. Candidate checkouts/branches remain on disk for manual recovery. Runs in `promoting` or `cleanup_required` require recovery with a pre-retirement Kanbi build compatible with the database schema; cancellation refuses those states. Unfinished legacy runs continue blocking board archive, export, and deletion until explicitly retired.
 
 ## Board Data Lifecycle
 

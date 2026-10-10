@@ -30,23 +30,17 @@ type imageProtocol int
 const (
 	imageProtocolNone imageProtocol = iota
 	imageProtocolKitty
-	imageProtocolSixel
 )
 
 func terminalImageProtocol() imageProtocol {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("KANBI_IMAGE_PROTOCOL"))) {
 	case "kitty":
 		return imageProtocolKitty
-	case "sixel":
-		return imageProtocolSixel
-	case "none", "off", "placeholder":
+	case "none", "off", "placeholder", "sixel":
 		return imageProtocolNone
 	}
 	if supportsKittyGraphics() {
 		return imageProtocolKitty
-	}
-	if supportsSixelGraphics() {
-		return imageProtocolSixel
 	}
 	return imageProtocolNone
 }
@@ -64,15 +58,6 @@ func supportsKittyGraphics() bool {
 	}
 	term := strings.ToLower(terminalEnv("TERM"))
 	return strings.Contains(term, "kitty") || strings.Contains(term, "xterm-kitty")
-}
-
-func supportsSixelGraphics() bool {
-	termProgram := strings.ToLower(terminalEnv("TERM_PROGRAM"))
-	if termProgram == "wezterm" || termProgram == "iterm.app" || termProgram == "mlterm" {
-		return true
-	}
-	term := strings.ToLower(terminalEnv("TERM"))
-	return strings.Contains(term, "sixel") || strings.Contains(term, "mlterm")
 }
 
 var kittyImagesActive atomic.Bool
@@ -157,8 +142,6 @@ func renderImageBlock(path string, cols int, maxRows int, graphics bool) []strin
 	switch terminalImageProtocol() {
 	case imageProtocolKitty:
 		return renderKittyImage(resolved, cols, maxRows)
-	case imageProtocolSixel:
-		return []string{imagePlaceholderForWidth(path, cols) + " (sixel preview unavailable)"}
 	default:
 		return []string{imagePlaceholderForWidth(path, cols)}
 	}

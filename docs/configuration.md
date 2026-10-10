@@ -4,7 +4,7 @@ Kanbi reads YAML configuration from `${XDG_CONFIG_HOME:-~/.config}/kanbi/config.
 
 ## Herdr runtime
 
-Herdr is the sole runtime. Defaults require no multiplexer configuration:
+Herdr is the sole runtime. Use Herdr 0.9.3 or newer with `agent start --kind` and `--pane`; unsupported command surfaces fail before launch. Defaults require no multiplexer configuration:
 
 ```yaml
 multiplexer:
@@ -79,14 +79,11 @@ A focused ticket is unarchived, in one of these workflow keys, and not paused. P
 ## Timeouts
 
 ```yaml
-# Legacy duration setting.
-prompt_ready_timeout: 5s
-
 timeouts:
   idle_unknown_after_seconds: 120
   prompt_ready_timeout_seconds: 5
 ```
 
-`timeouts.prompt_ready_timeout_seconds`, when set, takes precedence over the legacy `prompt_ready_timeout`. Other nested timeout settings—and comments or text that mention `timeouts:`—do not change the legacy prompt-ready timeout.
+`timeouts.prompt_ready_timeout_seconds` is the canonical setting and accepts fractional seconds. The deprecated `prompt_ready_timeout` duration is converted to this setting when reading YAML if no nonzero nested prompt timeout is supplied. Other nested timeout settings and comments do not affect that conversion. Removed `multiplexer.herdr.tab_strategy` and `integration` settings are ignored.
 
 Configuration is loaded when Kanbi starts; live reload is not currently supported.

@@ -5,7 +5,6 @@ import (
 
 	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/boardpackage"
-	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -70,15 +69,6 @@ type ColumnCommands interface {
 	ReorderColumn(context.Context, int64, int) error
 }
 
-type IntegrationCommands interface {
-	IntegrationCandidates(context.Context, int64) ([]integrationpkg.Candidate, error)
-	CreateIntegration(context.Context, integrationpkg.CreateOptions) (integrationpkg.CreateResult, error)
-	PromoteIntegration(context.Context, string) error
-	CancelIntegration(context.Context, string) error
-	ListIntegrationRuns(context.Context, int64) ([]storage.IntegrationRun, error)
-	FocusIntegration(context.Context, storage.IntegrationRun) error
-}
-
 type SessionCommands interface {
 	OpenTicket(context.Context, storage.Ticket, bool) error
 	RefreshRuntime(context.Context) error
@@ -108,22 +98,7 @@ type Actions interface {
 	TicketCommands
 	ColumnCommands
 	SessionCommands
-	IntegrationCommands
 	NoteCommands
 }
 
-// Compatibility aliases keep existing TUI callers source-compatible while
-// production orchestration lives in the presentation-independent app package.
-type SessionManager = app.SessionManager
-type TicketSyncer = app.TicketSyncer
-type Service = app.Service
-
-var _ Actions = (*Service)(nil)
-
-func NewService(store *storage.Store, manager SessionManager) *Service {
-	return app.NewService(store, manager)
-}
-
-func NewServiceWithSyncer(store *storage.Store, manager SessionManager, syncer TicketSyncer) *Service {
-	return app.NewServiceWithSyncer(store, manager, syncer)
-}
+var _ Actions = (*app.Service)(nil)

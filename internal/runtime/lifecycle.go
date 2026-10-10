@@ -144,7 +144,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if err != nil {
 		return err
 	}
-	herdrPaneFirst := l.manager.herdrAdapter().UsesAgentStart(ctx, command, ticket.Harness)
+	herdrPaneFirst := l.manager.herdrAdapter().UsesAgentStart(command, ticket.Harness)
 	resuming := decision.Action == lifecycleActionResume
 	if resuming {
 		command, err = harness.ResumeCommand(l.manager.Config.Harnesses, ticket.Harness, ticket.SessionRef.String)

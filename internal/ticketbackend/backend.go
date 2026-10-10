@@ -16,28 +16,7 @@ const (
 	KindLocal     = "local"
 	KindGitHub    = "github"
 	KindAtlassian = "atlassian"
-	KindAsana     = "asana"
 )
-
-// Direction captures the intended durable sync model for external ticketing
-// systems. SQLite remains the local cache/runtime store; external backends own
-// ticket metadata for their boards.
-type Direction string
-
-const (
-	DirectionPull Direction = "pull"
-	DirectionPush Direction = "push"
-)
-
-// Change describes one planned sync mutation. Backends use newest-updated-at
-// conflict resolution before applying local or remote updates.
-type Change struct {
-	Direction  Direction
-	TicketID   int64
-	ExternalID string
-	UpdatedAt  time.Time
-	Summary    string
-}
 
 type Result struct {
 	Pulled    int

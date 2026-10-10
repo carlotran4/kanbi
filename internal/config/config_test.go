@@ -126,7 +126,7 @@ status_bar:
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	raw, _, err := LoadRaw(cfgFile)
+	raw, err := LoadRaw(cfgFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestNormalizeRejectsInvalidStatusBar(t *testing.T) {
 	if err := os.WriteFile(cfgFile, []byte("status_bar:\n  left: '$missing'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	raw, _, err := LoadRaw(cfgFile)
+	raw, err := LoadRaw(cfgFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestNormalizeMultiplexerConfigAndEnvOverride(t *testing.T) {
 	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
 	raw := Config{Multiplexer: Multiplexer{
 		Default: "tmux",
-		Herdr:   Herdr{Binary: "/bin/herdr", Session: "work", WorkspaceStrategy: "board", TabStrategy: "tickets", FocusOnOpen: true},
+		Herdr:   Herdr{Binary: "/bin/herdr", Session: "work", WorkspaceStrategy: "board", FocusOnOpen: true},
 	}}
 	cfg, err := Normalize(raw, paths, NormalizeOptions{Env: Env{DefaultMultiplexer: "herdr"}})
 	if err != nil {
@@ -192,17 +192,16 @@ func TestNormalizeRejectsRetiredRuntime(t *testing.T) {
 	}
 }
 
-func TestNormalizeNestedTimeoutsAndLegacyPromptTimeout(t *testing.T) {
+func TestNormalizeNestedTimeoutsAndDefaults(t *testing.T) {
 	paths := Paths{ConfigFile: "/cfg/config.yaml", DataDir: "/data", StateDir: "/state", DBFile: "/data/kanbi.db"}
 	raw := Config{
-		PromptReadyRaw: "2s",
 		Timeouts: Timeouts{
 			IdleUnknownAfterSeconds:    5,
 			GracefulExitTimeoutSeconds: 2,
 			PromptReadyTimeoutSeconds:  3,
 		},
 	}
-	cfg, err := Normalize(raw, paths, NormalizeOptions{NestedPromptReadyTimeoutSet: true})
+	cfg, err := Normalize(raw, paths, NormalizeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,13 +214,17 @@ func TestNormalizeNestedTimeoutsAndLegacyPromptTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.PromptReadyTimeout != 2*time.Second {
-		t.Fatalf("legacy prompt timeout not applied: %+v", cfg)
+	if cfg.PromptReadyTimeout != 5*time.Second {
+		t.Fatalf("default prompt timeout not applied: %+v", cfg)
 	}
 }
 
-func TestNormalizeInvalidPromptReadyTimeout(t *testing.T) {
-	_, err := Normalize(Config{PromptReadyRaw: "not-a-duration"}, Paths{DBFile: "/tmp/db"}, NormalizeOptions{})
+func TestLoadInvalidLegacyPromptReadyTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("prompt_ready_timeout: not-a-duration\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadRaw(path)
 	if err == nil {
 		t.Fatal("expected invalid duration error")
 	}
@@ -376,17 +379,6 @@ func TestLoadIgnoresRemovedAutoCloseTimeout(t *testing.T) {
 	}
 }
 
-func TestIntegrationDefaultsAndOverrides(t *testing.T) {
-	paths := Paths{ConfigFile: filepath.Join(t.TempDir(), "config.yaml"), DataDir: t.TempDir(), StateDir: t.TempDir(), DBFile: filepath.Join(t.TempDir(), "db")}
-	cfg, err := Normalize(Config{Integration: Integration{Harness: "codex", ValidationCommand: "go test ./..."}}, paths, NormalizeOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Integration.Harness != "codex" || cfg.Integration.ValidationCommand != "go test ./..." {
-		t.Fatalf("integration=%+v", cfg.Integration)
-	}
-}
-
 func clearAgentEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
@@ -401,5 +393,23 @@ func clearAgentEnv(t *testing.T) {
 		"XDG_STATE_HOME",
 	} {
 		t.Setenv(key, "")
+	}
+}
+
+func TestLoadRawNormalizesLegacyTimeoutAndIgnoresRetiredSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("prompt_ready_timeout: 1500ms\nintegration:\n  harness: codex\nmultiplexer:\n  herdr:\n    tab_strategy: arbitrary\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := LoadRaw(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.Timeouts.PromptReadyTimeoutSeconds != 1.5 {
+		t.Fatalf("raw timeout=%v", raw.Timeouts.PromptReadyTimeoutSeconds)
+	}
+	cfg, err := Normalize(raw, Paths{}, NormalizeOptions{})
+	if err != nil || cfg.PromptReadyTimeout != 1500*time.Millisecond {
+		t.Fatalf("timeout=%v err=%v", cfg.PromptReadyTimeout, err)
 	}
 }

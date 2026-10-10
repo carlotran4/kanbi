@@ -3,12 +3,11 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"errors"
-	"fmt"
-	"strings"
 	"time"
 )
 
+// Legacy agent-assisted integration records remain durable history. Only reads
+// and explicit cancellation are supported; no new runs can be created.
 const (
 	IntegrationStatePlanning        = "planning"
 	IntegrationStateRunning         = "running"
@@ -63,48 +62,6 @@ type IntegrationRunItem struct {
 	BranchName  string
 	HeadSHA     string
 	Position    int
-}
-
-type CreateIntegrationRunInput struct {
-	Run   IntegrationRun
-	Items []IntegrationRunItem
-}
-
-func (s *Store) CreateIntegrationRun(ctx context.Context, in CreateIntegrationRunInput) (IntegrationRun, error) {
-	if strings.TrimSpace(in.Run.PublicID) == "" || in.Run.BoardID == 0 || len(in.Items) == 0 {
-		return IntegrationRun{}, errors.New("integration run requires public id, board, and items")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return IntegrationRun{}, err
-	}
-	defer tx.Rollback()
-	now := time.Now().UTC()
-	state := in.Run.State
-	if state == "" {
-		state = IntegrationStatePlanning
-	}
-	res, err := tx.ExecContext(ctx, `insert into integration_runs(public_id,board_id,state,repository_root,common_dir,worktree_path,branch_name,source_branch,source_sha,harness,token_hash,prompt,validation_command,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, in.Run.PublicID, in.Run.BoardID, state, in.Run.RepositoryRoot, in.Run.CommonDir, in.Run.WorktreePath, in.Run.BranchName, in.Run.SourceBranch, in.Run.SourceSHA, in.Run.Harness, in.Run.TokenHash, in.Run.Prompt, nullableString(in.Run.ValidationCommand.String), now, now)
-	if err != nil {
-		return IntegrationRun{}, fmt.Errorf("create integration run: %w", err)
-	}
-	id, _ := res.LastInsertId()
-	for i, item := range in.Items {
-		var valid int
-		if err := tx.QueryRowContext(ctx, `select count(*) from ticket_workspaces w join tickets t on t.id=w.ticket_id where w.id=? and w.ticket_id=? and w.board_id=? and w.is_current=1 and w.common_dir=? and w.source_branch=? and w.branch_name=?`, item.WorkspaceID, item.TicketID, in.Run.BoardID, in.Run.CommonDir, in.Run.SourceBranch, item.BranchName).Scan(&valid); err != nil {
-			return IntegrationRun{}, err
-		}
-		if valid != 1 {
-			return IntegrationRun{}, fmt.Errorf("workspace %d is not an eligible current workspace", item.WorkspaceID)
-		}
-		if _, err := tx.ExecContext(ctx, `insert into integration_run_items(run_id,workspace_id,ticket_id,branch_name,head_sha,position) values(?,?,?,?,?,?)`, id, item.WorkspaceID, item.TicketID, item.BranchName, item.HeadSHA, i); err != nil {
-			return IntegrationRun{}, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return IntegrationRun{}, err
-	}
-	return s.IntegrationRunByPublicID(ctx, in.Run.PublicID)
 }
 
 const integrationRunSelect = `select id,public_id,board_id,state,repository_root,common_dir,worktree_path,branch_name,source_branch,source_sha,candidate_sha,harness,token_hash,prompt,validation_command,last_error,multiplexer,mux_namespace,mux_container_id,mux_container_name,mux_metadata,harness_session_ref,created_at,updated_at,completed_at,promoted_at from integration_runs`
@@ -167,42 +124,8 @@ func (s *Store) ListIntegrationRuns(ctx context.Context, boardID int64) ([]Integ
 	return out, nil
 }
 
-func (s *Store) UpdateIntegrationRuntime(ctx context.Context, publicID, state string, ref IntegrationRun) error {
-	res, err := s.db.ExecContext(ctx, `update integration_runs set state=?,multiplexer=?,mux_namespace=?,mux_container_id=?,mux_container_name=?,mux_metadata=?,harness_session_ref=?,updated_at=? where public_id=? and state in (?,?,?,?)`, state, nullStringValue(ref.Multiplexer), nullStringValue(ref.MuxNamespace), nullStringValue(ref.MuxContainerID), nullStringValue(ref.MuxContainerName), nullStringValue(ref.MuxMetadata), nullStringValue(ref.HarnessSessionRef), time.Now().UTC(), publicID, IntegrationStatePlanning, IntegrationStateRunning, IntegrationStateWaitingForUser, IntegrationStateNeedsPermission)
-	if err != nil {
-		return err
-	}
-	_, err = res.RowsAffected()
-	return err
-}
-
-func (s *Store) ReportIntegrationRun(ctx context.Context, publicID, state, candidate, lastError string) error {
-	if state != IntegrationStateReady && state != IntegrationStateBlocked && state != IntegrationStateFailed {
-		return errors.New("invalid integration report state")
-	}
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `update integration_runs set state=?,candidate_sha=?,last_error=?,completed_at=?,updated_at=? where public_id=? and state in ('planning','running','waiting_for_user','needs_permission','blocked')`, state, nullableString(candidate), nullableString(lastError), now, now, publicID)
-	return requireAffected(res, err)
-}
-
 func (s *Store) CancelIntegrationRun(ctx context.Context, publicID string) error {
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `update integration_runs set state=?,completed_at=?,updated_at=?,last_error=null where public_id=? and state not in (?,?,?)`, IntegrationStateCancelled, now, now, publicID, IntegrationStatePromoted, IntegrationStateCancelled, IntegrationStatePromoting)
-	return requireAffected(res, err)
-}
-
-func (s *Store) MarkIntegrationPromoting(ctx context.Context, publicID string) error {
-	res, err := s.db.ExecContext(ctx, `update integration_runs set state=?,updated_at=? where public_id=? and state=?`, IntegrationStatePromoting, time.Now().UTC(), publicID, IntegrationStateReady)
-	return requireAffected(res, err)
-}
-
-func (s *Store) MarkIntegrationCleanupRequired(ctx context.Context, publicID, reason string) error {
-	res, err := s.db.ExecContext(ctx, `update integration_runs set state=?,last_error=?,updated_at=? where public_id=? and state in (?,?)`, IntegrationStateCleanupRequired, nullableString(reason), time.Now().UTC(), publicID, IntegrationStatePromoting, IntegrationStateCleanupRequired)
-	return requireAffected(res, err)
-}
-
-func (s *Store) MarkIntegrationPromoted(ctx context.Context, publicID string) error {
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `update integration_runs set state=?,promoted_at=?,updated_at=?,last_error=null where public_id=? and state in (?,?)`, IntegrationStatePromoted, now, now, publicID, IntegrationStatePromoting, IntegrationStateCleanupRequired)
+	res, err := s.db.ExecContext(ctx, `update integration_runs set state=?,completed_at=?,updated_at=?,last_error=null where public_id=? and state in ('planning','running','waiting_for_user','needs_permission','ready','blocked')`, IntegrationStateCancelled, now, now, publicID)
 	return requireAffected(res, err)
 }

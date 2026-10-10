@@ -18,7 +18,7 @@ Usage:
 
 Commands:
   boards     List, add, rename, or update boards
-  integration Report, promote, cancel, or list repository integration runs
+  integration List or cancel legacy integration runs
   add        Create a ticket
   templates  Manage board-scoped ticket templates
   list       List tickets
@@ -54,11 +54,12 @@ Exit status is 0 for success/help and 1 for command, configuration, or runtime e
 
 var commandHelp = map[string]string{
 	"integration": `Usage: kanbi integration list
-       kanbi integration report --run ID --status ready|blocked|failed [--commit SHA] [--message TEXT]
-       kanbi integration promote RUN_ID
        kanbi integration cancel RUN_ID
 
-Agent integration sessions receive KANBI_INTEGRATION_TOKEN automatically. A ready report records a candidate only; promotion independently validates source, ticket heads, ancestry, cleanliness, and configured checks.`,
+Agent-assisted integration is retired. Use m in the board to merge a ticket worktree.
+These commands retain historical inspection and cancellation of unfinished old runs.
+Cancellation closes the recorded agent and preserves candidate checkouts and history.
+Interrupted promotion requires recovery with the previous Kanbi version.`,
 	"boards": `Usage: kanbi boards [--json]
        kanbi boards list [--include-archived]
        kanbi boards add NAME [--cwd PATH] [--worktree-mode off|git] [--backend local|github|atlassian] [--query QUERY] [--config JSON]

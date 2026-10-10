@@ -30,9 +30,6 @@ func (m *Model) boardContentHeight() int {
 	if m.refreshError != "" {
 		fixed++
 	}
-	if m.integrationNotice != "" {
-		fixed++
-	}
 	if m.hScrollHint() != "" {
 		fixed++
 	}
@@ -330,9 +327,6 @@ func (m Model) inspectorViewportHeight() int {
 		}
 	}
 	if m.refreshError != "" {
-		footer++
-	}
-	if m.integrationNotice != "" {
 		footer++
 	}
 	return maxInt(1, m.height-2*maxInt(2, footer))

@@ -20,7 +20,6 @@ import (
 	"github.com/carlotran4/kanbi/internal/boardruntime"
 	"github.com/carlotran4/kanbi/internal/config"
 	"github.com/carlotran4/kanbi/internal/diagnostics"
-	integrationpkg "github.com/carlotran4/kanbi/internal/integration"
 	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/ticketbackend"
@@ -175,7 +174,6 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 			return config.SaveFocus(cfg.Paths.ConfigFile, config.Focus{Enabled: policy.Enabled, Limit: policy.Limit, WorkflowKeys: policy.WorkflowKeys})
 		}
 		svc.DataDir = cfg.Paths.DataDir
-		svc.Integration = &integrationpkg.Service{Store: cli.store, StateDir: cfg.Paths.StateDir, Launcher: manager, Workspace: manager.WorkspaceService, DefaultHarness: cfg.Integration.Harness, ValidationCommand: cfg.Integration.ValidationCommand}
 		model := tui.NewWithPickerStatusBarOptions(ctx, svc, reconcileWarning, *cfg.StatusBar)
 		defer model.Close()
 		_, err := tea.NewProgram(model, tea.WithFPS(tui.RenderFPS)).Run()
@@ -293,16 +291,17 @@ func runSupportBundle(ctx context.Context, cfg config.Config, args []string) err
 	return nil
 }
 
+// runIntegration retains history inspection and explicit retirement of old runs.
 func runIntegration(ctx context.Context, cfg config.Config, args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: kanbi integration report|promote|cancel|list")
+	if len(args) == 0 || (args[0] != "list" && args[0] != "cancel") {
+		return errors.New("agent-assisted integration is retired; use m in the board to merge a ticket worktree; legacy commands: kanbi integration list|cancel RUN_ID")
 	}
 	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
-		manager := cli.Manager()
-		defer manager.Close()
-		svc := &integrationpkg.Service{Store: cli.store, StateDir: cfg.Paths.StateDir, Launcher: manager, Workspace: manager.WorkspaceService, DefaultHarness: cfg.Integration.Harness, ValidationCommand: cfg.Integration.ValidationCommand}
 		switch args[0] {
 		case "list":
+			if len(args) != 1 {
+				return errors.New("usage: kanbi integration list")
+			}
 			runs, err := cli.store.ListIntegrationRuns(ctx, 0)
 			if err != nil {
 				return err
@@ -312,71 +311,35 @@ func runIntegration(ctx context.Context, cfg config.Config, args []string) error
 				out = append(out, map[string]any{"public_id": r.PublicID, "board_id": r.BoardID, "state": r.State, "source_branch": r.SourceBranch, "source_sha": r.SourceSHA, "candidate_sha": nullString(r.CandidateSHA), "harness": r.Harness, "last_error": nullString(r.LastError), "created_at": r.CreatedAt, "updated_at": r.UpdatedAt})
 			}
 			return writeJSON(os.Stdout, map[string]any{"schema": "kanbi.v1.integration_runs", "runs": out})
-		case "report":
-			var runID, status, commit, message string
-			for i := 1; i < len(args); i++ {
-				switch args[i] {
-				case "--run":
-					i++
-					if i < len(args) {
-						runID = args[i]
-					}
-				case "--status":
-					i++
-					if i < len(args) {
-						status = args[i]
-					}
-				case "--commit":
-					i++
-					if i < len(args) {
-						commit = args[i]
-					}
-				case "--message":
-					i++
-					if i < len(args) {
-						message = args[i]
-					}
-				default:
-					return fmt.Errorf("unknown integration report flag %s", args[i])
-				}
-			}
-			if runID == "" || status == "" {
-				return errors.New("usage: kanbi integration report --run ID --status ready|blocked|failed [--commit SHA] [--message TEXT]")
-			}
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			token := os.Getenv("KANBI_INTEGRATION_TOKEN")
-			if token == "" {
-				return errors.New("KANBI_INTEGRATION_TOKEN is required")
-			}
-			if err := svc.Report(ctx, runID, status, commit, token, cwd, message); err != nil {
-				return err
-			}
-			fmt.Printf("integration\t%s\t%s\n", runID, status)
-			return nil
-		case "promote":
-			if len(args) != 2 {
-				return errors.New("usage: kanbi integration promote RUN_ID")
-			}
-			if err := svc.Promote(ctx, args[1], integrationpkg.PromoteOptions{CloseTicket: manager.CloseSession}); err != nil {
-				return err
-			}
-			fmt.Printf("promoted\t%s\n", args[1])
-			return nil
+
 		case "cancel":
 			if len(args) != 2 {
 				return errors.New("usage: kanbi integration cancel RUN_ID")
 			}
-			if err := svc.Cancel(ctx, args[1]); err != nil {
+			run, err := cli.store.IntegrationRunByPublicID(ctx, args[1])
+			if err != nil {
+				return err
+			}
+			if run.State == storage.IntegrationStateCancelled {
+				return nil
+			}
+			if run.State == storage.IntegrationStatePromoted || run.State == storage.IntegrationStateFailed {
+				return errors.New("integration run is already finished")
+			}
+			if run.State == storage.IntegrationStatePromoting || run.State == storage.IntegrationStateCleanupRequired {
+				return errors.New("integration promotion was interrupted; finish recovery with the previous Kanbi version before retiring this run")
+			}
+			manager := cli.Manager()
+			defer manager.Close()
+			if err := manager.CloseLegacyIntegration(ctx, run); err != nil {
+				return err
+			}
+			if err := cli.store.CancelIntegrationRun(ctx, args[1]); err != nil {
 				return err
 			}
 			fmt.Printf("cancelled\t%s\n", args[1])
-			return nil
-		default:
-			return fmt.Errorf("unknown integration command %s", args[0])
 		}
+		return nil
 	})
 }
 

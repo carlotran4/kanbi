@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -31,7 +32,7 @@ func TestFocusWorkflowKeyEscapingRoundTripsCommaAndBackslash(t *testing.T) {
 
 func TestFocusSettingsFlowEnablesAndDisablesImmediately(t *testing.T) {
 	store, ctx := newTestStore(t)
-	service := NewService(store, nil)
+	service := app.NewService(store, nil)
 	var saved []storage.FocusPolicy
 	service.FocusPolicySaver = func(_ context.Context, policy storage.FocusPolicy) error {
 		saved = append(saved, policy)
@@ -70,7 +71,7 @@ func TestFocusSettingsFlowEnablesAndDisablesImmediately(t *testing.T) {
 
 func TestFocusSettingsPersistenceFailureKeepsDraftAndRuntimePolicy(t *testing.T) {
 	store, ctx := newTestStore(t)
-	service := NewService(store, nil)
+	service := app.NewService(store, nil)
 	service.FocusPolicySaver = func(context.Context, storage.FocusPolicy) error { return errors.New("read-only config") }
 	model := New(ctx, service)
 	model.startFocusSettings()
@@ -102,7 +103,7 @@ func TestFocusSettingsValidationAnd80x24Layout(t *testing.T) {
 	}
 
 	store, ctx := newTestStore(t)
-	full := New(ctx, NewService(store, nil))
+	full := New(ctx, app.NewService(store, nil))
 	full.width, full.height = 80, 24
 	full.startFocusSettings()
 	rendered := ansiStrip(full.View())

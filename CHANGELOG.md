@@ -10,7 +10,11 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Changed
 
-- Herdr is now the sole runtime for boards, ticket/integration agents, smoke tests and exact-size UI validation. tmux execution, configuration and UI fallback are removed. Existing tmux history/export fields remain readable; explicit tmux backend settings require migration to Herdr, and active legacy attempts require external closure before starting a new attempt.
+- Require the pane-first Herdr launch API (supported baseline 0.9.3); remove legacy launch fallback and the unused multiplexer registry.
+- Retire agent-assisted integration (`I`), reporting, and promotion. Keep direct ticket integration (`m`) and legacy run listing/cancellation without deleting history or candidate checkouts. Recover interrupted promotions with the previous Kanbi version.
+- Remove unused `tab_strategy` and integration-agent settings; normalize the deprecated prompt-ready duration at the YAML boundary into the canonical nested timeout.
+
+- Herdr is now the sole runtime for boards, ticket agents, smoke tests and exact-size UI validation. tmux execution, configuration and UI fallback are removed. Existing tmux history/export fields remain readable; explicit tmux backend settings require migration to Herdr, and active legacy attempts require external closure before starting a new attempt.
 
 - Database schema advances from 8 to 9 to persist local ticket templates. Older binaries reject the migrated database; restore a pre-upgrade backup to roll back.
 

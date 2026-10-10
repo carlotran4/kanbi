@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -24,7 +25,7 @@ func newTestStore(t *testing.T) (*storage.Store, context.Context) {
 func newTestModel(t *testing.T) (Model, *storage.Store, context.Context) {
 	t.Helper()
 	store, ctx := newTestStore(t)
-	return New(ctx, NewService(store, nil)), store, ctx
+	return New(ctx, app.NewService(store, nil)), store, ctx
 }
 
 func defaultBoardView(t *testing.T, ctx context.Context, store *storage.Store) storage.BoardView {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/config"
 	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -597,7 +598,7 @@ func TestTUIServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 	view, _ := s.BoardView(ctx)
 	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "No session", "", "pi")
 
-	svc := tui.NewService(s, runtime.NewManager(cfg, s))
+	svc := app.NewService(s, runtime.NewManager(cfg, s))
 	err := svc.UpdateSessionRef(ctx, ticket, "some-ref")
 	if err == nil {
 		t.Fatal("expected error updating session ref with no session")
@@ -605,7 +606,7 @@ func TestTUIServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 }
 
 func TestTUIServiceSupportsMasterFilterSelector(t *testing.T) {
-	var _ tui.Actions = (*tui.Service)(nil)
+	var _ tui.Actions = (*app.Service)(nil)
 	s, ctx := newMainTestStore(t)
 	defaultView, _ := s.BoardView(ctx)
 	client, _ := s.CreateBoard(ctx, "Client B")
@@ -613,7 +614,7 @@ func TestTUIServiceSupportsMasterFilterSelector(t *testing.T) {
 	_, _ = s.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi")
 	_, _ = s.CreateTicket(ctx, clientView.Columns[0].ID, "Codex handoff", "", "codex")
 
-	service := tui.NewService(s, nil)
+	service := app.NewService(s, nil)
 	view, err := service.MasterBoardViewWithFilter(ctx, storage.MasterFilter{Harnesses: []string{"codex"}})
 	if err != nil {
 		t.Fatal(err)
@@ -681,7 +682,10 @@ func TestProbeDoctorMissingOptionalHarnessIsWarning(t *testing.T) {
 			}
 			return "", os.ErrNotExist
 		},
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
@@ -720,6 +724,9 @@ func TestProbeDoctorReportsConfiguredHerdr(t *testing.T) {
 			return "", os.ErrNotExist
 		},
 		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			if strings.Contains(name, "herdr") && len(args) == 2 && args[0] == "status" {
 				return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 			}
@@ -749,7 +756,10 @@ func TestProbeDoctorFailsWhenConfiguredHerdrMissing(t *testing.T) {
 			}
 			return "", os.ErrNotExist
 		},
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
@@ -770,7 +780,10 @@ func TestProbeDoctorFailsUnknownConfiguredMultiplexerWithoutOKResult(t *testing.
 	cfg.Multiplexer.Default = "mystery"
 	report := probeDoctor(context.Background(), cfg, doctorProber{
 		lookPath: func(string) (string, error) { return "/bin/tmux", nil },
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
@@ -800,6 +813,9 @@ func TestProbeDoctorHerdrDoesNotRequireTmux(t *testing.T) {
 			return "", os.ErrNotExist
 		},
 		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			if strings.Contains(name, "herdr") {
 				return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 			}
@@ -822,7 +838,10 @@ func TestProbeDoctorCanSimulatePathFailures(t *testing.T) {
 	cfg := config.Defaults(config.Paths{ConfigFile: "config.yaml", DataDir: "data", StateDir: "state", DBFile: "db.sqlite"})
 	report := probeDoctor(context.Background(), cfg, doctorProber{
 		lookPath: func(name string) (string, error) { return "/bin/" + name, nil },
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":true,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },
@@ -1017,7 +1036,10 @@ func TestDoctorRejectsSuccessfulStatusWhenServerNotRunning(t *testing.T) {
 	cfg := config.Defaults(config.Paths{})
 	report := probeDoctor(context.Background(), cfg, doctorProber{
 		lookPath: func(name string) (string, error) { return "/bin/" + name, nil },
-		commandOutput: func(string, ...string) ([]byte, error) {
+		commandOutput: func(name string, args ...string) ([]byte, error) {
+			if strings.Join(args, " ") == "agent start --help" {
+				return []byte("--kind --pane"), nil
+			}
 			return []byte(`{"server":{"running":false,"compatible":true}}`), nil
 		},
 		openStore:  func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil },

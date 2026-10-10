@@ -54,7 +54,7 @@ func TestSaveFocusPreservesOtherConfigAndCanDisable(t *testing.T) {
 	if err := SaveFocus(path, Focus{Enabled: false, Limit: 4, WorkflowKeys: []string{"In Progress", "Review"}}); err != nil {
 		t.Fatal(err)
 	}
-	raw, _, err := LoadRaw(path)
+	raw, err := LoadRaw(path)
 	if err != nil {
 		t.Fatal(err)
 	}
