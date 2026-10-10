@@ -3,7 +3,7 @@
 Three `gpt-6-luna` agents exercised current source in separate disposable Herdr
 fixtures. No production database, configuration, or authenticated harness was
 used. Findings below describe observed behavior; this change does not implement
-fixes.
+fixes. The subsequent fix and validation are recorded below.
 
 ## P2: Pause checkpoint arrow keys leave multiline fields
 
@@ -67,3 +67,17 @@ under `/tmp/kanbi-gh376-{boards,editor,focus}` for local investigation.
   capture, focus, resume, and preserved session attempts in isolated Herdr.
 - No production code changed, so no new regression test or formatting change was
   added.
+
+## Follow-up fix
+
+`updatePause` now reserves Tab/Shift+Tab for field navigation and sends Up/Down
+to the textarea. A regression test exercises both directions in all three
+multiline fields at widths 160 and 80, checks that text and focus are preserved,
+and checks Tab/Shift+Tab navigation.
+
+Follow-up verification passed: `go fmt ./...`, `go test ./...`, `go vet ./...`,
+and `./scripts/smoke.sh --skip-checks`. The real UI was validated at 160×45 and
+80×24 in `/tmp/kanbi-gh376-fix`: Up/Down followed by typing edited the first and
+second lines respectively, Tab/Shift+Tab changed fields, and Ctrl+S saved the
+complete checkpoint. The fixture database confirmed both edited lines and the
+remaining fields were preserved. The owned Herdr fixture was stopped.

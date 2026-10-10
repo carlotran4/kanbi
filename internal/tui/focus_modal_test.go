@@ -209,6 +209,48 @@ func TestPauseModalStaysBoundedAndResizesInputs(t *testing.T) {
 	}
 }
 
+func TestPauseMultilineArrowNavigationPreservesFieldFocus(t *testing.T) {
+	for _, width := range []int{160, 80} {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			m := Model{width: width, height: 24}
+			m.startPause(storage.Ticket{ID: 1, DisplayID: "T-001"})
+			for field := range m.pauseInputs {
+				for _, key := range []tea.KeyMsg{
+					{Type: tea.KeyRunes, Runes: []rune("line one")},
+					{Type: tea.KeyEnter},
+					{Type: tea.KeyRunes, Runes: []rune("line two")},
+				} {
+					next, _ := m.updatePause(key)
+					m = focusTestModel(t, next)
+				}
+				for _, step := range []struct {
+					key  tea.KeyType
+					line int
+				}{{tea.KeyUp, 0}, {tea.KeyDown, 1}} {
+					next, _ := m.updatePause(tea.KeyMsg{Type: step.key})
+					m = focusTestModel(t, next)
+					if m.pauseField != field || !m.pauseInputs[field].Focused() || m.pauseInputs[field].Line() != step.line {
+						t.Fatalf("arrow navigation: field=%d focused=%v line=%d, want field=%d line=%d", m.pauseField, m.pauseInputs[field].Focused(), m.pauseInputs[field].Line(), field, step.line)
+					}
+					if got := m.pauseInputs[field].Value(); got != "line one\nline two" {
+						t.Fatalf("arrow navigation changed text: %q", got)
+					}
+				}
+				next, _ := m.updatePause(tea.KeyMsg{Type: tea.KeyTab})
+				m = focusTestModel(t, next)
+				if m.pauseField != (field+1)%3 || !m.pauseInputs[m.pauseField].Focused() {
+					t.Fatal("Tab did not focus the next field")
+				}
+			}
+			next, _ := m.updatePause(tea.KeyMsg{Type: tea.KeyShiftTab})
+			m = focusTestModel(t, next)
+			if m.pauseField != 2 || !m.pauseInputs[2].Focused() {
+				t.Fatal("Shift+Tab did not wrap to the previous field")
+			}
+		})
+	}
+}
+
 func TestNoteTextareaUsesInspectorWidthAndResizes(t *testing.T) {
 	m := Model{width: 160, height: 45, noteEditing: true}
 	m.noteTA = newNoteTextarea("", m.width)

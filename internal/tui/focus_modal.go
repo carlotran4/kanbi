@@ -63,12 +63,12 @@ func (m *Model) updatePause(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.errNext = ""
 		m.clearFocusReplacement()
 		return m, nil
-	case "tab", "down":
+	case "tab":
 		m.status = ""
 		m.pauseInputs[m.pauseField].Blur()
 		m.pauseField = (m.pauseField + 1) % 3
 		return m, m.pauseInputs[m.pauseField].Focus()
-	case "shift+tab", "up":
+	case "shift+tab":
 		m.status = ""
 		m.pauseInputs[m.pauseField].Blur()
 		m.pauseField = (m.pauseField + 2) % 3
