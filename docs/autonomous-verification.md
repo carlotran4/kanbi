@@ -313,7 +313,7 @@ An autonomous agent should stop and ask before:
 
 ## Opt-In Real Multiplexer Checks
 
-Real Herdr checks are opt-in and are not part of normal smoke or CI. `scripts/herdr-ui-smoke.sh` uses an existing Herdr session and isolates UI interaction in a disposable, non-focused workspace; real harness lifecycle checks additionally require installed/authenticated agents. To verify manually, install Herdr, run `herdr` once, configure a disposable Kanbi config with `multiplexer.default: herdr`, run `kanbi doctor`, then open a disposable ticket and confirm the Herdr pane/agent is created and focusable.
+The smoke and UI scripts run isolated Herdr servers and rendering clients, including in CI. Authenticated harness checks remain opt-in: `KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi,codex ./scripts/real-harness-lifecycle.sh` requires installed/authenticated agents and can consume quota. It confirms an actual model response and a finished or blocked agent before closing the pane, then verifies native resume, restored conversation output and preserved session history. Failed runs retain disposable artifacts for diagnosis. To verify manually, install Herdr, run `herdr` once, configure a disposable Kanbi config with `multiplexer.default: herdr`, run `kanbi doctor`, then open a disposable ticket and confirm the Herdr pane/agent is created and focusable.
 
 ## Opt-In Real Backend Smoke Tests
 

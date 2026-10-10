@@ -49,7 +49,7 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	if strings.Contains(log, "--no-alt-screen # T-001") {
 		t.Fatalf("pane-first Herdr must not receive the rendered prompt as an agent argument; log=%s", log)
 	}
-	if !strings.Contains(log, "pane send-text pane-123 # T-001: Herdr Launch") || !strings.Contains(log, "pane send-keys pane-123 enter") {
+	if !strings.Contains(log, "agent prompt agent-789 # T-001: Herdr Launch") {
 		t.Fatalf("fake Herdr did not receive the prompt through pane input; log=%s", log)
 	}
 	createAt := strings.Index(log, "tab create --workspace ws-board --label b1-T-001-herdr-launch")
@@ -127,7 +127,7 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 		"agent start help": `--kind <KIND> --pane <ID>`,
 		"tab create":       `{"result":{"root_pane":{"pane_id":"pane-123"},"tab":{"tab_id":"tab-456"}}}`,
 		"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
-		"pane send-text":   "__ERROR__",
+		"agent prompt":     "__ERROR__",
 	})
 	cfg := config.Defaults(config.Paths{})
 	cfg.Multiplexer.Default = "herdr"
@@ -395,6 +395,7 @@ case "$1 $2" in
   "agent get") echo '` + responses["agent get"] + `' ;;
   "agent read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"error":{"code":"agent_not_found"}}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
   "pane read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"code":"pane_not_found"}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
+  "agent prompt") if [ '` + responses["agent prompt"] + `' = '__ERROR__' ]; then echo 'prompt failed' >&2; exit 1; else echo '{"ok":true}'; fi ;;
   "pane send-text") if [ '` + responses["pane send-text"] + `' = '__ERROR__' ]; then echo 'send failed' >&2; exit 1; else echo '{"ok":true}'; fi ;;
   "pane send-keys") if [ '` + responses["pane send-keys"] + `' = '__ERROR__' ]; then echo 'keys failed' >&2; exit 1; else echo '{"ok":true}'; fi ;;
   *) echo '{}' ;;

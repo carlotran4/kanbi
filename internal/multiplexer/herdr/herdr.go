@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -363,6 +364,72 @@ func (a *Adapter) SendText(ctx context.Context, ref multiplexer.ContainerRef, te
 	}
 	_, err := a.run(ctx, "pane", "send-text", paneID, text)
 	return err
+}
+
+// SubmitPrompt uses Herdr's harness-aware submission instead of racing pasted
+// input with Enter. Wait only for acceptance, not the model's completed turn.
+func (a *Adapter) SubmitPrompt(ctx context.Context, ref multiplexer.ContainerRef, text string, timeout time.Duration) error {
+	if ref.Target() == "" {
+		return errors.New("herdr prompt target is empty")
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	if err := a.waitPromptEditor(ctx, ref, timeout); err != nil {
+		return err
+	}
+	// Leave room for Herdr's fixed five-second stalled check even with the
+	// default five-second readiness timeout.
+	acceptTimeout := timeout
+	if acceptTimeout < 6*time.Second {
+		acceptTimeout = 6 * time.Second
+	}
+	out, err := a.run(ctx, "agent", "prompt", ref.Target(), text, "--wait", "--until", "working", "--until", "done", "--until", "blocked", "--timeout", fmt.Sprint(acceptTimeout.Milliseconds()))
+	if err != nil && strings.Contains(out, "agent_prompt_stalled") {
+		// Herdr 0.9.3 can detect readiness before the harness finishes startup.
+		// Its stalled check leaves the pasted prompt in the editor. Submit that
+		// existing input once after the check; never paste the prompt again.
+		if keyErr := a.SendKeys(ctx, ref, "enter"); keyErr != nil {
+			return errors.Join(herdrCommandError("submit prompt", out, err), keyErr)
+		}
+		out, err = a.run(ctx, "agent", "wait", ref.Target(), "--until", "working", "--until", "done", "--until", "blocked", "--timeout", fmt.Sprint(timeout.Milliseconds()))
+	}
+	if err != nil {
+		return herdrCommandError("submit prompt", out, err)
+	}
+	return nil
+}
+
+// Cold-start executable installers can resemble a working agent before its
+// editor exists. Confirm the observed Pi/Codex input surface before pasting.
+func (a *Adapter) waitPromptEditor(ctx context.Context, ref multiplexer.ContainerRef, timeout time.Duration) error {
+	kind := refMeta(ref, "result.agent.agent", "agent.agent")
+	var pattern string
+	switch kind {
+	case "pi":
+		pattern = `(?m)^.*\d+(?:\.\d+)?%/\d+`
+	case "codex":
+		pattern = `(?m)^\s*›`
+	default:
+		return nil
+	}
+	ready := regexp.MustCompile(pattern)
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		out, err := a.run(waitCtx, "pane", "read", refMeta(ref, "pane_id", "result.agent.pane_id"), "--source", "visible", "--format", "text")
+		if err != nil {
+			return herdrCommandError("wait for prompt editor", out, err)
+		}
+		if ready.MatchString(readText(out)) {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("herdr %s prompt editor: %w", kind, waitCtx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func (a *Adapter) Close(ctx context.Context, ref multiplexer.ContainerRef) error {

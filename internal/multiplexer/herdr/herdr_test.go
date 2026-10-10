@@ -6,10 +6,76 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/multiplexer"
 )
+
+func TestSubmitPromptWaitsForAcceptanceAndPropagatesFailure(t *testing.T) {
+	const prompt = "# Ticket\n\nLiteral `text` and $variables"
+	args := []string{"agent", "prompt", "agent-1", prompt, "--wait", "--until", "working", "--until", "done", "--until", "blocked", "--timeout", "15000"}
+	key := strings.Join(args, " ")
+	for _, failed := range []bool{false, true} {
+		r := &fakeRunner{out: map[string]string{}, err: map[string]error{}}
+		if failed {
+			r.out[key] = `{"error":{"code":"agent_blocked","message":"permission required"}}`
+			r.err[key] = errors.New("exit status 1")
+		}
+		a := NewAdapter(Config{})
+		a.Runner = r
+		err := a.SubmitPrompt(context.Background(), multiplexer.ContainerRef{ID: "agent-1"}, prompt, 15*time.Second)
+		if (err != nil) != failed || failed && !strings.Contains(err.Error(), "agent_blocked") {
+			t.Fatalf("failed=%v: error=%v", failed, err)
+		}
+		if !reflect.DeepEqual(r.calls, [][]string{append([]string{"herdr"}, args...)}) {
+			t.Fatalf("submission calls = %#v", r.calls)
+		}
+	}
+}
+
+func TestSubmitPromptRecoversStalledPasteWithoutResendingText(t *testing.T) {
+	const first = "agent prompt agent-1 multiline\ntext --wait --until working --until done --until blocked --timeout 15000"
+	const wait = "agent wait agent-1 --until working --until done --until blocked --timeout 15000"
+	for _, failed := range []bool{false, true} {
+		r := &fakeRunner{
+			out: map[string]string{first: `{"error":{"code":"agent_prompt_stalled"}}`},
+			err: map[string]error{first: errors.New("exit status 1")},
+		}
+		if failed {
+			r.err[wait] = errors.New("acceptance timeout")
+		}
+		a := NewAdapter(Config{})
+		a.Runner = r
+		err := a.SubmitPrompt(context.Background(), multiplexer.ContainerRef{ID: "agent-1", Metadata: `{"pane_id":"pane-1"}`}, "multiline\ntext", 15*time.Second)
+		if (err != nil) != failed {
+			t.Fatalf("failed=%v: error=%v", failed, err)
+		}
+		if len(r.calls) != 3 || strings.Join(r.calls[1][1:], " ") != "pane send-keys pane-1 enter" || strings.Join(r.calls[2][1:], " ") != wait {
+			t.Fatalf("recovery calls = %#v", r.calls)
+		}
+	}
+}
+
+func TestSubmitPromptRejectsInstallerWithoutEditor(t *testing.T) {
+	for _, kind := range []string{"pi", "codex"} {
+		r := &fakeRunner{out: map[string]string{
+			"pane read pane-1 --source visible --format text": "mise downloading executable...",
+		}}
+		a := NewAdapter(Config{})
+		a.Runner = r
+		ref := multiplexer.ContainerRef{ID: "agent-1", Metadata: `{"pane_id":"pane-1","result":{"agent":{"agent":"` + kind + `"}}}`}
+		err := a.SubmitPrompt(context.Background(), ref, "test prompt", time.Millisecond)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s: error=%v", kind, err)
+		}
+		for _, call := range r.calls {
+			if call[1] != "pane" || call[2] != "read" {
+				t.Fatalf("submitted to installer: %v", call)
+			}
+		}
+	}
+}
 
 type fakeRunner struct {
 	calls [][]string

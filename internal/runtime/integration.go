@@ -45,11 +45,7 @@ func (m *Manager) LaunchIntegration(ctx context.Context, spec integrationpkg.Lau
 		return storage.IntegrationRun{}, err
 	}
 	if herdrPaneFirst {
-		if err := adapter.SendText(ctx, ref, spec.Prompt); err != nil {
-			_ = adapter.Close(context.Background(), ref)
-			return storage.IntegrationRun{}, err
-		}
-		if err := adapter.SendKeys(ctx, ref, "enter"); err != nil {
+		if err := m.herdrAdapter().SubmitPrompt(ctx, ref, spec.Prompt, m.Config.PromptReadyTimeout); err != nil {
 			_ = adapter.Close(context.Background(), ref)
 			return storage.IntegrationRun{}, err
 		}

@@ -49,8 +49,7 @@ func TestLaunchIntegrationWithHerdrUsesPaneFirstAgentStart(t *testing.T) {
 		"--env KANBI_INTEGRATION_TOKEN=secret-token",
 		"agent start integration-run-",
 		"--kind pi --pane ws-board:p2 --",
-		"pane send-text ws-board:p2 integrate exact commits",
-		"pane send-keys ws-board:p2 enter",
+		"agent prompt integration-agent integrate exact commits",
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("Herdr log %q missing %q", log, want)

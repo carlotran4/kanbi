@@ -8,14 +8,18 @@ if [[ "${KANBI_REAL_HARNESS_TESTS:-}" != 1 ]]; then
   exit 0
 fi
 TMP="$(mktemp -d)"
-cleanup() { python3 "$ROOT/scripts/herdr-fixture.py" stop "$TMP/runtime"; rm -rf "$TMP"; }
+cleanup() {
+  result=$?
+  python3 "$ROOT/scripts/herdr-fixture.py" stop "$TMP/runtime"
+  if [[ "$result" == 0 ]]; then rm -rf "$TMP"; else echo "Failed test artifacts retained at $TMP" >&2; fi
+}
 trap cleanup EXIT
 export GOCACHE="${GOCACHE:-/tmp/kanbi-go-build}"
 export KANBI_CONFIG="$TMP/config.yaml" KANBI_DB="$TMP/kanbi.db" KANBI_STATE_DIR="$TMP/state" KANBI_DATA_DIR="$TMP/data"
 cat >"$KANBI_CONFIG" <<YAML
 multiplexer:
   default: herdr
-prompt_ready_timeout: 15s
+prompt_ready_timeout: 60s
 YAML
 python3 "$ROOT/scripts/herdr-fixture.py" start "$TMP/runtime" 160 45
 unset HERDR_SESSION HERDR_CLIENT_SOCKET_PATH HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_ENV
@@ -34,6 +38,15 @@ for harness in "${harnesses[@]}"; do
   [[ "$(sqlite3 "$KANBI_DB" "select s.multiplexer $query;")" == herdr ]]
   pane="$(sqlite3 "$KANBI_DB" "select json_extract(s.mux_metadata,'$.pane_id') $query;")"
   herdr pane get "$pane" >/dev/null
+  # A startup ref can exist before the first turn is persisted. Wait for an
+  # actual model response before terminating the process and testing resume.
+  if ! herdr pane wait-output "$pane" --regex '(?m)^\s*(?:•\s*)?KANBI_LIFECYCLE_OK\s*$' --source recent --timeout 120000 >"$TMP/$harness-response.json"; then
+    herdr pane read "$pane" --source recent --format text >"$TMP/$harness-frame.txt" || true
+    tail -40 "$TMP/$harness-frame.txt" >&2
+    echo "$harness: no completed model response before resume test" >&2
+    exit 1
+  fi
+  herdr agent wait "$pane" --until idle --until done --until blocked --timeout 30000 >"$TMP/$harness-idle.json"
   ref=""
   for attempt in {1..30}; do
     ref="$(sqlite3 "$KANBI_DB" "select s.harness_session_ref $query;")"
@@ -49,6 +62,8 @@ for harness in "${harnesses[@]}"; do
   [[ "$(sqlite3 "$KANBI_DB" "select count(*) from sessions s join tickets t on t.id=s.ticket_id where t.display_id='$ticket';")" == 2 ]]
   [[ "$(sqlite3 "$KANBI_DB" "select s.harness_session_ref $query;")" == "$ref" ]]
   [[ "$(sqlite3 "$KANBI_DB" "select sum(s.is_active) from sessions s join tickets t on t.id=s.ticket_id where t.display_id='$ticket';")" == 1 ]]
+  resumed_pane="$(sqlite3 "$KANBI_DB" "select json_extract(s.mux_metadata,'$.pane_id') $query;")"
+  herdr pane wait-output "$resumed_pane" --regex '(?m)^\s*(?:•\s*)?KANBI_LIFECYCLE_OK\s*$' --source recent --timeout 30000 >"$TMP/$harness-resumed-history.json"
   echo "$harness: PASS (launch, verified ref, focus, terminal exit, actual resume, preserved history)"
 done
 echo 'Real Herdr harness lifecycle: PASS'

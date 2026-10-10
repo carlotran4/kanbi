@@ -358,11 +358,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 		var promptErr error
 		if herdrPaneFirst {
-			// Pane-first Herdr reports success only after the canonical harness is
-			// detected and ready, so multiline prompts can be sent literally now.
-			if promptErr = adapter.SendText(ctx, containerRef, renderedPrompt); promptErr == nil {
-				promptErr = adapter.SendKeys(ctx, containerRef, "enter")
-			}
+			promptErr = l.manager.herdrAdapter().SubmitPrompt(ctx, containerRef, renderedPrompt, l.manager.Config.PromptReadyTimeout)
 		} else {
 			promptErr = l.manager.WaitAndSendPrompt(ctx, adapter, containerRef, readOptions, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout)
 		}
