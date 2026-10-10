@@ -106,6 +106,8 @@ For TUI/UI changes, use the project `kanbi-ui-validation` skill after model test
 
 The opt-in performance comparisons and repeatable real UI driver are documented in [Performance issue #358: implementation and evidence](performance-358.md), including reference hardware, sample counts, timing/allocation results, reproduction commands, and remaining limits.
 
+For the optional inspector, also exercise `i`, board navigation, `Tab`, `[`/`]`, focused scrolling, Escape return, and resize while detail is open. Use an owned synthetic terminal pane/session in the disposable database to check ANSI snapshots, horizontal clipping, alternate-screen output, capture failure/staleness and selection changes; never attach or resize a live user agent. Record the synthetic pane's dimensions, focus and session count before/after inspection. Verify missing output is explicit, terminal input is not sent, and Enter still focuses the existing valid attempt.
+
 ### 7. Doctor Self-Test
 `kanbi doctor` should have testable internals.
 

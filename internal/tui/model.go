@@ -22,6 +22,7 @@ import (
 )
 
 type Model struct {
+	inspector               inspectorState
 	renderCache             *renderCache
 	renderVersion           uint64
 	refreshWorker           *runtimeRefreshWorker
@@ -248,7 +249,7 @@ func NewWithPickerStatusBarOptions(ctx context.Context, store Actions, reconcile
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(runtimeTickCmd(), m.initialStatusBarCmd())
+	return tea.Batch(runtimeTickCmd(), inspectorTickCmd(), m.initialStatusBarCmd())
 }
 
 type runtimeTickMsg time.Time
@@ -312,8 +313,23 @@ func runtimeTickCmd() tea.Cmd {
 	})
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case inspectorTickMsg:
+		return m, inspectorTickCmd()
+	case inspectorPreviewMsg:
+		m.inspector.busy = false
+		if msg.generation == m.inspector.generation {
+			m.inspector.next = time.Now().Add(2 * time.Second)
+			if msg.err != nil {
+				m.inspector.err = msg.err.Error()
+			} else {
+				m.inspector.preview = msg.preview
+				m.inspector.err = ""
+			}
+			m.renderVersion++
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -328,7 +344,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncScrollDimensions()
 		m.hScrollFollow()
 		m.vScrollFollow()
-		m.vScrollBackfill()
+		if !m.inspector.open {
+			m.vScrollBackfill()
+		}
 		return m, tea.ClearScreen
 	case statusBarResultMsg:
 		if !m.applyStatusBarResult(msg) {
@@ -497,6 +515,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Ctrl+C is a global, non-destructive application quit. Ticket runtime
 	// containers remain alive regardless of which modal currently has focus.
 	if key.String() == "ctrl+c" {
+		m.inspector.open = false
 		m.statusBarCancel()
 		m.refreshWorker.stop()
 		return m, tea.Quit
@@ -596,6 +615,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.inspectorKey(key) {
+		return m, nil
+	}
 	switch key.String() {
 	case "?":
 		m.showHelp = true
@@ -610,6 +632,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "f":
 		m.startMasterFilter()
 	case "q":
+		m.inspector.open = false
 		m.statusBarCancel()
 		m.refreshWorker.stop()
 		return m, tea.Quit

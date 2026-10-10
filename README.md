@@ -65,6 +65,8 @@ Press `m` on a ticket with a Git worktree to confirm merging its committed branc
 
 The header status bar is configurable with Starship-style modules and independently aligned left, center, and right zones. It can show the board, time, or cached output from bounded custom commands such as a weekly usage script. See [Configuration](./docs/configuration.md).
 
+Press `i` to toggle a read-only inspector for the selected ticket. At 120 columns or wider it sits beside the board; at smaller sizes it temporarily replaces the board. `Tab` focuses the side panel, `[`/`]` select Context, Output, or Worktree, and `hjkl`/arrows scroll focused detail (Output scrolls horizontally without resizing the agent). `Esc` returns to the board; `i` closes the panel. Inspection suppresses inline body previews, retains selection and viewport anchors, and never starts an agent or sends terminal input. Output refreshes bounded ANSI visible-screen snapshots while visible, labels transcript fallback, and shows unavailable/stale observations explicitly. `Enter` keeps its existing send/open/resume behavior.
+
 Press `?` for controls. The important distinction is:
 
 - `x` closes the selected agent session.

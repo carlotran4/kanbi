@@ -3,6 +3,7 @@ package multiplexer
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrContainerNotFound means the multiplexer authoritatively reported that a
@@ -82,4 +83,17 @@ type Interface interface {
 	SendKeys(ctx context.Context, ref ContainerRef, keys ...string) error
 	Close(ctx context.Context, ref ContainerRef) error
 	Detect(ctx context.Context, ref ContainerRef) (Detection, error)
+}
+
+// TerminalPreview is a read-only observation, independent of runtime detection.
+type TerminalPreview struct {
+	Text       string
+	Source     string
+	CapturedAt time.Time
+	Warning    string
+}
+
+// ScreenReader is optional; reads never focus, resize, or send terminal input.
+type ScreenReader interface {
+	ReadScreen(context.Context, ContainerRef) (string, error)
 }

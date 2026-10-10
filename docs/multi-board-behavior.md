@@ -247,3 +247,9 @@ Kanbi still provides `kanbi backup PATH` / `kanbi restore PATH [--force]` for wh
 1. Optional TUI editor for workflow keys beyond CLI `set-column-key`.
 2. Consider attachment markdown path rewrite completeness for absolute package-owned body links.
 3. Decide whether named-board views should gain equivalent filter capabilities.
+
+## Optional selected-ticket inspector
+
+`i` toggles detail alongside the existing board at widths of at least 120 cells, or temporarily in place of the board below that threshold (including 80x24). The same board selection remains the keyboard target unless detail has focus: `Tab` switches board/panel focus on wide terminals, `[`/`]` switch sections, focused `hjkl`/arrows and PageUp/PageDown scroll, and Home resets detail scroll. Escape returns from detail (or closes a narrow inspector); `i` always closes it. Context shows the task and latest pause checkpoint, Output shows a read-only observation with freshness, and Worktree shows the full branch, checkout, and cached Git health with unknown observation age explicitly labeled.
+
+Master and named boards share this inspector. Ticket projections carry the owning column's real name so Master detail does not substitute its representative aggregate label. Opening detail disables all inline body previews, including the selected card's, without changing selection or attention styling. Closing restores ordinary previews and retained viewport anchors, adjusting only as needed to keep the selected card visible after navigation or resize. Header/footer and existing focus/attention information remain on the original board; no extra attention strip or top-level view is added. Enter uses the unchanged ticket lifecycle, including focusing a valid active attempt without a duplicate session row.

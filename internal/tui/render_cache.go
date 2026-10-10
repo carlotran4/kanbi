@@ -53,7 +53,7 @@ func (m *Model) bodyPreview(ticket storage.Ticket, width int) string {
 }
 
 func (m *Model) cardPreview(ticket storage.Ticket, width int, focused bool) string {
-	if !focused {
+	if !focused || m.inspector.open {
 		return ""
 	}
 	return m.bodyPreview(ticket, maxInt(10, width-8))
@@ -68,7 +68,7 @@ func (m *Model) cachedCardView(focused bool, ticket storage.Ticket, width int, s
 }
 
 func (m *Model) cachedBaseView() string {
-	if m.renderCache == nil || m.activeModalKind() == modalNone {
+	if m.inspector.open || m.renderCache == nil || m.activeModalKind() == modalNone {
 		return m.baseView()
 	}
 	key := baseRenderKey{version: m.renderVersion, width: m.width, height: m.height, col: m.col, card: m.card, colOffset: m.colOffset,

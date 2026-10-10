@@ -28,7 +28,11 @@ type Runner interface {
 	Run(ctx context.Context, name string, args ...string) (string, error)
 }
 
-type ExecRunner struct{ Session string }
+type ExecRunner struct {
+	Session string
+	// Preview bounds do not apply to normal runtime transcript reads.
+	Preview bool
+}
 
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -38,6 +42,12 @@ func (r ExecRunner) Run(ctx context.Context, name string, args ...string) (strin
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
+	if r.Preview {
+		bounded := &previewBuffer{}
+		cmd.Stdout, cmd.Stderr = bounded, bounded
+		err := cmd.Run()
+		return bounded.String(), err
+	}
 	err := cmd.Run()
 	return out.String(), err
 }
@@ -745,4 +755,39 @@ func refMeta(ref multiplexer.ContainerRef, keys ...string) string {
 		return ""
 	}
 	return firstString(obj, keys...)
+}
+
+// previewBuffer drains the command while retaining at most 256 KiB.
+type previewBuffer struct{ bytes.Buffer }
+
+func (b *previewBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := 256*1024 - b.Len()
+	if remaining > 0 {
+		_, _ = b.Buffer.Write(p[:min(len(p), remaining)])
+	}
+	return n, nil
+}
+
+// ReadScreen captures the current grid without altering the terminal dimensions.
+func (a *Adapter) ReadScreen(ctx context.Context, ref multiplexer.ContainerRef) (string, error) {
+	pane := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
+	if pane == "" {
+		pane = ref.Target()
+	}
+	if pane == "" {
+		return "", errors.New("herdr preview target is empty")
+	}
+	preview := *a
+	if runner, ok := preview.Runner.(ExecRunner); ok {
+		runner.Preview = true
+		preview.Runner = runner
+	} else if preview.Runner == nil {
+		preview.Runner = ExecRunner{Session: a.Config.Session, Preview: true}
+	}
+	out, err := preview.run(ctx, "pane", "read", pane, "--source", "visible", "--format", "ansi", "--lines", "160")
+	if err != nil {
+		return "", err
+	}
+	return readText(out), nil
 }

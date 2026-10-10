@@ -495,3 +495,30 @@ func TestLaunchRejectsUnsupportedHerdrBeforeCreatingResources(t *testing.T) {
 		t.Fatalf("probe failure: %v, calls=%v", err, r.calls)
 	}
 }
+
+func TestReadScreenIsSeparateFromTranscript(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"pane read pane-1 --source visible --format ansi --lines 160": "\x1b[31mscreen\x1b[0m",
+		"agent read agent-1 --source recent-unwrapped --lines 20":     "transcript",
+	}}
+	a := NewAdapter(Config{})
+	a.Runner = r
+	ref := multiplexer.ContainerRef{ID: "agent-1", Metadata: `{"pane_id":"pane-1"}`}
+	screen, err := a.ReadScreen(context.Background(), ref)
+	if err != nil || screen != "\x1b[31mscreen\x1b[0m" {
+		t.Fatalf("%q %v", screen, err)
+	}
+	transcript, err := a.Read(context.Background(), ref, multiplexer.ReadOptions{Lines: 20})
+	if err != nil || transcript != "transcript" {
+		t.Fatalf("%q %v", transcript, err)
+	}
+	if len(r.calls) != 2 {
+		t.Fatalf("unexpected side effects: %v", r.calls)
+	}
+	b := &previewBuffer{}
+	p := []byte(strings.Repeat("x", 300*1024))
+	n, err := b.Write(p)
+	if n != len(p) || err != nil || b.Len() != 256*1024 {
+		t.Fatal("capture not bounded")
+	}
+}

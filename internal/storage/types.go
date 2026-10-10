@@ -104,6 +104,7 @@ type TicketProjection struct {
 	BoardWorkdir      string
 	BoardWorktreeMode string
 	ColumnID          int64
+	ColumnName        string
 	ExternalID        sql.NullString
 	ExternalURL       sql.NullString
 	ExternalUpdatedAt sql.NullTime

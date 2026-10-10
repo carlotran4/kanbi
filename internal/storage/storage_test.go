@@ -1467,3 +1467,36 @@ func TestNoteCountInProjection(t *testing.T) {
 		t.Fatalf("NoteCount = %d, want 2", projected.NoteCount)
 	}
 }
+
+func TestMasterProjectionPreservesOwningColumnName(t *testing.T) {
+	store, ctx := newTestStore(t)
+	view, err := store.BoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Column identity", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RenameColumn(ctx, view.Columns[0].ID, "Owning column renamed"); err != nil {
+		t.Fatal(err)
+	}
+	master, err := store.MasterBoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, col := range master.Columns {
+		for _, got := range col.Tickets {
+			if got.ID == ticket.ID {
+				found = true
+				if got.ColumnName != "Owning column renamed" {
+					t.Fatalf("column=%q", got.ColumnName)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("ticket absent")
+	}
+}

@@ -53,6 +53,12 @@ For current Herdr releases, Kanbi creates a dedicated tab with a shell pane in t
 
 When Herdr reports an agent state, Kanbi prefers that native state for ticket sessions. If Herdr state is unavailable or `unknown`, Kanbi falls back to reading pane output and applying harness/pattern detection. Explicit Herdr `agent_not_found` and `pane_not_found` responses are authoritative container absence rather than generic command failures; Kanbi deactivates that ticket attempt as exited/resumable or repair-needed according to whether a verified harness session ref exists.
 
+## Read-only inspector preview
+
+The optional `ScreenReader` capability is separate from transcript `Read`. Herdr captures `pane read <stored-pane-id> --source visible --format ansi --lines 160`, using pane metadata from the selected active session. Runtime detection and session-ref capture retain `recent-unwrapped` text reads. Preview validates the current attempt and full stored reference, performs no lifecycle writes, focus, input, launch, or terminal resize, and uses a three-second deadline. Capture drains CLI output while retaining at most 256 KiB. A screen-read failure may fall back to a bounded recent transcript, explicitly labeled; validation/read failures preserve the previous preview with a stale/unavailable warning.
+
+The TUI permits one capture at a time, cancels and invalidates results when selection/attempt/section/modal visibility changes, and refreshes no faster than two seconds after a result while Output is visible. It preserves numeric SGR styling and cell layout, clips within panel bounds, supports horizontal scrolling, and strips cursor controls, OSC/clipboard/hyperlinks, DCS/APC/graphics and other controls. No cursor overlay is synthesized. Streaming observers are not used, and the agent's terminal dimensions are never changed to fit the panel. Historical tmux attempts remain unavailable; this feature does not restore the retired backend.
+
 ## Doctor And Verification
 
 `kanbi doctor` reports build/schema compatibility and checks `herdr status --json` for a running, compatible server. Missing Herdr, unavailable/incompatible servers and unsupported runtime settings are fatal. Missing optional harness commands remain warnings. It performs no tmux checks.

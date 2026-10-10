@@ -102,6 +102,15 @@ func (m Model) baseView() string {
 	header := statusBarStyle.Render(headerLine) + "\n\n"
 	board := m.boardView()
 	hint := m.hScrollHint()
+	if m.inspector.open {
+		panelHeight := m.boardContentHeight() + 2
+		if m.inspectorNarrow() {
+			board = m.inspectorView(panelHeight)
+			hint = ""
+		} else {
+			board = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(m.boardWidth()).Render(board), " ", m.inspectorView(panelHeight))
+		}
+	}
 
 	footer := []string{
 		footerRule.Render(strings.Repeat("─", m.width)),
@@ -159,14 +168,20 @@ func focusHeaderLine(left, focusText string, width int) string {
 }
 
 func (m Model) contextBar() string {
-	items := []string{"Enter:send/open", "n:new", "N:template", "T:templates", "e:ticket", "b:boards", "F:focus"}
+	if m.inspector.open && m.inspectorNarrow() {
+		return trimToWidth("i/Esc:board [/]:section hjkl:scroll Enter:open ?:help", maxInt(1, m.width))
+	}
+	if m.inspector.open {
+		return trimToWidth("i:close Esc:return Tab:focus [/]:section hjkl:move/scroll Enter:open ?:help", maxInt(1, m.width))
+	}
+	items := []string{"Enter:send/open", "i:inspect", "n:new", "N:template", "T:templates", "e:ticket", "b:boards", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
 	items = append(items, "!:attention", "q:quit", "?:help+legend")
 	separator := "  "
 	if m.width <= 80 {
-		items = []string{"Enter:open", "n:new", "N:template", "T:manage", "b:boards", "F:focus"}
+		items = []string{"Enter:open", "i:inspect", "n:new", "b:boards", "F:focus"}
 		if m.masterBoard {
 			items = append(items, "f:filters")
 		}
@@ -190,14 +205,14 @@ func (m Model) boardColumnLayout() (width, count int) {
 	if remaining <= 0 {
 		return boardColumnMinWidth, 0
 	}
-	count = m.width / (boardColumnMinWidth + boardColumnGap)
+	count = m.boardWidth() / (boardColumnMinWidth + boardColumnGap)
 	if count < 1 {
 		count = 1
 	}
 	if count > remaining {
 		count = remaining
 	}
-	width = m.width/count - boardColumnGap
+	width = m.boardWidth()/count - boardColumnGap
 	if width < boardColumnMinWidth {
 		width = boardColumnMinWidth
 	}
@@ -1057,6 +1072,12 @@ func (m Model) helpView() string {
 	row("◐ / ◌ / ×", "transitioning / idle / error")
 	row("· not started", "no special runtime capability")
 	row("> focused", "current keyboard target")
+
+	section("Optional inspector")
+	row("i / Tab / Esc", "toggle inspector / focus / return")
+	row("[ / ]", "inspector Context / Output / Worktree")
+	row("hjkl / arrows", "scroll focused detail; Output clips horizontally")
+	row("PgUp/PgDn / Home", "page detail / reset scroll")
 
 	section("Safety")
 	row("q / Ctrl+C", "quit Kanbi; running agent sessions stay alive")
