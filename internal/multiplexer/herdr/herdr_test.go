@@ -331,7 +331,7 @@ func TestDetectUnknownAllowsFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Source != multiplexer.DetectionSourceUnknown || d.Confidence != multiplexer.ConfidenceUnknown {
+	if d.Source != multiplexer.DetectionSourceUnknown {
 		t.Fatalf("expected unknown fallback detection, got %+v", d)
 	}
 }

@@ -415,11 +415,11 @@ func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (mul
 		return unknownDetection("Herdr returned unknown agent state"), nil
 	}
 	reason := firstString(obj, "result.agent.message", "result.agent.custom_status", "result.agent.customStatus", "message", "reason", "custom_status", "customStatus", "agent.message", "agent.custom_status")
-	mapped, confidence := mapState(state, reason)
+	mapped := mapState(state, reason)
 	if mapped == "" {
 		return unknownDetection("Herdr returned unsupported agent state: " + state), nil
 	}
-	return multiplexer.Detection{State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative, Confidence: confidence, ObservedAt: time.Now().UTC()}, nil
+	return multiplexer.Detection{State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative}, nil
 }
 
 func paneFirstAgentName(name, paneID string) string {
@@ -563,24 +563,24 @@ func (a *Adapter) run(ctx context.Context, args ...string) (string, error) {
 	return a.Runner.Run(ctx, bin, args...)
 }
 
-func mapState(state, reason string) (string, multiplexer.Confidence) {
+func mapState(state, reason string) string {
 	switch state {
 	case "working", "running":
-		return kanban.StateRunning, multiplexer.ConfidenceHigh
+		return kanban.StateRunning
 	case "blocked":
 		if hasPermissionEvidence(reason) {
-			return kanban.StateNeedsPermission, multiplexer.ConfidenceHigh
+			return kanban.StateNeedsPermission
 		}
-		return kanban.StateWaitingForUser, multiplexer.ConfidenceHigh
+		return kanban.StateWaitingForUser
 	case "done":
-		return kanban.StateWaitingForUser, multiplexer.ConfidenceHigh
+		return kanban.StateWaitingForUser
 	case "idle":
 		if strings.TrimSpace(reason) != "" {
-			return kanban.StateWaitingForUser, multiplexer.ConfidenceMedium
+			return kanban.StateWaitingForUser
 		}
-		return kanban.StateIdleUnknown, multiplexer.ConfidenceLow
+		return kanban.StateIdleUnknown
 	}
-	return "", multiplexer.ConfidenceUnknown
+	return ""
 }
 
 func hasPermissionEvidence(s string) bool {
@@ -594,7 +594,7 @@ func hasPermissionEvidence(s string) bool {
 }
 
 func unknownDetection(reason string) multiplexer.Detection {
-	return multiplexer.Detection{Reason: reason, Source: multiplexer.DetectionSourceUnknown, Confidence: multiplexer.ConfidenceUnknown, ObservedAt: time.Now().UTC()}
+	return multiplexer.Detection{Reason: reason, Source: multiplexer.DetectionSourceUnknown}
 }
 
 func reasonFor(reason, fallback string) string {

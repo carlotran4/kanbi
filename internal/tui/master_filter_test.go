@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -17,7 +18,7 @@ func TestMasterFilterModalAppliesSearchAndClear(t *testing.T) {
 	_, _ = store.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi")
 	_, _ = store.CreateTicket(ctx, clientView.Columns[0].ID, "Codex handoff", "", "codex")
 
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.masterBoard = true
 	model.reloadBoards()
 	model.reload()
@@ -60,7 +61,7 @@ func TestMasterFilterEscapeDiscardsDraftChanges(t *testing.T) {
 	_, _ = store.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi")
 	_, _ = store.CreateTicket(ctx, clientView.Columns[0].ID, "Codex handoff", "", "codex")
 
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.masterBoard = true
 	model.masterFilter.BoardIDs = []int64{defaultView.Board.ID, client.ID}
 	model.masterFilter.Search = "Default"
@@ -122,7 +123,7 @@ func TestMasterFilterCanToggleBoardHarnessRuntimeAndArchived(t *testing.T) {
 	_ = store.ArchiveTicket(ctx, archived.ID)
 	_, _ = store.UpsertActiveSession(ctx, active.ID, storage.Session{Harness: "codex", TmuxSessionName: "ak", TmuxWindowName: "T-001-active", Status: "running"})
 
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.masterBoard = true
 	model.reloadBoards()
 	model.reload()
@@ -146,7 +147,7 @@ func TestMasterFilterPresetSaveApplyDelete(t *testing.T) {
 	clientView, _ := store.BoardViewByID(ctx, client.ID)
 	_, _ = store.CreateTicket(ctx, clientView.Columns[0].ID, "Codex handoff", "", "codex")
 
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.masterBoard = true
 	model.reloadBoards()
 	model.reload()
@@ -184,7 +185,7 @@ func TestBoardPickerArchiveAndSyncToggle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := NewWithPicker(ctx, NewService(store, nil))
+	model := NewWithPicker(ctx, app.NewService(store, nil))
 	model.firstRun = false
 	// Startup picker: select real board index 1 (0 is Master).
 	model.boardIndex = 1
@@ -226,7 +227,7 @@ func TestBoardPickerArchivingCurrentBoardSwitchesToMaster(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.firstRun = false
 
 	model, _ = mustUpdate(t, model, "b")
@@ -281,7 +282,7 @@ func TestMasterCreateUsesWorkflowKey(t *testing.T) {
 		t.Fatalf("workflow key lookup failed id=%d err=%v", id, err)
 	}
 	// Direct API path used by Master create must hit this method.
-	ticket, err := NewService(store, nil).CreateTicket(ctx, id, "From key", "", "pi")
+	ticket, err := app.NewService(store, nil).CreateTicket(ctx, id, "From key", "", "pi")
 	if err != nil {
 		t.Fatal(err)
 	}

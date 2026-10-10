@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/storage"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -37,7 +38,7 @@ func TestRuntimeRefreshDoesNotBlockNavigationAndPreservesEditor(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		createTicket(t, ctx, store, view.Columns[0].ID, "ticket", "body", "pi")
 	}
-	actions := &blockedRefreshActions{Actions: NewService(store, nil), started: make(chan struct{}), release: make(chan struct{})}
+	actions := &blockedRefreshActions{Actions: app.NewService(store, nil), started: make(chan struct{}), release: make(chan struct{})}
 	m := New(ctx, actions)
 	defer m.Close()
 	updated, cmd := m.Update(runtimeTickMsg(time.Now()))
@@ -104,7 +105,7 @@ func TestRuntimeRefreshRejectsOldProjectionAndRetainsLastGoodBoard(t *testing.T)
 
 func TestRuntimeRefreshShutdownCancelsAndJoins(t *testing.T) {
 	store, ctx := newTestStore(t)
-	actions := &blockedRefreshActions{Actions: NewService(store, nil), started: make(chan struct{}), release: make(chan struct{})}
+	actions := &blockedRefreshActions{Actions: app.NewService(store, nil), started: make(chan struct{}), release: make(chan struct{})}
 	m := New(ctx, actions)
 	_, cmd := m.Update(runtimeTickMsg(time.Now()))
 	done := make(chan tea.Msg, 1)

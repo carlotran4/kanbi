@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/carlotran4/kanbi/internal/app"
 )
 
 func TestLongBodyEditPreservesContentsAndImageNumbering(t *testing.T) {
@@ -12,7 +14,7 @@ func TestLongBodyEditPreservesContentsAndImageNumbering(t *testing.T) {
 	view := defaultBoardView(t, ctx, store)
 	body := "Unicode café 界\n![](/tmp/performance-missing.png)\n" + strings.Repeat("markdown **body** ", 3800)
 	ticket := createTicket(t, ctx, store, view.Columns[0].ID, "Long body", body, "pi")
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	defer model.Close()
 	model.width, model.height = 160, 40
 	model, _ = mustUpdate(t, model, "e")

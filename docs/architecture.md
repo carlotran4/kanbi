@@ -28,7 +28,7 @@ flowchart LR
 - **The configured multiplexer is observed runtime state.** Herdr containers are stored as workspace/agent/pane metadata and Herdr-native agent state is preferred when available, with pane-output detection as fallback.
 - **Harnesses are compiled adapters.** v1 intentionally does not support arbitrary user-defined harness adapters.
 - **The TUI is a projection plus command surface.** It renders board/session state and dispatches lifecycle actions. The CLI retains inline rendering and allows up to 120 FPS. A small licensed textarea patch preserves Bubbles v1 editor semantics while avoiding offscreen styling and repeated printable-ASCII width scans; its upstream and differential regression suites live in `internal/tui/textarea`.
-- **Ticket backend adapters are board-scoped.** Each board has exactly one ticket metadata backend chosen at creation. `local`, `github`, and `atlassian` (Jira) are implemented today; the adapter seam remains prepared for Asana and similar systems.
+- **Ticket backend adapters are board-scoped.** Each board has exactly one ticket metadata backend chosen at creation. `local`, `github`, and `atlassian` (Jira) are implemented today.
 
 
 Board projections use an eight-entry cache with a 64 MiB estimated snapshot budget. Every read leases one physical SQLite reader and checks its connection-local database revision; replacement connections invalidate the cache. Private in-memory stores also check own-connection changes and schema changes. A revision check after a fresh load prevents retaining a projection that crosses a commit. Admission requires a second read of the same key at the same revision, so continuously changing boards avoid retained-copy work. Callers receive independent mutable slices/checkpoints. External CLI writes, notes, workspace updates, and lifecycle heartbeats continue invalidating snapshots; this cache introduces no freshness TTL. Filter keys above 16 KiB bypass retention.
@@ -83,7 +83,7 @@ Stop and ask before:
 | `internal/multiplexer` | Provider-neutral runtime container concepts and interface for launch/focus/read/send/close/detect operations. Includes the Herdr adapter under `internal/multiplexer/herdr`. |
 | `internal/runtime` | Herdr lifecycle runtime manager. Launch execution, runtime polling, and reconciliation remain here while lifecycle policy lives in `internal/session`. |
 | `internal/harness` | Localized built-in harness contracts, command construction, prompt mode/ref capture behavior, output/runtime detection helpers. |
-| `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, status-bar scheduling, and terminal-gated image previews. |
+| `internal/tui` | Bubble Tea model/update/view, keybindings, board picker, cards, filters, repair/prompt fallback screens, status-bar scheduling, and Kitty image previews with text placeholders on other terminals. |
 | `internal/statusbar` | Starship-style status modules, three-zone layout, configuration validation, and bounded custom-command execution. |
 | `internal/prompt` | Ticket body/prompt rendering. |
 | `internal/attachments` | XDG data-dir ticket attachment storage and pasted image detection. |

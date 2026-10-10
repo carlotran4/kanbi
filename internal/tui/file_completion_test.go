@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -140,7 +141,7 @@ func TestBodyTypingScansProjectAndInsertsSelectedRelativePath(t *testing.T) {
 	}
 	createTicket(t, ctx, store, view.Columns[0].ID, "Reference", "@model", "pi")
 
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	cmd := model.refreshFileCompletion(fileCompletionBody)
@@ -163,7 +164,7 @@ func TestBodyFileCompletionInsertsSelectedRelativePathAndDismisses(t *testing.T)
 	view := defaultBoardView(t, ctx, store)
 	createTicket(t, ctx, store, view.Columns[0].ID, "Reference", "before @cmd/ka after", "pi")
 
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	setTextareaCursorOffset(&model.bodyTA, len([]rune("before @cmd/ka")))
@@ -189,7 +190,7 @@ func TestFileCompletionNavigationAndDismissalDoNotEditText(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	createTicket(t, ctx, store, view.Columns[0].ID, "Reference", "@cmd", "pi")
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	query, _ := activeFileCompletionQuery(model.bodyTA.Value(), textareaCursorOffset(model.bodyTA))
@@ -210,7 +211,7 @@ func TestNoteFileCompletionInsertsSelectedRelativePath(t *testing.T) {
 	view := defaultBoardView(t, ctx, store)
 	createTicket(t, ctx, store, view.Columns[0].ID, "Reference", "", "pi")
 
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	for range 3 {
 		model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
@@ -236,7 +237,7 @@ func TestFileCompletionIgnoresStaleResults(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	createTicket(t, ctx, store, view.Columns[0].ID, "Reference", "@cmd", "pi")
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	query, ok := activeFileCompletionQuery(model.bodyTA.Value(), textareaCursorOffset(model.bodyTA))
@@ -256,7 +257,7 @@ func TestNoteCompletionDismissRestoresTextareaHeight(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	createTicket(t, ctx, store, view.Columns[0].ID, "Reference", "", "pi")
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	for range 3 {
 		model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
@@ -288,7 +289,7 @@ func TestFileCompletionReusesOneScanWhileQueryChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	createTicket(t, ctx, store, view.Columns[0].ID, "Reference", "@", "pi")
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	if cmd := model.refreshFileCompletion(fileCompletionBody); cmd == nil {
@@ -313,7 +314,7 @@ func TestModelCtrlEOpensExternalEditorFromBody(t *testing.T) {
 	store, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, store)
 	ticket := createTicket(t, ctx, store, view.Columns[0].ID, "Editor", "body", "pi")
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model, _ = mustUpdate(t, model, "e")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model, cmd := mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyCtrlE})

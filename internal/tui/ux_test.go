@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
@@ -68,7 +69,7 @@ func TestTicketInspectorMetadataBoundsFocusedHarnessAfterResize(t *testing.T) {
 	if _, err := store.CreateTicket(ctx, view.Columns[0].ID, "Inspector", "body", "pi"); err != nil {
 		t.Fatal(err)
 	}
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.startEdit()
 	model.editing = true
 	model.editField = 2
@@ -122,7 +123,7 @@ func TestModalFrameHasRoundedExactWidth(t *testing.T) {
 
 func TestEmptyStartupShowsDismissibleActionableOnboarding(t *testing.T) {
 	store, ctx := newTestStore(t)
-	model := NewWithPicker(ctx, NewService(store, nil))
+	model := NewWithPicker(ctx, app.NewService(store, nil))
 	model.width, model.height = 80, 24
 	view := ansiStrip(model.View())
 	for _, want := range []string{"Welcome to Kanbi", "Herdr", "kanbi doctor", "Esc skip"} {
@@ -142,7 +143,7 @@ func TestEmptyStartupShowsDismissibleActionableOnboarding(t *testing.T) {
 
 func TestOnboardingCoversSessionAndBackupPath(t *testing.T) {
 	store, ctx := newTestStore(t)
-	model := NewWithPicker(ctx, NewService(store, nil))
+	model := NewWithPicker(ctx, app.NewService(store, nil))
 	model.width, model.height = 80, 24
 	model = model.updateOnboarding(tea.KeyMsg{Type: tea.KeyEnter})
 	page2 := ansiStrip(model.View())
@@ -225,7 +226,7 @@ func TestCardHeightMatchesRenderAtResponsiveWidths(t *testing.T) {
 
 func TestHelpLegendFitsAndScrollsAt80x24(t *testing.T) {
 	store, ctx := newTestStore(t)
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.width, model.height, model.showHelp = 80, 24, true
 	first := model.View()
 	if got := len(strings.Split(first, "\n")); got > 24 {

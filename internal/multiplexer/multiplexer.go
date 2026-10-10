@@ -3,7 +3,6 @@ package multiplexer
 import (
 	"context"
 	"errors"
-	"time"
 )
 
 // ErrContainerNotFound means the multiplexer authoritatively reported that a
@@ -27,16 +26,6 @@ const (
 	DetectionSourceNative    DetectionSource = "native"
 	DetectionSourceHeuristic DetectionSource = "heuristic"
 	DetectionSourcePattern   DetectionSource = "pattern"
-)
-
-// Confidence ranks how strongly a Detection should be trusted.
-type Confidence string
-
-const (
-	ConfidenceUnknown Confidence = "unknown"
-	ConfidenceLow     Confidence = "low"
-	ConfidenceMedium  Confidence = "medium"
-	ConfidenceHigh    Confidence = "high"
 )
 
 // ContainerRef is the provider-neutral durable reference to a runtime container.
@@ -69,20 +58,16 @@ type LaunchSpec struct {
 
 // ReadOptions controls terminal output capture.
 type ReadOptions struct {
-	Since time.Time
 	Lines int
 }
 
-// Detection is a provider-neutral runtime-state observation. The Source and
-// Confidence fields make room for future authoritative provider state while Herdr
-// pane output remains a fallback.
+// Detection is a runtime-state observation. Source distinguishes native provider
+// state from terminal-output detection.
 type Detection struct {
-	State      string
-	Reason     string
-	Excerpt    string
-	Source     DetectionSource
-	Confidence Confidence
-	ObservedAt time.Time
+	State   string
+	Reason  string
+	Excerpt string
+	Source  DetectionSource
 }
 
 // Interface is the provider-neutral seam for runtime multiplexers.

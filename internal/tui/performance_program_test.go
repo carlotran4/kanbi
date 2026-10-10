@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/storage"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -73,7 +74,7 @@ func TestPerformanceProgram(t *testing.T) {
 				createTicket(t, ctx, store, view.Columns[0].ID, "first", "body", "pi")
 				createTicket(t, ctx, store, view.Columns[0].ID, "second", "body", "pi")
 				parent, cancel := context.WithCancel(ctx)
-				actions := &programDelayActions{Actions: NewService(store, nil), started: make(chan struct{}), writeTicket: scenario == "actual-300ms-SQLite-writer"}
+				actions := &programDelayActions{Actions: app.NewService(store, nil), started: make(chan struct{}), writeTicket: scenario == "actual-300ms-SQLite-writer"}
 				m := New(parent, actions)
 				m.width, m.height = 160, 40
 				if lock != nil {

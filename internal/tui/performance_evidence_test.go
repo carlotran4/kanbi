@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/config"
 	kanbiruntime "github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -45,7 +46,7 @@ func TestPerformanceEvidence(t *testing.T) {
 			}
 			manager := kanbiruntime.NewManager(config.Defaults(config.Paths{}), store)
 			defer manager.Close()
-			service := NewService(store, manager)
+			service := app.NewService(store, manager)
 			m := New(ctx, service)
 			for _, size := range [][2]int{{80, 24}, {160, 40}} {
 				m.width, m.height = size[0], size[1]

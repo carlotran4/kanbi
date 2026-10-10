@@ -15,6 +15,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/statusbar"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
@@ -216,7 +217,7 @@ func (w *focusOutputProbe) Write(p []byte) (int, error) {
 func runFocusProgramTrial(t *testing.T, enabled bool, width, height int, keyName, inputBytes string) int64 {
 	t.Helper()
 	store, ctx := newTestStore(t)
-	actions := &focusProgramActions{Actions: NewService(store, nil), started: make(chan struct{}), release: make(chan struct{})}
+	actions := &focusProgramActions{Actions: app.NewService(store, nil), started: make(chan struct{}), release: make(chan struct{})}
 	m := focusPerformanceModel(enabled, width, height)
 	m.ctx = ctx
 	m.actions = actions

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -47,7 +48,7 @@ func TestPerformanceFileProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer writer.Close()
-	m := New(ctx, NewService(store, nil))
+	m := New(ctx, app.NewService(store, nil))
 	defer func() {
 		if closer, ok := any(m).(interface{ Close() }); ok {
 			closer.Close()

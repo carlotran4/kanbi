@@ -101,18 +101,4 @@ type Actions interface {
 	NoteCommands
 }
 
-// Compatibility aliases keep existing TUI callers source-compatible while
-// production orchestration lives in the presentation-independent app package.
-type SessionManager = app.SessionManager
-type TicketSyncer = app.TicketSyncer
-type Service = app.Service
-
-var _ Actions = (*Service)(nil)
-
-func NewService(store *storage.Store, manager SessionManager) *Service {
-	return app.NewService(store, manager)
-}
-
-func NewServiceWithSyncer(store *storage.Store, manager SessionManager, syncer TicketSyncer) *Service {
-	return app.NewServiceWithSyncer(store, manager, syncer)
-}
+var _ Actions = (*app.Service)(nil)

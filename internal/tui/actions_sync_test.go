@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/attachments"
 	"github.com/carlotran4/kanbi/internal/storage"
 	"github.com/carlotran4/kanbi/internal/ticketbackend"
@@ -59,7 +60,7 @@ func TestServiceSyncsBoardAfterSavedTicketChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	syncer := &recordingTicketSyncer{boards: make(chan storage.Board, 10), store: store}
-	service := NewServiceWithSyncer(store, nil, syncer)
+	service := app.NewServiceWithSyncer(store, nil, syncer)
 
 	ticket, err := service.CreateTicket(ctx, view.Columns[0].ID, "New ticket", "", "pi")
 	if err != nil {
@@ -131,7 +132,7 @@ func TestServiceDeleteBoardRemovesOwnedAttachments(t *testing.T) {
 	if err := os.WriteFile(attachment, []byte("image"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := NewService(store, nil).DeleteBoard(ctx, board.ID); err != nil {
+	if err := app.NewService(store, nil).DeleteBoard(ctx, board.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(attachments.TicketDir(ticket.ID)); !os.IsNotExist(err) {

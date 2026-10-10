@@ -177,7 +177,7 @@ func writeTestPNG(t *testing.T) string {
 	return path
 }
 
-func TestTerminalImageProtocolDetectsSixelFallback(t *testing.T) {
+func TestTerminalImageProtocolFallsBackToPlaceholder(t *testing.T) {
 	t.Setenv("KANBI_IMAGE_PROTOCOL", "")
 	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "")
@@ -191,8 +191,18 @@ func TestTerminalImageProtocolDetectsSixelFallback(t *testing.T) {
 	}
 
 	t.Setenv("TERM_PROGRAM", "iTerm.app")
-	if terminalImageProtocol() != imageProtocolSixel {
-		t.Fatalf("iterm should be detected as sixel-capable")
+	if terminalImageProtocol() != imageProtocolNone {
+		t.Fatalf("unsupported terminals should use a placeholder")
+	}
+	t.Setenv("KANBI_IMAGE_PROTOCOL", "sixel")
+	t.Setenv("TERM_PROGRAM", "WezTerm")
+	if terminalImageProtocol() != imageProtocolNone {
+		t.Fatal("retired sixel override should use a placeholder")
+	}
+	path := writeTestPNG(t)
+	lines := renderImageBlock(path, 30, 4, true)
+	if len(lines) != 1 || lines[0] != imagePlaceholderForWidth(path, 30) {
+		t.Fatalf("expected plain placeholder, got %q", lines)
 	}
 }
 

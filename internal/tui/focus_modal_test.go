@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -53,7 +54,7 @@ func TestArchivedTicketIsNotRenderedAsFocusCommitment(t *testing.T) {
 	if err := store.ArchiveTicket(ctx, archived.ID); err != nil {
 		t.Fatal(err)
 	}
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.masterBoard = true
 	model.masterFilter.IncludeArchived = true
 	model.reload()
@@ -95,7 +96,7 @@ func TestMoveCapacityErrorReloadsOverflowBeforeChoosingReplacement(t *testing.T)
 		}
 	}
 	store.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 1, WorkflowKeys: []string{"focus"}})
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	model.col, model.card = 0, 0
 	if selected, _ := model.selectedTicket(); selected.ID != target.ID {
 		t.Fatalf("unexpected target selection: %+v", selected)
@@ -128,7 +129,7 @@ func TestProviderOverflowResolutionCommitsPausesUntilAdmissionFits(t *testing.T)
 		}
 	}
 	store.SetFocusPolicy(storage.FocusPolicy{Enabled: true, Limit: 3, WorkflowKeys: []string{"focus"}})
-	model := New(ctx, NewService(store, &quitTestManager{}))
+	model := New(ctx, app.NewService(store, &quitTestManager{}))
 	model.startResume(target)
 	next, cmd := model.updateResume(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	model = focusTestModel(t, next)
@@ -241,7 +242,7 @@ func TestPauseValidationFocusesMissingFieldForImmediateTyping(t *testing.T) {
 
 func TestPauseAndResumeSubmissionCommandsAreSingleFlight(t *testing.T) {
 	store, ctx := newTestStore(t)
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	view := defaultBoardView(t, ctx, store)
 	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "focus", "", "pi")
 	if err != nil {
@@ -291,7 +292,7 @@ func TestReloadPreservesSelectedTicketAcrossFocusResort(t *testing.T) {
 	if err := store.PauseTicket(ctx, first.ID, "why", "done", "next"); err != nil {
 		t.Fatal(err)
 	}
-	model := New(ctx, NewService(store, nil))
+	model := New(ctx, app.NewService(store, nil))
 	for i, ticket := range model.view.Columns[0].Tickets {
 		if ticket.ID == first.ID {
 			model.card = i

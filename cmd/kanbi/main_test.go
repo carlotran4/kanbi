@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/config"
 	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -597,7 +598,7 @@ func TestTUIServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 	view, _ := s.BoardView(ctx)
 	ticket, _ := s.CreateTicket(ctx, view.Columns[0].ID, "No session", "", "pi")
 
-	svc := tui.NewService(s, runtime.NewManager(cfg, s))
+	svc := app.NewService(s, runtime.NewManager(cfg, s))
 	err := svc.UpdateSessionRef(ctx, ticket, "some-ref")
 	if err == nil {
 		t.Fatal("expected error updating session ref with no session")
@@ -605,7 +606,7 @@ func TestTUIServiceUpdateSessionRefRequiresActiveSession(t *testing.T) {
 }
 
 func TestTUIServiceSupportsMasterFilterSelector(t *testing.T) {
-	var _ tui.Actions = (*tui.Service)(nil)
+	var _ tui.Actions = (*app.Service)(nil)
 	s, ctx := newMainTestStore(t)
 	defaultView, _ := s.BoardView(ctx)
 	client, _ := s.CreateBoard(ctx, "Client B")
@@ -613,7 +614,7 @@ func TestTUIServiceSupportsMasterFilterSelector(t *testing.T) {
 	_, _ = s.CreateTicket(ctx, defaultView.Columns[0].ID, "Default task", "", "pi")
 	_, _ = s.CreateTicket(ctx, clientView.Columns[0].ID, "Codex handoff", "", "codex")
 
-	service := tui.NewService(s, nil)
+	service := app.NewService(s, nil)
 	view, err := service.MasterBoardViewWithFilter(ctx, storage.MasterFilter{Harnesses: []string{"codex"}})
 	if err != nil {
 		t.Fatal(err)
