@@ -25,7 +25,15 @@ needs_build() {
 build() {
   mkdir -p "\$(dirname "\$DEV_BIN")"
   echo "kanbi: rebuilding development binary..." >&2
-  (cd "\$ROOT" && go build -buildvcs=false -o "\$DEV_BIN" ./cmd/kanbi)
+  (
+    build_parent="\${KANBI_DEV_TMPDIR:-\$(dirname "\$DEV_BIN")/build-tmp}"
+    mkdir -p "\$build_parent"
+    build_parent="\$(cd "\$build_parent" && pwd)"
+    build_tmp="\$(mktemp -d "\$build_parent/build.XXXXXX")"
+    trap 'rm -rf "\$build_tmp"' EXIT
+    cd "\$ROOT"
+    TMPDIR="\$build_tmp" GOTMPDIR="\$build_tmp" go build -buildvcs=false -o "\$DEV_BIN" ./cmd/kanbi
+  )
 }
 
 if needs_build; then

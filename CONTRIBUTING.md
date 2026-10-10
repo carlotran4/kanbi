@@ -17,6 +17,8 @@ go test ./...
 ./scripts/install-dev.sh   # optional: PATH launcher that rebuilds on change
 ```
 
+The development launcher builds with disposable compiler/linker scratch space under the development binary's cache directory (`.bin/build-tmp` by default), then removes that scratch directory. This avoids filling a quota-limited `/tmp` during CGO linking. Set `KANBI_DEV_TMPDIR` to choose another build-scratch parent; the override applies only to compilation, not to the running application.
+
 Requirements: Go version from `go.mod`, a C compiler (CGO / `go-sqlite3`), and Herdr, Python 3 and sqlite3 for smoke tests.
 
 ## Coding standards
