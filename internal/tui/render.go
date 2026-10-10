@@ -169,10 +169,13 @@ func focusHeaderLine(left, focusText string, width int) string {
 
 func (m Model) contextBar() string {
 	if m.inspector.open && m.inspectorNarrow() {
-		return trimToWidth("i/Esc:board [/]:section hjkl:scroll Enter:open ?:help", maxInt(1, m.width))
+		return trimToWidth("i/Esc:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
 	}
 	if m.inspector.open {
-		return trimToWidth("i:close Esc:return Tab:focus [/]:section hjkl:move/scroll Enter:open ?:help", maxInt(1, m.width))
+		if m.inspector.focused {
+			return trimToWidth("i:close Esc:return Tab:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
+		}
+		return trimToWidth("i:close Esc:return Tab:focus [/]:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
 	items := []string{"Enter:send/open", "i:inspect", "n:new", "N:template", "T:templates", "e:ticket", "b:boards", "F:focus"}
 	if m.masterBoard {
@@ -1075,8 +1078,10 @@ func (m Model) helpView() string {
 
 	section("Optional inspector")
 	row("i / Tab / Esc", "toggle inspector / focus / return")
-	row("[ / ]", "inspector Context / Output / Worktree")
-	row("hjkl / arrows", "scroll focused detail; Output clips horizontally")
+	row("h/l (panel focused)", "previous/next inspector section")
+	row("[ / ]", "switch inspector section from either focus")
+	row("j/k / ↑/↓", "scroll focused detail")
+	row("←/→ (panel focused)", "pan Output without resizing the agent")
 	row("PgUp/PgDn / Home", "page detail / reset scroll")
 
 	section("Safety")

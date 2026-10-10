@@ -169,6 +169,14 @@ func (m *Model) inspectorKey(key tea.KeyMsg) bool {
 		return false
 	}
 	switch key.String() {
+	case "h", "l":
+		delta := 1
+		if key.String() == "h" {
+			delta = 2
+		}
+		m.inspector.section = (m.inspector.section + delta) % 3
+		m.inspector.scroll, m.inspector.horizontal = 0, 0
+		return true
 	case "j", "down":
 		m.inspector.scroll++
 	case "k", "up":
@@ -177,9 +185,9 @@ func (m *Model) inspectorKey(key tea.KeyMsg) bool {
 		m.inspector.scroll += maxInt(1, m.boardContentHeight()-5)
 	case "pgup":
 		m.inspector.scroll = maxInt(0, m.inspector.scroll-maxInt(1, m.boardContentHeight()-5))
-	case "h", "left":
+	case "left":
 		m.inspector.horizontal = maxInt(0, m.inspector.horizontal-4)
-	case "l", "right":
+	case "right":
 		m.inspector.horizontal += 4
 	case "home":
 		m.inspector.scroll, m.inspector.horizontal = 0, 0

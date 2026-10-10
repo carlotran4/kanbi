@@ -74,6 +74,51 @@ func TestInspectorStableCardsAndNarrowReturn(t *testing.T) {
 	}
 }
 
+func TestInspectorHLSectionsRequirePanelFocus(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	v := defaultBoardView(t, ctx, store)
+	for _, col := range v.Columns[:2] {
+		createTicket(t, ctx, store, col.ID, "Card", strings.Repeat("body\n", 100), "pi")
+	}
+	m.reload()
+	m.width, m.height = 160, 45
+	m = inspectorPress(m, "i")
+	m = inspectorPress(m, "l")
+	if m.col != 1 || m.inspector.section != 0 {
+		t.Fatal("board-focused l must retain column navigation")
+	}
+	m = inspectorPress(m, "h")
+	m = inspectorPress(m, "tab")
+	selected, _ := m.selectedTicket()
+	m.inspector.scroll, m.inspector.horizontal = 12, 8
+	m = inspectorPress(m, "l")
+	if m.inspector.section != 1 || m.inspector.scroll != 0 || m.inspector.horizontal != 0 {
+		t.Fatal("focused l must select Output and reset its scroll")
+	}
+	m.inspector.preview.Text = strings.Repeat("screen", 100)
+	if !m.inspectorKey(tea.KeyMsg{Type: tea.KeyRight}) || m.inspector.horizontal != 4 || m.inspector.section != 1 {
+		t.Fatal("Right must pan Output without changing section")
+	}
+	m = inspectorPress(m, "h")
+	m = inspectorPress(m, "h")
+	if m.inspector.section != 2 {
+		t.Fatal("focused h must wrap back to Worktree")
+	}
+	if got, _ := m.selectedTicket(); got.ID != selected.ID || m.col != 0 {
+		t.Fatal("section navigation moved board selection")
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = next.(Model)
+	m = inspectorPress(m, "l")
+	if m.inspector.section != 0 {
+		t.Fatal("narrow detail must use l for section navigation")
+	}
+	m = inspectorPress(m, "]")
+	if m.inspector.section != 1 {
+		t.Fatal("bracket section shortcut was lost")
+	}
+}
+
 func TestInspectorBoundsAndReadOnlyFocus(t *testing.T) {
 	m, store, ctx := newTestModel(t)
 	v := defaultBoardView(t, ctx, store)
