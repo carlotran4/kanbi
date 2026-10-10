@@ -214,22 +214,25 @@ func (m *Model) inspectorView(height int) string {
 		column = m.view.Columns[m.col].Name
 	}
 	// Keep identity readable without spending a row on duplicate key hints.
-	headers := []string{heading.Render("INSPECTOR · " + t.DisplayID)}
+	var headers []string
 	title := strings.Split(ansi.Wrap(safePreviewANSI(t.Title), inner, ""), "\n")
 	for _, line := range title[:minInt(3, len(title))] {
 		headers = append(headers, strong.Render(line))
 	}
 	location := t.BoardName + " / " + column
 	headers = append(headers, muted.Render(location), inspectorRuntimeStyle(t).Render(cardStatusLine(t, inner)))
+	if !m.inspectorNarrow() {
+		headers = append(headers, "")
+	}
 	sections := []string{"Context", "Output", "Worktree"}
 	for i, name := range sections {
 		if i == m.inspector.section {
-			sections[i] = heading.Render("[" + name + "]")
+			sections[i] = heading.Background(palette.header).Padding(0, 1).Render(name)
 		} else {
-			sections[i] = muted.Render(name)
+			sections[i] = muted.Padding(0, 1).Render(name)
 		}
 	}
-	headers = append(headers, strings.Join(sections, "  "), muted.Render(strings.Repeat("─", inner)))
+	headers = append(headers, strings.Join(sections, " "), "")
 	var body []string
 	// Sanitize user and captured text before applying our own styling.
 	appendText := func(text string, style lipgloss.Style) {
@@ -248,12 +251,16 @@ func (m *Model) inspectorView(height int) string {
 	switch m.inspector.section {
 	case 0:
 		if cp := t.LatestCheckpoint; cp != nil {
-			appendText("LATEST PAUSE · NEXT ACTION", warning)
+			appendText("NEXT ACTION · latest pause", warning)
 			appendText(cp.NextAction, strong)
 			gap()
-			field("Completed", cp.Completed)
-			field("Why paused", cp.Why)
-			appendText("Saved "+cp.PausedAt.Format(time.RFC3339), muted)
+			for _, row := range [][2]string{{"Completed", cp.Completed}, {"Why", cp.Why}} {
+				value := row[1]
+				if strings.TrimSpace(value) == "" {
+					value = "Unavailable"
+				}
+				appendText(muted.Render(row[0]+": ")+safePreviewANSI(value), lipgloss.NewStyle())
+			}
 			gap()
 		}
 		appendText("TASK", heading)
@@ -274,6 +281,9 @@ func (m *Model) inspectorView(height int) string {
 			}
 		}
 		gap()
+		if cp := t.LatestCheckpoint; cp != nil {
+			appendText("Latest pause saved "+cp.PausedAt.Format(time.RFC3339), muted)
+		}
 		source := t.LastDetectionSource.String
 		if source == "" {
 			source = "unknown"
@@ -295,9 +305,14 @@ func (m *Model) inspectorView(height int) string {
 		} else if m.inspector.busy {
 			freshness = "Capturing read-only screen…"
 		}
+		// Keep freshness pinned, while the footer identifies the capture source.
+		if strings.HasPrefix(p.Source, "visible screen") {
+			freshness += " · screen"
+		}
 		headers = append(headers, style.Render(freshness))
-		if p.Source != "" {
-			headers = append(headers, muted.Render("Read-only · "+safePreviewANSI(p.Source)))
+		if p.Source != "" && !strings.HasPrefix(p.Source, "visible screen") {
+			// A transcript fallback must remain explicit even at the top of a long screen.
+			headers = append(headers, muted.Render(safePreviewANSI(p.Source)))
 		}
 		if m.inspector.err != "" {
 			appendText("Unavailable: "+m.inspector.err, warning)
@@ -371,12 +386,28 @@ func (m *Model) inspectorView(height int) string {
 	if m.inspector.section == 1 && horizontal > 0 {
 		position += fmt.Sprintf(" · col %d", horizontal+1)
 	}
+	if m.inspector.section == 1 {
+		source := safePreviewANSI(m.inspector.preview.Source)
+		if strings.HasPrefix(source, "visible screen") {
+			source = "screen"
+		}
+		if source == "" {
+			source = "no observation"
+		}
+		position = "Read-only · " + position + " · " + source
+	}
 	lines = append(lines, muted.Render(ansi.Truncate(position, inner, "…")))
 	border := palette.muted
 	if m.inspector.focused || m.inspectorNarrow() {
 		border = palette.accent
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(0, 1).Width(maxInt(1, width-2)).Render(strings.Join(lines, "\n"))
+	frame := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(0, 1).Width(maxInt(1, width-2)).Render(strings.Join(lines, "\n"))
+	rows := strings.Split(frame, "\n")
+	frameWidth := ansi.StringWidth(rows[0])
+	label := ansi.Truncate(" Inspector · "+safePreviewANSI(t.DisplayID)+" ", maxInt(0, frameWidth-4), "…")
+	borderStyle := lipgloss.NewStyle().Foreground(border)
+	rows[0] = borderStyle.Render("╭─") + heading.Render(label) + borderStyle.Render(strings.Repeat("─", maxInt(0, frameWidth-3-ansi.StringWidth(label)))+"╮")
+	return strings.Join(rows, "\n")
 }
 
 func inspectorRuntimeStyle(t storage.Ticket) lipgloss.Style {
@@ -393,22 +424,66 @@ func inspectorRuntimeStyle(t storage.Ticket) lipgloss.Style {
 
 func inspectorTaskLines(body string, width int) []string {
 	var lines []string
-	code := false
+	codeFence := ""
+	blank := func() {
+		if len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[len(lines)-1])) != "" {
+			lines = append(lines, "")
+		}
+	}
 	for raw := range strings.SplitSeq(safePreviewANSI(body), "\n") {
 		trimmed := strings.TrimSpace(raw)
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			code = !code
-			lines = append(lines, lipgloss.NewStyle().Foreground(palette.muted).Render(raw))
+		if codeFence != "" {
+			if strings.HasPrefix(trimmed, codeFence) && strings.TrimSpace(strings.TrimPrefix(trimmed, codeFence)) == "" {
+				codeFence = ""
+				blank()
+				continue
+			}
+			// Preserve code literally, including backticks and Markdown-looking comments.
+			for _, line := range strings.Split(ansi.Wrap(raw, maxInt(1, width-2), ""), "\n") {
+				lines = append(lines, lipgloss.NewStyle().Foreground(palette.accent).Render("  "+line))
+			}
 			continue
 		}
-		text, style := raw, lipgloss.NewStyle()
-		if !code {
-			text, style = markdownLineStyle(raw)
-			text = renderInlineMarkdown(text)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			marker := trimmed[0]
+			length := 0
+			for length < len(trimmed) && trimmed[length] == marker {
+				length++
+			}
+			codeFence = trimmed[:length]
+			blank()
+			continue
 		}
-		for _, line := range strings.Split(ansi.Wrap(text, width, ""), "\n") {
-			lines = append(lines, style.Render(line))
+		if trimmed == "" {
+			blank()
+			continue
 		}
+		text, style := markdownLineStyle(raw)
+		isHeading := strings.HasPrefix(trimmed, "# ") || strings.HasPrefix(trimmed, "## ") || strings.HasPrefix(trimmed, "### ")
+		if isHeading {
+			blank()
+			text, style = markdownLineStyle(trimmed)
+		}
+		indent := ""
+		if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
+			text, style = markdownLineStyle(trimmed)
+			indent = "  "
+		}
+		text = renderInlineMarkdown(text)
+		wrapWidth := maxInt(1, width-len(indent))
+		if indent != "" {
+			wrapWidth = maxInt(1, width-4)
+		}
+		for i, line := range strings.Split(ansi.Wrap(text, wrapWidth, ""), "\n") {
+			prefix := indent
+			if indent != "" && i > 0 {
+				prefix = "    "
+			}
+			lines = append(lines, style.Render(prefix+line))
+		}
+	}
+	for len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[len(lines)-1])) == "" {
+		lines = lines[:len(lines)-1]
 	}
 	return lines
 }

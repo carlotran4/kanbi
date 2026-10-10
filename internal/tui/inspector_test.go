@@ -58,7 +58,7 @@ func TestInspectorStableCardsAndNarrowReturn(t *testing.T) {
 	}
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = next.(Model)
-	if frame := m.View(); !strings.Contains(frame, "INSPECTOR") || lipgloss.Height(frame) > 24 {
+	if frame := m.View(); !strings.Contains(frame, "Inspector") || lipgloss.Height(frame) > 24 {
 		t.Fatalf("narrow frame height=%d\n%s", lipgloss.Height(frame), frame)
 	}
 	m = inspectorPress(m, "j")
@@ -235,7 +235,7 @@ func TestInspectorCheckpointWorktreeAndColorCarry(t *testing.T) {
 	if strings.Index(frame, "Exact next action") > strings.Index(frame, "TASK") {
 		t.Fatal("pause next action must precede the task")
 	}
-	for _, want := range []string{"Real owning column", "LATEST PAUSE · NEXT ACTION", "Pause reason", "Completed work", "Exact next action"} {
+	for _, want := range []string{"Real owning column", "NEXT ACTION · latest pause", "Pause reason", "Completed work", "Exact next action"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("missing %q\n%s", want, frame)
 		}
@@ -266,7 +266,7 @@ func TestInspectorTaskFormattingPreservesCodeAndBounds(t *testing.T) {
 	body := "# Plan\n\n- **Verify** the board\n\n```sh\n# literal comment\necho `date`\n```\n\x1b]52;c;secret\x07Tail"
 	lines := inspectorTaskLines(body, 20)
 	plain := ansiStrip(strings.Join(lines, "\n"))
-	for _, want := range []string{"Plan", "• Verify the board", "# literal comment", "echo `date`", "Tail"} {
+	for _, want := range []string{"Plan", "• Verify the", "# literal comment", "echo `date`", "Tail"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("missing %q in %q", want, plain)
 		}
@@ -274,9 +274,59 @@ func TestInspectorTaskFormattingPreservesCodeAndBounds(t *testing.T) {
 	if strings.Contains(plain, "secret") {
 		t.Fatal("task emitted terminal controls")
 	}
+	if strings.Contains(plain, "```") || !strings.Contains(plain, "  echo `date`") {
+		t.Fatal("code block must retain literal code with indentation, without fence chrome")
+	}
 	for _, line := range lines {
 		if lipgloss.Width(line) > 20 {
 			t.Fatalf("markdown exceeds viewport: %q", line)
+		}
+	}
+}
+
+func TestInspectorRefinedFrameKeepsWidthAndCompactHandoff(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	v := defaultBoardView(t, ctx, store)
+	createTicket(t, ctx, store, v.Columns[0].ID, "Title", "Task paragraph", "pi")
+	m.reload()
+	m.view.Columns[0].Tickets[0].LatestCheckpoint = &storage.PauseCheckpoint{NextAction: "Next step", Completed: "Done", Why: "Review", PausedAt: time.Now()}
+	m.inspector.open = true
+	for _, size := range [][3]int{{80, 24, 80}, {120, 32, 40}, {160, 45, 53}, {240, 45, 64}} {
+		m.width, m.height = size[0], size[1]
+		if m.inspectorWidth() != size[2] {
+			t.Fatalf("panel width changed at %d columns", size[0])
+		}
+		frame := ansiStrip(m.inspectorView(m.boardContentHeight() + 2))
+		rows := strings.Split(frame, "\n")
+		if !strings.Contains(rows[0], "Inspector · T-") || strings.Contains(rows[1], "Inspector") {
+			t.Fatalf("identity must live in the top border: %s", frame)
+		}
+		for _, want := range []string{"Completed: Done", "Why: Review", "Task paragraph"} {
+			if !strings.Contains(frame, want) {
+				t.Fatalf("%v missing compact handoff/task %q: %s", size, want, frame)
+			}
+		}
+		for _, row := range rows {
+			if lipgloss.Width(row) != size[2] {
+				t.Fatalf("misaligned border at %v: %q", size, row)
+			}
+		}
+	}
+}
+
+func TestInspectorTranscriptFallbackStaysExplicitWhenScrolled(t *testing.T) {
+	m, store, ctx := newTestModel(t)
+	v := defaultBoardView(t, ctx, store)
+	createTicket(t, ctx, store, v.Columns[0].ID, "Title", "Task", "pi")
+	m.reload()
+	m.width, m.height = 80, 24
+	m.inspector.open, m.inspector.section = true, 1
+	m.inspector.preview = multiplexer.TerminalPreview{Text: strings.Repeat("transcript row\n", 100), Source: "transcript fallback", Warning: "Screen unavailable; showing transcript fallback", CapturedAt: time.Now()}
+	m.inspector.scroll = 10000
+	frame := ansiStrip(m.inspectorView(m.boardContentHeight() + 2))
+	for _, want := range []string{"transcript fallback", "Read-only", "Observed", "transcript row"} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("lost pinned fallback identity %q: %s", want, frame)
 		}
 	}
 }
@@ -292,7 +342,7 @@ func TestInspectorScreenFreshnessRemainsVisibleWhenScrolled(t *testing.T) {
 		m.width, m.height = size[0], size[1]
 		m.inspector.scroll = 10000
 		frame := m.inspectorView(m.boardContentHeight() + 2)
-		for _, want := range []string{"STALE", "Read-only", "visible screen", "screen row"} {
+		for _, want := range []string{"STALE", "Read-only", "screen", "screen row"} {
 			if !strings.Contains(frame, want) {
 				t.Fatalf("%v lost %q after scrolling: %s", size, want, frame)
 			}
