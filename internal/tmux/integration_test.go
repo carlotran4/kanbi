@@ -22,9 +22,7 @@ func TestLaunchIntegrationWithHerdrUsesPaneFirstAgentStart(t *testing.T) {
 		"workspace list":   `[]`,
 		"workspace create": `{"id":"ws-board"}`,
 		"agent start help": `--kind <KIND> --pane <ID>`,
-		"pane list":        `{"result":{"panes":[{"pane_id":"ws-board:p1","workspace_id":"ws-board"}]}}`,
-		"pane split":       `{"result":{"pane":{"pane_id":"ws-board:p2","workspace_id":"ws-board"}}}`,
-		"pane move":        `{"result":{"move_result":{"pane":{"pane_id":"ws-board:p2"}}}}`,
+		"tab create":       `{"result":{"root_pane":{"pane_id":"ws-board:p2","workspace_id":"ws-board"}}}`,
 		"agent start":      `{"result":{"agent":{"name":"integration-agent","pane_id":"ws-board:p2"}}}`,
 		"agent focus":      `{"ok":true}`,
 	})
@@ -47,7 +45,7 @@ func TestLaunchIntegrationWithHerdrUsesPaneFirstAgentStart(t *testing.T) {
 	}
 	log := string(logBytes)
 	for _, want := range []string{
-		"pane split ws-board:p1 --direction right --cwd /tmp/integration-worktree",
+		"tab create --workspace ws-board --label integration-run --cwd /tmp/integration-worktree",
 		"--env KANBI_INTEGRATION_RUN_ID=run-123",
 		"--env KANBI_INTEGRATION_TOKEN=secret-token",
 		"agent start integration-run-",

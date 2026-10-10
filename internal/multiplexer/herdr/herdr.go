@@ -119,30 +119,32 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 		return multiplexer.ContainerRef{}, err
 	}
 
-	out, err := a.run(ctx, "pane", "list")
-	if err != nil {
-		return multiplexer.ContainerRef{}, herdrCommandError("list panes", out, err)
-	}
-	anchorPaneID := findPaneInWorkspace(out, workspaceID)
-	if anchorPaneID == "" {
-		return multiplexer.ContainerRef{}, fmt.Errorf("herdr workspace %q has no shell pane for agent launch", workspaceID)
-	}
-	splitArgs := []string{"pane", "split", anchorPaneID, "--direction", "right"}
+	// Create the shell directly in its own tab. Splitting the board and then
+	// moving that pane produces a visible half-width resize during every launch.
+	createArgs := []string{"tab", "create", "--workspace", workspaceID, "--label", name}
 	if spec.CWD != "" {
-		splitArgs = append(splitArgs, "--cwd", spec.CWD)
+		createArgs = append(createArgs, "--cwd", spec.CWD)
 	}
 	for _, assignment := range env {
-		splitArgs = append(splitArgs, "--env", assignment)
+		createArgs = append(createArgs, "--env", assignment)
 	}
-	splitArgs = append(splitArgs, "--no-focus")
-	splitOut, err := a.run(ctx, splitArgs...)
+	createArgs = append(createArgs, "--no-focus")
+	createOut, err := a.run(ctx, createArgs...)
 	if err != nil {
-		return multiplexer.ContainerRef{}, herdrCommandError("create agent pane", splitOut, err)
+		return multiplexer.ContainerRef{}, herdrCommandError("create agent tab", createOut, err)
 	}
-	splitInfo := parseObject(splitOut)
-	paneID := firstString(splitInfo, "result.pane.pane_id", "result.pane_id", "result.paneId", "pane_id", "paneId", "pane.id")
+	createInfo := parseObject(createOut)
+	paneID := firstString(createInfo, "result.root_pane.pane_id", "root_pane.pane_id")
 	if paneID == "" {
-		return multiplexer.ContainerRef{}, errors.New("herdr pane split: missing pane id")
+		cause := errors.New("herdr tab create: missing root pane id")
+		if tabID := firstString(createInfo, "result.tab.tab_id", "tab.tab_id"); tabID != "" {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if out, err := a.run(cleanupCtx, "tab", "close", tabID); err != nil {
+				return multiplexer.ContainerRef{}, errors.Join(cause, herdrCommandError("clean up agent tab", out, err))
+			}
+		}
+		return multiplexer.ContainerRef{}, cause
 	}
 	cleanup := func(cause error) error {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -154,10 +156,6 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 		return cause
 	}
 
-	moveOut, err := a.moveToNewTab(ctx, paneID, workspaceID, name)
-	if err != nil {
-		return multiplexer.ContainerRef{}, cleanup(err)
-	}
 	agentName := paneFirstAgentName(name, paneID)
 	args := []string{"agent", "start", agentName, "--kind", kind, "--pane", paneID, "--"}
 	args = append(args, agentArgs...)
@@ -170,9 +168,9 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	if agentTarget == "" {
 		agentTarget = agentName
 	}
-	info := mergeObjects(splitInfo, moveOut)
-	info = mergeObjects(info, startInfo)
+	info := mergeObjects(createInfo, startInfo)
 	info["pane_id"] = paneID
+	info["tab_id"] = firstString(createInfo, "result.tab.tab_id", "tab.tab_id")
 	metadata := mergeMetadata(spec.Metadata, info)
 	return multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: workspaceID, ID: agentTarget, Name: name, Metadata: metadata}, nil
 }
@@ -434,32 +432,6 @@ func isEnvironmentAssignment(value string) bool {
 		}
 	}
 	return true
-}
-
-func findPaneInWorkspace(out, workspaceID string) string {
-	obj := parseObject(out)
-	items, _ := dotted(obj, "result.panes").([]any)
-	if len(items) == 0 {
-		items, _ = dotted(obj, "panes").([]any)
-	}
-	fallback := ""
-	for _, item := range items {
-		pane, ok := item.(map[string]any)
-		if !ok || firstString(pane, "workspace_id", "workspaceId") != workspaceID {
-			continue
-		}
-		id := firstString(pane, "pane_id", "paneId", "id")
-		if id == "" {
-			continue
-		}
-		if fallback == "" {
-			fallback = id
-		}
-		if firstString(pane, "agent", "agent.name") == "" {
-			return id
-		}
-	}
-	return fallback
 }
 
 func (a *Adapter) startAgentWhenPaneReady(ctx context.Context, args []string) (string, error) {

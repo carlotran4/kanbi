@@ -25,9 +25,7 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 		"workspace list":   `[]`,
 		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
 		"agent start help": `--kind <KIND> --pane <ID>`,
-		"pane list":        `{"result":{"panes":[{"workspace_id":"ws-board","pane_id":"pane-anchor"}]}}`,
-		"pane split":       `{"result":{"pane":{"pane_id":"pane-123"}}}`,
-		"pane move":        `{"result":{"pane":{"tab_id":"tab-456"}}}`,
+		"tab create":       `{"result":{"root_pane":{"pane_id":"pane-123"},"tab":{"tab_id":"tab-456"}}}`,
 		"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
 		"agent focus":      `{"ok":true}`,
 	})
@@ -55,10 +53,10 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	if !strings.Contains(log, "pane send-text pane-123 # T-001: Herdr Launch") || !strings.Contains(log, "pane send-keys pane-123 enter") {
 		t.Fatalf("fake Herdr did not receive the prompt through pane input; log=%s", log)
 	}
-	moveAt := strings.Index(log, "pane move pane-123 --new-tab --workspace ws-board --label b1-T-001-herdr-launch --no-focus")
+	createAt := strings.Index(log, "tab create --workspace ws-board --label b1-T-001-herdr-launch")
 	startAt := strings.Index(log, "agent start b1-t-001-herdr-launch-")
 	focusAt := strings.Index(log, "agent focus agent-789")
-	if moveAt < 0 || startAt < moveAt || focusAt < startAt || strings.Contains(log, "pane move pane-123 --new-tab --workspace ws-board --label b1-T-001-herdr-launch --focus") {
+	if createAt < 0 || startAt < createAt || focusAt < startAt || strings.Contains(log, "pane split") || strings.Contains(log, "pane move") {
 		t.Fatalf("Herdr focus must happen only after the new agent starts; log=%s", log)
 	}
 }
@@ -96,9 +94,7 @@ INSERT INTO turns(session_id,turn_index,user_message) VALUES(?,0,?);`,
 		"workspace list":   `[]`,
 		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
 		"agent start help": `--kind <KIND> --pane <ID>`,
-		"pane list":        `{"result":{"panes":[{"workspace_id":"ws-board","pane_id":"pane-anchor"}]}}`,
-		"pane split":       `{"result":{"pane":{"pane_id":"pane-123"}}}`,
-		"pane move":        `{"result":{"pane":{"tab_id":"tab-456"}}}`,
+		"tab create":       `{"result":{"root_pane":{"pane_id":"pane-123"},"tab":{"tab_id":"tab-456"}}}`,
 		"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
 	})
 	cfg := config.Defaults(config.Paths{})
@@ -131,9 +127,7 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 		"workspace list":   `[]`,
 		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
 		"agent start help": `--kind <KIND> --pane <ID>`,
-		"pane list":        `{"result":{"panes":[{"workspace_id":"ws-board","pane_id":"pane-anchor"}]}}`,
-		"pane split":       `{"result":{"pane":{"pane_id":"pane-123"}}}`,
-		"pane move":        `{"result":{"pane":{"tab_id":"tab-456"}}}`,
+		"tab create":       `{"result":{"root_pane":{"pane_id":"pane-123"},"tab":{"tab_id":"tab-456"}}}`,
 		"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
 		"pane send-text":   "__ERROR__",
 	})
@@ -541,7 +535,7 @@ case "$1 $2" in
   "agent start") if [ "$3" = "--help" ]; then echo '` + responses["agent start help"] + `'; else echo '` + responses["agent start"] + `'; fi ;;
   "agent focus") echo '` + responses["agent focus"] + `' ;;
   "pane list") echo '` + responses["pane list"] + `' ;;
-  "pane split") echo '` + responses["pane split"] + `' ;;
+  "tab create") echo '` + responses["tab create"] + `' ;;
   "pane move") echo '` + responses["pane move"] + `' ;;
   "pane close") echo '` + responses["pane close"] + `' ;;
   "agent get") echo '` + responses["agent get"] + `' ;;

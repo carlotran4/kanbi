@@ -50,10 +50,8 @@ func TestLaunchUsesPaneFirstAgentStartWhenSupported(t *testing.T) {
 	agentName := paneFirstAgentName("b1-T-001-demo", "w1:p2")
 	r := &fakeRunner{out: map[string]string{
 		"agent start --help": `Usage: herdr agent start <NAME> --kind <KIND> --pane <ID>`,
-		"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
-		"pane split w1:p1 --direction right --cwd /repo --env TOKEN=secret --no-focus": `{"result":{"pane":{"pane_id":"w1:p2","workspace_id":"w1"}}}`,
-		"pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --no-focus":    `{"result":{"move_result":{"pane":{"pane_id":"w1:p2"}}}}`,
-		"agent start " + agentName + " --kind codex --pane w1:p2 -- hello":             `{"result":{"agent":{"name":"agent-1","pane_id":"w1:p2","workspace_id":"w1"}}}`,
+		"tab create --workspace w1 --label b1-T-001-demo --cwd /repo --env TOKEN=secret --no-focus": `{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w1:p2","workspace_id":"w1"}}}`,
+		"agent start " + agentName + " --kind codex --pane w1:p2 -- hello":                          `{"result":{"agent":{"name":"agent-1","pane_id":"w1:p2","workspace_id":"w1"}}}`,
 	}}
 	adapter := NewAdapter(Config{Binary: "herdr", Session: "test", FocusOnOpen: false})
 	adapter.Runner = r
@@ -65,11 +63,14 @@ func TestLaunchUsesPaneFirstAgentStartWhenSupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref.Namespace != "w1" || ref.ID != "agent-1" || refMeta(ref, "pane_id") != "w1:p2" {
+	if ref.Namespace != "w1" || ref.ID != "agent-1" || refMeta(ref, "pane_id") != "w1:p2" || refMeta(ref, "tab_id") != "w1:t2" {
 		t.Fatalf("unexpected ref: %+v", ref)
 	}
 	for _, call := range r.calls {
 		joined := strings.Join(call, " ")
+		if strings.Contains(joined, "pane split") || strings.Contains(joined, "pane move") || strings.Contains(joined, " --focus") {
+			t.Fatalf("launch must leave board layout and focus unchanged: %s", joined)
+		}
 		if strings.Contains(joined, "agent start") && (strings.Contains(joined, "--cwd") || strings.Contains(joined, "--workspace")) {
 			t.Fatalf("new Herdr launch used removed options: %s", joined)
 		}
@@ -80,10 +81,8 @@ func TestLaunchPaneFirstNormalizesAgentNameForCurrentHerdr(t *testing.T) {
 	agentName := paneFirstAgentName("b3-GH-296-release-qualification-publish-the-next-beta", "w1:p2")
 	r := &fakeRunner{out: map[string]string{
 		"agent start --help": `--kind <KIND> --pane <ID>`,
-		"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
-		"pane split w1:p1 --direction right --cwd /repo --no-focus":                                                         `{"result":{"pane":{"pane_id":"w1:p2"}}}`,
-		"pane move w1:p2 --new-tab --workspace w1 --label b3-GH-296-release-qualification-publish-the-next-beta --no-focus": `{}`,
-		"agent start " + agentName + " --kind pi --pane w1:p2 -- --session ref-1":                                           `{"result":{"agent":{"name":"` + agentName + `","pane_id":"w1:p2"}}}`,
+		"tab create --workspace w1 --label b3-GH-296-release-qualification-publish-the-next-beta --cwd /repo --no-focus": `{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w1:p2","workspace_id":"w1"}}}`,
+		"agent start " + agentName + " --kind pi --pane w1:p2 -- --session ref-1":                                        `{"result":{"agent":{"name":"` + agentName + `","pane_id":"w1:p2"}}}`,
 	}}
 	adapter := NewAdapter(Config{Binary: "herdr", Session: "test"})
 	adapter.Runner = r
@@ -119,9 +118,7 @@ func TestLaunchPaneFirstRetriesNewPaneUntilHerdrReportsShellReady(t *testing.T) 
 	r := &busyThenReadyRunner{
 		fakeRunner: fakeRunner{out: map[string]string{
 			"agent start --help": `--kind <KIND> --pane <ID>`,
-			"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
-			"pane split w1:p1 --direction right --cwd /repo --no-focus":                 `{"result":{"pane":{"pane_id":"w1:p2"}}}`,
-			"pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --no-focus": `{}`,
+			"tab create --workspace w1 --label b1-T-001-demo --cwd /repo --no-focus": `{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w1:p2","workspace_id":"w1"}}}`,
 		}},
 		startKey: startKey, busyAttempts: 2,
 	}
@@ -138,16 +135,9 @@ func TestLaunchPaneFirstRetriesNewPaneUntilHerdrReportsShellReady(t *testing.T) 
 		t.Fatalf("starts=%d ref=%+v, want two busy retries and a new agent", r.starts, ref)
 	}
 	for _, call := range r.calls {
-		if strings.Join(call, " ") == "herdr pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --focus" {
+		if strings.Contains(strings.Join(call, " "), " --focus") {
 			t.Fatalf("launch focused the new pane before the agent was ready: calls=%v", r.calls)
 		}
-	}
-}
-
-func TestFindPaneInWorkspacePrefersShellPaneOverExistingAgent(t *testing.T) {
-	out := `{"result":{"panes":[{"pane_id":"w1:p9","workspace_id":"w1","agent":"pi"},{"pane_id":"w1:p1","workspace_id":"w1"}]}}`
-	if got := findPaneInWorkspace(out, "w1"); got != "w1:p1" {
-		t.Fatalf("findPaneInWorkspace()=%q, want shell pane w1:p1", got)
 	}
 }
 
@@ -156,9 +146,7 @@ func TestLaunchPaneFirstCleansUpPaneWhenAgentStartFails(t *testing.T) {
 	r := &fakeRunner{
 		out: map[string]string{
 			"agent start --help": `--kind <KIND> --pane <ID>`,
-			"pane list":          `{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1"}]}}`,
-			"pane split w1:p1 --direction right --cwd /repo --no-focus":                 `{"result":{"pane":{"pane_id":"w1:p2"}}}`,
-			"pane move w1:p2 --new-tab --workspace w1 --label b1-T-001-demo --no-focus": `{}`,
+			"tab create --workspace w1 --label b1-T-001-demo --cwd /repo --no-focus": `{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w1:p2","workspace_id":"w1"}}}`,
 			startKey: `launch rejected`,
 		},
 		err: map[string]error{startKey: errors.New("exit status 2")},
@@ -201,7 +189,7 @@ func TestLaunchPaneFirstRejectsCustomExecutableInsteadOfSilentlyReplacingIt(t *t
 		t.Fatalf("Launch error = %v, want actionable custom executable error", err)
 	}
 	for _, call := range r.calls {
-		if len(call) > 2 && call[1] == "pane" {
+		if len(call) > 2 && (call[1] == "pane" || call[1] == "tab") {
 			t.Fatalf("custom executable validation should happen before pane creation: %v", call)
 		}
 	}
@@ -457,5 +445,41 @@ func TestControlCommandsUsePaneFallbacks(t *testing.T) {
 	want := [][]string{{"herdr", "pane", "send-keys", "pane-1", "ctrl+c", "enter"}, {"herdr", "pane", "send-text", "pane-1", "exit"}, {"herdr", "pane", "close", "pane-1"}}
 	if !reflect.DeepEqual(gotLast, want) {
 		t.Fatalf("last calls = %#v, want %#v", gotLast, want)
+	}
+}
+
+func TestLaunchPaneFirstTabCreationFailure(t *testing.T) {
+	const create = "tab create --workspace w1 --label demo --no-focus"
+	for _, tc := range []struct {
+		name, output, want  string
+		createErr, closeErr error
+		wantClose           bool
+	}{
+		{name: "command failure", output: "creation rejected", createErr: errors.New("exit status 1"), want: "create agent tab"},
+		{name: "missing pane", output: `{"result":{"tab":{"tab_id":"w1:t2"}}}`, want: "missing root pane id", wantClose: true},
+		{name: "cleanup failure", output: `{"result":{"tab":{"tab_id":"w1:t2"}}}`, closeErr: errors.New("close failed"), want: "clean up agent tab", wantClose: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &fakeRunner{out: map[string]string{"agent start --help": "--kind --pane", create: tc.output}, err: map[string]error{create: tc.createErr, "tab close w1:t2": tc.closeErr}}
+			a := NewAdapter(Config{})
+			a.Runner = r
+			_, err := a.Launch(context.Background(), multiplexer.LaunchSpec{Name: "demo", Namespace: "w1", AgentKind: "pi", Command: []string{"pi"}})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Launch error = %v, want %q", err, tc.want)
+			}
+			closed := false
+			for _, call := range r.calls {
+				command := strings.Join(call[1:], " ")
+				if command == "tab close w1:t2" {
+					closed = true
+				}
+				if command != "agent start --help" && strings.HasPrefix(command, "agent start") {
+					t.Fatalf("started agent after tab creation failed: %v", call)
+				}
+			}
+			if closed != tc.wantClose {
+				t.Fatalf("closed tab = %v, want %v", closed, tc.wantClose)
+			}
+		})
 	}
 }
