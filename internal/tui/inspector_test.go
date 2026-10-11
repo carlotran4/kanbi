@@ -75,7 +75,7 @@ func TestInspectorStableCardsAndNarrowReturn(t *testing.T) {
 	}
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = next.(Model)
-	if frame := m.View(); !strings.Contains(frame, "Inspector") || lipgloss.Height(frame) > 24 {
+	if frame := m.View(); !strings.Contains(frame, "INSPECTOR") || lipgloss.Height(frame) > 24 {
 		t.Fatalf("narrow frame height=%d\n%s", lipgloss.Height(frame), frame)
 	}
 	m = inspectorPress(m, "j")
@@ -315,8 +315,8 @@ func TestInspectorRefinedFrameKeepsWidthAndCompactHandoff(t *testing.T) {
 		}
 		frame := ansiStrip(m.inspectorView(m.boardContentHeight() + 2))
 		rows := strings.Split(frame, "\n")
-		if !strings.Contains(rows[0], "Inspector · T-") || strings.Contains(rows[1], "Inspector") {
-			t.Fatalf("identity must live in the top border: %s", frame)
+		if !strings.HasPrefix(rows[0], "┌") || !strings.Contains(rows[1], "INSPECTOR · T-") {
+			t.Fatalf("identity must appear as a kicker inside the square frame: %s", frame)
 		}
 		for _, want := range []string{"Completed: Done", "Why: Review", "Task paragraph"} {
 			if !strings.Contains(frame, want) {

@@ -70,7 +70,7 @@ func TestMasterCardMovesOwnershipWithoutAddingRows(t *testing.T) {
 	ticket.Harness = "copilot"
 	ticket.FocusMember, ticket.FocusPaused = true, true
 	frame = ansiStrip(strings.Join(cardView(false, ticket, 30, true), "\n"))
-	if !strings.Contains(frame, "[agent-kanban]") || !strings.Contains(frame, "not started") {
+	if !strings.Contains(frame, "agent-kanban") || !strings.Contains(frame, "copilot") || !strings.Contains(frame, "⏸ paused") {
 		t.Fatalf("crowded Master card lost ownership or runtime: %s", frame)
 	}
 }

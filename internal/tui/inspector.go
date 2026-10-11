@@ -213,26 +213,30 @@ func (m *Model) inspectorView(height int) string {
 	if column == "" && m.col >= 0 && m.col < len(m.view.Columns) {
 		column = m.view.Columns[m.col].Name
 	}
-	// Keep identity readable without spending a row on duplicate key hints.
-	var headers []string
+	// Match the board's editorial hierarchy: kicker, title, location, tabs.
+	headers := []string{heading.Render("INSPECTOR") + muted.Render(" · "+safePreviewANSI(t.DisplayID)), ""}
 	title := strings.Split(ansi.Wrap(safePreviewANSI(t.Title), inner, ""), "\n")
 	for _, line := range title[:minInt(3, len(title))] {
 		headers = append(headers, strong.Render(line))
 	}
 	location := t.BoardName + " / " + column
-	headers = append(headers, muted.Render(location), inspectorRuntimeStyle(t).Render(cardStatusLine(t, inner)))
-	if !m.inspectorNarrow() {
-		headers = append(headers, "")
+	runtime := strings.TrimPrefix(cardStatusLine(t, inner), "· ")
+	identity := muted.Render(location+"  ·  ") + inspectorRuntimeStyle(t).Render(runtime)
+	if ansi.StringWidth(identity) > inner {
+		headers = append(headers, muted.Render(location), inspectorRuntimeStyle(t).Render(runtime))
+	} else {
+		headers = append(headers, identity)
 	}
+	headers = append(headers, "")
 	sections := []string{"Context", "Output", "Worktree"}
 	for i, name := range sections {
 		if i == m.inspector.section {
-			sections[i] = heading.Background(palette.header).Padding(0, 1).Render(name)
+			sections[i] = heading.Underline(true).Padding(0, 1).Render(name)
 		} else {
 			sections[i] = muted.Padding(0, 1).Render(name)
 		}
 	}
-	headers = append(headers, strings.Join(sections, " "), "")
+	headers = append(headers, strings.Join(sections, " "), muted.Render(strings.Repeat("─", inner)), "")
 	var body []string
 	// Sanitize user and captured text before applying our own styling.
 	appendText := func(text string, style lipgloss.Style) {
@@ -415,17 +419,11 @@ func (m *Model) inspectorView(height int) string {
 		position = "Read-only · " + position + " · " + source
 	}
 	lines = append(lines, muted.Render(ansi.Truncate(position, inner, "…")))
-	border := palette.muted
+	border := palette.rule
 	if m.inspector.focused || m.inspectorNarrow() {
 		border = palette.accent
 	}
-	frame := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(0, 1).Width(maxInt(1, width-2)).Render(strings.Join(lines, "\n"))
-	rows := strings.Split(frame, "\n")
-	frameWidth := ansi.StringWidth(rows[0])
-	label := ansi.Truncate(" Inspector · "+safePreviewANSI(t.DisplayID)+" ", maxInt(0, frameWidth-4), "…")
-	borderStyle := lipgloss.NewStyle().Foreground(border)
-	rows[0] = borderStyle.Render("╭─") + heading.Render(label) + borderStyle.Render(strings.Repeat("─", maxInt(0, frameWidth-3-ansi.StringWidth(label)))+"╮")
-	return strings.Join(rows, "\n")
+	return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(border).Padding(0, 1).Width(maxInt(1, width-2)).Render(strings.Join(lines, "\n"))
 }
 
 func inspectorRuntimeStyle(t storage.Ticket) lipgloss.Style {

@@ -86,6 +86,7 @@ func (m Model) baseView() string {
 		boardName = "Board"
 	}
 	if m.focus.Enabled {
+		boardName = strings.ToUpper(boardName)
 		if m.masterBoard {
 			if summary := m.masterFilterSummary(); summary != "" {
 				boardName += "  filter: " + summary
@@ -97,7 +98,7 @@ func (m Model) baseView() string {
 		} else if keys := strings.Join(m.focus.WorkflowKeys, ", "); keys != "" {
 			focusText += " · " + keys
 		}
-		headerLine = focusHeaderLine(" Kanbi · "+boardName, focusText+" ", maxInt(1, m.width))
+		headerLine = focusHeaderLine(" KANBI / "+boardName, focusText+" ", maxInt(1, m.width))
 	}
 	header := statusBarStyle.Render(headerLine) + "\n"
 	board := m.boardView()
@@ -105,6 +106,8 @@ func (m Model) baseView() string {
 	if m.inspector.open {
 		panelHeight := m.boardContentHeight() + 2
 		if m.inspectorNarrow() {
+			// The board's horizontal-scroll hint is hidden in the narrow inspector.
+			panelHeight++
 			board = m.inspectorView(panelHeight)
 			hint = ""
 		} else {
@@ -172,23 +175,21 @@ func (m Model) contextBar() string {
 		if m.inspector.focused {
 			return trimToWidth("i:close Esc:return Tab:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
 		}
-		return trimToWidth("i:close Esc:return Tab:panel (h/l:section) hjkl:move Enter:open ?:help", maxInt(1, m.width))
+		return trimToWidth("i:close Esc:return Tab:panel h/l:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
-	items := []string{"Enter:send/open", "i:inspect", "n:new", "N:template", "T:templates", "e:ticket", "b:boards", "F:focus"}
+	items := []string{"Enter:send/open", "i:inspect", "n:new", "b:boards", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
-	items = append(items, "!:attention", "q:quit", "?:help+legend")
-	separator := "  "
+	items = append(items, "!:attention", "?:help")
 	if m.width <= 80 {
 		items = []string{"Enter:open", "i:inspect", "n:new", "b:boards", "F:focus"}
 		if m.masterBoard {
 			items = append(items, "f:filters")
 		}
-		items = append(items, "q:quit", "?:help")
-		separator = " "
+		items = append(items, "?:help")
 	}
-	return trimToWidth(strings.Join(items, separator), maxInt(1, m.width))
+	return trimToWidth(strings.Join(items, "  "), maxInt(1, m.width))
 }
 
 const (
@@ -294,7 +295,7 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 		borderStyle = accentBorder
 	}
 
-	headerText := " " + col.Name
+	headerText := " " + strings.ToUpper(col.Name)
 	if focused {
 		headerText = accentBorder.Bold(true).Render(headerText)
 	}
@@ -308,13 +309,13 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 	isFocusColumn := summary.enabled
 	focusedCount, pausedCount, archivedCount := summary.focusedCount, summary.pausedCount, summary.archivedCount
 	if isFocusColumn {
-		lines = append(lines, padLine(fmt.Sprintf("FOCUSED · %d", focusedCount), columnWidth))
+		lines = append(lines, spaceBetween(" FOCUSED", fmt.Sprintf("%d", focusedCount), columnWidth))
 		if focusedCount == 0 {
 			lines = append(lines, mutedBorder.Render(padLine("No focused tickets", columnWidth)))
 		}
 	}
 	if isFocusColumn && len(col.Tickets) == 0 {
-		lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
+		lines = append(lines, spaceBetween(" PAUSED", "0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
 	}
 
 	if len(col.Tickets) == 0 {
@@ -352,35 +353,35 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 	archivedHeadingShown := false
 	firstSection := focusTicketSection(col.Tickets[scrollTop])
 	if isFocusColumn && pausedCount > 0 && firstSection == focusSectionPaused {
-		lines = append(lines, padLine(fmt.Sprintf("PAUSED · %d", pausedCount), columnWidth))
+		lines = append(lines, spaceBetween(" PAUSED", fmt.Sprintf("%d", pausedCount), columnWidth))
 		pausedHeadingShown = true
 	}
 	if isFocusColumn && firstSection == focusSectionArchived {
 		if pausedCount == 0 {
-			lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
+			lines = append(lines, spaceBetween(" PAUSED", "0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
 			pausedHeadingShown = true
 		}
-		lines = append(lines, padLine(fmt.Sprintf("ARCHIVED · %d", archivedCount), columnWidth))
+		lines = append(lines, spaceBetween(" ARCHIVED", fmt.Sprintf("%d", archivedCount), columnWidth))
 		archivedHeadingShown = true
 	}
 	for ti := scrollTop; ti <= visibleEnd; ti++ {
 		section := focusTicketSection(col.Tickets[ti])
 		if isFocusColumn && section == focusSectionPaused && !pausedHeadingShown {
-			lines = append(lines, padLine(fmt.Sprintf("PAUSED · %d", pausedCount), columnWidth))
+			lines = append(lines, spaceBetween(" PAUSED", fmt.Sprintf("%d", pausedCount), columnWidth))
 			pausedHeadingShown = true
 		}
 		if isFocusColumn && section == focusSectionArchived && !archivedHeadingShown {
 			if pausedCount == 0 && !pausedHeadingShown {
-				lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
+				lines = append(lines, spaceBetween(" PAUSED", "0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
 				pausedHeadingShown = true
 			}
-			lines = append(lines, padLine(fmt.Sprintf("ARCHIVED · %d", archivedCount), columnWidth))
+			lines = append(lines, spaceBetween(" ARCHIVED", fmt.Sprintf("%d", archivedCount), columnWidth))
 			archivedHeadingShown = true
 		}
 		lines = append(lines, m.cachedCardView(ci == m.col && ti == m.card, col.Tickets[ti], columnWidth, m.masterBoard)...)
 	}
 	if isFocusColumn && pausedCount == 0 && !pausedHeadingShown && !showBelow {
-		lines = append(lines, padLine("PAUSED · 0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
+		lines = append(lines, spaceBetween(" PAUSED", "0", columnWidth), mutedBorder.Render(padLine("No paused tickets", columnWidth)))
 	}
 	if showBelow {
 		hint := fmt.Sprintf("(+%d more ▼)", hiddenBelow)
@@ -413,67 +414,123 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 
 func cardViewWithPreview(focused bool, ticket storage.Ticket, width int, showBoard bool, preview string) []string {
 	cardInnerWidth := width - 4
-
-	titleLines := wrapText(cardTitle(ticket, cardInnerWidth-2, showBoard), cardInnerWidth-2, 3)
+	titleLines := wrapText(cardTitle(ticket, cardInnerWidth, showBoard), cardInnerWidth, 3)
 	if len(titleLines) == 0 {
-		titleLines = []string{ticket.DisplayID}
-	}
-	content := make([]string, 0, len(titleLines)+1)
-	for _, line := range titleLines {
-		content = append(content, "  "+line)
+		titleLines = []string{"Untitled ticket"}
 	}
 
-	stateText := cardMetadataLine(ticket, cardInnerWidth-2, showBoard)
-	stateStyle := lipgloss.NewStyle().Foreground(palette.muted)
-	if ticket.Runtime == kanban.StateError || ticket.Runtime == kanban.StateRepairNeeded {
-		stateStyle = lipgloss.NewStyle().Foreground(palette.error_).Bold(true)
-	} else if ticket.Runtime == kanban.StateNeedsPermission || ticket.Runtime == kanban.StateWaitingForUser {
-		stateStyle = lipgloss.NewStyle().Foreground(palette.warning).Bold(true)
-	}
-	content = append(content, "  "+stateStyle.Render(stateText))
-	if workspaceLine := ticketWorkspaceCardLine(ticket, cardInnerWidth-2); workspaceLine != "" {
-		content = append(content, "  "+workspaceLine)
-	}
-
-	// Body preview — only shown on the focused card.
+	background := palette.card
 	if focused {
+		background = palette.cardSelected
+	}
+	fill := lipgloss.NewStyle().Background(background)
+	id := lipgloss.NewStyle().Foreground(palette.accent).Background(background).Render(ticket.DisplayID)
+	badge, badgeColor := cardBadge(ticket)
+	badge = ansi.Truncate(badge, maxInt(0, cardInnerWidth-lipgloss.Width(ticket.DisplayID)-1), "…")
+	state := lipgloss.NewStyle().Foreground(badgeColor).Background(background).Render(badge)
+	gap := maxInt(1, cardInnerWidth-lipgloss.Width(ticket.DisplayID)-lipgloss.Width(badge))
+	content := []string{id + fill.Render(strings.Repeat(" ", gap)) + state}
+	for _, line := range titleLines {
+		content = append(content, line)
+	}
+	for len(content) < 3 {
+		content = append(content, "")
+	}
+	metadata := cardConceptMetadata(ticket, cardInnerWidth, showBoard)
+	content = append(content, lipgloss.NewStyle().Foreground(palette.cardMuted).Background(background).Render(metadata))
+	if workspaceLine := ticketWorkspaceCardLine(ticket, cardInnerWidth); workspaceLine != "" {
+		content = append(content, workspaceLine)
+	}
+
+	// The description follows the metadata on the selected card, as in the concept.
+	if focused && strings.TrimSpace(preview) != "" {
+		content = append(content, "")
 		for _, pl := range strings.Split(preview, "\n") {
 			if strings.TrimSpace(pl) == "" {
 				continue
 			}
-			// Use lipgloss.Width to check fit; do not trim graphics escapes,
-			// since slicing them corrupts the terminal image command.
-			if !containsImageEscape(pl) && lipgloss.Width(pl) > cardInnerWidth-2 {
-				pl = pl[:len([]rune(pl))-1] // best-effort trim; glamour wraps to width so this rarely fires
+			if !containsImageEscape(pl) && lipgloss.Width(pl) > cardInnerWidth {
+				pl = pl[:len([]rune(pl))-1]
 			}
-			content = append(content, "  "+pl)
+			content = append(content, pl)
 		}
 	}
+	content = append(content, "")
 
-	// Attention takes priority over selection. The rail is the only card edge;
-	// filled backgrounds distinguish tickets without adding box-drawing rows.
+	// Runtime attention takes priority over keyboard selection.
 	var railColor lipgloss.TerminalColor
 	switch {
-	case ticket.Runtime == kanban.StateNeedsPermission:
+	case ticket.Runtime == kanban.StateNeedsPermission, ticket.Runtime == kanban.StateWaitingForUser:
 		railColor = palette.warning
-	case ticket.Runtime == kanban.StateError:
+	case ticket.Runtime == kanban.StateError, ticket.Runtime == kanban.StateRepairNeeded:
 		railColor = palette.error_
-	case ticket.Runtime == kanban.StateRepairNeeded:
-		railColor = palette.error_
-	case ticket.Runtime == kanban.StateWaitingForUser:
-		railColor = palette.warning
 	case focused:
 		railColor = palette.accent
 	}
-	lines := filledCardLines(content, width, railColor, focused)
-	return lines
+	return filledCardLines(content, width, railColor, focused)
 }
 
 func cardTitle(ticket storage.Ticket, width int, showBoard bool) string {
-	if showBoard && ticket.BoardName != "" && cardBoardLabel(ticket, width) == "" {
-		return ticket.DisplayID + " [" + ticket.BoardName + "] " + ticket.Title
+	if showBoard && ticket.BoardName != "" && cardConceptBoardLabel(ticket, width) == "" {
+		return "[" + ticket.BoardName + "] " + ticket.Title
 	}
-	return ticket.DisplayID + " " + ticket.Title
+	return ticket.Title
+}
+
+func cardBadge(ticket storage.Ticket) (string, lipgloss.TerminalColor) {
+	harness := strings.TrimSpace(ticket.Harness)
+	if harness == "" {
+		harness = "pi"
+	}
+	switch ticket.Runtime {
+	case kanban.StateNeedsPermission:
+		return "! permission required", palette.warning
+	case kanban.StateWaitingForUser:
+		return "? input needed", palette.warning
+	case kanban.StateError, kanban.StateRepairNeeded:
+		return runtimeIndicator(ticket) + " " + harness + " " + runtimeLabel(ticket), palette.error_
+	}
+	if ticket.FocusPaused {
+		return "⏸ paused", palette.cardMuted
+	}
+	if ticket.FocusMember {
+		return "◆ focus", palette.warning
+	}
+	indicator := runtimeIndicator(ticket)
+	if ticket.Runtime == kanban.StateNotStarted || ticket.Runtime == "" {
+		return indicator + " " + harness, palette.cardMuted
+	}
+	return indicator + " " + harness + " " + runtimeLabel(ticket), palette.cardMuted
+}
+
+func cardConceptBaseMetadata(ticket storage.Ticket) string {
+	harness := strings.TrimSpace(ticket.Harness)
+	if harness == "" {
+		harness = "pi"
+	}
+	if ticket.FocusMember || ticket.Runtime == kanban.StateNeedsPermission || ticket.Runtime == kanban.StateWaitingForUser || ticket.Runtime == kanban.StateError || ticket.Runtime == kanban.StateRepairNeeded {
+		return harness
+	}
+	return runtimeLabel(ticket)
+}
+
+func cardConceptBoardLabel(ticket storage.Ticket, width int) string {
+	base := cardConceptBaseMetadata(ticket)
+	available := width - lipgloss.Width(base) - 3
+	if available < 4 || ticket.BoardName == "" {
+		return ""
+	}
+	return ansi.Truncate(ticket.BoardName, available, "…")
+}
+
+func cardConceptMetadata(ticket storage.Ticket, width int, showBoard bool) string {
+	base := cardConceptBaseMetadata(ticket)
+	if showBoard {
+		if board := cardConceptBoardLabel(ticket, width); board != "" {
+			return base + " · " + board
+		}
+	}
+	return base
 }
 
 func cardStatusLine(ticket storage.Ticket, width int) string {
@@ -745,7 +802,8 @@ func elapsedLabel(ticket storage.Ticket) string {
 // where TUI colors are chosen so future user-configurable themes can swap one
 // value object instead of chasing color literals across render code.
 type theme struct {
-	muted            lipgloss.TerminalColor // borders, separators, dim chrome
+	muted            lipgloss.TerminalColor // secondary text
+	rule             lipgloss.TerminalColor // borders and column underlines
 	backdrop         lipgloss.TerminalColor // inactive content behind modals
 	accent           lipgloss.TerminalColor // focused column header, selected card rail
 	warning          lipgloss.TerminalColor // waiting_for_user, needs_permission
@@ -753,6 +811,7 @@ type theme struct {
 	success          lipgloss.TerminalColor // resumable
 	card             lipgloss.TerminalColor // filled ticket surface
 	cardSelected     lipgloss.TerminalColor // selected ticket surface
+	cardMuted        lipgloss.TerminalColor // readable secondary text on filled cards
 	header           lipgloss.TerminalColor // app header bar background
 	headerText       lipgloss.TerminalColor
 	headerSubtleText lipgloss.TerminalColor
@@ -764,26 +823,28 @@ type theme struct {
 
 // palette defines app-wide semantic color tokens. Use AdaptiveColor so the
 // interface keeps reasonable contrast across light and dark terminal themes.
-var palette = theme{
-	muted:            lipgloss.AdaptiveColor{Light: "245", Dark: "240"},
+var palette = activeTerminalTheme(theme{
+	muted:            lipgloss.AdaptiveColor{Light: "245", Dark: "245"},
+	rule:             lipgloss.AdaptiveColor{Light: "245", Dark: "240"},
 	backdrop:         lipgloss.AdaptiveColor{Light: "248", Dark: "238"},
-	accent:           lipgloss.AdaptiveColor{Light: "25", Dark: "75"},
-	warning:          lipgloss.AdaptiveColor{Light: "130", Dark: "214"},
-	error_:           lipgloss.AdaptiveColor{Light: "124", Dark: "203"},
-	success:          lipgloss.AdaptiveColor{Light: "28", Dark: "71"},
+	accent:           lipgloss.AdaptiveColor{Light: "4", Dark: "12"},
+	warning:          lipgloss.AdaptiveColor{Light: "3", Dark: "3"},
+	error_:           lipgloss.AdaptiveColor{Light: "1", Dark: "1"},
+	success:          lipgloss.AdaptiveColor{Light: "2", Dark: "2"},
 	card:             lipgloss.AdaptiveColor{Light: "255", Dark: "235"},
-	cardSelected:     lipgloss.AdaptiveColor{Light: "254", Dark: "237"},
-	header:           lipgloss.AdaptiveColor{Light: "254", Dark: "237"},
+	cardSelected:     lipgloss.AdaptiveColor{Light: "254", Dark: "236"},
+	cardMuted:        lipgloss.AdaptiveColor{Light: "8", Dark: "7"},
+	header:           lipgloss.AdaptiveColor{Light: "254", Dark: "235"},
 	headerText:       lipgloss.AdaptiveColor{Light: "235", Dark: "252"},
 	headerSubtleText: lipgloss.AdaptiveColor{Light: "240", Dark: "244"},
 	chipText:         lipgloss.AdaptiveColor{Light: "235", Dark: "252"},
 	chipTextInverted: lipgloss.AdaptiveColor{Light: "255", Dark: "255"},
 	warningChipText:  lipgloss.AdaptiveColor{Light: "255", Dark: "230"},
 	successChipText:  lipgloss.AdaptiveColor{Light: "255", Dark: "235"},
-}
+})
 
 var (
-	mutedBorder     = lipgloss.NewStyle().Foreground(palette.muted)
+	mutedBorder     = lipgloss.NewStyle().Foreground(palette.rule)
 	accentBorder    = lipgloss.NewStyle().Foreground(palette.accent)
 	statusStyle     = lipgloss.NewStyle().Foreground(palette.muted).Italic(true)
 	contextBarStyle = lipgloss.NewStyle().
@@ -854,11 +915,14 @@ func filledCardLines(lines []string, width int, rail lipgloss.TerminalColor, sel
 		background = palette.cardSelected
 	}
 	fill := lipgloss.NewStyle().Background(background)
+	backgroundSample := fill.Render("x")
+	backgroundPrefix := strings.SplitN(backgroundSample, "x", 2)[0]
 	out := make([]string, 0, len(lines)+1)
 	for _, line := range lines {
-		// Styled metadata and previews reset ANSI attributes at their end.
-		// Paint the remaining cells separately so the card background survives
-		// that reset all the way to the right edge.
+		// A nested style in markdown can reset the card background mid-row.
+		// Restore the fill after every reset, then paint the right padding.
+		line = strings.ReplaceAll(line, "\x1b[0m", "\x1b[0m"+backgroundPrefix)
+		line = strings.ReplaceAll(line, "\x1b[m", "\x1b[m"+backgroundPrefix)
 		remaining := maxInt(0, width-4-lipgloss.Width(line))
 		right := fill.Render(strings.Repeat(" ", remaining+2))
 		if rail != nil {

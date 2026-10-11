@@ -71,10 +71,10 @@ func TestArchivedTicketIsNotRenderedAsFocusCommitment(t *testing.T) {
 	}
 	model.width, model.height = 160, 45
 	rendered := ansiStrip(model.View())
-	if !strings.Contains(rendered, "ARCHIVED · 1") {
+	if !strings.Contains(rendered, "ARCHIVED") {
 		t.Fatalf("archived focus-column ticket lacks separate section:\n%s", rendered)
 	}
-	if got := strings.Count(rendered, "PAUSED · 0"); got != 1 {
+	if got := strings.Count(rendered, "PAUSED"); got != 1 {
 		t.Fatalf("archived-only focus column rendered PAUSED section %d times:\n%s", got, rendered)
 	}
 }
@@ -380,7 +380,7 @@ func TestPausedSectionHeadingRemainsVisibleWhenScrolledInsideSection(t *testing.
 		{ID: 3, DisplayID: "T-003", Title: "paused two", FocusMember: true, FocusPaused: true},
 	}}
 	view := ansiStrip(m.columnView(0, col, 39))
-	if !strings.Contains(view, "PAUSED · 2") {
+	if !strings.Contains(view, "PAUSED") {
 		t.Fatalf("paused heading disappeared after scrolling into section:\n%s", view)
 	}
 }

@@ -185,9 +185,9 @@ func cardHeightEx(ticket storage.Ticket, width int, focused, showBoard bool) int
 
 func cardHeightWithPreview(ticket storage.Ticket, width int, showBoard bool, preview string) int {
 	cardInnerWidth := width - 4
-	titleLines := wrapText(cardTitle(ticket, cardInnerWidth-2, showBoard), cardInnerWidth-2, 3)
+	titleLines := wrapText(cardTitle(ticket, cardInnerWidth, showBoard), cardInnerWidth, 3)
 	if len(titleLines) == 0 {
-		titleLines = []string{ticket.DisplayID}
+		titleLines = []string{"Untitled ticket"}
 	}
 	previewLines := 0
 	for line := range strings.SplitSeq(preview, "\n") {
@@ -196,11 +196,16 @@ func cardHeightWithPreview(ticket storage.Ticket, width int, showBoard bool, pre
 		}
 	}
 	workspaceLines := 0
-	if ticketWorkspaceCardLine(ticket, cardInnerWidth-2) != "" {
+	if ticketWorkspaceCardLine(ticket, cardInnerWidth) != "" {
 		workspaceLines = 1
 	}
-	// Title + compact status + optional workspace + preview + card spacing.
-	return len(titleLines) + 1 + workspaceLines + previewLines + 1
+	previewGap := 0
+	if previewLines > 0 {
+		previewGap = 1
+	}
+	// ID/status, at least two title rows, metadata, optional
+	// workspace/preview, bottom padding, and one row between cards.
+	return 1 + maxInt(2, len(titleLines)) + 1 + workspaceLines + previewGap + previewLines + 1 + 1
 }
 
 // vScrollFollow adjusts the scroll offset for the focused column so the

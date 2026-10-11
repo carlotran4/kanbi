@@ -136,7 +136,7 @@ func TestModelColumnEditingKeybindings(t *testing.T) {
 	model, _ = mustUpdate(t, model, "c")
 	model, _ = mustUpdate(t, model, "Blocked")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(model.View(), "Blocked") {
+	if !strings.Contains(model.View(), "BLOCKED") {
 		t.Fatalf("added column missing:\n%s", model.View())
 	}
 	model, _ = mustUpdate(t, model, "l")
@@ -147,11 +147,11 @@ func TestModelColumnEditingKeybindings(t *testing.T) {
 	model.columnInput = NewInputBuffer("")
 	model, _ = mustUpdate(t, model, "Later")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(model.View(), "Later") {
+	if !strings.Contains(model.View(), "LATER") {
 		t.Fatalf("renamed column missing:\n%s", model.View())
 	}
 	model, _ = mustUpdate(t, model, "D")
-	if strings.Contains(firstLineContaining(model.View(), "Open"), "Later") {
+	if strings.Contains(firstLineContaining(model.View(), "OPEN"), "LATER") {
 		t.Fatalf("deleted empty column still visible:\n%s", model.View())
 	}
 }
@@ -201,7 +201,7 @@ func TestModelVimAndArrowNavigationMoveFocus(t *testing.T) {
 	}
 
 	rendered := model.View()
-	if !strings.Contains(rendered, " Open") || strings.Contains(rendered, "> Open") {
+	if !strings.Contains(rendered, " OPEN") || strings.Contains(rendered, "> OPEN") {
 		t.Fatalf("column heading has unexpected glyph:\n%s", rendered)
 	}
 }
@@ -271,14 +271,14 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 
 	model := New(ctx, app.NewService(store, nil))
 	rendered := model.View()
-	headerLine := firstLineContaining(rendered, "Open")
-	if !strings.Contains(headerLine, "In Progress") || !strings.Contains(headerLine, "Review") || !strings.Contains(headerLine, "Done") {
+	headerLine := firstLineContaining(rendered, "OPEN")
+	if !strings.Contains(headerLine, "IN PROGRESS") || !strings.Contains(headerLine, "REVIEW") || !strings.Contains(headerLine, "DONE") {
 		t.Fatalf("columns are not rendered side-by-side:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "╭") || strings.Contains(rendered, "+---") {
 		t.Fatalf("cards should render as filled blocks without box outlines:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "▏   T-001") {
+	if !strings.Contains(rendered, "▏ T-001") {
 		t.Fatalf("focused card rail missing from card block:\n%s", rendered)
 	}
 }
@@ -1268,7 +1268,7 @@ func TestModelColumnEditUsesCursorAwareBuffer(t *testing.T) {
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnd})
 	model, _ = mustUpdate(t, model, "d")
 	model, _ = mustUpdateKey(t, model, tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(model.View(), "Abcd") {
+	if !strings.Contains(model.View(), "ABCD") {
 		t.Fatalf("added cursor-edited column missing:\n%s", model.View())
 	}
 }

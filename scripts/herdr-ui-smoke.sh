@@ -36,13 +36,13 @@ frame_has() {
 }
 frame_has 'Select board'
 "$UI" key Enter
-frame_has 'Kanbi · Master'
+frame_has 'KANBI / MASTER'
 "$UI" key '?'
 frame_has 'KEYBINDINGS AND LEGEND'
 "$UI" key Escape b
 frame_has 'Select board'
 "$UI" key Down Enter
-frame_has 'Kanbi · agent-kanban'
+frame_has 'KANBI / AGENT-KANBAN'
 "$UI" key e Home
 frame_has 'editing title'
 "$UI" text 'Herdr UI smoke X'
@@ -67,11 +67,11 @@ TAB="$(herdr_test tab create --workspace "$SPACE" --cwd "$WORK" --label smoke-sh
 PANE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])' <<<"$TAB")"
 herdr_test pane run "$PANE" 'printf "KANBI_TEST_TAB_READY\n"'
 herdr_test pane wait-output "$PANE" --regex '(?m)^KANBI_TEST_TAB_READY\r?$' --source recent --timeout 5000 >/dev/null
-frame_has 'Kanbi · agent-kanban'
+frame_has 'KANBI / AGENT-KANBAN'
 
 # Exact-size check resizes the actual Herdr client, then the application's PTY.
 "$UI" resize 80 24
-frame_has 'Kanbi · agent-kanban'
+frame_has 'KANBI / AGENT-KANBAN'
 "$UI" capture >"$WORK/narrow-frame.txt"
 python3 - "$WORK/narrow-frame.txt" <<'PYFRAME'
 import sys
@@ -86,9 +86,9 @@ if grep -q 'move resumable session' "$WORK/narrow-help.txt"; then
   echo 'retired multiplexer migration action is still advertised' >&2; exit 1
 fi
 "$UI" key Escape j l
-frame_has 'Kanbi · agent-kanban'
+frame_has 'KANBI / AGENT-KANBAN'
 "$UI" resize 160 45
-frame_has 'Kanbi · agent-kanban'
+frame_has 'KANBI / AGENT-KANBAN'
 # Close workspace before stopping the owned server to verify sibling cleanup.
 herdr_test workspace close "$SPACE"
 if herdr_test pane get "$PANE" >"$WORK/closed-pane.json" 2>&1; then

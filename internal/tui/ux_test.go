@@ -168,10 +168,10 @@ func TestMonochromeCardsDistinguishAttentionStates(t *testing.T) {
 	permission := storage.Ticket{DisplayID: "T-002", Title: "Approve", Harness: "pi", Runtime: kanban.StateNeedsPermission}
 	waitText := ansiStrip(strings.Join(cardView(false, waiting, 30, false), "\n"))
 	permissionText := ansiStrip(strings.Join(cardView(false, permission, 30, false), "\n"))
-	if !strings.Contains(waitText, "? pi  waiting") {
+	if !strings.Contains(waitText, "? input needed") {
 		t.Fatalf("waiting card lacks textual state:\n%s", waitText)
 	}
-	if !strings.Contains(permissionText, "! pi  permission") {
+	if !strings.Contains(permissionText, "! permission requir") {
 		t.Fatalf("permission card lacks textual state:\n%s", permissionText)
 	}
 	if waitText == permissionText {
@@ -196,10 +196,39 @@ func TestCompactCardOmitsRedundantSessionAndBranchIdentity(t *testing.T) {
 			t.Fatalf("compact card contains obsolete detail %q:\n%s", absent, view)
 		}
 	}
-	for _, want := range []string{"○ pi  closed", "git · 2 files"} {
+	for _, want := range []string{"○ pi closed", "git · 2 files"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("compact card missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestBlockCardSeparatesIdentityTitleAndMetadata(t *testing.T) {
+	ticket := storage.Ticket{
+		DisplayID: "T-004", Title: "Set up Actual on the homelab",
+		BoardName: "agent-kanban", Harness: "pi",
+		Runtime: kanban.StateNotStarted, Body: "Fixture description for interactive UI validation.",
+	}
+	rows := cardView(false, ticket, 39, true)
+	if len(rows) < 6 {
+		t.Fatalf("block card lacks title breathing room: %d rows", len(rows))
+	}
+	plain := make([]string, len(rows))
+	for i, row := range rows {
+		plain[i] = ansi.Strip(row)
+	}
+	if !strings.Contains(plain[0], "T-004") || !strings.Contains(plain[0], "· pi") {
+		t.Fatalf("identity and state must share the first content row: %q", plain[0])
+	}
+	if strings.Contains(plain[0], ticket.Title) || !strings.Contains(plain[1], ticket.Title) {
+		t.Fatalf("title must have its own row: %q / %q", plain[0], plain[1])
+	}
+	if strings.TrimSpace(plain[2]) != "" || !strings.Contains(plain[3], "not started · agent-kanban") {
+		t.Fatalf("metadata must sit below the title area: %q / %q", plain[2], plain[3])
+	}
+	selected := ansi.Strip(strings.Join(cardView(true, ticket, 39, true), "\n"))
+	if !strings.Contains(selected, "Fixture description") || !strings.Contains(selected, "▏ T-004") {
+		t.Fatalf("selected block lost preview or selection rail:\n%s", selected)
 	}
 }
 
