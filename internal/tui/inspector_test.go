@@ -9,11 +9,28 @@ import (
 	"time"
 
 	"github.com/carlotran4/kanbi/internal/app"
+	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/multiplexer"
 	"github.com/carlotran4/kanbi/internal/storage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+func TestInspectorRuntimeAttentionMatchesCardPalette(t *testing.T) {
+	for _, tc := range []struct {
+		runtime string
+		want    lipgloss.TerminalColor
+	}{
+		{kanban.StateNeedsPermission, palette.warning},
+		{kanban.StateWaitingForUser, palette.warning},
+		{kanban.StateError, palette.error_},
+		{kanban.StateRepairNeeded, palette.error_},
+	} {
+		if got := inspectorRuntimeStyle(storage.Ticket{Runtime: tc.runtime}).GetForeground(); got != tc.want {
+			t.Errorf("inspector runtime %s color = %v, want %v", tc.runtime, got, tc.want)
+		}
+	}
+}
 
 func inspectorPress(m Model, key string) Model {
 	var msg tea.KeyMsg

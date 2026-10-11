@@ -17,10 +17,10 @@ func (m *Model) syncScrollDimensions() {
 }
 
 // boardContentHeight returns the terminal rows available below a column's
-// two-line header. Global header/footer rows and the optional horizontal-scroll
+// two-line header. The compact app header/footer and optional horizontal-scroll
 // hint are outside this budget.
 func (m *Model) boardContentHeight() int {
-	fixed := 2 + 2 + 2 // app header + footer + column header
+	fixed := 1 + 1 + 2 // app header + footer + column header
 	if m.status != "" {
 		fixed++
 		if m.errOperation != "" {
@@ -199,8 +199,8 @@ func cardHeightWithPreview(ticket storage.Ticket, width int, showBoard bool, pre
 	if ticketWorkspaceCardLine(ticket, cardInnerWidth-2) != "" {
 		workspaceLines = 1
 	}
-	// Top/bottom borders + title + compact status + optional workspace + preview.
-	return 2 + len(titleLines) + 1 + workspaceLines + previewLines
+	// Title + compact status + optional workspace + preview + card spacing.
+	return len(titleLines) + 1 + workspaceLines + previewLines + 1
 }
 
 // vScrollFollow adjusts the scroll offset for the focused column so the

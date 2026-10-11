@@ -2,10 +2,12 @@ package tui
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/carlotran4/kanbi/internal/app"
 	"github.com/carlotran4/kanbi/internal/kanban"
@@ -220,6 +222,47 @@ func TestCardHeightMatchesRenderAtResponsiveWidths(t *testing.T) {
 			if got != want {
 				t.Errorf("width=%d focused=%v: measured=%d rendered=%d", width, focused, got, want)
 			}
+		}
+	}
+}
+
+func TestFilledCardsFitColumnsAndKeepAttentionRails(t *testing.T) {
+	cases := []struct {
+		name    string
+		runtime string
+		focused bool
+		rail    bool
+	}{
+		{name: "plain", runtime: kanban.StateNotStarted},
+		{name: "selected", runtime: kanban.StateNotStarted, focused: true, rail: true},
+		{name: "permission", runtime: kanban.StateNeedsPermission, rail: true},
+		{name: "error", runtime: kanban.StateError, rail: true},
+		{name: "waiting", runtime: kanban.StateWaitingForUser, rail: true},
+	}
+	for _, tc := range cases {
+		for _, width := range []int{boardColumnMinWidth, boardColumnMaxWidth} {
+			t.Run(tc.name+"/"+strconv.Itoa(width), func(t *testing.T) {
+				ticket := storage.Ticket{DisplayID: "T-001", Title: "A title long enough to wrap across rows", Body: "Visible selected preview.", Harness: "pi", Runtime: tc.runtime}
+				rows := cardView(tc.focused, ticket, width, false)
+				for i, row := range rows {
+					if got := ansi.StringWidth(row); got != width {
+						t.Errorf("row %d width = %d, want %d: %q", i, got, width, ansi.Strip(row))
+					}
+					if i == len(rows)-1 {
+						if strings.TrimSpace(row) != "" {
+							t.Errorf("last row is not a spacer: %q", ansi.Strip(row))
+						}
+						continue
+					}
+					plain := ansi.Strip(row)
+					if strings.ContainsAny(plain, "╭╮╰╯│") {
+						t.Errorf("border glyph in row %d: %q", i, plain)
+					}
+					if got := strings.HasPrefix(plain, "▏"); got != tc.rail {
+						t.Errorf("row %d rail = %v, want %v: %q", i, got, tc.rail, plain)
+					}
+				}
+			})
 		}
 	}
 }

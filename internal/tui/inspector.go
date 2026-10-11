@@ -431,10 +431,10 @@ func (m *Model) inspectorView(height int) string {
 func inspectorRuntimeStyle(t storage.Ticket) lipgloss.Style {
 	// Reuse card tone rules; keyboard focus never changes runtime attention.
 	style := lipgloss.NewStyle().Foreground(palette.muted)
-	if t.Runtime == kanban.StateNeedsPermission || t.Runtime == kanban.StateError || t.Runtime == kanban.StateRepairNeeded {
+	if t.Runtime == kanban.StateError || t.Runtime == kanban.StateRepairNeeded {
 		return style.Foreground(palette.error_).Bold(true)
 	}
-	if t.Runtime == kanban.StateWaitingForUser {
+	if t.Runtime == kanban.StateNeedsPermission || t.Runtime == kanban.StateWaitingForUser {
 		return style.Foreground(palette.warning).Bold(true)
 	}
 	return style

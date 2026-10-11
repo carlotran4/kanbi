@@ -201,8 +201,8 @@ func TestModelVimAndArrowNavigationMoveFocus(t *testing.T) {
 	}
 
 	rendered := model.View()
-	if !strings.Contains(rendered, "> Open") {
-		t.Fatalf("focused column marker missing:\n%s", rendered)
+	if !strings.Contains(rendered, " Open") || strings.Contains(rendered, "> Open") {
+		t.Fatalf("column heading has unexpected glyph:\n%s", rendered)
 	}
 }
 
@@ -275,11 +275,11 @@ func TestModelRendersHorizontalKanbanBoard(t *testing.T) {
 	if !strings.Contains(headerLine, "In Progress") || !strings.Contains(headerLine, "Review") || !strings.Contains(headerLine, "Done") {
 		t.Fatalf("columns are not rendered side-by-side:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "╭") || strings.Contains(rendered, "+---") {
-		t.Fatalf("cards should use soft rounded borders instead of ASCII boxes:\n%s", rendered)
+	if strings.Contains(rendered, "╭") || strings.Contains(rendered, "+---") {
+		t.Fatalf("cards should render as filled blocks without box outlines:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "> T-001") {
-		t.Fatalf("focused card marker missing from card box:\n%s", rendered)
+	if !strings.Contains(rendered, "▏   T-001") {
+		t.Fatalf("focused card rail missing from card block:\n%s", rendered)
 	}
 }
 
