@@ -200,7 +200,7 @@ func (m *Model) inspectorKey(key tea.KeyMsg) bool {
 
 func (m *Model) inspectorView(height int) string {
 	width := m.inspectorWidth()
-	inner := maxInt(1, width-4)
+	inner := maxInt(1, width-2)
 	t, ok := m.selectedTicket()
 	if !ok {
 		return "Inspector · no selected ticket"
@@ -213,8 +213,16 @@ func (m *Model) inspectorView(height int) string {
 	if column == "" && m.col >= 0 && m.col < len(m.view.Columns) {
 		column = m.view.Columns[m.col].Name
 	}
-	// Match the board's editorial hierarchy: kicker, title, location, tabs.
-	headers := []string{heading.Render("INSPECTOR") + muted.Render(" · "+safePreviewANSI(t.DisplayID)), ""}
+	// Treat detail as another board column: one heading underline, then canvas.
+	rule := mutedBorder
+	if m.inspector.focused || m.inspectorNarrow() {
+		rule = accentBorder
+	}
+	headers := []string{
+		spaceBetween(heading.Render(" INSPECTOR"), muted.Render(safePreviewANSI(t.DisplayID)), width),
+		rule.Render(strings.Repeat("─", width)),
+		"",
+	}
 	title := strings.Split(ansi.Wrap(safePreviewANSI(t.Title), inner, ""), "\n")
 	for _, line := range title[:minInt(3, len(title))] {
 		headers = append(headers, strong.Render(line))
@@ -236,7 +244,7 @@ func (m *Model) inspectorView(height int) string {
 			sections[i] = muted.Padding(0, 1).Render(name)
 		}
 	}
-	headers = append(headers, strings.Join(sections, " "), muted.Render(strings.Repeat("─", inner)), "")
+	headers = append(headers, strings.Join(sections, " "), "")
 	var body []string
 	// Sanitize user and captured text before applying our own styling.
 	appendText := func(text string, style lipgloss.Style) {
@@ -379,14 +387,19 @@ func (m *Model) inspectorView(height int) string {
 			}
 		}
 	}
-	if len(headers) > maxInt(1, height-5) {
-		headers = headers[:maxInt(1, height-5)]
+	if len(headers) > maxInt(1, height-2) {
+		headers = headers[:maxInt(1, height-2)]
 	}
 	var lines []string
-	for _, line := range headers {
-		lines = append(lines, ansi.Truncate(strings.ReplaceAll(safePreviewANSI(line), "\n", " "), inner, "…")+"\x1b[0m")
+	for i, line := range headers {
+		if i < 2 {
+			lines = append(lines, line)
+			continue
+		}
+		line = ansi.Truncate(strings.ReplaceAll(safePreviewANSI(line), "\n", " "), inner, "…") + "\x1b[0m"
+		lines = append(lines, padLine(" "+line, width))
 	}
-	avail := maxInt(1, height-2-len(lines)-1)
+	avail := maxInt(1, height-len(lines)-1)
 	offset := minInt(m.inspector.scroll, maxInt(0, len(body)-avail))
 	horizontal := m.inspector.horizontal
 	maxWidth := 0
@@ -396,10 +409,10 @@ func (m *Model) inspectorView(height int) string {
 	horizontal = minInt(horizontal, maxInt(0, maxWidth-inner))
 	m.inspector.scroll, m.inspector.horizontal = offset, horizontal
 	for _, line := range body[offset:minInt(len(body), offset+avail)] {
-		lines = append(lines, ansi.Cut(line, horizontal, horizontal+inner)+"\x1b[0m")
+		lines = append(lines, padLine(" "+ansi.Cut(line, horizontal, horizontal+inner)+"\x1b[0m", width))
 	}
-	for len(lines) < height-3 {
-		lines = append(lines, "")
+	for len(lines) < height-1 {
+		lines = append(lines, strings.Repeat(" ", width))
 	}
 	position := fmt.Sprintf("%d–%d/%d", offset+1, minInt(len(body), offset+avail), len(body))
 	if offset+avail < len(body) {
@@ -418,12 +431,8 @@ func (m *Model) inspectorView(height int) string {
 		}
 		position = "Read-only · " + position + " · " + source
 	}
-	lines = append(lines, muted.Render(ansi.Truncate(position, inner, "…")))
-	border := palette.rule
-	if m.inspector.focused || m.inspectorNarrow() {
-		border = palette.accent
-	}
-	return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(border).Padding(0, 1).Width(maxInt(1, width-2)).Render(strings.Join(lines, "\n"))
+	lines = append(lines, padLine(" "+muted.Render(ansi.Truncate(position, inner, "…")), width))
+	return strings.Join(lines, "\n")
 }
 
 func inspectorRuntimeStyle(t storage.Ticket) lipgloss.Style {

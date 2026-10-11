@@ -301,7 +301,7 @@ func TestInspectorTaskFormattingPreservesCodeAndBounds(t *testing.T) {
 	}
 }
 
-func TestInspectorRefinedFrameKeepsWidthAndCompactHandoff(t *testing.T) {
+func TestInspectorCanvasKeepsWidthAndCompactHandoff(t *testing.T) {
 	m, store, ctx := newTestModel(t)
 	v := defaultBoardView(t, ctx, store)
 	createTicket(t, ctx, store, v.Columns[0].ID, "Title", "Task paragraph", "pi")
@@ -315,8 +315,11 @@ func TestInspectorRefinedFrameKeepsWidthAndCompactHandoff(t *testing.T) {
 		}
 		frame := ansiStrip(m.inspectorView(m.boardContentHeight() + 2))
 		rows := strings.Split(frame, "\n")
-		if !strings.HasPrefix(rows[0], "┌") || !strings.Contains(rows[1], "INSPECTOR · T-") {
-			t.Fatalf("identity must appear as a kicker inside the square frame: %s", frame)
+		if !strings.Contains(rows[0], "INSPECTOR") || !strings.Contains(rows[0], "T-") || strings.TrimSpace(rows[1]) != strings.Repeat("─", size[2]) {
+			t.Fatalf("identity must share a column-style heading and underline: %s", frame)
+		}
+		if strings.ContainsAny(frame, "┌┐└┘│") {
+			t.Fatalf("canvas inspector gained a box frame: %s", frame)
 		}
 		for _, want := range []string{"Completed: Done", "Why: Review", "Task paragraph"} {
 			if !strings.Contains(frame, want) {
@@ -325,7 +328,7 @@ func TestInspectorRefinedFrameKeepsWidthAndCompactHandoff(t *testing.T) {
 		}
 		for _, row := range rows {
 			if lipgloss.Width(row) != size[2] {
-				t.Fatalf("misaligned border at %v: %q", size, row)
+				t.Fatalf("misaligned canvas row at %v: %q", size, row)
 			}
 		}
 	}
