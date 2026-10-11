@@ -172,7 +172,7 @@ func masterFilterQuery(workflowKey string, filter MasterFilter) (string, []any) 
 		clauses = append(clauses, `(lower(t.display_id) like ? or lower(t.title) like ? or lower(t.body) like ? or lower((select name from boards where id=t.board_id)) like ? or lower(t.harness) like ?)`)
 		args = append(args, like, like, like, like, like)
 	}
-	return `join columns c on c.id=t.column_id join boards b on b.id=t.board_id where ` + strings.Join(clauses, ` and `) + ` order by t.board_id,t.position`, args
+	return `join columns c on c.id=t.column_id join boards b on b.id=t.board_id where ` + strings.Join(clauses, ` and `) + ` order by t.position,t.updated_at desc,t.board_id,t.id`, args
 }
 
 func placeholders(n int) string {

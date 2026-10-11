@@ -95,11 +95,11 @@ flowchart TD
   B --> C[Create synthetic columns ID < 0]
   C --> D[For each synthetic workflow key]
   D --> E[Query matching tickets whose real column has same workflow key]
-  E --> F[Attach tickets ordered by board_id, position]
+  E --> F[Attach tickets ordered by column position, most recently updated, then board]
   F --> G[Render Master]
 ```
 
-Master groups tickets by column `workflow_key`. Example: every board column keyed `Open` contributes tickets to the synthetic `Open` column even if a board renames the display label. Workflow keys default to the column display name at creation and are preserved across renames. When distinct workflow keys choose the same representative display label, Master appends each workflow key (for example, `Open [Open]` and `Open [Inbox]`) so materially different destinations never look identical. By default Master shows unarchived tickets only.
+Master groups tickets by column `workflow_key`. Example: every board column keyed `Open` contributes tickets to the synthetic `Open` column even if a board renames the display label. Workflow keys default to the column display name at creation and are preserved across renames. Within each aggregated column, tickets are ordered by their board column position, then most recently updated, then board and ticket ID. A moved ticket at position zero therefore rises to the top across boards. When distinct workflow keys choose the same representative display label, Master appends each workflow key (for example, `Open [Open]` and `Open [Inbox]`) so materially different destinations never look identical. By default Master shows unarchived tickets only.
 
 Master cards place the owning board name after runtime metadata without adding a row. The label may be shortened and takes precedence over optional elapsed time. If fewer than four cells remain for a board label, the title retains its `[Board name]` prefix instead. The inspector always provides full board identity.
 

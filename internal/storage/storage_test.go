@@ -1055,6 +1055,51 @@ func TestMultipleBoardsAndMasterView(t *testing.T) {
 	}
 }
 
+func TestMasterMovePutsTicketAtTopAcrossBoards(t *testing.T) {
+	s, ctx := newTestStore(t)
+	firstBoard := defaultBoardView(t, ctx, s)
+	otherBoard, err := s.CreateBoard(ctx, "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBoard := boardViewByID(t, ctx, s, otherBoard.ID)
+
+	firstOpen, err := s.CreateTicket(ctx, firstBoard.Columns[0].ID, "First board", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherOpen, err := s.CreateTicket(ctx, secondBoard.Columns[0].ID, "Other board", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := s.CreateTicket(ctx, secondBoard.Columns[1].ID, "Moved here", "", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Ensure the move has a newer timestamp than existing position-zero tickets.
+	if _, err := s.db.ExecContext(ctx, `update tickets set updated_at='2000-01-01T00:00:00Z' where id in (?,?)`, firstOpen.ID, otherOpen.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MoveTicket(ctx, moved.ID, secondBoard.Columns[0].ID); err != nil {
+		t.Fatal(err)
+	}
+
+	master, err := s.MasterBoardView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range master.Columns {
+		if column.WorkflowKey != firstBoard.Columns[0].WorkflowKey {
+			continue
+		}
+		if len(column.Tickets) != 3 || column.Tickets[0].ID != moved.ID {
+			t.Fatalf("moved ticket should lead the aggregated Master column: %+v", column.Tickets)
+		}
+		return
+	}
+	t.Fatal("Master is missing the open workflow column")
+}
+
 func TestSessionsPreserveExplicitGenericMuxMetadata(t *testing.T) {
 	s, ctx := newTestStore(t)
 	view := defaultBoardView(t, ctx, s)
