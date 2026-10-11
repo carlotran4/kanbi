@@ -1,29 +1,28 @@
 ---
 name: kanbi-wireframes
-description: Create or revise realistic Kanbi TUI wireframes and visual redesign concepts. Use when proposing or showing Kanbi UI directions; ground the mockup in the running app, terminal dimensions, real content, and existing interactions.
+description: Make faithful Kanbi TUI wireframes and mockups. Use when drawing an existing or proposed Kanbi screen; first match the real app's structure, content density, terminal size, and state before changing its visual treatment.
 ---
 
 # Kanbi wireframes
 
-A wireframe should be a testable visual proposal for Kanbi as it exists. Make ambitious changes to appearance when asked, while preserving its information and keyboard behavior unless the user explicitly requests a UX change.
+A credible Kanbi wireframe starts as a faithful reconstruction of one real screen. Establish that baseline before exploring a visual direction. This skill is about accuracy of the mockup, not how to implement a redesign.
 
-## Establish the baseline
+## Capture the screen
 
-- Inspect the real TUI before drawing it. Use the disposable Herdr fixture in [kanbi-ui-validation](../kanbi-ui-validation/SKILL.md) when available; never use the user's live database for exploratory mockups. Inspect the relevant screen, neighboring views, and a dense or awkward state. If the app cannot be run, inspect current code and screenshots and state consequential assumptions.
-- Record the actual viewport, layout regions, content hierarchy, terminal palette, status vocabulary, and shortcuts. Treat the user's corrections about current behavior as ground truth.
-- Use representative ticket content: plausible title lengths, counts, attention states, empty states, and overflow. Avoid polished placeholder data that conceals layout problems.
+- Inspect the actual TUI at the intended terminal size. The disposable Herdr fixture in [kanbi-ui-validation](../kanbi-ui-validation/SKILL.md) can provide real board and inspector frames without touching the user's live database. If it cannot run, use current screenshots and code, and disclose any important assumption.
+- Capture one concrete state before drawing: selected board and ticket, visible columns and counts, focus and attention states, inspector tab if open, terminal theme, and viewport dimensions. Check a crowded or long-content state when it affects the requested screen.
+- Treat the observed app and the user's corrections as the source of truth. Existing behavior such as inspector/preview exclusivity, title emphasis, shortcuts, and terminal-controlled color must not be reimagined as generic dashboard features.
 
-## Design the proposal
+## Reconstruct the baseline
 
-- Change the requested dimension. For a visual redesign, explore typography, density, surfaces, color, alignment, and hierarchy without silently adding navigation, controls, or new workflows. The result can look substantially different while retaining the same jobs and shortcuts.
-- Honor terminal cell geometry, glyph rendering, and keyboard hints. Follow the active terminal theme by default; label a named palette such as Tokyo Night as a preview rather than implying Kanbi hard-codes it.
-- Give each visible icon, badge, border, color, and label a purpose. Use Kanbi's actual status language and key labels. Do not add decorative glyphs, fake metrics, or unexplained controls.
-- When showing alternatives, keep content, viewport, and behavior constant so the difference is visual. Include enough of the board and inspector to judge alignment, spacing, and fit.
+- Match the screen's topology first: header, column order and widths, card grouping, selected state, inspector placement, footer, and where space is intentionally empty. Preserve realistic card density and wrapping at the captured viewport.
+- Use the captured labels, key casing, status vocabulary, and meaningful glyphs. If content must be substituted, retain the same lengths, counts, and awkward cases. Do not invent extra buttons, metrics, panels, decorative icons, or tidy placeholder tickets to fill space.
+- Respect terminal cell geometry and glyph width. Use the active terminal palette by default; a named theme is a labeled preview, not a product color change.
 
-## Check before showing
+## Compare before showing
 
-- Open or render the mockup at the intended terminal size and at 80×24. Check clipping, alignment, legibility, density, and long-content behavior. Exercise any tabs or toggles in the mockup.
-- Compare the proposal with the observed TUI. Identify intentional behavior departures rather than passing them off as styling. A static image alone does not establish implementation fidelity.
-- Show the visual and briefly explain its meaningful choices. Keep editable source so feedback can revise the same concept.
+- Render the baseline at the captured size and compare it with the real frame. Check proportions, alignment, visible item count, wrapping, focus cues, labels, and footer placement. Also inspect 80×24 when the proposed layout needs to work there.
+- Correct mismatches before making style variants. For variants, keep the same content, state, viewport, and interactions so the visual change is the only variable. Clearly identify any deliberate departure from the baseline.
+- Show the inspectable mockup and keep its editable source for revisions. A polished image is not evidence that its underlying screen is accurate.
 
-Follow the applicable visualization tool's output rules when displaying a mockup. This skill guides fidelity; it does not require a particular rendering tool.
+Follow the applicable visualization tool's output rules. This skill does not require a particular rendering tool.
