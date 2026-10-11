@@ -1818,6 +1818,9 @@ func TestMoveTicketCursorFollowsTicket(t *testing.T) {
 	if !ok {
 		t.Fatalf("no ticket selected after move")
 	}
+	if got := model.view.Columns[model.col].Tickets[0].DisplayID; got != movedID {
+		t.Fatalf("moved ticket should be first in destination column: got %s, want %s", got, movedID)
+	}
 	if focusedTicket.DisplayID != movedID {
 		t.Fatalf("cursor lost: expected focus on %s (%s), got %s (%s)",
 			movedID, "Alpha", focusedTicket.DisplayID, focusedTicket.Title)
