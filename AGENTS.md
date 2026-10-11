@@ -49,7 +49,7 @@ go vet ./...
 
 Use plain `./scripts/smoke.sh` when you want the script to run fmt/test/vet itself.
 
-For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, also load the project `kanbi-ui-validation` skill and drive the real application in its disposable Herdr workspace (resize the owned Herdr client for exact terminal sizes). Validate the relevant flow at the reported terminal size and at 80x24; do not rely only on model tests or inspect the user's live database.
+For TUI/UI, layout, scrolling, modal, readability, or keybinding changes, also load the project [`kanbi-ui-validation`](./.agents/skills/kanbi-ui-validation/SKILL.md) skill and drive the real application in its disposable Herdr workspace (resize the owned Herdr client for exact terminal sizes). Validate the relevant flow at the reported terminal size and at 80x24; do not rely only on model tests or inspect the user's live database.
 
 For Kanbi wireframes or visual redesign proposals, load the project [`kanbi-wireframes`](./.agents/skills/kanbi-wireframes/SKILL.md) skill so concepts reflect the actual TUI, content, and terminal constraints.
 

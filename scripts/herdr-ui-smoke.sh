@@ -2,7 +2,7 @@
 # Opt-in real Herdr UI check. Uses only a workspace/database created by this run.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UI="$ROOT/.pi/skills/kanbi-ui-validation/scripts/ui-session.sh"
+UI="$ROOT/.agents/skills/kanbi-ui-validation/scripts/ui-session.sh"
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   echo 'Usage: ./scripts/herdr-ui-smoke.sh'
   echo 'Uses an isolated Herdr server/client. Checks real Kanbi navigation, editing, capture and cleanup.'

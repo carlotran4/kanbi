@@ -9,7 +9,7 @@ A wireframe should be a testable visual proposal for Kanbi as it exists. Make am
 
 ## Establish the baseline
 
-- Inspect the real TUI before drawing it. Use the disposable Herdr fixture in [kanbi-ui-validation](../../../.pi/skills/kanbi-ui-validation/SKILL.md) when available; never use the user's live database for exploratory mockups. Inspect the relevant screen, neighboring views, and a dense or awkward state. If the app cannot be run, inspect current code and screenshots and state consequential assumptions.
+- Inspect the real TUI before drawing it. Use the disposable Herdr fixture in [kanbi-ui-validation](../kanbi-ui-validation/SKILL.md) when available; never use the user's live database for exploratory mockups. Inspect the relevant screen, neighboring views, and a dense or awkward state. If the app cannot be run, inspect current code and screenshots and state consequential assumptions.
 - Record the actual viewport, layout regions, content hierarchy, terminal palette, status vocabulary, and shortcuts. Treat the user's corrections about current behavior as ground truth.
 - Use representative ticket content: plausible title lengths, counts, attention states, empty states, and overflow. Avoid polished placeholder data that conceals layout problems.
 

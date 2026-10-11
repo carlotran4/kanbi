@@ -18,7 +18,7 @@ It supports:
 
 Read-only inspection is the default. Mutations require explicit user intent, and ambiguous targets require clarification. Session launch, destructive board operations, backup/restore, worktree policy changes, and repository integration are excluded from ordinary administration and require operation-specific confirmation.
 
-Review [`skills/kanbi/SKILL.md`](../skills/kanbi/SKILL.md) before installing it. Skills are instructions to an agent and should be treated as executable trust, even when they contain no scripts.
+Review [`.agents/skills/kanbi/SKILL.md`](../.agents/skills/kanbi/SKILL.md) before installing it. Skills are instructions to an agent and should be treated as executable trust, even when they contain no scripts.
 
 ## Install
 
@@ -28,7 +28,7 @@ The skill follows the [Agent Skills specification](https://agentskills.io/specif
 npx skills add carlotran4/kanbi --skill kanbi
 ```
 
-To install manually from a source checkout, copy or symlink the `skills/kanbi` directory into a location recognized by the agent:
+Codex discovers the skill automatically when working in this repository. To install it for use outside this checkout, copy or symlink `.agents/skills/kanbi` into a location recognized by the agent:
 
 | Agent | User-level location |
 | --- | --- |
@@ -41,14 +41,14 @@ Example:
 
 ```bash
 mkdir -p "$HOME/.agents/skills"
-cp -R skills/kanbi "$HOME/.agents/skills/kanbi"
+cp -R .agents/skills/kanbi "$HOME/.agents/skills/kanbi"
 ```
 
 Claude Code uses its own user-level directory by default:
 
 ```bash
 mkdir -p "$HOME/.claude/skills"
-cp -R skills/kanbi "$HOME/.claude/skills/kanbi"
+cp -R .agents/skills/kanbi "$HOME/.claude/skills/kanbi"
 ```
 
 Restart the agent after installation if it does not refresh skills automatically. The `kanbi` binary must be installed and available on `PATH` in the agent's environment.
@@ -76,4 +76,4 @@ Kanbi remains fully usable without the skill. The TUI is the primary human inter
 
 ## Project UI validation skill
 
-Contributors validating the actual board UI should use the separate [kanbi-ui-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md). It creates a disposable database and workspace in an owned isolated Herdr server/client, then exposes frame capture, keys and literal text input. It resizes its owned rendering client and verifies the application PTY for exact terminal-size checks. This development fixture is separate from the administration skill and never reads the user's canonical database or launches authenticated agents.
+Contributors validating the actual board UI should use the separate [kanbi-ui-validation skill](../.agents/skills/kanbi-ui-validation/SKILL.md). It creates a disposable database and workspace in an owned isolated Herdr server/client, then exposes frame capture, keys and literal text input. It resizes its owned rendering client and verifies the application PTY for exact terminal-size checks. This development fixture is separate from the administration skill and never reads the user's canonical database or launches authenticated agents.

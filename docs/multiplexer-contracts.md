@@ -67,7 +67,7 @@ Normal tests use fake Herdr command runners. `scripts/smoke.sh` runs fake harnes
 
 ## Agent-driven UI verification
 
-The project [UI-validation skill](../.pi/skills/kanbi-ui-validation/SKILL.md) runs Kanbi as an ordinary terminal process in a disposable Herdr workspace. Agents use explicit pane IDs with `pane send-keys`, `pane send-text` and `pane read --source visible --format ansi`; agent prompt/readiness commands are for harnesses, not the board UI. The fixture uses local boards, disabled sync and disabled real harness commands. `scripts/herdr-ui-smoke.sh` verifies this workflow without changing user focus or stopping the parent server.
+The project [UI-validation skill](../.agents/skills/kanbi-ui-validation/SKILL.md) runs Kanbi as an ordinary terminal process in a disposable Herdr workspace. Agents use explicit pane IDs with `pane send-keys`, `pane send-text` and `pane read --source visible --format ansi`; agent prompt/readiness commands are for harnesses, not the board UI. The fixture uses local boards, disabled sync and disabled real harness commands. `scripts/herdr-ui-smoke.sh` verifies this workflow without changing user focus or stopping the parent server.
 
 Runtime IDs are server-local. The helper records and pins its socket and IDs. It owns an isolated server and a rendering client PTY with private configuration and XDG state; the caller's Herdr server and focus remain untouched. Temporary nested-client permission applies only to the fixture configuration.
 

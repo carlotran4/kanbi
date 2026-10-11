@@ -2,10 +2,10 @@
 name: kanbi
 description: Inspects and safely administers Kanbi boards, tickets, notes, and agent runtime state through the Kanbi JSON CLI. Use when a user asks about Kanbi status, tickets needing attention, board health, ticket creation or updates, workflow moves, notes, or provider sync.
 license: MIT
-compatibility: Requires the kanbi CLI on PATH on Linux or macOS. Designed for Agent Skills-compatible coding agents.
 metadata:
   author: carlotran4
   version: "1"
+  requirements: Requires the kanbi CLI on PATH on Linux or macOS. Designed for Agent Skills-compatible coding agents.
 ---
 
 # Kanbi

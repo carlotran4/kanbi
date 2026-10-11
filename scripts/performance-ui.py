@@ -14,7 +14,7 @@ import time
 import unicodedata
 
 ROOT = Path(__file__).resolve().parents[1]
-UI = ROOT / ".pi/skills/kanbi-ui-validation/scripts/ui-session.sh"
+UI = ROOT / ".agents/skills/kanbi-ui-validation/scripts/ui-session.sh"
 width, height = 160, 45
 
 

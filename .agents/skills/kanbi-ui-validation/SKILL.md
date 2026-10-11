@@ -14,7 +14,7 @@ Use the real application after deterministic tests for UI-related changes.
 At the repository root (including from inside Herdr):
 
 ```bash
-UI=.pi/skills/kanbi-ui-validation/scripts/ui-session.sh
+UI=.agents/skills/kanbi-ui-validation/scripts/ui-session.sh
 $UI start
 $UI status
 $UI capture
