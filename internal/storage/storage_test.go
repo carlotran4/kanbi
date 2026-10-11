@@ -601,7 +601,7 @@ func TestTicketMoveAndReorder(t *testing.T) {
 	}
 	open, _ := s.TicketsForColumn(ctx, view.Columns[0].ID)
 	progress, _ := s.TicketsForColumn(ctx, view.Columns[1].ID)
-	if len(open) != 1 || open[0].Position != 0 || len(progress) != 3 || progress[0].ColumnID != view.Columns[1].ID || progress[0].ID != b.ID || progress[1].ID != c.ID || progress[2].ID != d.ID {
+	if len(open) != 1 || open[0].Position != 0 || len(progress) != 3 || progress[0].Position != 0 || progress[0].ColumnID != view.Columns[1].ID || progress[0].ID != b.ID || progress[1].ID != c.ID || progress[2].ID != d.ID {
 		t.Fatalf("move/compact failed open=%+v progress=%+v", open, progress)
 	}
 	assertContiguousTicketPositions(t, open)
@@ -623,7 +623,7 @@ func TestArchiveThenMoveKeepsVisiblePositionsContiguous(t *testing.T) {
 	}
 	open, _ := s.TicketsForColumn(ctx, view.Columns[0].ID)
 	progress, _ := s.TicketsForColumn(ctx, view.Columns[1].ID)
-	if len(open) != 1 || open[0].ID != stay.ID || len(progress) != 2 || progress[0].ID != moved.ID || progress[1].ID != dest.ID {
+	if len(open) != 1 || open[0].ID != stay.ID || len(progress) != 2 || progress[0].Position != 0 || progress[0].ID != moved.ID || progress[1].ID != dest.ID {
 		t.Fatalf("archive then move order open=%+v progress=%+v", open, progress)
 	}
 	assertContiguousTicketPositions(t, open)

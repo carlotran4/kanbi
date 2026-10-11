@@ -1805,17 +1805,12 @@ func TestMoveTicketCursorFollowsTicket(t *testing.T) {
 	}
 	movedID := model.view.Columns[model.col].Tickets[model.card].DisplayID
 
-	// Move "Beta" right into "Review" which already has "Already Here" at index 0.
-	// Beta will be appended at index 1. Without the fix, cursor stays at card=1
-	// which still points to index 1 — but that happens to be correct here.
-	// The real failure is when Beta lands at the END (len=1 → index 1) but
-	// clamp would have left card=1 too. Let's instead move from card=0 where
-	// clamp leaves it at 0, pointing to the wrong ticket.
+	// Move the first ticket in the source column into "Review", where it should
+	// become the new first ticket. The cursor must follow it there.
 	model, _ = mustUpdate(t, model, "k")                                  // back to card=0, "Alpha"
 	movedID = model.view.Columns[model.col].Tickets[model.card].DisplayID // "Alpha"
 
-	// Dest col "Review" has [Already Here]. Moving Alpha there appends it at
-	// index 1. m.card=0 after clamp → focuses "Already Here", not Alpha.
+	// Dest col "Review" has [Already Here]. Moving Alpha there places it first.
 	model, _ = mustUpdate(t, model, "L") // move Alpha to Review
 
 	// After the move, the cursor must still point to the moved ticket
@@ -1856,8 +1851,8 @@ func TestMoveTicketScrollFollowsTicket(t *testing.T) {
 	model.height = 20
 	model.syncScrollDimensions()
 
-	// Move the source ticket right into the destination column.
-	// It will be appended at the end (index 10), well past the visible window.
+	// Move the source ticket right into the destination column. It should land
+	// at index 0 ahead of the existing cards.
 	model, _ = mustUpdate(t, model, "L")
 
 	// The focused ticket must be "Traveller".
@@ -1867,6 +1862,9 @@ func TestMoveTicketScrollFollowsTicket(t *testing.T) {
 	}
 	if focused.ID != movedTicket.ID {
 		t.Fatalf("cursor lost: expected %s (Traveller), got %s (%s)", movedTicket.DisplayID, focused.DisplayID, focused.Title)
+	}
+	if model.card != 0 || model.view.Columns[model.col].Tickets[0].ID != movedTicket.ID {
+		t.Fatalf("moved ticket is not at top: card=%d tickets=%+v", model.card, model.view.Columns[model.col].Tickets)
 	}
 
 	// The scroll offset of the destination column must have advanced so the
