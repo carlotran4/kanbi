@@ -197,8 +197,19 @@ func (m Model) repairView() string {
 		return modalFrame(lines, popupW, palette.warning)
 	}
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(palette.warning).Render("Session repair needed: "+m.repairTicket.DisplayID))
-	lines = append(lines, "", "Cause: "+m.repairReason, "")
-	lines = append(lines, "Next: retry after checking the runtime, edit a verified session ref, or start fresh.", "")
+	contentWidth := modalContentWidth(popupW)
+	lines = append(lines, "")
+	lines = append(lines, repairWrapped("Cause: "+m.repairReason, contentWidth, 3)...)
+	if m.repairTicket.Runtime == "error" && m.repairTicket.LastAttentionReason.Valid {
+		previous := strings.Join(strings.Fields(m.repairTicket.LastAttentionReason.String), " ")
+		if previous != "" {
+			lines = append(lines, "")
+			lines = append(lines, repairWrapped("Previous failure: "+previous, contentWidth, 3)...)
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, wrapText("Next: retry after checking the runtime, edit a verified session ref, or start fresh.", contentWidth, 2)...)
+	lines = append(lines, "")
 	lines = append(lines, "r  retry")
 	lines = append(lines, "e  edit session ref")
 	lines = append(lines, "f  start fresh")
@@ -213,4 +224,14 @@ func (m Model) repairView() string {
 		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render("Note: Copilot does not expose a session ref; start fresh or edit ref manually."))
 	}
 	return modalFrame(lines, popupW, palette.warning)
+}
+
+func repairWrapped(value string, width, maxLines int) []string {
+	lines := wrapText(value, width, maxLines+1)
+	if len(lines) <= maxLines {
+		return lines
+	}
+	lines = lines[:maxLines]
+	lines[maxLines-1] = trimToWidth(lines[maxLines-1], maxInt(1, width-1)) + "…"
+	return lines
 }

@@ -463,6 +463,30 @@ func TestModelRepairStartFresh(t *testing.T) {
 	}
 }
 
+func TestRepairViewShowsPreviousLaunchFailureAtNarrowWidth(t *testing.T) {
+	model := Model{width: 80, repairTicket: storage.Ticket{
+		DisplayID: "GH-368", Runtime: "error", LastAttentionReason: sql.NullString{
+			String: `herdr submit prompt: {"error":{"code":"agent_not_running"}}`, Valid: true,
+		},
+	}, repairReason: "ticket has no active container and no session ref is known"}
+	view := model.repairView()
+	if !strings.Contains(view, "Previous failure:") || !strings.Contains(view, "agent_not_running") {
+		t.Fatalf("repair view hid launch failure: %s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > 80 {
+			t.Fatalf("repair line exceeds 80 columns: %q", line)
+		}
+	}
+}
+
+func TestRepairWrappedMarksOmittedErrorText(t *testing.T) {
+	lines := repairWrapped("one two three four five six seven eight", 9, 2)
+	if len(lines) != 2 || !strings.HasSuffix(lines[1], "…") {
+		t.Fatalf("wrapped error should mark omitted text: %#v", lines)
+	}
+}
+
 type openingStore struct {
 	*app.Service
 	opened                 []string

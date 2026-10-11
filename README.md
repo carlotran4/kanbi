@@ -85,6 +85,7 @@ Press `?` for controls. The important distinction is:
 | Automation | CLI commands with JSON output; optional installable [Agent Skill](./docs/agent-skill.md) |
 
 Session resume depends on Kanbi capturing a verified session reference from the agent CLI. If a session cannot be resumed safely, Kanbi offers repair or start-fresh instead of guessing.
+When a launch failed, the repair screen also shows the saved failure so the original startup error remains visible.
 
 ## Useful commands
 

@@ -361,7 +361,20 @@ func (a *Adapter) SubmitPrompt(ctx context.Context, ref multiplexer.ContainerRef
 		out, err = a.run(ctx, "agent", "wait", ref.Target(), "--until", "working", "--until", "done", "--until", "blocked", "--timeout", fmt.Sprint(timeout.Milliseconds()))
 	}
 	if err != nil {
-		return herdrCommandError("submit prompt", out, err)
+		cause := herdrCommandError("submit prompt", out, err)
+		if strings.Contains(out, "agent_not_running") {
+			// The last Codex editor frame can remain visible after its process
+			// exits. Herdr's error is authoritative; retain a known startup
+			// failure from the pane before launch cleanup closes it.
+			paneID := refMeta(ref, "pane_id", "result.agent.pane_id")
+			if paneID != "" {
+				if screen, readErr := a.run(ctx, "pane", "read", paneID, "--source", "visible", "--format", "text"); readErr == nil && strings.Contains(readText(screen), "account/read failed during TUI bootstrap") {
+					return fmt.Errorf("Codex exited during startup: account/read failed during TUI bootstrap: %w", cause)
+				}
+			}
+			return fmt.Errorf("agent exited before prompt submission: %w", cause)
+		}
+		return cause
 	}
 	return nil
 }

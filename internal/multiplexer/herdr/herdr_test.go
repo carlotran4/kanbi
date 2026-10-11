@@ -34,6 +34,25 @@ func TestSubmitPromptWaitsForAcceptanceAndPropagatesFailure(t *testing.T) {
 	}
 }
 
+func TestSubmitPromptReportsCodexBootstrapFailure(t *testing.T) {
+	prompt := "test prompt"
+	key := "agent prompt agent-1 test prompt --wait --until working --until done --until blocked --timeout 15000"
+	r := &fakeRunner{
+		out: map[string]string{
+			"pane read pane-1 --source visible --format text": "› Error: account/read failed during TUI bootstrap: failed to load workspace requirements",
+			key: `{"error":{"code":"agent_not_running","message":"agent is no longer running in the target pane"}}`,
+		},
+		err: map[string]error{key: errors.New("exit status 1")},
+	}
+	a := NewAdapter(Config{})
+	a.Runner = r
+	ref := multiplexer.ContainerRef{ID: "agent-1", Metadata: `{"pane_id":"pane-1"}`}
+	err := a.SubmitPrompt(context.Background(), ref, prompt, 15*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "Codex exited during startup: account/read failed during TUI bootstrap") || !strings.Contains(err.Error(), "agent_not_running") {
+		t.Fatalf("startup failure = %v", err)
+	}
+}
+
 func TestSubmitPromptRecoversStalledPasteWithoutResendingText(t *testing.T) {
 	const first = "agent prompt agent-1 multiline\ntext --wait --until working --until done --until blocked --timeout 15000"
 	const wait = "agent wait agent-1 --until working --until done --until blocked --timeout 15000"
