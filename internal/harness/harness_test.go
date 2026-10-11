@@ -299,6 +299,30 @@ func TestCodexHistoryRejectsAmbiguousConcurrentIdenticalPrompts(t *testing.T) {
 	}
 }
 
+func TestCodexDelayedHistoryCaptureExcludesLaterIdenticalLaunch(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
+	prompt := "# T-001: Demo\n\nBody"
+	since := time.Unix(2000, 0)
+	before := time.Unix(2005, 0)
+	writeCodexSessionMeta(t, home, "first", cwd, time.Unix(2001, 0))
+	writeCodexSessionMeta(t, home, "later", cwd, time.Unix(2006, 0))
+	historyPath := filepath.Join(home, ".codex", "history.jsonl")
+	if ref, ok := CaptureCodexSessionRefBefore(prompt, cwd, since, before); ok {
+		t.Fatalf("captured %q before history was written", ref)
+	}
+	history := `{"session_id":"first","ts":2008,"text":` + quote(prompt) + `}` + "\n" +
+		`{"session_id":"later","ts":2008,"text":` + quote(prompt) + `}` + "\n"
+	if err := os.WriteFile(historyPath, []byte(history), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ref, ok := CaptureCodexSessionRefBefore(prompt, cwd, since, before); !ok || ref != "first" {
+		t.Fatalf("ref = %q ok = %v, want first/true", ref, ok)
+	}
+}
+
 func writeCodexSessionMeta(t *testing.T, home, sessionID, cwd string, createdAt time.Time) {
 	t.Helper()
 	dir := filepath.Join(home, ".codex", "sessions", "2026", "01", "01")

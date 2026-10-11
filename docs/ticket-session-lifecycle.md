@@ -97,7 +97,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - For arg-mode harnesses, append prompt to the harness command. Pi and Claude additionally receive an explicit `Enter` after launch so versions that only populate the editor submit the turn.
 - For paste-mode harnesses, wait for prompt-ready, send literal text through Herdr, send Enter.
 - Creates exactly one active session row. The row is claimed as `starting` before runtime launch and becomes `running` only after its container reference is persisted.
-- Attempts harness-specific session ref capture. Delayed Pi/Claude capture is owned by the runtime manager and updates the exact session attempt that initiated it, even if a newer attempt becomes active before capture completes.
+- Attempts harness-specific session ref capture. Delayed Pi/Codex/Claude capture is owned by the runtime manager and updates the exact session attempt that initiated it, even if a newer attempt becomes active before capture completes. Codex retries accept only sessions created before the original prompt submission.
 - If launch or prompt delivery fails, closes any newly-created container best-effort and leaves the attempt as an inactive `error` row.
 - Delayed session-ref capture is bounded, attempt-bound, and canceled on manager shutdown.
 - Workspace-backed attempts use the session's immutable launch-cwd snapshot for initial capture, delayed capture, validation, recovery, and resume.

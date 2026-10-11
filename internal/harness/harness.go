@@ -185,7 +185,7 @@ func CaptureSessionRefInCWD(name, promptText, cwd string, since time.Time) (stri
 	case "pi":
 		return latestPiSessionInCWD(promptText, cwd, since)
 	case "codex":
-		return latestCodexHistorySessionInCWD(promptText, cwd, since)
+		return latestCodexHistorySessionInCWD(promptText, cwd, since, time.Time{})
 	case "copilot":
 		return latestCopilotSessionInCWD(promptText, cwd, since)
 	case "claude":
@@ -197,6 +197,15 @@ func CaptureSessionRefInCWD(name, promptText, cwd string, since time.Time) (stri
 		}
 		return contract.CaptureRef(promptText, since)
 	}
+}
+
+// CaptureCodexSessionRefBefore retries a prompted launch without accepting a
+// session created after that launch's prompt was submitted.
+func CaptureCodexSessionRefBefore(promptText, cwd string, since, before time.Time) (string, bool) {
+	if promptText == "" || strings.TrimSpace(cwd) == "" || before.IsZero() {
+		return "", false
+	}
+	return latestCodexHistorySessionInCWD(promptText, cwd, since, before)
 }
 
 func ValidateSessionRef(name, sessionRef, promptText string) bool {
@@ -247,10 +256,10 @@ func latestCodexHistorySession(promptText string, since time.Time) (string, bool
 	if err != nil {
 		return "", false
 	}
-	return latestCodexHistorySessionInCWD(promptText, cwd, since)
+	return latestCodexHistorySessionInCWD(promptText, cwd, since, time.Time{})
 }
 
-func latestCodexHistorySessionInCWD(promptText, cwd string, since time.Time) (string, bool) {
+func latestCodexHistorySessionInCWD(promptText, cwd string, since, before time.Time) (string, bool) {
 	codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
 	if codexHome == "" {
 		home, err := os.UserHomeDir()
@@ -283,7 +292,7 @@ func latestCodexHistorySessionInCWD(promptText, cwd string, since time.Time) (st
 
 	var matched string
 	for sessionID := range candidates {
-		if !codexSessionMatchesLaunch(codexHome, sessionID, cwd, since) {
+		if !codexSessionMatchesLaunch(codexHome, sessionID, cwd, since, before) {
 			continue
 		}
 		if matched != "" && matched != sessionID {
@@ -294,7 +303,7 @@ func latestCodexHistorySessionInCWD(promptText, cwd string, since time.Time) (st
 	return matched, matched != ""
 }
 
-func codexSessionMatchesLaunch(codexHome, sessionID, cwd string, since time.Time) bool {
+func codexSessionMatchesLaunch(codexHome, sessionID, cwd string, since, before time.Time) bool {
 	if strings.ContainsAny(sessionID, `/\\*?[]`) {
 		return false
 	}
@@ -324,7 +333,7 @@ func codexSessionMatchesLaunch(codexHome, sessionID, cwd string, since time.Time
 			metaID = meta.Payload.SessionID
 		}
 		createdAt, err := time.Parse(time.RFC3339Nano, meta.Payload.Timestamp)
-		if err != nil || createdAt.Before(since) {
+		if err != nil || createdAt.Before(since) || (!before.IsZero() && createdAt.After(before)) {
 			continue
 		}
 		if metaID == sessionID && filepath.Clean(meta.Payload.CWD) == filepath.Clean(cwd) {

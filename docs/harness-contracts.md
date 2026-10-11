@@ -71,7 +71,7 @@ Kanbi serializes prompted Codex launches sharing the same Codex home until their
 - `session_meta.timestamp` is not earlier than the launch;
 - exactly one candidate satisfies all checks.
 
-The launch lock prevents two Kanbi-started Codex sessions from racing while only one candidate is visible. Capture still rejects multiple matching candidates rather than risk attaching the wrong resume ref, including sessions launched outside Kanbi. Kanbi does not retry Codex capture later, when newer identical prompts could make an old launch ambiguous. Pane-first launches that cannot submit the prompt before the session row is completed likewise do not perform delayed Codex capture. The ticket follows the normal repair/start-fresh path when no unique ref can be proven.
+The launch lock prevents two Kanbi-started Codex sessions from racing during synchronous capture. If Codex writes history after Herdr accepts the prompt, Kanbi retries for up to 30 seconds against the exact session attempt. Delayed capture also requires the rollout session to have been created no later than that attempt's prompt submission, so a later identical launch cannot be assigned to the earlier attempt. Capture still rejects multiple matching candidates rather than risk attaching the wrong resume ref, including sessions launched outside Kanbi. After the retry window or a board shutdown, Kanbi does not guess a missing ref; the ticket follows the normal repair/start-fresh path.
 
 **Verified:** exact prompt launch without leaked metadata, unique cwd-bound ref capture, ambiguity rejection, close, and resume path. See `TestCodexOpenTicketSendsPromptAsArgument`, `TestCodexHistoryCapturesUniqueMatchingSessionInCWD`, and `TestCodexHistoryRejectsAmbiguousConcurrentIdenticalPrompts`.
 

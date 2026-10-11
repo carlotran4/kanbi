@@ -248,9 +248,10 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 			return ticket, nil
 		}
 	}
-	// Codex capture correlates history with rollout metadata during launch.
-	// Do not retry it later: newer identical prompts can make an old launch
-	// ambiguous even when cwd and timestamps are checked.
+	// Codex capture correlates history with rollout metadata during launch,
+	// including a bounded retry tied to that attempt's prompt submission.
+	// Do not recover it here without that upper bound: newer identical prompts
+	// can make an old launch ambiguous even when cwd and timestamps are checked.
 	if ticket.Harness == "codex" {
 		return ticket, nil
 	}

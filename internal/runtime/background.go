@@ -11,6 +11,7 @@ import (
 const (
 	defaultRefCapturePollInterval  = 500 * time.Millisecond
 	defaultPiRefCaptureTimeout     = 30 * time.Second
+	defaultCodexRefCaptureTimeout  = 30 * time.Second
 	defaultClaudeRefCaptureTimeout = 5 * time.Minute
 )
 

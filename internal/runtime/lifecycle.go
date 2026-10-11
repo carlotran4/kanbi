@@ -368,6 +368,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			}
 			return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: failClaim(promptErr)}
 		}
+		promptSubmittedAt := time.Now().UTC()
 		out, _ := adapter.Read(ctx, containerRef, readOptions)
 		if l.manager.Store != nil {
 			ref, captured := harness.ParseSessionRef(out, harness.SessionRefPattern(l.manager.Config.Harnesses, ticket.Harness))
@@ -381,7 +382,16 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 				// Prompt delivery can outlive this claim if another process starts
 				// fresh. Persist against the claim created for this launch, never
 				// whichever attempt happens to be active now.
-				_ = l.manager.Store.UpdateSessionRef(ctx, claimID, ref)
+				if err := l.manager.Store.UpdateSessionRef(ctx, claimID, ref); err != nil {
+					l.manager.reportBackgroundError(fmt.Errorf("capture %s session ref for session %d: %w", ticket.Harness, claimID, err))
+				}
+			} else if ticket.Harness == "codex" && herdrPaneFirst && l.manager.nativeHarness(ticket.Harness) {
+				// Codex may write history after Herdr accepts the prompt. Bound
+				// retries by session creation time so a later identical launch
+				// cannot be mistaken for this attempt.
+				l.manager.startSessionRefCapture(claimID, ticket.Harness, defaultCodexRefCaptureTimeout, func() (string, bool) {
+					return harness.CaptureCodexSessionRefBefore(renderedPrompt, launchCWD, launchStartedAt, promptSubmittedAt)
+				})
 			}
 		}
 	}

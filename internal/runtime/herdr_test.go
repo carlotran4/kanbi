@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,6 +15,55 @@ import (
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
+
+func TestPaneFirstCodexCapturesHistoryWrittenAfterPrompt(t *testing.T) {
+	store, ctx := newRuntimeTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Delayed Codex Ref", "body", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codeHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codeHome)
+	bin, _ := writeFakeHerdr(t, map[string]string{
+		"workspace list":   `[]`,
+		"workspace create": `{"id":"ws-board","cwd":"` + view.Board.Workdir + `"}`,
+		"agent start help": `--kind <KIND> --pane <ID>`,
+		"tab create":       `{"result":{"root_pane":{"pane_id":"pane-123"}}}`,
+		"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
+	})
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Herdr.Binary = bin
+	manager := NewManager(cfg, store)
+	manager.RefCapturePollInterval = time.Millisecond
+	t.Cleanup(manager.Close)
+	if err := manager.OpenTicket(ctx, ticket, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.TicketByID(ctx, ticket.ID)
+	if err != nil || got.SessionRef.Valid {
+		t.Fatalf("ref before late history: %+v, %v", got.SessionRef, err)
+	}
+	ses, ok, err := store.LatestSession(ctx, ticket.ID)
+	if err != nil || !ok {
+		t.Fatalf("latest session: %v, %v", ok, err)
+	}
+	sessionDir := filepath.Join(codeHome, "sessions", "2026", "01", "01")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := json.Marshal(map[string]any{"type": "session_meta", "payload": map[string]any{
+		"id": "delayed-codex-ref", "timestamp": ses.StartedAt.Time.Format(time.RFC3339Nano), "cwd": view.Board.Workdir,
+	}})
+	if err := os.WriteFile(filepath.Join(sessionDir, "rollout-delayed-codex-ref.jsonl"), append(meta, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	history, _ := json.Marshal(map[string]any{"session_id": "delayed-codex-ref", "ts": float64(time.Now().Unix()), "text": "# T-001: Delayed Codex Ref\n\nbody"})
+	if err := os.WriteFile(filepath.Join(codeHome, "history.jsonl"), append(history, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitForSessionRef(t, store, ses.ID, "delayed-codex-ref")
+}
 
 func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
