@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -134,6 +135,64 @@ func TestInspectorHLSectionsRequirePanelFocus(t *testing.T) {
 	if m.inspector.section != 1 {
 		t.Fatal("bracket section shortcut was lost")
 	}
+}
+
+func TestInspectorOutputStartsAtBottomAndFollowsUntilScrolledUp(t *testing.T) {
+	for _, size := range [][2]int{{160, 45}, {80, 24}} {
+		m, store, ctx := newTestModel(t)
+		v := defaultBoardView(t, ctx, store)
+		createTicket(t, ctx, store, v.Columns[0].ID, "Title", "Task", "pi")
+		m.reload()
+		m.width, m.height = size[0], size[1]
+		m = inspectorPress(m, "i")
+		if !m.inspectorNarrow() {
+			m = inspectorPress(m, "tab")
+		}
+		m = inspectorPress(m, "l")
+		if m.inspector.section != 1 || !m.inspector.followOutput {
+			t.Fatalf("%v: Output did not start in follow mode", size)
+		}
+		m.inspector.preview = multiplexer.TerminalPreview{Text: outputRows(220, "newest"), Source: "transcript fallback", CapturedAt: time.Now()}
+		frame := ansiStrip(m.View())
+		if !strings.Contains(frame, "newest") || strings.Contains(frame, "row 001") {
+			t.Fatalf("%v: Output did not open at the bottom:\n%s", size, frame)
+		}
+		m.inspector.preview.Text = outputRows(221, "later")
+		frame = ansiStrip(m.View())
+		if !strings.Contains(frame, "later") || !m.inspector.followOutput {
+			t.Fatalf("%v: Output did not follow a new capture:\n%s", size, frame)
+		}
+		m.inspectorKey(tea.KeyMsg{Type: tea.KeyPgUp})
+		before := m.inspector.scroll
+		if before == 0 {
+			t.Fatalf("%v: PageUp jumped to the top instead of moving from the visible bottom", size)
+		}
+		m.inspector.preview.Text = outputRows(222, "latest")
+		frame = ansiStrip(m.View())
+		if strings.Contains(frame, "latest") || m.inspector.scroll != before || m.inspector.followOutput {
+			t.Fatalf("%v: scrolling up did not hold the reading position:\n%s", size, frame)
+		}
+		m.inspector.scroll = 1 << 20
+		frame = ansiStrip(m.inspectorView(m.boardContentHeight() + 2))
+		if !strings.Contains(frame, "latest") || !m.inspector.followOutput {
+			t.Fatalf("%v: returning to bottom did not resume following:\n%s", size, frame)
+		}
+		m.inspectorKey(tea.KeyMsg{Type: tea.KeyUp})
+		m = inspectorPress(m, "i")
+		m = inspectorPress(m, "i")
+		m.inspector.preview = multiplexer.TerminalPreview{Text: outputRows(223, "reopened"), Source: "transcript fallback", CapturedAt: time.Now()}
+		if !m.inspector.followOutput || !strings.Contains(ansiStrip(m.View()), "reopened") {
+			t.Fatalf("%v: reopening Output did not return to the bottom", size)
+		}
+	}
+}
+
+func outputRows(count int, last string) string {
+	var rows []string
+	for i := 1; i < count; i++ {
+		rows = append(rows, fmt.Sprintf("row %03d", i))
+	}
+	return strings.Join(append(rows, last), "\n")
 }
 
 func TestInspectorBoundsAndReadOnlyFocus(t *testing.T) {

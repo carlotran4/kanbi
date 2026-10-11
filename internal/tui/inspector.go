@@ -25,6 +25,7 @@ type inspectorState struct {
 	anchorMaster                bool
 	open, focused               bool
 	section, scroll, horizontal int
+	followOutput                bool
 	target                      string
 	generation                  uint64
 	busy                        bool
@@ -77,6 +78,7 @@ func (m *Model) syncInspector() tea.Cmd {
 	if t.ID != m.inspector.ticketID {
 		m.inspector.ticketID = t.ID
 		m.inspector.scroll, m.inspector.horizontal = 0, 0
+		m.inspector.followOutput = true
 	}
 	target := ""
 	if ok {
@@ -96,6 +98,7 @@ func (m *Model) syncInspector() tea.Cmd {
 		m.inspector.err = ""
 		m.inspector.next = time.Time{}
 		m.inspector.scroll, m.inspector.horizontal = 0, 0
+		m.inspector.followOutput = true
 	}
 	if !visible || !ok || m.inspector.busy || time.Now().Before(m.inspector.next) {
 		return nil
@@ -132,6 +135,9 @@ func (m *Model) inspectorKey(key tea.KeyMsg) bool {
 		}
 		m.inspector.open = !m.inspector.open
 		m.inspector.focused = m.inspector.open && m.inspectorNarrow()
+		if m.inspector.open && m.inspector.section == 1 {
+			m.inspector.followOutput = true
+		}
 		m.renderVersion++
 		m.hScrollFollow()
 		m.vScrollFollow()
@@ -162,11 +168,20 @@ func (m *Model) inspectorKey(key tea.KeyMsg) bool {
 			}
 			m.inspector.section = (m.inspector.section + delta) % 3
 			m.inspector.scroll, m.inspector.horizontal = 0, 0
+			m.inspector.followOutput = m.inspector.section == 1
 			return true
 		}
 	}
 	if !m.inspector.open || !(m.inspector.focused || m.inspectorNarrow()) {
 		return false
+	}
+	if m.inspector.section == 1 && m.inspector.followOutput {
+		switch key.String() {
+		case "j", "down", "k", "up", "pgdown", "pgup":
+			// View renders a copy of the model. Persist the visible bottom before
+			// applying a manual scroll so Up moves one line from that position.
+			_ = m.inspectorView(m.boardContentHeight() + 2)
+		}
 	}
 	switch key.String() {
 	case "h", "l":
@@ -176,21 +191,25 @@ func (m *Model) inspectorKey(key tea.KeyMsg) bool {
 		}
 		m.inspector.section = (m.inspector.section + delta) % 3
 		m.inspector.scroll, m.inspector.horizontal = 0, 0
+		m.inspector.followOutput = m.inspector.section == 1
 		return true
 	case "j", "down":
 		m.inspector.scroll++
 	case "k", "up":
 		m.inspector.scroll = maxInt(0, m.inspector.scroll-1)
+		m.inspector.followOutput = false
 	case "pgdown":
 		m.inspector.scroll += maxInt(1, m.boardContentHeight()-5)
 	case "pgup":
 		m.inspector.scroll = maxInt(0, m.inspector.scroll-maxInt(1, m.boardContentHeight()-5))
+		m.inspector.followOutput = false
 	case "left":
 		m.inspector.horizontal = maxInt(0, m.inspector.horizontal-4)
 	case "right":
 		m.inspector.horizontal += 4
 	case "home":
 		m.inspector.scroll, m.inspector.horizontal = 0, 0
+		m.inspector.followOutput = false
 	default:
 		return false
 	}
@@ -336,7 +355,11 @@ func (m *Model) inspectorView(height int) string {
 		}
 		content := p.Text
 		if len(content) > 256*1024 {
-			content = content[:256*1024]
+			start := len(content) - 256*1024
+			for start < len(content) && !utf8.RuneStart(content[start]) {
+				start++
+			}
+			content = content[start:]
 		}
 		if content == "" {
 			switch {
@@ -359,7 +382,7 @@ func (m *Model) inspectorView(height int) string {
 		} else {
 			gap()
 			screen := styledPreviewLines(safePreviewANSI(content))
-			body = append(body, screen[:minInt(len(screen), 160)]...)
+			body = append(body, screen[maxInt(0, len(screen)-160):]...)
 		}
 	case 2:
 		appendText("WORKTREE", heading)
@@ -400,7 +423,11 @@ func (m *Model) inspectorView(height int) string {
 		lines = append(lines, padLine(" "+line, width))
 	}
 	avail := maxInt(1, height-len(lines)-1)
-	offset := minInt(m.inspector.scroll, maxInt(0, len(body)-avail))
+	maxScroll := maxInt(0, len(body)-avail)
+	offset := minInt(m.inspector.scroll, maxScroll)
+	if m.inspector.section == 1 && m.inspector.followOutput {
+		offset = maxScroll
+	}
 	horizontal := m.inspector.horizontal
 	maxWidth := 0
 	for _, line := range body {
@@ -408,6 +435,9 @@ func (m *Model) inspectorView(height int) string {
 	}
 	horizontal = minInt(horizontal, maxInt(0, maxWidth-inner))
 	m.inspector.scroll, m.inspector.horizontal = offset, horizontal
+	if m.inspector.section == 1 && offset == maxScroll && m.inspector.preview.Text != "" {
+		m.inspector.followOutput = true
+	}
 	for _, line := range body[offset:minInt(len(body), offset+avail)] {
 		lines = append(lines, padLine(" "+ansi.Cut(line, horizontal, horizontal+inner)+"\x1b[0m", width))
 	}
