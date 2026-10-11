@@ -483,8 +483,8 @@ func TestGitHubSyncPullsRemoteNewerExistingIssueAndReopens(t *testing.T) {
 		t.Fatalf("remote reopen/title not projected: %+v", ticket)
 	}
 	view, _ := store.BoardViewByID(ctx, board.ID)
-	if !columnHasTicket(view, "Blocked", "GH-8") {
-		t.Fatalf("reopened issue not in Blocked column: %+v", view.Columns)
+	if !columnHasTicket(view, "Open", "GH-8") {
+		t.Fatalf("reopened issue with an unmapped workflow label should be in Open: %+v", view.Columns)
 	}
 }
 
@@ -643,7 +643,7 @@ func TestGitHubSyncDoesNotOverwriteMoveMadeAfterLocalSnapshot(t *testing.T) {
 func TestGitHubSyncPreservesMoveMadeWhileProviderUpdateIsInFlight(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t, ctx)
-	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj"}`})
+	board, err := store.CreateBoardWithOptions(ctx, storage.CreateBoardOptions{Name: "GitHub", Workdir: t.TempDir(), TicketBackend: KindGitHub, BackendConfig: `{"owner":"acme","repo":"proj","workflow_labels":{"Blocked":"blocked"}}`})
 	if err != nil {
 		t.Fatal(err)
 	}

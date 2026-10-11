@@ -406,7 +406,6 @@ func ParseGitHubConfig(configJSON, query string) (GitHubConfig, error) {
 		cfg.WorkflowLabels = map[string]string{
 			"In Progress": "in-progress",
 			"Review":      "needs-review",
-			"Blocked":     "blocked",
 		}
 	}
 	return cfg, nil
