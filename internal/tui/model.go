@@ -22,6 +22,7 @@ import (
 )
 
 type Model struct {
+	search                  boardSearchState
 	inspector               inspectorState
 	renderCache             *renderCache
 	renderVersion           uint64
@@ -514,7 +515,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	// Ctrl+C is a global, non-destructive application quit. Ticket runtime
 	// containers remain alive regardless of which modal currently has focus.
-	if key.String() == "ctrl+c" {
+	if key.Type == tea.KeyCtrlC {
 		m.inspector.open = false
 		m.statusBarCancel()
 		m.refreshWorker.stop()
@@ -532,6 +533,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	kind := m.activeModalKind()
+	if kind == modalNone && m.search.active {
+		m.updateBoardSearch(key)
+		return m, nil
+	}
 	if kind == modalNone {
 		// Only board-level keys dismiss stale board status. Every overlay owns
 		// its status while it is the selected modal.
@@ -615,6 +620,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if key.String() == "/" {
+		m.startBoardSearch()
+		return m, nil
+	}
 	if m.inspectorKey(key) {
 		return m, nil
 	}
@@ -733,6 +742,7 @@ func (m *Model) reload() {
 
 func (m *Model) applySnapshot(snapshot boardSnapshot) {
 	m.renderVersion++
+	searchPosition, _ := m.searchPosition()
 	selectedID := int64(0)
 	if selected, ok := m.selectedTicket(); ok {
 		selectedID = selected.ID
@@ -762,6 +772,10 @@ func (m *Model) applySnapshot(snapshot boardSnapshot) {
 			}
 		}
 	}
+	if m.search.active {
+		m.search.source = m.view
+		m.filterSearchView()
+	}
 	m.syncScrollDimensions()
 	for ci, column := range m.view.Columns {
 		anchor := anchors[column.ID]
@@ -787,6 +801,9 @@ func (m *Model) applySnapshot(snapshot boardSnapshot) {
 	}
 	m.clamp()
 	m.syncScrollDimensions()
+	if m.search.active && m.search.pattern != nil {
+		m.selectSearchMatch(selectedID, searchPosition)
+	}
 	m.hScrollFollow()
 	m.vScrollFollow()
 }

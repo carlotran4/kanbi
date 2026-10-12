@@ -84,7 +84,7 @@ func (m *Model) syncInspector() tea.Cmd {
 	if ok {
 		target = fmt.Sprintf("%d/%d/%s/%s/%s/%t", t.ID, t.SessionID.Int64, t.MuxContainerID.String, t.MuxNamespace.String, t.MuxMetadata.String, t.SessionActive)
 	}
-	visible := m.inspector.open && m.inspector.section == 1 && m.activeModalKind() == modalNone
+	visible := m.inspector.open && m.inspector.section == 1 && m.activeModalKind() == modalNone && !(m.search.active && m.inspectorNarrow())
 	if !visible {
 		target = ""
 	}

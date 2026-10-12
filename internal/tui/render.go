@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -103,7 +104,7 @@ func (m Model) baseView() string {
 	header := statusBarStyle.Render(headerLine) + "\n"
 	board := m.boardView()
 	hint := m.hScrollHint()
-	if m.inspector.open {
+	if m.inspector.open && !(m.search.active && m.inspectorNarrow()) {
 		panelHeight := m.boardContentHeight() + 2
 		if m.inspectorNarrow() {
 			// The board's horizontal-scroll hint is hidden in the narrow inspector.
@@ -116,6 +117,12 @@ func (m Model) baseView() string {
 	}
 
 	footer := []string{contextBarStyle.Render(padLine(m.contextBar(), maxInt(1, m.width)))}
+	if m.search.active {
+		footer = []string{
+			contextBarStyle.Render(padLine(m.searchQueryLine(), maxInt(1, m.width))),
+			contextBarStyle.Render(padLine(m.searchControls(), maxInt(1, m.width))),
+		}
+	}
 	if m.status != "" {
 		if m.errOperation != "" {
 			footer = append(footer,
@@ -169,27 +176,31 @@ func focusHeaderLine(left, focusText string, width int) string {
 
 func (m Model) contextBar() string {
 	if m.inspector.open && m.inspectorNarrow() {
-		return trimToWidth("i/Esc:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
+		return trimToWidth("/:search i/Esc:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
 	}
 	if m.inspector.open {
 		if m.inspector.focused {
-			return trimToWidth("i:close Esc:return Tab:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
+			return trimToWidth("/:search i:close Esc:return Tab:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
 		}
-		return trimToWidth("i:close Esc:return Tab:panel h/l:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
+		return trimToWidth("/:search i:close Esc:return Tab:panel h/l:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
-	items := []string{"Enter:send/open", "i:inspect", "n:new", "b:boards", "F:focus"}
+	items := []string{"Enter:send/open", "/:search", "i:inspect", "n:new", "b:boards", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
 	items = append(items, "!:attention", "?:help")
 	if m.width <= 80 {
-		items = []string{"Enter:open", "i:inspect", "n:new", "b:boards", "F:focus"}
+		items = []string{"Enter:open", "/:search", "i:inspect", "n:new", "b:boards", "F:focus"}
 		if m.masterBoard {
 			items = append(items, "f:filters")
 		}
 		items = append(items, "?:help")
 	}
-	return trimToWidth(strings.Join(items, "  "), maxInt(1, m.width))
+	separator := "  "
+	if m.width <= 80 {
+		separator = " "
+	}
+	return trimToWidth(strings.Join(items, separator), maxInt(1, m.width))
 }
 
 const (
@@ -323,6 +334,9 @@ func (m Model) columnView(ci int, col storage.Column, columnWidth int) string {
 		if m.masterBoard {
 			empty = "No tickets match. Press f to change filters."
 		}
+		if m.search.active && m.search.pattern != nil {
+			empty = "No title matches."
+		}
 		for _, line := range wrapText(empty, columnWidth, 3) {
 			lines = append(lines, padLine(line, columnWidth))
 		}
@@ -413,6 +427,10 @@ func cardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []
 }
 
 func cardViewWithPreview(focused bool, ticket storage.Ticket, width int, showBoard bool, preview string) []string {
+	return cardViewWithSearch(focused, ticket, width, showBoard, preview, nil)
+}
+
+func cardViewWithSearch(focused bool, ticket storage.Ticket, width int, showBoard bool, preview string, pattern *regexp.Regexp) []string {
 	cardInnerWidth := width - 4
 	titleLines := wrapText(cardTitle(ticket, cardInnerWidth, showBoard), cardInnerWidth, 3)
 	if len(titleLines) == 0 {
@@ -431,6 +449,11 @@ func cardViewWithPreview(focused bool, ticket storage.Ticket, width int, showBoa
 	gap := maxInt(1, cardInnerWidth-lipgloss.Width(ticket.DisplayID)-lipgloss.Width(badge))
 	content := []string{id + fill.Render(strings.Repeat(" ", gap)) + state}
 	for _, line := range titleLines {
+		if pattern != nil {
+			line = pattern.ReplaceAllStringFunc(line, func(match string) string {
+				return lipgloss.NewStyle().Underline(true).Background(background).Render(match)
+			})
+		}
 		content = append(content, line)
 	}
 	for len(content) < 3 {
@@ -1188,6 +1211,11 @@ func (m Model) helpView() string {
 	row("j/k / ↑/↓", "scroll focused detail")
 	row("←/→ (panel focused)", "pan Output without resizing the agent")
 	row("PgUp/PgDn / Home", "page detail / reset scroll")
+	section("In-place title search")
+	row("/", "search titles in this board; hide nonmatches")
+	row("Enter / Ctrl+N", "next match; Ctrl+P previous; both wrap")
+	row("Esc / Ctrl+G", "restore original selection / keep found ticket")
+	row("input", "type/edit query; Enter never opens an agent")
 
 	section("Safety")
 	row("q / Ctrl+C", "quit Kanbi; running agent sessions stay alive")

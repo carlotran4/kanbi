@@ -64,7 +64,7 @@ func (m *Model) cachedCardHeight(ticket storage.Ticket, width int, focused bool)
 }
 
 func (m *Model) cachedCardView(focused bool, ticket storage.Ticket, width int, showBoard bool) []string {
-	return cardViewWithPreview(focused, ticket, width, showBoard, m.cardPreview(ticket, width, focused))
+	return cardViewWithSearch(focused, ticket, width, showBoard, m.cardPreview(ticket, width, focused), m.search.pattern)
 }
 
 func (m *Model) cachedBaseView() string {

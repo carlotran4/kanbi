@@ -123,6 +123,18 @@ Master cards include board context:
 T-001 [Client B] Implement auth
 ```
 
+## In-place title search
+
+`/` searches only ticket titles using a literal, Unicode case-insensitive substring. Display IDs, owning board names, body, notes, harness, runtime state and directory are excluded. It searches the entire currently loaded projection, including offscreen tickets: the selected named board, or Master after existing board/runtime/harness/search/archive filters. The persistent Master filter panel (`f`) retains its separate, broader text search.
+
+Search temporarily hides nonmatching cards. Every column remains in its original order, with counts reflecting the visible results; matching tickets retain their existing order and Focus sections. Workflow, ticket ownership, stored filters and session history are unchanged. Matching text in visible title lines is underlined without replacing runtime attention colors. A match can be in a title's truncated portion; count and selection still identify it.
+
+The footer query shows current position/count. Results are traversed in column order, then ticket order. Enter or Ctrl+N advances; Ctrl+P goes backward; both wrap at the ends. Navigation reveals horizontal and vertical overflow. Search owns keyboard input, so letters edit the query rather than executing board shortcuts. Left/Right, Home/End (Ctrl+A/Ctrl+E), Backspace/Delete and literal paste work in the single-line query. Long queries scroll around the cursor while count and navigation controls stay visible. Case matching uses Unicode simple case folding; accents and Unicode normalization remain literal.
+
+Empty query restores the full current scope and original selection/viewport while remaining in search. No matches displays empty columns and `0 matches`, with no selected hidden ticket. Enter performs no action in either state. Esc clears search and restores original ticket/column/top-card anchors. A moved original is restored at its current location; an absent original falls back to the closest surviving original neighbor, preferring the following neighbor, then a valid column. Resizes and deletions clamp retained viewport anchors. Ctrl+G clears search and selects the latest found ticket in the full scope where it survives. Only after leaving search does Enter regain the ordinary send/open/resume behavior.
+
+Runtime refresh updates the full source projection and reapplies the transient query. It retains the selected match by durable ticket ID when possible, including moves; if it disappears, selects the match at the same ordinal, wrapping if necessary. Cancellation anchors remain independent. The wide inspector follows match selection and keeps inline previews suppressed. Below 120 columns, searching temporarily shows the board instead of the inspector, retains inspector enablement, suppresses previews, and restores detail on exit. Search and match navigation never launch sessions, send terminal input, move tickets, or change workflow state.
+
 ## Ticket templates
 
 Templates belong to one real board and are local Kanbi metadata. `N` on a named board shows that board's templates for the focused destination column. On Master it first asks for a real board, resolves the focused synthetic workflow key on that board, and only then shows that board's templates. `T` manages templates directly on a named board or asks for a board from Master. Applying copies title/body/harness into one ordinary ticket; template edits never affect existing tickets. Templates do not select columns, and package export/import preserves them with their board. See [`docs/ticket-templates.md`](./ticket-templates.md).

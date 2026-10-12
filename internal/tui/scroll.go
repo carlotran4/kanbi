@@ -21,6 +21,9 @@ func (m *Model) syncScrollDimensions() {
 // hint are outside this budget.
 func (m *Model) boardContentHeight() int {
 	fixed := 1 + 1 + 2 // app header + footer + column header
+	if m.search.active {
+		fixed++ // query and search controls occupy two footer rows
+	}
 	if m.status != "" {
 		fixed++
 		if m.errOperation != "" {

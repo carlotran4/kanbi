@@ -104,6 +104,8 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 
 ### `Enter`: Default Ticket Action
 
+These rules apply to ordinary board controls. While the `/` title-search query has focus, Enter advances through matches with wrapping and never invokes this lifecycle. Esc restores the original board selection; Ctrl+G keeps the found ticket and returns to normal board controls. Search, typing and match navigation never launch an agent or send terminal input.
+
 - Archived tickets cannot open or launch an agent. Session claims reject them at the durable storage seam even if a stale CLI or runtime caller resolved the hidden ticket.
 - If the ticket has never started, send the rendered prompt and open the ticket.
 - If the latest session is active and its stored multiplexer container validates, switch/focus it. Legacy active tmux attempts require explicit repair; Herdr sessions focus their stored agent/pane target.
