@@ -16,6 +16,12 @@ import (
 )
 
 func (m Model) View() string {
+	if m.fleet.active {
+		return m.fleetHeader()
+	}
+	if m.fleet.confirm {
+		return overlayModal(m.cachedBaseView(), fitModal(m.fleetConfirmView(), m.height, 0, true), m.width, m.height)
+	}
 	if m.err != nil {
 		return fmt.Sprintf("Kanbi could not load the board.\n\nCause: %v\n\nNext: check the database path and permissions, then run `kanbi doctor`.\nPress Ctrl+C to exit safely; active agent sessions are not terminated.\n", m.err)
 	}
@@ -184,13 +190,13 @@ func (m Model) contextBar() string {
 		}
 		return trimToWidth("/:search i:close Esc:return Tab:panel h/l:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
-	items := []string{"Enter:send/open", "/:search", "i:inspect", "n:new", "b:boards", "F:focus"}
+	items := []string{"Enter:send/open", "/:search", "i:inspect", "n:new", "b:boards", "v:fleet", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
 	items = append(items, "!:attention", "?:help")
 	if m.width <= 80 {
-		items = []string{"Enter:open", "/:search", "i:inspect", "n:new", "b:boards", "F:focus"}
+		items = []string{"Enter:open", "/:search", "i:inspect", "n:new", "b:boards", "v:fleet", "F:focus"}
 		if m.masterBoard {
 			items = append(items, "f:filters")
 		}
@@ -1181,6 +1187,7 @@ func (m Model) helpView() string {
 	section("Boards and columns")
 	row("b / f", "board picker / Master filters")
 	row("F", "global Focus Mode settings")
+	row("v", "gather live agent panes / restore interrupted Fleet")
 	row("c / r / D", "add / rename / delete column")
 	row("Ctrl+Shift+←/→", "reorder column")
 	row("picker c/r/w/d", "create / rename / set cwd / delete board")

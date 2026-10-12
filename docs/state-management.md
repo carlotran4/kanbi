@@ -194,3 +194,19 @@ State bugs to avoid:
 - Do not close sessions from runtime detection; wait/permission classification is advisory and may be imperfect.
 - Do not infer session failure from errors printed in the agent transcript; only lifecycle/runtime operations can establish `error`.
 - Do not turn a transient multiplexer read failure into a session error. Preserve the last known state and surface the observation failure as diagnostic context.
+
+## Fleet restoration journal
+
+Migration 10 adds one machine-local `fleet_journal` with a restoration payload.
+Fleet never creates or replaces a session attempt: workspace/pane/tab metadata
+and the journal progress update atomically on the existing session row. Terminal
+identity protects against recycled public pane IDs; native agent targets, harness
+refs, launch cwd, active-slot uniqueness, and history remain intact.
+
+A shared file lock serializes live runtime operations across Kanbi processes;
+a separate visit owner lock prevents two Fleet owners. Incomplete entry/return
+journals block normal observation and lifecycle work until recovered, so stale
+pre-move IDs cannot be classified as exited. Active visits permit polling and
+lifecycle commands against their committed refs. Inert source/slot anchors are
+owned temporary terminals with no ticket/session rows. Backup and board deletion
+require journal completion first. See [Fleet Mode](fleet-mode.md).

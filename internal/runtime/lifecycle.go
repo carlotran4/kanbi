@@ -42,6 +42,25 @@ func (m *Manager) lifecycle() ticketLifecycle {
 }
 
 func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) error {
+	ctx, unlock, err := l.manager.lockRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := l.manager.runtimeReady(ctx); err != nil {
+		return err
+	}
+	if l.manager.Store != nil {
+		fresh, err := l.manager.Store.TicketByID(ctx, req.Ticket.ID)
+		if err != nil {
+			return err
+		}
+		if !fresh.SessionActive {
+			fresh.Harness = req.Ticket.Harness
+		}
+		req.Ticket = fresh
+	}
+
 	if l.manager.Store != nil {
 		board, err := l.manager.Store.BoardByID(ctx, req.Ticket.BoardID)
 		if err != nil {
@@ -403,6 +422,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 
 func (l ticketLifecycle) cleanupLaunchedContainer(ctx context.Context, ref multiplexer.ContainerRef) error {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	cleanupCtx = multiplexer.WithOperationLock(cleanupCtx, multiplexer.OperationLock(ctx))
 	defer cancel()
 	return l.manager.herdrAdapter().Close(cleanupCtx, ref)
 }

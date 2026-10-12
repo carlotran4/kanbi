@@ -153,7 +153,7 @@ Opening a paused ticket first shows its current description and latest checkpoin
 ### Shutdown / interruption
 
 - Process interrupt (`Ctrl+C` / SIGTERM) cancels Kanbi's root context. That drains manager-owned session-ref capture and provider sync; it does **not** kill active ticket agent sessions or flatten history.
-- Pressing `q` exits the board UI the same way regarding agents: active ticket containers keep running until closed with `x`.
+- Pressing `q` exits the board UI the same way regarding agents: active ticket containers keep running until closed with `x`. In Fleet, header `q` restores source tabs before exiting; `Ctrl+C`/SIGTERM also attempts bounded restoration during shutdown. A forced kill retains the recovery journal for startup, without restarting agents.
 - Launch/resume/prompt failures leave at most one inactive `error` attempt and never delete prior session rows.
 - Startup reconciliation errors are never discarded: Kanbi continues from SQLite in explicit **runtime reconciliation degraded (local data available)** mode with a durable diagnostic.
 
@@ -163,3 +163,13 @@ Opening a paused ticket first shows its current description and latest checkpoin
 - Active vs inactive session state now controls whether terminal container metadata is trusted.
 - A valid active open switches without writing a duplicate session row.
 - Inactive latest sessions remain visible as `closed` or `error`, not `not_started`.
+
+## Fleet move / return
+
+Board/inspector `v` previews scope and layout before confirmation. Focused-header
+`v`, Enter, Escape, or mouse Return restores source tabs and the saved board view.
+These controls never intercept input in agent panes. Fleet is movement of existing
+terminals, not open/resume/start-fresh/close; it preserves every attempt and ref.
+Concurrent lifecycle commands serialize with moves and use fresh committed refs.
+Pending restoration blocks lifecycle commands until identity-based recovery; a
+newer attempt is never substituted for an old member. See [Fleet Mode](fleet-mode.md).

@@ -17,6 +17,7 @@ import (
 )
 
 type Store struct {
+	path            string
 	db              *sql.DB
 	readDB          *sql.DB
 	projectionMu    sync.Mutex
@@ -101,7 +102,7 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db, readDB: reader}, nil
+	return &Store{db: db, readDB: reader, path: path}, nil
 }
 
 func OpenMemory() (*Store, error) {
@@ -244,3 +245,5 @@ func secureSQLiteFiles(path string) error {
 	}
 	return nil
 }
+
+func (s *Store) DatabasePath() string { return s.path }

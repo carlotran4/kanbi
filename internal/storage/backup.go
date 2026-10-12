@@ -12,6 +12,16 @@ import (
 // BackupTo creates a transactionally consistent SQLite snapshot, including
 // committed WAL content, using SQLite's VACUUM INTO operation.
 func (s *Store) BackupTo(ctx context.Context, destination string) error {
+	unlock, err := s.LockRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if journal, err := s.FleetJournal(ctx); err != nil {
+		return err
+	} else if journal != "" {
+		return errors.New("return from Fleet or restore its panes before backing up the database")
+	}
 	if err := ensureParent(destination); err != nil {
 		return err
 	}
@@ -62,6 +72,13 @@ func ValidateDatabase(ctx context.Context, path string) error {
 	latest := migrations[len(migrations)-1].version
 	if version != latest {
 		return fmt.Errorf("backup schema version %d is not the supported version %d", version, latest)
+	}
+	var fleetRecords int
+	if err := db.QueryRowContext(ctx, `select count(*) from fleet_journal`).Scan(&fleetRecords); err != nil {
+		return fmt.Errorf("invalid Kanbi Fleet journal table: %w", err)
+	}
+	if fleetRecords != 0 {
+		return errors.New("backup contains machine-local Fleet recovery; return or restore Fleet panes before exporting a backup")
 	}
 	for _, table := range []string{"boards", "columns", "tickets", "sessions", "ticket_notes"} {
 		var count int

@@ -34,6 +34,14 @@ func newBackgroundState(parent context.Context) *backgroundState {
 // Close cancels and waits for asynchronous session-ref capture owned by this
 // manager. It is safe to call more than once.
 func (m *Manager) Close() {
+	if m != nil && m.hasFleetOwner() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := m.RestoreFleet(ctx); err != nil {
+			log.Printf("Fleet restoration pending in %s: %v", m.Config.DBPath, err)
+		}
+		cancel()
+		m.releaseFleetOwner()
+	}
 	if m == nil || m.background == nil {
 		return
 	}

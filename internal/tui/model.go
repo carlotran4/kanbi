@@ -22,6 +22,7 @@ import (
 )
 
 type Model struct {
+	fleet                   fleetUI
 	search                  boardSearchState
 	inspector               inspectorState
 	renderCache             *renderCache
@@ -250,7 +251,7 @@ func NewWithPickerStatusBarOptions(ctx context.Context, store Actions, reconcile
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(runtimeTickCmd(), inspectorTickCmd(), m.initialStatusBarCmd())
+	return tea.Batch(runtimeTickCmd(), inspectorTickCmd(), m.initialStatusBarCmd(), m.fleetCmd("startup"))
 }
 
 type runtimeTickMsg time.Time
@@ -315,6 +316,9 @@ func runtimeTickCmd() tea.Cmd {
 }
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if handled, cmd := m.updateFleet(msg); handled {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case inspectorTickMsg:
 		return m, inspectorTickCmd()
@@ -624,10 +628,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.startBoardSearch()
 		return m, nil
 	}
+	if key.String() == "v" {
+		return m, m.startFleet()
+	}
 	if m.inspectorKey(key) {
 		return m, nil
 	}
 	switch key.String() {
+	case "v":
+		return m, m.startFleet()
 	case "?":
 		m.showHelp = true
 		m.modalScroll = 0

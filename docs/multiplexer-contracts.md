@@ -72,3 +72,14 @@ The project [UI-validation skill](../.agents/skills/kanbi-ui-validation/SKILL.md
 Runtime IDs are server-local. The helper records and pins its socket and IDs. It owns an isolated server and a rendering client PTY with private configuration and XDG state; the caller's Herdr server and focus remain untouched. Temporary nested-client permission applies only to the fixture configuration.
 
 Exact-size validation resizes the owned rendering client's outer PTY and lets Herdr resize the application. The helper verifies the application's PTY dimensions independently of layout rectangles. It needs no alternate runtime; `scripts/herdr-ui-smoke.sh` covers 160x45 and 80x24.
+
+## Optional Fleet live-pane operations
+
+The Herdr adapter moves existing terminals, creates inert source/slot anchors,
+updates BSP ratios, and returns panes without `layout.apply`. Public pane IDs can
+change across workspace moves; stable terminal IDs are observed before moves and
+validated before input, reads, focus, detection, or close when present in metadata.
+Native agent target names remain independent of pane IDs. Header/pane focus uses
+supported neighboring-pane controls; Herdr 0.9.3 ratios clamp to 10%. Fleet journal
+and runtime locks coordinate reference updates and recovery across processes.
+See [Fleet Mode](fleet-mode.md) and `python3 scripts/fleet-ui.py` for isolated checks.

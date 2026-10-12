@@ -40,8 +40,14 @@ type ResumeFailedError = session.ResumeFailedError
 type PromptReadyError = session.PromptReadyError
 
 type Manager struct {
-	Config config.Config
-	Store  *storage.Store
+	operationOnce sync.Once
+	operationGate chan struct{}
+	fleetOwnerMu  sync.Mutex
+	fleetOwner    *os.File
+
+	FleetAdapter *herdrmux.Adapter // Optional deterministic test seam.
+	Config       config.Config
+	Store        *storage.Store
 
 	// BackgroundError receives asynchronous session-ref persistence failures.
 	// When nil, failures are written through the standard logger.
@@ -114,6 +120,14 @@ func (m *Manager) PrepareTicketWorkspace(ctx context.Context, ticket storage.Tic
 }
 
 func (m *Manager) ResolveTicketWorkspace(ctx context.Context, ticket storage.Ticket) error {
+	ctx, unlock, lockErr := m.lockRuntime(ctx)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
+	if err := m.runtimeReady(ctx); err != nil {
+		return err
+	}
 	workspace, ok, err := m.Store.CurrentWorkspace(ctx, ticket.ID)
 	if err != nil || !ok {
 		if err != nil {
@@ -154,6 +168,14 @@ func (m *Manager) ResolveTicketWorkspace(ctx context.Context, ticket storage.Tic
 }
 
 func (m *Manager) IntegrateTicketWorkspace(ctx context.Context, ticket storage.Ticket) error {
+	ctx, unlock, lockErr := m.lockRuntime(ctx)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
+	if err := m.runtimeReady(ctx); err != nil {
+		return err
+	}
 	workspace, ok, err := m.Store.CurrentWorkspace(ctx, ticket.ID)
 	if err != nil || !ok {
 		if err != nil {
@@ -184,6 +206,9 @@ func ticketLaunchCWD(ticket storage.Ticket) string {
 }
 
 func (m *Manager) herdrAdapter() *herdrmux.Adapter {
+	if m.FleetAdapter != nil {
+		return m.FleetAdapter
+	}
 	cfg := m.Config.Multiplexer.Herdr
 	return herdrmux.NewAdapter(herdrmux.Config{Binary: cfg.Binary, Session: cfg.Session, WorkspaceStrategy: cfg.WorkspaceStrategy, FocusOnOpen: cfg.FocusOnOpen})
 }
@@ -267,6 +292,22 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 }
 
 func (m *Manager) RenameTicketWindow(ctx context.Context, ticket storage.Ticket, title string) error {
+	ctx, unlock, lockErr := m.lockRuntime(ctx)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
+	if err := m.runtimeReady(ctx); err != nil {
+		return err
+	}
+	if m.Store != nil {
+		fresh, err := m.Store.TicketByID(ctx, ticket.ID)
+		if err != nil {
+			return err
+		}
+		ticket = fresh
+	}
+
 	if !ticket.SessionActive {
 		return nil
 	}
@@ -280,6 +321,18 @@ func (m *Manager) RenameTicketWindow(ctx context.Context, ticket storage.Ticket,
 	}
 	updated := ticket
 	updated.Title = title
+	if j, err := m.loadFleet(ctx); err != nil {
+		return err
+	} else if j != nil {
+		for _, member := range j.Members {
+			if member.Session == ticket.SessionID.Int64 {
+				if err := m.herdrAdapter().FleetRename(ctx, herdrmux.FleetPaneID(ref.Metadata, ref.ID), TicketWindowName(updated)); err != nil {
+					return err
+				}
+				return m.Store.RenameSessionWindow(ctx, ticket.ID, TicketWindowName(updated))
+			}
+		}
+	}
 	if err := m.herdrAdapter().Rename(ctx, ref, TicketWindowName(updated)); err != nil {
 		return err
 	}
@@ -287,6 +340,15 @@ func (m *Manager) RenameTicketWindow(ctx context.Context, ticket storage.Ticket,
 }
 
 func (m *Manager) Reconcile(ctx context.Context) error {
+	ctx, unlock, lockErr := m.lockRuntime(ctx)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
+	if err := m.runtimeReady(ctx); err != nil {
+		return err
+	}
+
 	if err := m.EnsureSession(ctx); err != nil {
 		return err
 	}
@@ -363,6 +425,15 @@ type workspaceObservation struct {
 }
 
 func (m *Manager) RefreshRuntime(ctx context.Context) error {
+	ctx, unlock, lockErr := m.lockRuntime(ctx)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
+	if err := m.runtimeReady(ctx); err != nil {
+		return err
+	}
+
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
 	if m.Store == nil {
@@ -483,6 +554,15 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 }
 
 func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error {
+	ctx, unlock, lockErr := m.lockRuntime(ctx)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
+	if err := m.runtimeReady(ctx); err != nil {
+		return err
+	}
+
 	if m.Store == nil {
 		return nil
 	}
@@ -537,6 +617,22 @@ func (m *Manager) WaitAndSendPrompt(ctx context.Context, adapter multiplexer.Int
 // SendTicketMessage sends literal text to the ticket's durable container. It is
 // used for an explicit paused-work handoff after the normal resume succeeds.
 func (m *Manager) SendTicketMessage(ctx context.Context, ticket storage.Ticket, text string) error {
+	ctx, unlock, lockErr := m.lockRuntime(ctx)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
+	if err := m.runtimeReady(ctx); err != nil {
+		return err
+	}
+	if m.Store != nil {
+		fresh, err := m.Store.TicketByID(ctx, ticket.ID)
+		if err != nil {
+			return err
+		}
+		ticket = fresh
+	}
+
 	ref := ContainerRefFromTicket(ticket)
 	adapter, err := m.multiplexerAdapter(ref.Kind)
 	if err != nil {

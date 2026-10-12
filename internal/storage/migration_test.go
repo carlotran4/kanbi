@@ -188,7 +188,7 @@ func TestTicketTemplateMigrationFromV8PreservesHistoryAndIsIdempotent(t *testing
 	if _, err := s.db.ExecContext(ctx, `drop table ticket_templates`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `delete from schema_migrations where version=9`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `delete from schema_migrations where version>=9`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Init(ctx); err != nil {

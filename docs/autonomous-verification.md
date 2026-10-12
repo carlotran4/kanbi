@@ -436,3 +436,14 @@ python3 scripts/performance-ui.py
 CPU/service samples report p50/p95/p99, allocations, and bytes allocated. The real Bubble Tea program test uses inline mode at 120 FPS by default (set `KANBI_PERFORMANCE_FPS=60` for the pre-follow-up baseline) and records reader receipt to the writer's changed selection frame while observation is deliberately delayed 300 ms, and separately while an actual SQLite writer holds `BEGIN IMMEDIATE` for 300 ms and an observer write waits behind it. It also reports terminal bytes/writes per trial. Its output is a measurement sink; physical terminal painting is not measured. Actual Herdr and Git fixtures are labeled separately. The 10-worktree case reports a first uncached pass and a warm polling burst within the five-second cache lifetime. Use `KANBI_PERFORMANCE_ENFORCE=1` only on the candidate to enforce the 50 ms program p95 goal; the baseline intentionally fails it. Opt-in tests skip normally and do not introduce timing gates into deterministic CI.
 
 Performance evidence and remaining limits are recorded in the PR for #358. Repeat measurements on the user's WSL/terminal before claiming physical input-to-paint latency. Bubble Tea v2, synchronized-output negotiation, alternate-screen changes, stable-height preview layout, remain separate experiments; the implemented follow-up retains inline mode, raises the renderer maximum to 120 FPS, and adds compatible textarea optimization and revision-checked projection caching. See [follow-up evidence](performance-followup.md).
+
+## Fleet live-pane verification
+
+After deterministic checks, run `python3 scripts/fleet-ui.py`. It extends the
+project UI-validation skill with an isolated server/rendering client, private
+SQLite fixture, and interactive fake agents. Check 3–6 equal-area live panes,
+native focus/zoom, direct agent input, mouse Return, 160×45 and 80×24 resize/refusal,
+stable surviving rectangles on pane loss, exact session/terminal/source-tab
+continuity, and SIGKILL/startup recovery. The controller's `input` action injects
+keys/mouse sequences only into its owned client PTY. Always stop owned fixtures.
+Authenticated harness lifecycle checks remain opt-in.

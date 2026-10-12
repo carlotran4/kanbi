@@ -271,3 +271,12 @@ Kanbi still provides `kanbi backup PATH` / `kanbi restore PATH [--force]` for wh
 Master and named boards share this inspector. Ticket projections carry the owning column's real name so Master detail does not substitute its representative aggregate label. Opening detail disables all inline body previews, including the selected card's, without changing selection or attention styling. Closing restores ordinary previews and retained viewport anchors, adjusting only as needed to keep the selected card visible after navigation or resize. Header/footer and existing focus/attention information remain on the original board; no extra attention strip or top-level view is added. Enter uses the unchanged ticket lifecycle, including focusing a valid active attempt without a duplicate session row.
 
 When Output has no snapshot, it shows one empty state with the reason and an Enter hint. An in-flight capture shows a loading message; a successfully captured blank screen is labeled empty rather than unavailable. Existing captured content remains visible with freshness and failure warnings when a later observation fails.
+
+## Fleet scope
+
+`v` gathers active agents for the current named board. Master gathers unarchived
+boards on the same configured Herdr server regardless of applied Master filters;
+the confirmation names this scope and lists exclusions. Membership is frozen per
+visit; return before changing scope, then re-enter to include new attempts.
+Return preserves ticket ownership and restores filters, selection, viewport, and
+inspector state. See [Fleet Mode](fleet-mode.md).

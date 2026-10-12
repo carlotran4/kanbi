@@ -3,6 +3,8 @@ package storage
 const schema = `
 pragma foreign_keys = on;
 
+create table if not exists fleet_journal (id integer primary key check(id=1), payload text not null);
+
 create table if not exists boards (
   id integer primary key autoincrement,
   name text not null,

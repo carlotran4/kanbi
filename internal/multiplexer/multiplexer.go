@@ -3,6 +3,7 @@ package multiplexer
 import (
 	"context"
 	"errors"
+	"os"
 	"time"
 )
 
@@ -96,4 +97,34 @@ type TerminalPreview struct {
 // ScreenReader is optional; reads never focus, resize, or send terminal input.
 type ScreenReader interface {
 	ReadScreen(context.Context, ContainerRef) (string, error)
+}
+
+// FleetSummary is a presentation-independent preview of a live-pane gathering.
+type FleetSummary struct {
+	View                string
+	Scope               string
+	Count, Excluded     int
+	Recovery            bool
+	Arrangement         string
+	FocusHint, ZoomHint string
+}
+
+// FleetStatus reports a fixed visit membership independently of board filters.
+type FleetStatus struct {
+	Width, Height               int
+	Present, Recovery           bool
+	Scope, Error                string
+	Count, Live, Attention, New int
+}
+
+// An operation lock passed to CLI children keeps an in-flight server mutation
+// serialized even if its Kanbi parent is killed before receiving the reply.
+type operationLockKey struct{}
+
+func WithOperationLock(ctx context.Context, file *os.File) context.Context {
+	return context.WithValue(ctx, operationLockKey{}, file)
+}
+func OperationLock(ctx context.Context) *os.File {
+	file, _ := ctx.Value(operationLockKey{}).(*os.File)
+	return file
 }

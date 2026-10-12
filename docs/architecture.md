@@ -51,10 +51,10 @@ Maintain these behaviors as boring, reliable, documented beta behavior:
 
 Current follow-up work is tracked as tickets on the board. Known focus areas are docs reconciliation, runtime detection confidence, TUI readability/attention styling, board deletion/archive/export semantics, and possible canonical column types for Master aggregation.
 
-The [Fleet Mode proposal (GH-372)](fleet-mode.md) specifies an opt-in live-pane
-gathering flow, equal-pane arrangements, restoration, and verification gates.
-It is a review specification; Fleet controls and runtime rearrangement are not
-implemented and do not change the current contracts below.
+[Fleet Mode (GH-372)](fleet-mode.md) opt-in gathers existing live agent panes into
+the Kanbi tab. SQLite journals restoration before moves; shared runtime/owner
+locks coordinate processes. Moving preserves the same session attempts and
+harness refs. Inert source/slot anchors retain tabs and positions until return.
 
 ## Stop Conditions
 
@@ -98,7 +98,7 @@ Stop and ask before:
 
 ## Runtime Topology
 
-Kanbi runs in Herdr. Outside Herdr, the CLI creates a focused board workspace and attaches a client; inside Herdr it runs directly. `KANBI_INNER=1` prevents recursive launches. Each ticket attempt runs in its own tab/pane alongside the board or in its board/project workspace.
+Kanbi runs in Herdr. Outside Herdr, the CLI creates a focused board workspace and attaches a client; inside Herdr it runs directly. `KANBI_INNER=1` prevents recursive launches. Each ticket attempt normally runs in its own tab/pane alongside the board or in its board/project workspace. Fleet temporarily gathers validated attempts into the board tab and restores their source tabs without relaunching them.
 
 Session rows persist `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata`. Other Kanbi instances route operations through these stored references. Legacy tmux columns remain readable for exports and historical records, but no tmux commands are executed and legacy live attempts require explicit repair before a new attempt.
 

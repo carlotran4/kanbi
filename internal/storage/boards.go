@@ -248,6 +248,16 @@ func (s *Store) SetBoardSyncEnabled(ctx context.Context, boardID int64, enabled 
 }
 
 func (s *Store) DeleteBoard(ctx context.Context, boardID int64) error {
+	unlock, err := s.LockRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if journal, err := s.FleetJournal(ctx); err != nil {
+		return err
+	} else if journal != "" {
+		return errors.New("return from Fleet or restore its panes before deleting boards")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

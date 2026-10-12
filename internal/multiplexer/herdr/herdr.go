@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -36,6 +37,9 @@ type ExecRunner struct {
 
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	if file := multiplexer.OperationLock(ctx); file != nil {
+		cmd.ExtraFiles = []*os.File{file}
+	}
 	if r.Session != "" {
 		cmd.Env = append(cmd.Environ(), "HERDR_SESSION="+r.Session)
 	}
@@ -138,6 +142,9 @@ func (a *Adapter) UsesAgentStart(command []string, kind string) bool {
 }
 
 func (a *Adapter) Rename(ctx context.Context, ref multiplexer.ContainerRef, name string) error {
+	if err := a.checkTerminalIdentity(ctx, ref); err != nil {
+		return err
+	}
 	tab := refMeta(ref, "tab_id", "result.tab.tab_id")
 	if tab == "" {
 		return nil
@@ -179,6 +186,7 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 		cause := errors.New("herdr tab create: missing root pane id")
 		if tabID := firstString(createInfo, "result.tab.tab_id", "tab.tab_id"); tabID != "" {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			cleanupCtx = multiplexer.WithOperationLock(cleanupCtx, multiplexer.OperationLock(ctx))
 			defer cancel()
 			if out, err := a.run(cleanupCtx, "tab", "close", tabID); err != nil {
 				return multiplexer.ContainerRef{}, errors.Join(cause, herdrCommandError("clean up agent tab", out, err))
@@ -188,6 +196,7 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	}
 	cleanup := func(cause error) error {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx = multiplexer.WithOperationLock(cleanupCtx, multiplexer.OperationLock(ctx))
 		defer cancel()
 		closeOut, closeErr := a.run(cleanupCtx, "pane", "close", paneID)
 		if closeErr != nil {
@@ -222,12 +231,24 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 	}
 	info := mergeObjects(createInfo, startInfo)
 	info["pane_id"] = paneID
+	if terminal := firstString(createInfo, "result.root_pane.terminal_id", "root_pane.terminal_id"); terminal != "" {
+		info["terminal_id"] = terminal
+	}
 	info["tab_id"] = firstString(createInfo, "result.tab.tab_id", "tab.tab_id")
+	if socket, err := a.FleetServer(ctx); err == nil {
+		info["server_socket"] = socket
+	}
 	metadata := mergeMetadata(spec.Metadata, info)
 	return multiplexer.ContainerRef{Kind: multiplexer.KindHerdr, Namespace: workspaceID, ID: agentTarget, Name: name, Metadata: metadata}, nil
 }
 
 func (a *Adapter) Validate(ctx context.Context, ref multiplexer.ContainerRef) (bool, error) {
+	if err := a.checkTerminalIdentity(ctx, ref); err != nil {
+		if errors.Is(err, multiplexer.ErrContainerNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
 	detection, err := a.Detect(ctx, ref)
 	if err != nil {
 		return false, err
@@ -245,6 +266,9 @@ func (a *Adapter) Validate(ctx context.Context, ref multiplexer.ContainerRef) (b
 }
 
 func (a *Adapter) Focus(ctx context.Context, ref multiplexer.ContainerRef) error {
+	if err := a.checkTerminalIdentity(ctx, ref); err != nil {
+		return err
+	}
 	target := ref.Target()
 	if target == "" {
 		return errors.New("herdr focus target is empty")
@@ -256,6 +280,9 @@ func (a *Adapter) Focus(ctx context.Context, ref multiplexer.ContainerRef) error
 	if paneID == "" {
 		paneID = target
 	}
+	if refMeta(ref, "terminal_id") != "" {
+		return a.FleetFocus(ctx, paneID)
+	}
 	tabID := refMeta(ref, "tab_id", "result.tab.tab_id")
 	if tabID != "" {
 		_, err := a.run(ctx, "tab", "focus", tabID)
@@ -266,6 +293,9 @@ func (a *Adapter) Focus(ctx context.Context, ref multiplexer.ContainerRef) error
 }
 
 func (a *Adapter) Read(ctx context.Context, ref multiplexer.ContainerRef, opts multiplexer.ReadOptions) (string, error) {
+	if err := a.checkTerminalIdentity(ctx, ref); err != nil {
+		return "", err
+	}
 	target := ref.Target()
 	if target == "" {
 		return "", errors.New("herdr read target is empty")
@@ -308,6 +338,9 @@ func isNotFoundResponse(out string, err error) bool {
 }
 
 func (a *Adapter) SendKeys(ctx context.Context, ref multiplexer.ContainerRef, keys ...string) error {
+	if err := a.checkTerminalIdentity(ctx, ref); err != nil {
+		return err
+	}
 	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = ref.Target()
@@ -321,6 +354,9 @@ func (a *Adapter) SendKeys(ctx context.Context, ref multiplexer.ContainerRef, ke
 }
 
 func (a *Adapter) SendText(ctx context.Context, ref multiplexer.ContainerRef, text string) error {
+	if err := a.checkTerminalIdentity(ctx, ref); err != nil {
+		return err
+	}
 	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = ref.Target()
@@ -412,6 +448,9 @@ func (a *Adapter) waitPromptEditor(ctx context.Context, ref multiplexer.Containe
 }
 
 func (a *Adapter) Close(ctx context.Context, ref multiplexer.ContainerRef) error {
+	if err := a.checkTerminalIdentity(ctx, ref); err != nil {
+		return err
+	}
 	paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
 	if paneID == "" {
 		paneID = ref.Target()
@@ -424,6 +463,9 @@ func (a *Adapter) Close(ctx context.Context, ref multiplexer.ContainerRef) error
 }
 
 func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (multiplexer.Detection, error) {
+	if err := a.checkTerminalIdentity(ctx, ref); err != nil {
+		return unknownDetection("terminal identity unavailable"), err
+	}
 	target := ref.Target()
 	if target == "" {
 		return unknownDetection("missing Herdr target"), nil

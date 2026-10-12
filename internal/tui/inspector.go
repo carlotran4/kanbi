@@ -74,6 +74,14 @@ func (m Model) inspectorWidth() int {
 	return minInt(64, maxInt(40, m.width/3))
 }
 func (m *Model) syncInspector() tea.Cmd {
+	if m.fleet.active || m.fleet.confirm {
+		if m.inspector.cancel != nil {
+			m.inspector.cancel()
+			m.inspector.cancel = nil
+		}
+		m.inspector.busy = false
+		return nil
+	}
 	t, ok := m.selectedTicket()
 	if t.ID != m.inspector.ticketID {
 		m.inspector.ticketID = t.ID

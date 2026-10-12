@@ -12,6 +12,15 @@ import (
 
 // PreviewTicket reads only an existing attempt; it never reconciles or writes state.
 func (m *Manager) PreviewTicket(ctx context.Context, ticket storage.Ticket) (multiplexer.TerminalPreview, error) {
+	ctx, unlock, err := m.lockRuntime(ctx)
+	if err != nil {
+		return multiplexer.TerminalPreview{}, err
+	}
+	defer unlock()
+	if err := m.runtimeReady(ctx); err != nil {
+		return multiplexer.TerminalPreview{}, err
+	}
+
 	if m.Store == nil {
 		return multiplexer.TerminalPreview{}, fmt.Errorf("terminal preview storage unavailable")
 	}

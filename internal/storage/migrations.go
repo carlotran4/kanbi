@@ -27,6 +27,7 @@ var migrations = []migration{
 	{version: 7, name: "repository integration runs", apply: migrateIntegrationRuns},
 	{version: 8, name: "global focus checkpoints", apply: migrateGlobalFocus},
 	{version: 9, name: "board ticket templates", apply: migrateTicketTemplates},
+	{version: 10, name: "Fleet restoration journal", apply: migrateFleet},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.
@@ -536,4 +537,9 @@ func tableColumns(ctx context.Context, db contextQueryer, table string) (map[str
 		cols[name] = true
 	}
 	return cols, rows.Err()
+}
+
+func migrateFleet(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, fleetSchema)
+	return err
 }

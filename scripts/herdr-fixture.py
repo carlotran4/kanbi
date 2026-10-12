@@ -101,6 +101,11 @@ def serve(work, width, height):
                             payload = json.loads(data)
                             if payload['action'] == 'resize':
                                 resize(int(payload['width']), int(payload['height']))
+                            elif payload['action'] == 'input':
+                                text = payload['text']
+                                if not isinstance(text, str) or len(text) > 4096:
+                                    raise ValueError('input must be at most 4096 characters')
+                                os.write(master, text.encode())
                             elif payload['action'] == 'stop':
                                 running = False
                             elif payload['action'] != 'ping':
