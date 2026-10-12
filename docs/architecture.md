@@ -51,6 +51,11 @@ Maintain these behaviors as boring, reliable, documented beta behavior:
 
 Current follow-up work is tracked as tickets on the board. Known focus areas are docs reconciliation, runtime detection confidence, TUI readability/attention styling, board deletion/archive/export semantics, and possible canonical column types for Master aggregation.
 
+The [Fleet Mode proposal (GH-372)](fleet-mode.md) specifies an opt-in live-pane
+gathering flow, equal-pane arrangements, restoration, and verification gates.
+It is a review specification; Fleet controls and runtime rearrangement are not
+implemented and do not change the current contracts below.
+
 ## Stop Conditions
 
 Stop and ask before:
