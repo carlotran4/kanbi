@@ -211,6 +211,9 @@ func (m *Model) updateFleet(msg tea.Msg) (bool, tea.Cmd) {
 			m.fleet.active = false
 			m.fleet.confirm = false
 			m.restoreFleetView()
+			// Fleet keeps dispatching status timers/results. Retire that chain
+			// before starting replacement commands for the restored board.
+			m.statusBarGeneration++
 			m.fleet.err = ""
 			m.status = "returned from Fleet"
 			if quit {

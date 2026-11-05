@@ -447,3 +447,7 @@ stable surviving rectangles on pane loss, exact session/terminal/source-tab
 continuity, and SIGKILL/startup recovery. The controller's `input` action injects
 keys/mouse sequences only into its owned client PTY. Always stop owned fixtures.
 Authenticated harness lifecycle checks remain opt-in.
+
+## Long-running CPU investigation (GH-392)
+
+See [the diagnosis, controlled reproduction, profiling commands, and limits](cpu-investigation-gh392.md). The opt-in status-bar lifetime check compares fresh and repeated-Fleet-return behavior with idle and navigation workloads; ordinary tests cover obsolete timer/result rejection without timing gates.
