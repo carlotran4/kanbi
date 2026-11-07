@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/config"
 	"github.com/carlotran4/kanbi/internal/harness"
 	"github.com/carlotran4/kanbi/internal/kanban"
+	herdrmux "github.com/carlotran4/kanbi/internal/multiplexer/herdr"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -427,4 +429,87 @@ esac
 		t.Fatal(err)
 	}
 	return bin, logPath
+}
+
+func TestRefreshRuntimeObservationFailurePreservesAttemptAndRecovers(t *testing.T) {
+	for _, harnessName := range []string{"claude", "codex", "pi", "copilot"} {
+		t.Run(harnessName, func(t *testing.T) {
+			store, ctx := newRuntimeTestStore(t)
+			view := defaultBoardView(t, ctx, store)
+			ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Observation", "", harnessName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessionID, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+				Harness: harnessName, Multiplexer: "herdr", Status: kanban.StateRunning,
+				MuxContainerID:    sql.NullString{String: "agent-test", Valid: true},
+				HarnessSessionRef: sql.NullString{String: "resume-ref", Valid: true},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			bin, logPath := writeFakeHerdr(t, map[string]string{"agent get": `{"state":"unknown"}`, "agent read": "__ERROR__"})
+			cfg := config.Defaults(config.Paths{})
+			cfg.Multiplexer.Herdr.Binary = bin
+			manager := &Manager{Config: cfg, Store: store}
+			err = manager.RefreshRuntime(ctx)
+			if err == nil || !strings.Contains(err.Error(), "read Herdr output") || !strings.Contains(err.Error(), harnessName) {
+				t.Fatalf("missing observation diagnostic: %v", err)
+			}
+			after, ok, err := store.ActiveSession(ctx, ticket.ID)
+			if err != nil || !ok || after.ID != sessionID || after.Status != kanban.StateRunning || after.HarnessSessionRef.String != "resume-ref" {
+				t.Fatalf("observation changed attempt: %+v, %v", after, err)
+			}
+			log, _ := os.ReadFile(logPath)
+			if strings.Contains(string(log), "close") || strings.Contains(string(log), "start") {
+				t.Fatalf("observation mutated agent: %s", log)
+			}
+			bin, _ = writeFakeHerdr(t, map[string]string{"agent get": `{"state":"working"}`})
+			manager.Config.Multiplexer.Herdr.Binary = bin
+			if err := manager.RefreshRuntime(ctx); err != nil {
+				t.Fatalf("recovery: %v", err)
+			}
+			after, ok, err = store.ActiveSession(ctx, ticket.ID)
+			if err != nil || !ok || after.ID != sessionID || after.Status != kanban.StateRunning || strings.Contains(after.LastAttentionReason.String, "read Herdr output") {
+				t.Fatalf("recovery replaced attempt: %+v, %v", after, err)
+			}
+		})
+	}
+}
+
+// Cancel inside the observation command, after database reads have succeeded.
+type canceledObservationRunner struct{ cancel context.CancelFunc }
+
+func (r canceledObservationRunner) Run(ctx context.Context, _ string, _ ...string) (string, error) {
+	r.cancel()
+	return "", ctx.Err()
+}
+
+func TestRefreshRuntimeCanceledObservationKeepsDiagnosticAndAgent(t *testing.T) {
+	store, ctx := newRuntimeTestStore(t)
+	view := defaultBoardView(t, ctx, store)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Canceled observation", "", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := store.UpsertActiveSession(ctx, ticket.ID, storage.Session{
+		Harness: "claude", Multiplexer: "herdr", Status: kanban.StateRunning,
+		MuxContainerID: sql.NullString{String: "agent-test", Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pollCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	manager := &Manager{Config: config.Defaults(config.Paths{}), Store: store,
+		FleetAdapter: &herdrmux.Adapter{Runner: canceledObservationRunner{cancel: cancel}},
+	}
+	err = manager.RefreshRuntime(pollCtx)
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "read Herdr output") || !strings.Contains(err.Error(), "claude") {
+		t.Fatalf("lost command diagnostic on cancellation: %v", err)
+	}
+	after, ok, err := store.ActiveSession(ctx, ticket.ID)
+	if err != nil || !ok || after.ID != sessionID || after.Status != kanban.StateRunning {
+		t.Fatalf("canceled observation changed attempt: %+v, %v", after, err)
+	}
 }

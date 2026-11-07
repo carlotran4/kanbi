@@ -321,7 +321,7 @@ func (a *Adapter) Read(ctx context.Context, ref multiplexer.ContainerRef, opts m
 		if isNotFoundResponse(out, err) {
 			return out, fmt.Errorf("%w: %s", multiplexer.ErrContainerNotFound, strings.TrimSpace(out))
 		}
-		return out, err
+		return out, herdrCommandError("pane read", out, err)
 	}
 	return readText(out), nil
 }
@@ -472,7 +472,7 @@ func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (mul
 	}
 	out, err := a.run(ctx, "agent", "get", target)
 	if err != nil {
-		return unknownDetection(err.Error()), nil
+		return unknownDetection(herdrCommandError("agent get", out, err).Error()), nil
 	}
 	obj := parseObject(out)
 	state := strings.ToLower(firstString(obj, "result.agent.agent_status", "result.agent.status", "result.agent.state", "state", "status", "agent_state", "agentState", "agent.state", "agent.status"))

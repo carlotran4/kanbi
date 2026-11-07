@@ -541,3 +541,28 @@ func TestReadScreenIsSeparateFromTranscript(t *testing.T) {
 		t.Fatal("capture not bounded")
 	}
 }
+
+func TestObservationFailuresRetainHerdrDiagnostics(t *testing.T) {
+	failure := errors.New("exit status 1")
+	adapter := NewAdapter(Config{})
+	adapter.Runner = &fakeRunner{
+		out: map[string]string{
+			"agent get agent-1": `{"error":{"code":"server_busy","message":"try again"}}`,
+			"pane read pane-1 --source recent-unwrapped --lines 50": "socket unavailable",
+		},
+		err: map[string]error{
+			"agent get agent-1": failure,
+			"agent read agent-1 --source recent-unwrapped --lines 50": failure,
+			"pane read pane-1 --source recent-unwrapped --lines 50":   failure,
+		},
+	}
+	ref := multiplexer.ContainerRef{ID: "agent-1", Metadata: `{"pane_id":"pane-1"}`}
+	detection, err := adapter.Detect(context.Background(), ref)
+	if err != nil || detection.Source != multiplexer.DetectionSourceUnknown || !strings.Contains(detection.Reason, "server_busy") {
+		t.Fatalf("native failure lost diagnostic or prevented fallback: %+v, %v", detection, err)
+	}
+	_, err = adapter.Read(context.Background(), ref, multiplexer.ReadOptions{Lines: 50})
+	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "pane read") || !strings.Contains(err.Error(), "socket unavailable") {
+		t.Fatalf("read failure lost cause: %v", err)
+	}
+}

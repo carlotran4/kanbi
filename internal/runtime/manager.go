@@ -427,11 +427,11 @@ type workspaceObservation struct {
 func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	ctx, unlock, lockErr := m.lockRuntime(ctx)
 	if lockErr != nil {
-		return lockErr
+		return fmt.Errorf("acquire runtime observation lock: %w", lockErr)
 	}
 	defer unlock()
 	if err := m.runtimeReady(ctx); err != nil {
-		return err
+		return fmt.Errorf("check runtime observation readiness: %w", err)
 	}
 
 	m.runtimeMu.Lock()
@@ -442,7 +442,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	if service := m.workspaceService(); service != nil {
 		workspaces, err := m.Store.ListCurrentWorkspaces(ctx, 0)
 		if err != nil {
-			return err
+			return fmt.Errorf("list workspaces for runtime observation: %w", err)
 		}
 		observeCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
 		if m.workspaceObservations == nil {
@@ -482,9 +482,10 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	}
 	tickets, err := m.Store.ActiveRuntimeTickets(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("list active runtime tickets: %w", err)
 	}
 	now := time.Now().UTC()
+	var observationErrors []error
 	for _, ticket := range tickets {
 		if !ticket.SessionID.Valid || !ticket.SessionActive {
 			continue
@@ -492,7 +493,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		ses, ok, err := m.Store.ActiveSession(ctx, ticket.ID)
 		if err != nil || !ok {
 			if err != nil {
-				return err
+				return errors.Join(errors.Join(observationErrors...), fmt.Errorf("read active session for ticket %d: %w", ticket.ID, err))
 			}
 			continue
 		}
@@ -508,10 +509,10 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		}
 		detectionSource := "herdr"
 		adapter := m.herdrAdapter()
-		detection, _ := adapter.Detect(ctx, containerRef)
+		detection, detectErr := adapter.Detect(ctx, containerRef)
 		if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
 			if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
-				return err
+				return errors.Join(errors.Join(observationErrors...), fmt.Errorf("ticket %d session %d (%s): save native runtime observation: %w", ticket.ID, ses.ID, ses.Harness, err))
 			}
 			continue
 		}
@@ -524,8 +525,20 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 				}
 				continue
 			}
-			if recordErr := m.Store.RecordObservedSessionFailure(ctx, ses, detectionSource, err.Error()); recordErr != nil {
-				return recordErr
+			observationErr := fmt.Errorf("ticket %d session %d (%s): read Herdr output: %w", ticket.ID, ses.ID, ses.Harness, err)
+			if detectErr != nil {
+				observationErr = errors.Join(observationErr, fmt.Errorf("detect Herdr state: %w", detectErr))
+			} else if detection.Reason != "" {
+				observationErr = fmt.Errorf("%w (native detection: %s)", observationErr, detection.Reason)
+			}
+			observationErrors = append(observationErrors, observationErr)
+			// Never replace the useful observation error with a write attempted
+			// using an already-expired polling context.
+			if ctx.Err() != nil {
+				return errors.Join(errors.Join(observationErrors...), ctx.Err())
+			}
+			if recordErr := m.Store.RecordObservedSessionFailure(ctx, ses, detectionSource, storage.RedactSecretText(observationErr.Error())); recordErr != nil {
+				return errors.Join(errors.Join(observationErrors...), fmt.Errorf("record observation failure: %w", recordErr))
 			}
 			continue
 		}
@@ -547,10 +560,10 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			source = "heuristic"
 		}
 		if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, state, source, reason, excerpt, changed); err != nil {
-			return err
+			return errors.Join(errors.Join(observationErrors...), fmt.Errorf("ticket %d session %d (%s): save transcript runtime observation: %w", ticket.ID, ses.ID, ses.Harness, err))
 		}
 	}
-	return nil
+	return errors.Join(observationErrors...)
 }
 
 func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error {
