@@ -262,6 +262,14 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 	if err != nil || !ok || !ses.StartedAt.Valid || ses.HarnessSessionRef.Valid {
 		return ticket, err
 	}
+	if ses.IsActive {
+		if ref, found := m.captureNativeSessionRef(ctx, ContainerRefFromSession(ses), ses.Harness); found {
+			if err := m.Store.CaptureSessionRef(ctx, ses.ID, ref); err != nil {
+				return ticket, err
+			}
+			return m.Store.TicketByID(ctx, ticket.ID)
+		}
+	}
 	// Check the stable ref file first (written by the bundled Pi extension at session start).
 	if ticket.Harness == "pi" {
 		refFilePath := m.piSessionRefFilePath(ticket.ID)
@@ -407,11 +415,15 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			continue
 		}
 		detection, _ := adapter.Detect(ctx, ref)
-		if detection.Source == multiplexer.DetectionSourceUnknown {
-			continue
+		if detection.Source != multiplexer.DetectionSourceUnknown {
+			if err := m.Store.UpdateSessionRuntime(ctx, sessionID.Int64, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
+				return err
+			}
 		}
-		if err := m.Store.UpdateSessionRuntime(ctx, sessionID.Int64, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
-			return err
+		if nativeRef := nativeSessionRef(detection, ticket.Harness); nativeRef != "" {
+			if err := m.Store.CaptureSessionRef(ctx, sessionID.Int64, nativeRef); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -427,11 +439,11 @@ type workspaceObservation struct {
 func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	ctx, unlock, lockErr := m.lockRuntime(ctx)
 	if lockErr != nil {
-		return lockErr
+		return fmt.Errorf("acquire runtime observation lock: %w", lockErr)
 	}
 	defer unlock()
 	if err := m.runtimeReady(ctx); err != nil {
-		return err
+		return fmt.Errorf("check runtime observation readiness: %w", err)
 	}
 
 	m.runtimeMu.Lock()
@@ -442,7 +454,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	if service := m.workspaceService(); service != nil {
 		workspaces, err := m.Store.ListCurrentWorkspaces(ctx, 0)
 		if err != nil {
-			return err
+			return fmt.Errorf("list workspaces for runtime observation: %w", err)
 		}
 		observeCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
 		if m.workspaceObservations == nil {
@@ -482,9 +494,10 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 	}
 	tickets, err := m.Store.ActiveRuntimeTickets(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("list active runtime tickets: %w", err)
 	}
 	now := time.Now().UTC()
+	var observationErrors []error
 	for _, ticket := range tickets {
 		if !ticket.SessionID.Valid || !ticket.SessionActive {
 			continue
@@ -492,7 +505,7 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		ses, ok, err := m.Store.ActiveSession(ctx, ticket.ID)
 		if err != nil || !ok {
 			if err != nil {
-				return err
+				return errors.Join(errors.Join(observationErrors...), fmt.Errorf("read active session for ticket %d: %w", ticket.ID, err))
 			}
 			continue
 		}
@@ -508,10 +521,13 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		}
 		detectionSource := "herdr"
 		adapter := m.herdrAdapter()
-		detection, _ := adapter.Detect(ctx, containerRef)
+		detection, detectErr := adapter.Detect(ctx, containerRef)
 		if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
 			if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
-				return err
+				return errors.Join(errors.Join(observationErrors...), fmt.Errorf("ticket %d session %d (%s): save native runtime observation: %w", ticket.ID, ses.ID, ses.Harness, err))
+			}
+			if err := m.saveNativeSessionRef(ctx, ses, detection); err != nil {
+				return fmt.Errorf("save native session ref for session %d: %w", ses.ID, err)
 			}
 			continue
 		}
@@ -519,13 +535,36 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 
 		if err != nil {
 			if errors.Is(err, multiplexer.ErrContainerNotFound) {
+				// Save a just-observed ref before classifying absence. The next
+				// poll will classify using that ref and the new session version.
+				if !ses.HarnessSessionRef.Valid && nativeSessionRef(detection, ses.Harness) != "" {
+					if saveErr := m.saveNativeSessionRef(ctx, ses, detection); saveErr != nil {
+						return saveErr
+					}
+					continue
+				}
 				if markErr := m.Store.MarkObservedSessionMissing(ctx, ses); markErr != nil {
 					return markErr
 				}
 				continue
 			}
-			if recordErr := m.Store.RecordObservedSessionFailure(ctx, ses, detectionSource, err.Error()); recordErr != nil {
-				return recordErr
+			observationErr := fmt.Errorf("ticket %d session %d (%s): read Herdr output: %w", ticket.ID, ses.ID, ses.Harness, err)
+			if detectErr != nil {
+				observationErr = errors.Join(observationErr, fmt.Errorf("detect Herdr state: %w", detectErr))
+			} else if detection.Reason != "" {
+				observationErr = fmt.Errorf("%w (native detection: %s)", observationErr, detection.Reason)
+			}
+			observationErrors = append(observationErrors, observationErr)
+			// Never replace the useful observation error with a write attempted
+			// using an already-expired polling context.
+			if ctx.Err() != nil {
+				return errors.Join(errors.Join(observationErrors...), ctx.Err())
+			}
+			if recordErr := m.Store.RecordObservedSessionFailure(ctx, ses, detectionSource, storage.RedactSecretText(observationErr.Error())); recordErr != nil {
+				return errors.Join(errors.Join(observationErrors...), fmt.Errorf("record observation failure: %w", recordErr))
+			}
+			if err := m.saveNativeSessionRef(ctx, ses, detection); err != nil {
+				return errors.Join(errors.Join(observationErrors...), err)
 			}
 			continue
 		}
@@ -547,10 +586,13 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			source = "heuristic"
 		}
 		if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, state, source, reason, excerpt, changed); err != nil {
-			return err
+			return errors.Join(errors.Join(observationErrors...), fmt.Errorf("ticket %d session %d (%s): save transcript runtime observation: %w", ticket.ID, ses.ID, ses.Harness, err))
+		}
+		if err := m.saveNativeSessionRef(ctx, ses, detection); err != nil {
+			return errors.Join(errors.Join(observationErrors...), err)
 		}
 	}
-	return nil
+	return errors.Join(observationErrors...)
 }
 
 func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error {
@@ -575,6 +617,13 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 	}
 
 	containerRef := ContainerRefFromSession(ses)
+	if !ses.HarnessSessionRef.Valid {
+		if ref, found := m.captureNativeSessionRef(ctx, containerRef, ses.Harness); found {
+			if err := m.Store.CaptureSessionRef(ctx, ses.ID, ref); err != nil {
+				return err
+			}
+		}
+	}
 	if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateClosing, "system", "graceful close requested", "", false); err != nil {
 		return err
 	}
@@ -797,7 +846,7 @@ func (m *Manager) nativeHarness(name string) bool {
 	return len(h.Start) > 0 && h.Start[0] == name
 }
 
-func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText, cwd string, since time.Time, refFile, refToken string) (string, bool) {
+func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText, cwd string, since time.Time, refFile, refToken string, containerRef multiplexer.ContainerRef) (string, bool) {
 	if harnessName == "pi" && refFile != "" {
 		if ref, ok := readPiSessionRefFile(refFile, refToken); ok {
 			return ref, true
@@ -818,6 +867,9 @@ func (m *Manager) captureSessionRef(ctx context.Context, harnessName, promptText
 	}
 	end := time.Now().Add(deadline)
 	for {
+		if ref, ok := m.captureNativeSessionRef(ctx, containerRef, harnessName); ok {
+			return ref, true
+		}
 		if harnessName == "pi" && refFile != "" {
 			if ref, ok := readPiSessionRefFile(refFile, refToken); ok {
 				return ref, true

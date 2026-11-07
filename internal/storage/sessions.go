@@ -277,3 +277,13 @@ where id=?`,
 		status, now, lastOutput, lastStateChange, status, nullableString(reason), nullableString(source), nullableString(excerpt), now, sessionID)
 	return err
 }
+
+// CaptureSessionRef fills a missing handle on the exact attempt. Delayed native
+// reports must never overwrite a manually repaired ref or update a newer attempt.
+func (s *Store) CaptureSessionRef(ctx context.Context, sessionID int64, ref string) error {
+	if strings.TrimSpace(ref) == "" {
+		return errors.New("session ref is required")
+	}
+	_, err := s.db.ExecContext(ctx, `update sessions set harness_session_ref=?,updated_at=? where id=? and trim(coalesce(harness_session_ref,''))=''`, ref, time.Now().UTC(), sessionID)
+	return err
+}

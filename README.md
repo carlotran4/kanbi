@@ -47,6 +47,15 @@ Requirements:
 - [Herdr](https://herdr.dev/docs/install/) 0.9.3 or newer (requires `agent start --kind` and `--pane`)
 - Pi, Codex, GitHub Copilot CLI, or Claude Code, installed and authenticated
 
+Install Herdr's integration for the agent you use so Herdr can report its native resume reference. For Claude Code:
+
+```bash
+herdr integration install claude
+herdr integration status
+```
+
+Use `pi`, `codex`, or `copilot` in place of `claude` for those agents. The integration takes effect in newly launched agent processes. Kanbi saves Herdr-reported resume refs on the ticket's session attempt; history scanning remains a fallback when no native ref is available.
+
 See [Installation](./docs/installation.md) for downloads, checksum verification, upgrades, and source builds.
 
 ## Quick start

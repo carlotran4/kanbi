@@ -113,7 +113,7 @@ Watcher rules:
 
 - Polling skips `starting` and `closing` lifecycle claims. Observation writes compare the exact stored session `updated_at` version and require the same active attempt; a concurrent close, manual override, ref capture, or newer observation wins over stale output. Explicit lifecycle writes remain authoritative.
 - Focus status is a read, including enabled capacity counts; focus admission retains its serialized count-and-write transaction.
-- Runtime results are applied on the TUI thread only for the current board/filter generation; failed polling retains the last good projection and successful polling clears its stale warning.
+- Runtime results are applied on the TUI thread only for the current board/filter generation; failed polling retains the last good projection and successful polling clears its stale warning. If native detection and transcript fallback both fail, refresh returns the observation failure with ticket, session, harness, and operation context instead of reporting success. A canceled poll retains its command diagnostic rather than replacing it with a failed diagnostic write. Observation never closes or replaces the agent. See [GH-389 investigation](runtime-refresh-gh389.md).
 
 - Confident interaction patterns (`waiting_for_user`, `needs_permission`) may overwrite manual state. Transcript error text never changes the session lifecycle state to `error`.
 - Heuristics (`running`, `idle_unknown`, generic pane output) should not immediately overwrite a manual override.

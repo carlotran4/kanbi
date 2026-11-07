@@ -541,3 +541,53 @@ func TestReadScreenIsSeparateFromTranscript(t *testing.T) {
 		t.Fatal("capture not bounded")
 	}
 }
+
+func TestObservationFailuresRetainHerdrDiagnostics(t *testing.T) {
+	failure := errors.New("exit status 1")
+	adapter := NewAdapter(Config{})
+	adapter.Runner = &fakeRunner{
+		out: map[string]string{
+			"agent get agent-1": `{"error":{"code":"server_busy","message":"try again"}}`,
+			"pane read pane-1 --source recent-unwrapped --lines 50": "socket unavailable",
+		},
+		err: map[string]error{
+			"agent get agent-1": failure,
+			"agent read agent-1 --source recent-unwrapped --lines 50": failure,
+			"pane read pane-1 --source recent-unwrapped --lines 50":   failure,
+		},
+	}
+	ref := multiplexer.ContainerRef{ID: "agent-1", Metadata: `{"pane_id":"pane-1"}`}
+	detection, err := adapter.Detect(context.Background(), ref)
+	if err != nil || detection.Source != multiplexer.DetectionSourceUnknown || !strings.Contains(detection.Reason, "server_busy") {
+		t.Fatalf("native failure lost diagnostic or prevented fallback: %+v, %v", detection, err)
+	}
+	_, err = adapter.Read(context.Background(), ref, multiplexer.ReadOptions{Lines: 50})
+	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "pane read") || !strings.Contains(err.Error(), "socket unavailable") {
+		t.Fatalf("read failure lost cause: %v", err)
+	}
+}
+
+func TestDetectCarriesNativeSessionIndependentlyOfState(t *testing.T) {
+	for _, state := range []string{"working", "unknown", "future-state"} {
+		t.Run(state, func(t *testing.T) {
+			adapter := NewAdapter(Config{})
+			adapter.Runner = &fakeRunner{out: map[string]string{"agent get agent-1": `{"result":{"agent":{"agent_status":"` + state + `","agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"claude-conversation"}}}}`}}
+			got, err := adapter.Detect(context.Background(), multiplexer.ContainerRef{ID: "agent-1"})
+			if err != nil || got.Session == nil || got.Session.Value != "claude-conversation" || got.Session.Agent != "claude" || got.Session.Source != "herdr:claude" || got.Session.Kind != "id" {
+				t.Fatalf("native session lost: %+v %v", got, err)
+			}
+		})
+	}
+}
+
+func TestDetectReadsPaneSessionWhenAgentStateIsUnavailable(t *testing.T) {
+	adapter := NewAdapter(Config{})
+	adapter.Runner = &fakeRunner{
+		out: map[string]string{"pane get pane-1": `{"result":{"pane":{"agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"pane-conversation"}}}}`},
+		err: map[string]error{"agent get agent-1": errors.New("agent not found")},
+	}
+	got, err := adapter.Detect(context.Background(), multiplexer.ContainerRef{ID: "agent-1", Metadata: `{"pane_id":"pane-1"}`})
+	if err != nil || got.Source != multiplexer.DetectionSourceUnknown || got.Session == nil || got.Session.Value != "pane-conversation" {
+		t.Fatalf("pane session lost: %+v %v", got, err)
+	}
+}
