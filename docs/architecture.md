@@ -249,3 +249,12 @@ Indexes used by board projection, latest-session lookup, external identity looku
 The canonical module path is `github.com/carlotran4/kanbi`. Supported stable/beta/RC tags trigger native CGO builds on Linux and macOS for amd64 and arm64. Every native runner validates the exact binary's provenance, database backup/restore, and fake-harness lifecycle before a four-archive checksummed bundle can publish. All `v0.x` and suffixed tags publish as prereleases; stable major versions are workflow-locked until qualification approval. Release metadata is injected into `internal/buildinfo`, and archives include the binary/README/license/`BUILDINFO.json`. Database migrations are forward-only: older binaries refuse newer schema versions, so rollback requires restoring a pre-upgrade backup. See [`docs/release-channels.md`](./release-channels.md), [`docs/installation.md`](./installation.md), [`docs/compatibility.md`](./compatibility.md), and [`docs/release-checklist.md`](./release-checklist.md).
 
 Operations support tools (`kanbi doctor`, opt-in diagnostics logging, `kanbi support-bundle`) are documented in [`docs/support.md`](./support.md).
+
+## Experimental session communication
+
+The [GH-396 mailbox](session-messaging.md) reuses SQLite and exact session-attempt
+IDs. CLI mailbox operations use `internal/storage/messages.go`; durable commits
+are independent of optional native notification. Launch supplies `KANBI_SESSION_ID`
+and `KANBI_DB` without changing Herdr ownership. The opt-in Pi RPC experiment lives
+under `scripts/prototypes`; no detached notifier or automatic terminal injection
+is installed. This foundation does not yet provide production Operator activation.

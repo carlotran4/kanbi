@@ -115,6 +115,15 @@ kanbi backup backup.kanbi
 
 Run `kanbi --help` or `kanbi COMMAND --help` for the rest.
 
+## Session messaging (experimental)
+
+`kanbi messages` provides a durable, JSON CLI mailbox shared by all harnesses.
+New managed session launches receive their Kanbi sender identity; use
+`kanbi messages recipients`, `send`, `inbox`, `ack`, and `reply`. Sending returns
+a queued receipt without waiting for a response. Automatic cross-harness wake is
+not yet production-supported. See [the design, capability matrix, and opt-in Pi
+RPC prototype](./docs/session-messaging.md) for verified behavior and blockers.
+
 ## Documentation
 
 - [Installation](./docs/installation.md)

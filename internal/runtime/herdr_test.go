@@ -95,7 +95,7 @@ func TestOpenTicketWithHerdrDefaultStoresContainerMetadata(t *testing.T) {
 	}
 	logBytes, _ := os.ReadFile(logPath)
 	log := string(logBytes)
-	if !strings.Contains(log, "agent start b1-t-001-herdr-launch-") || !strings.Contains(log, "--kind codex --pane pane-123 -- --no-alt-screen") {
+	if !strings.Contains(log, "agent start b1-t-001-herdr-launch-") || !strings.Contains(log, `--kind codex --pane pane-123 -- -c shell_environment_policy.set.KANBI_SESSION_ID="1"`) || !strings.Contains(log, `-c shell_environment_policy.set.KANBI_DB="" --no-alt-screen`) {
 		t.Fatalf("fake Herdr did not receive the open-only pane-first harness command; log=%s", log)
 	}
 	if strings.Contains(log, "--no-alt-screen # T-001") {

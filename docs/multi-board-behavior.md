@@ -280,3 +280,14 @@ the confirmation names this scope and lists exclusions. Membership is frozen per
 visit; return before changing scope, then re-enter to include new attempts.
 Return preserves ticket ownership and restores filters, selection, viewport, and
 inspector state. See [Fleet Mode](fleet-mode.md).
+
+## Cross-board session mailbox
+
+The experimental `kanbi messages` mailbox is machine-local and addresses exact
+session attempts across boards. Whole-database backup includes it; a portable
+single-board package excludes it and imports receive new session identities.
+Board deletion removes that board's session rows but retains mailbox correspondence
+so the other participant does not lose its history. Surviving participants can
+inspect their messages; a deleted endpoint is missing and cannot receive new mail.
+No message is silently redirected to an imported, fresh, or resumed attempt.
+See [the messaging contract and capability matrix](session-messaging.md).

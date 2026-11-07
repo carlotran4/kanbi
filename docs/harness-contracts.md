@@ -190,3 +190,15 @@ Fake harnesses let deterministic smoke tests verify the full lifecycle without r
 5. Run `go fmt ./... && go test ./... && go vet ./... && ./scripts/smoke.sh`.
 
 Do not add a new harness if its session ref source cannot be verified locally without consuming quota.
+
+## Experimental cross-harness mailbox
+
+All new managed launches receive `KANBI_SESSION_ID` and absolute `KANBI_DB` for the common
+`kanbi messages` CLI. Canonical Codex launches also pass these values through
+explicit per-thread shell environment policy so daemon-owned tools receive the
+same identity; the real messaging probe found that process environment alone
+was insufficient. This does not change supported start/resume commands or make
+a stored ref sufficient for automatic wake. Native notification capability,
+installed-version evidence, and blockers are tracked in the [GH-396 capability
+matrix](session-messaging.md#capability-matrix). The Pi RPC receiver is opt-in;
+normal interactive sessions have no automatic messaging injection.

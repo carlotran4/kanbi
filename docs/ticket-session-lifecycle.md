@@ -173,3 +173,12 @@ terminals, not open/resume/start-fresh/close; it preserves every attempt and ref
 Concurrent lifecycle commands serialize with moves and use fresh committed refs.
 Pending restoration blocks lifecycle commands until identity-based recovery; a
 newer attempt is never substituted for an old member. See [Fleet Mode](fleet-mode.md).
+
+## Messaging identities
+
+Each newly launched attempt receives its exact SQLite ID as `KANBI_SESSION_ID`
+and its database path as `KANBI_DB`. Focusing an existing container does not change
+its environment or create a mailbox identity. Closed attempts retain queued mail;
+resume/start-fresh creates a new address and does not silently forward history.
+Paused work is never automatically resumed by the mailbox. See [session
+messaging](session-messaging.md) for explicit historical inbox inspection.

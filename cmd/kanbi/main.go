@@ -96,6 +96,8 @@ func run(args []string) error {
 		return runUpdate(ctx, cfg, args[1:])
 	case "move":
 		return runMove(ctx, cfg, args[1:])
+	case "messages":
+		return runMessages(ctx, cfg, args[1:])
 	case "notes":
 		return runNotes(ctx, cfg, args[1:])
 	case "state":

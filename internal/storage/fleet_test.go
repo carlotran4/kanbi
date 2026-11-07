@@ -64,7 +64,7 @@ func TestFleetReferenceAndJournalCommitTogetherWithoutChangingHistory(t *testing
 }
 func TestFleetMigrationFromV9IsIdempotent(t *testing.T) {
 	s, ctx := newTestStore(t)
-	if _, err := s.db.ExecContext(ctx, `drop table fleet_journal;delete from schema_migrations where version=10`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `drop table fleet_journal;delete from schema_migrations where version>=10`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Init(ctx); err != nil {

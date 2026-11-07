@@ -210,3 +210,16 @@ pre-move IDs cannot be classified as exited. Active visits permit polling and
 lifecycle commands against their committed refs. Inert source/slot anchors are
 owned temporary terminals with no ticket/session rows. Backup and board deletion
 require journal completion first. See [Fleet Mode](fleet-mode.md).
+
+## Session mailbox
+
+Migration 11 adds a durable session-attempt mailbox independent of runtime state.
+Messages progress from `queued` to `notified` to `acknowledged`; explicit recipient
+acknowledgement may also occur directly after an inbox read. Notification never
+consumes mail or regresses acknowledgement. Sender-scoped retry keys deduplicate
+commits; replies derive their destination from the parent message and stop after
+eight hops. Endpoint IDs are retained without cascading session foreign keys.
+Whole-database backup preserves mail; portable board packages exclude it.
+Closed/paused attempts retain their mail. Resume/start-fresh never silently retarget
+messages to another attempt. See [session messaging](session-messaging.md) for the
+common CLI, native prototype, identity trust boundary, and unverified wake paths.

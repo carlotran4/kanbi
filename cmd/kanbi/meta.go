@@ -25,6 +25,7 @@ Commands:
   show       Show one ticket
   update     Update ticket metadata
   move       Move a ticket to a workflow column
+  messages   Durable session mailbox (experimental native delivery)
   notes      List, add, update, or delete ticket notes
   state      Show board/session state
   open       Open or resume a ticket agent session
@@ -53,6 +54,22 @@ Exit status is 0 for success/help and 1 for command, configuration, or runtime e
 `
 
 var commandHelp = map[string]string{
+	"messages": `Usage: kanbi messages recipients
+       kanbi messages send SESSION_ID --key RETRY_KEY --body TEXT
+       kanbi messages reply MESSAGE_ID --key RETRY_KEY --body TEXT
+       kanbi messages inbox [--all]
+       kanbi messages ack MESSAGE_ID
+       kanbi messages status MESSAGE_ID
+       kanbi messages notified MESSAGE_ID
+
+All output is JSON. Sender and inbox identity come from KANBI_SESSION_ID in
+newly launched managed sessions. Addresses are session attempts in this database;
+closed attempts retain mail and are never silently redirected to fresh attempts.
+Send commits promptly; automatic delivery requires a verified native receiver.
+The experimental receiver calls notified only after native acceptance. Inbox reads
+do not acknowledge. Reuse the same key and content on retries. Replies derive the
+recipient from the original message and stop after eight hops. No automatic replies.
+See docs/session-messaging.md for native delivery blockers and the Pi prototype.`,
 	"integration": `Usage: kanbi integration list
        kanbi integration cancel RUN_ID
 

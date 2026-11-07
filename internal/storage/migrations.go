@@ -28,6 +28,7 @@ var migrations = []migration{
 	{version: 8, name: "global focus checkpoints", apply: migrateGlobalFocus},
 	{version: 9, name: "board ticket templates", apply: migrateTicketTemplates},
 	{version: 10, name: "Fleet restoration journal", apply: migrateFleet},
+	{version: 11, name: "durable session mailbox", apply: migrateMessages},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.

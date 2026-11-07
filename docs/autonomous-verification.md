@@ -451,3 +451,16 @@ Authenticated harness lifecycle checks remain opt-in.
 ## Long-running CPU investigation (GH-392)
 
 See [the diagnosis, controlled reproduction, profiling commands, and limits](cpu-investigation-gh392.md). The opt-in status-bar lifetime check compares fresh and repeated-Fleet-return behavior with idle and navigation workloads; ordinary tests cover obsolete timer/result rejection without timing gates.
+
+## Session mailbox (GH-396)
+
+`go test ./internal/storage -run TestSessionMailbox` covers restart persistence,
+concurrent retry keys, lifecycle eligibility, reply ownership, bounded reply chains,
+and the additive v10-to-v11 migration. `go test ./cmd/kanbi -run TestMessagesCrossHarnessMailbox`
+exercises the common CLI against synthetic cross-harness records.
+`python3 scripts/prototypes/pi-mailbox-smoke.py` optionally verifies installed Pi
+RPC idle activation using an offline fixture provider and private config/history.
+The finite authenticated exchange test is separately opt-in:
+`KANBI_REAL_HARNESS_TESTS=1 python3 scripts/prototypes/real-session-messaging.py`.
+See [the capability matrix and evidence limits](session-messaging.md); fake records,
+native command help, and real lifecycle checks do not establish cross-harness wake.

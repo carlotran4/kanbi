@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -232,6 +233,17 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			return errors.Join(cause, fmt.Errorf("mark launch failed: %w", markErr))
 		}
 		return cause
+	}
+
+	if claimID != 0 {
+		messageDBPath := l.manager.Config.DBPath
+		if messageDBPath != "" {
+			messageDBPath, err = filepath.Abs(messageDBPath)
+			if err != nil {
+				return failClaim(fmt.Errorf("resolve mailbox database path: %w", err))
+			}
+		}
+		command = commandWithMessageIdentity(command, claimID, messageDBPath)
 	}
 
 	var containerRef multiplexer.ContainerRef
