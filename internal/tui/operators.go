@@ -275,7 +275,7 @@ func (m Model) operatorEditorView() string {
 		if u.field == i {
 			prefix = "> "
 		}
-		lines = append(lines, trimToWidth(prefix+label+": "+u.inputs[i].Viewport(maxInt(8, width-len(label)-4)), width))
+		lines = append(lines, modalLabeledInput(prefix+label+": ", u.inputs[i], u.field == i, width))
 	}
 	lines = append(lines, "Standing instructions (read again on every wake):", u.instructions.View(), "Tab fields · Ctrl+S save · Esc cancel")
 	if u.error != "" {
