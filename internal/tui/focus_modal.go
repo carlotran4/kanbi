@@ -17,7 +17,7 @@ func focusModalWidth(termWidth int) int {
 }
 
 func focusTextarea(value string, width, height int) textarea.Model {
-	ta := textarea.New()
+	ta := newTextEditor()
 	ta.SetValue(value)
 	ta.SetWidth(maxInt(1, modalContentWidth(width)))
 	ta.SetHeight(maxInt(2, height))

@@ -460,7 +460,7 @@ func (m Model) editNotesField() int {
 }
 
 func newBodyTextarea(value string, termWidth int) textarea.Model {
-	ta := textarea.New()
+	ta := newTextEditor()
 	ta.SetValue(value)
 	ta.Placeholder = "(no description)"
 	ta.ShowLineNumbers = false
@@ -1171,7 +1171,7 @@ func (m Model) notesThreadViewRows(innerWidth, rowBudget int) string {
 }
 
 func newNoteTextarea(value string, termWidth int) textarea.Model {
-	ta := textarea.New()
+	ta := newTextEditor()
 	ta.SetValue(value)
 	ta.Placeholder = "(write your note here, markdown supported)"
 	ta.ShowLineNumbers = false

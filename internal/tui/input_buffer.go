@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rivo/uniseg"
@@ -58,6 +59,21 @@ func (b *InputBuffer) Backspace() {
 	b.cursor--
 }
 
+// DeleteWordBackward removes preceding whitespace and the preceding word.
+func (b *InputBuffer) DeleteWordBackward() {
+	b.clampCursor()
+	r := []rune(b.value)
+	start := b.cursor
+	for start > 0 && unicode.IsSpace(r[start-1]) {
+		start--
+	}
+	for start > 0 && !unicode.IsSpace(r[start-1]) {
+		start--
+	}
+	b.value = string(r[:start]) + string(r[b.cursor:])
+	b.cursor = start
+}
+
 func (b *InputBuffer) Delete() {
 	r := []rune(b.value)
 	b.clampCursor()
@@ -72,6 +88,8 @@ func (b *InputBuffer) Delete() {
 
 func (b *InputBuffer) HandleKey(name string, runes []rune) bool {
 	switch name {
+	case "ctrl+backspace", "ctrl+h", "alt+backspace", "ctrl+w":
+		b.DeleteWordBackward()
 	case "backspace":
 		b.Backspace()
 	case "delete":
