@@ -291,3 +291,14 @@ so the other participant does not lose its history. Surviving participants can
 inspect their messages; a deleted endpoint is missing and cannot receive new mail.
 No message is silently redirected to an imported, fresh, or resumed attempt.
 See [the messaging contract and capability matrix](session-messaging.md).
+
+## Operators
+
+Operators belong to the workspace/database, never to a board. `O` exposes them
+beside the board (compact summary and focused overlay below 120 columns).
+Board picker changes, Master filters and board navigation do not recreate or
+restart them. Their working directories provide harness context without assigning
+board ownership. Operators can discover normal boards/tickets/sessions through
+the existing CLI, and stable `operator:ID` addresses appear in message discovery.
+Board archive/deletion/package export has no ownership over Operator rows or their
+session history. See [Operators](operators.md).

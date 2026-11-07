@@ -16,11 +16,12 @@ const (
 )
 
 type backgroundState struct {
-	mu     sync.Mutex
-	ctx    context.Context
-	cancel context.CancelFunc
-	closed bool
-	wg     sync.WaitGroup
+	operatorsStarted bool
+	mu               sync.Mutex
+	ctx              context.Context
+	cancel           context.CancelFunc
+	closed           bool
+	wg               sync.WaitGroup
 }
 
 func newBackgroundState(parent context.Context) *backgroundState {
@@ -34,6 +35,17 @@ func newBackgroundState(parent context.Context) *backgroundState {
 // Close cancels and waits for asynchronous session-ref capture owned by this
 // manager. It is safe to call more than once.
 func (m *Manager) Close() {
+	if m != nil && m.background != nil {
+		m.background.mu.Lock()
+		m.background.closed = true
+		m.background.cancel()
+		m.background.mu.Unlock()
+	}
+	if m != nil && m.Store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = m.Store.RemoveOperatorRunner(ctx, m.operatorRunnerKey())
+		cancel()
+	}
 	if m != nil && m.hasFleetOwner() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		if err := m.RestoreFleet(ctx); err != nil {

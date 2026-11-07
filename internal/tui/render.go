@@ -29,6 +29,11 @@ func (m Model) View() string {
 	// Always render the base board first so the selected modal can overlay it.
 	base := m.cachedBaseView()
 	switch m.activeModalKind() {
+	case modalOperators:
+		if m.operators.editing {
+			return overlayModal(base, fitModal(m.operatorEditorView(), m.height, 0, true), m.width, m.height)
+		}
+		return overlayModal(base, fitModal(modalFrame(strings.Split(m.operatorsView(modalContentWidth(focusModalWidth(m.width)), maxInt(6, m.height-8)), "\n"), focusModalWidth(m.width), palette.accent), m.height, 0, true), m.width, m.height)
 	case modalFocusSettings:
 		return overlayModal(base, fitModal(m.focusSettingsView(), m.height, 0, true), m.width, m.height)
 	case modalFocusReplace:
@@ -122,7 +127,13 @@ func (m Model) baseView() string {
 		}
 	}
 
+	if m.operators.open && !m.operatorsNarrow() {
+		board = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(m.boardWidth()).Render(board), " ", m.operatorsView(35, m.boardContentHeight()+2))
+	}
 	footer := []string{contextBarStyle.Render(padLine(m.contextBar(), maxInt(1, m.width)))}
+	if m.operators.open && m.operatorsNarrow() {
+		footer = append([]string{trimToWidth("Operators [O] · "+m.operatorSummary(), m.width)}, footer...)
+	}
 	if m.search.active {
 		footer = []string{
 			contextBarStyle.Render(padLine(m.searchQueryLine(), maxInt(1, m.width))),
@@ -190,13 +201,13 @@ func (m Model) contextBar() string {
 		}
 		return trimToWidth("/:search i:close Esc:return Tab:panel h/l:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
-	items := []string{"Enter:send/open", "/:search", "i:inspect", "n:new", "b:boards", "v:fleet", "F:focus"}
+	items := []string{"Enter:send/open", "/:search", "i:inspect", "n:new", "b:boards", "O:operators", "v:fleet", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
 	items = append(items, "!:attention", "?:help")
 	if m.width <= 80 {
-		items = []string{"Enter:open", "/:search", "i:inspect", "n:new", "b:boards", "v:fleet", "F:focus"}
+		items = []string{"Enter:open", "/:search", "i:inspect", "n:new", "b:boards", "O:ops", "v:fleet", "F:focus"}
 		if m.masterBoard {
 			items = append(items, "f:filters")
 		}
@@ -1187,6 +1198,7 @@ func (m Model) helpView() string {
 	section("Boards and columns")
 	row("b / f", "board picker / Master filters")
 	row("F", "global Focus Mode settings")
+	row("O", "workspace Operators: create, edit, run and manage sessions")
 	row("v", "gather live agent panes / restore interrupted Fleet")
 	row("c / r / D", "add / rename / delete column")
 	row("Ctrl+Shift+←/→", "reorder column")

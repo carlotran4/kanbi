@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/carlotran4/kanbi/internal/config"
@@ -18,6 +19,13 @@ import (
 )
 
 func messageSessionID(value string) (int64, error) {
+	if strings.HasPrefix(value, "operator:") {
+		id, err := strconv.ParseInt(strings.TrimPrefix(value, "operator:"), 10, 64)
+		if err != nil || id <= 0 {
+			return 0, errors.New("invalid Operator address")
+		}
+		return -id, nil
+	}
 	id, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || id <= 0 {
 		return 0, errors.New("a positive Kanbi session ID is required")
@@ -70,6 +78,16 @@ func executeMessages(ctx context.Context, store *storage.Store, identity string,
 	}
 	if !found {
 		return errors.New("Kanbi sender session is missing")
+	}
+	if session.OperatorID != 0 {
+		current, ok, e := store.OperatorSession(ctx, session.OperatorID)
+		if e != nil {
+			return e
+		}
+		if !ok || !session.IsActive || current.ID != session.ID {
+			return errors.New("retired Operator attempt cannot use the current Operator mailbox")
+		}
+		sender = -session.OperatorID
 	}
 	switch args[0] {
 	case "send", "reply":
@@ -129,7 +147,7 @@ func executeMessages(ctx context.Context, store *storage.Store, identity string,
 			return err
 		}
 		if args[0] == "claim" {
-			claimed, err := runtime.ClaimNativeMessage(ctx, store, sender, id)
+			claimed, err := runtime.ClaimNativeMessage(ctx, store, session.ID, id)
 			if err != nil {
 				return err
 			}
@@ -166,6 +184,17 @@ func executeMessages(ctx context.Context, store *storage.Store, identity string,
 		messages, err := store.SessionNotificationInbox(ctx, sender)
 		if err != nil {
 			return err
+		}
+		if sender < 0 {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			manager := runtime.NewManager(cfg, store)
+			defer manager.Close()
+			for i := range messages {
+				messages[i].WakePrompt = manager.OperatorMessageNotice(-sender, messages[i])
+			}
 		}
 		return encode(messages)
 	case "inbox":

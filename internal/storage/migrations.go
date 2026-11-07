@@ -30,6 +30,7 @@ var migrations = []migration{
 	{version: 10, name: "Fleet restoration journal", apply: migrateFleet},
 	{version: 11, name: "durable session mailbox", apply: migrateMessages},
 	{version: 12, name: "session message notification receipts", apply: migrateMessageDelivery},
+	{version: 13, name: "workspace operators", apply: migrateOperators},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.
@@ -43,7 +44,18 @@ func (s *Store) migrate(ctx context.Context) error {
 )`); err != nil {
 		return fmt.Errorf("create schema migration ledger: %w", err)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	// Rebuilding sessions makes ticket ownership nullable while preserving IDs and
+	// all incoming references. Pin the connection and restore FK enforcement.
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err = conn.ExecContext(ctx, `pragma foreign_keys=off`); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.Background(), `pragma foreign_keys=on`)
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -70,6 +82,13 @@ func (s *Store) migrate(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, `insert into schema_migrations(version,name,applied_at) values(?,?,?)`, m.version, m.name, time.Now().UTC()); err != nil {
 			return err
 		}
+	}
+	var violations int
+	if err := tx.QueryRowContext(ctx, `select count(*) from pragma_foreign_key_check`).Scan(&violations); err != nil {
+		return err
+	}
+	if violations != 0 {
+		return fmt.Errorf("migration would introduce %d foreign-key violations", violations)
 	}
 	return tx.Commit()
 }

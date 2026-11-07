@@ -115,6 +115,16 @@ kanbi backup backup.kanbi
 
 Run `kanbi --help` or `kanbi COMMAND --help` for the rest.
 
+## Operators
+
+Press `O` for workspace-wide Operators: normal harness sessions with standing
+instructions, Run now, recurring cron/timezone schedules, one-time followups and
+stable messaging addresses. They remain available across boards. Edit instructions
+in the dialog or directly in the resolved config directory; each wake directs
+the agent to reread the file. Scheduling runs only while Kanbi is open. See
+[Operators](docs/operators.md) for controls, CLI commands, lifecycle and the
+accepted Copilot terminal-delivery limitation.
+
 ## Session messaging
 
 Agents in managed sessions can discover peers and exchange durable messages with

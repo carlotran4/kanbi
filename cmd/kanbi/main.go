@@ -86,6 +86,8 @@ func run(args []string) error {
 		return runIntegration(ctx, cfg, args[1:])
 	case "add":
 		return runAdd(ctx, cfg, args[1:])
+	case "operators":
+		return runOperators(ctx, cfg, args[1:])
 	case "templates":
 		return runTemplates(ctx, cfg, args[1:])
 	case "list":
@@ -169,6 +171,7 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 				Cause:     reconcileWarning,
 			})
 		}
+		manager.StartOperators()
 		stopSync := cli.Syncer().Start(ctx)
 		defer stopSync()
 		svc := cli.Service()

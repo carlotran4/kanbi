@@ -149,7 +149,7 @@ func TestMessageDeliveryMigrationPreservesExistingMessages(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err = s.db.ExecContext(ctx, `delete from schema_migrations where version=12`); err != nil {
+	if _, err = s.db.ExecContext(ctx, `delete from schema_migrations where version>=12`); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {

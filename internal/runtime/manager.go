@@ -244,6 +244,9 @@ func (m *Manager) SwitchToTicket(ctx context.Context, ticket storage.Ticket) err
 }
 
 func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.Ticket) (storage.Ticket, error) {
+	if ticket.OperatorID != 0 {
+		return ticket, nil
+	}
 	if m.Store == nil || !ticket.SessionID.Valid || !m.nativeHarness(ticket.Harness) || (ticket.SessionActive && ContainerRefFromTicket(ticket).Kind != multiplexer.KindHerdr) {
 		return ticket, nil
 	}
@@ -523,6 +526,11 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 		adapter := m.herdrAdapter()
 		detection, detectErr := adapter.Detect(ctx, containerRef)
 		if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
+			if ses.OperatorID != 0 && detection.NativeState == "done" {
+				detection.State = "completed"
+			} else if ses.OperatorID != 0 && detection.NativeState == "idle" && detection.InteractiveReady && detection.State == kanban.StateIdleUnknown {
+				detection.State = "ready"
+			}
 			if err := m.Store.UpdateObservedSessionRuntime(ctx, ses, detection.State, string(detection.Source), detection.Reason, detection.Excerpt, false); err != nil {
 				return errors.Join(errors.Join(observationErrors...), fmt.Errorf("ticket %d session %d (%s): save native runtime observation: %w", ticket.ID, ses.ID, ses.Harness, err))
 			}

@@ -16,7 +16,7 @@ func (s *Store) enforceSessionInvariant(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `update sessions set is_active=0 where is_active=1 and id not in (select max(id) from sessions where is_active=1 group by ticket_id)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `update sessions set is_active=0 where is_active=1 and id not in (select max(id) from sessions where is_active=1 group by ticket_id,operator_id)`); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `create unique index if not exists sessions_one_active_per_ticket on sessions(ticket_id) where is_active=1`); err != nil {
@@ -33,6 +33,9 @@ func (s *Store) UpsertActiveSession(ctx context.Context, ticketID int64, session
 // launched. A second caller cannot claim the same ticket while this attempt is
 // active, even when it is using another Store/process.
 func (s *Store) ClaimSession(ctx context.Context, ticketID int64, session Session, replaceActive bool) (int64, error) {
+	if ticketID < 0 {
+		return s.ClaimOperatorSession(ctx, -ticketID, session)
+	}
 	session.Status = kanban.StateStarting
 	return s.claimSession(ctx, ticketID, session, replaceActive)
 }
@@ -128,14 +131,23 @@ func (s *Store) FailSessionLaunch(ctx context.Context, sessionID int64, reason s
 }
 
 func (s *Store) ActiveSession(ctx context.Context, ticketID int64) (Session, bool, error) {
+	if ticketID < 0 {
+		return s.sessionByQuery(ctx, sessionSelectSQL+` where operator_id=? and is_active=1 order by id desc limit 1`, -ticketID)
+	}
 	return s.sessionByQuery(ctx, sessionSelectSQL+` where ticket_id=? and is_active=1 order by id desc limit 1`, ticketID)
 }
 
 func (s *Store) LatestSession(ctx context.Context, ticketID int64) (Session, bool, error) {
+	if ticketID < 0 {
+		return s.OperatorSession(ctx, -ticketID)
+	}
 	return s.sessionByQuery(ctx, sessionSelectSQL+` where ticket_id=? order by id desc limit 1`, ticketID)
 }
 
 func (s *Store) SessionByID(ctx context.Context, sessionID int64) (Session, bool, error) {
+	if sessionID < 0 {
+		return s.OperatorSession(ctx, -sessionID)
+	}
 	return s.sessionByQuery(ctx, sessionSelectSQL+` where id=?`, sessionID)
 }
 
@@ -151,13 +163,13 @@ func (s *Store) BindSessionLaunch(ctx context.Context, sessionID int64, workspac
 	return requireAffected(res, err)
 }
 
-const sessionSelectSQL = `select id,ticket_id,harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,coalesce(multiplexer,'tmux'),coalesce(mux_namespace,tmux_session_name),coalesce(mux_container_id,tmux_window_id),coalesce(mux_container_name,tmux_window_name),mux_metadata,workspace_id,launch_cwd,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt,cast(updated_at as text) from sessions`
+const sessionSelectSQL = `select id,coalesce(ticket_id,0),coalesce(operator_id,0),harness,harness_session_ref,harness_session_name,tmux_session_name,tmux_window_id,tmux_window_name,coalesce(multiplexer,'tmux'),coalesce(mux_namespace,tmux_session_name),coalesce(mux_container_id,tmux_window_id),coalesce(mux_container_name,tmux_window_name),mux_metadata,workspace_id,launch_cwd,status,is_active,started_at,closed_at,last_seen_tmux_at,last_output_at,last_state_change_at,last_detected_state,last_attention_reason,last_detection_source,last_observed_excerpt,cast(updated_at as text) from sessions`
 
 func (s *Store) sessionByQuery(ctx context.Context, query string, ticketID int64) (Session, bool, error) {
 	var ses Session
 	var active int
 	err := s.db.QueryRowContext(ctx, query, ticketID).
-		Scan(&ses.ID, &ses.TicketID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Multiplexer, &ses.MuxNamespace, &ses.MuxContainerID, &ses.MuxContainerName, &ses.MuxMetadata, &ses.WorkspaceID, &ses.LaunchCWD, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt, &ses.observationVersion)
+		Scan(&ses.ID, &ses.TicketID, &ses.OperatorID, &ses.Harness, &ses.HarnessSessionRef, &ses.HarnessSessionName, &ses.TmuxSessionName, &ses.TmuxWindowID, &ses.TmuxWindowName, &ses.Multiplexer, &ses.MuxNamespace, &ses.MuxContainerID, &ses.MuxContainerName, &ses.MuxMetadata, &ses.WorkspaceID, &ses.LaunchCWD, &ses.Status, &active, &ses.StartedAt, &ses.ClosedAt, &ses.LastSeenTmuxAt, &ses.LastOutputAt, &ses.LastStateChangeAt, &ses.LastDetectedState, &ses.LastAttentionReason, &ses.LastDetectionSource, &ses.LastObservedExcerpt, &ses.observationVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, false, nil
 	}

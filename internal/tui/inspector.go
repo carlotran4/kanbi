@@ -62,6 +62,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) inspectorNarrow() bool { return m.width < 120 }
 func (m Model) boardWidth() int {
+	if m.operators.open && !m.operatorsNarrow() {
+		return maxInt(30, m.width-36)
+	}
 	if m.inspector.open && !m.inspectorNarrow() {
 		return maxInt(30, m.width-m.inspectorWidth()-1)
 	}
@@ -134,6 +137,8 @@ func (m *Model) syncInspector() tea.Cmd {
 func (m *Model) inspectorKey(key tea.KeyMsg) bool {
 	switch key.String() {
 	case "i":
+		m.operators.open = false
+		m.operators.focused = false
 		if !m.inspector.open {
 			m.inspector.savedScroll = append([]int(nil), m.colScroll...)
 			m.inspector.savedOffset = m.colOffset

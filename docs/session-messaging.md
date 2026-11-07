@@ -47,7 +47,7 @@ Each launch supplies `KANBI_SESSION_ID`, absolute `KANBI_DB`, and the exact
 identity through explicit per-thread shell environment policy because TUI process
 environment alone does not reliably reach daemon-owned tools.
 
-Addresses are session-attempt IDs **in this database**, not globally portable
+Ticket-session addresses are session-attempt IDs **in this database**, not globally portable
 identities or board-local ticket IDs. Discovery includes board, ticket, harness,
 active/paused/archive state, and delivery method. A declared method does not prove
 an older running session has registered its receiver. The message's notification
@@ -160,3 +160,9 @@ catalog returned HTTP 403 from account/organization policy, so authenticated
 Copilot response/ack remains unverified here. Its exact validated paste/Enter and
 busy/permission deferral are covered by deterministic tests. Full tests, focused
 race checks, lifecycle/smoke, UI smoke, and the same-tree backup/restore drill passed.
+
+Workspace [Operators](operators.md) extend this same mailbox with stable `operator:ID`
+addresses (negative IDs in JSON). Operator recipients survive session close/fresh,
+automatically resume through the board-owned worker, and require current instructions
+on every wake. Ticket-session addressing and closed-recipient behavior above remain
+unchanged. Deleted Operator addresses retire while retaining correspondence.

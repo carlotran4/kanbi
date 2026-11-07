@@ -20,7 +20,11 @@ func (m *Model) syncScrollDimensions() {
 // two-line header. The compact app header/footer and optional horizontal-scroll
 // hint are outside this budget.
 func (m *Model) boardContentHeight() int {
-	fixed := 1 + 1 + 2 // app header + footer + column header
+	fixed := 1 + 1 + 2
+	if m.operators.open && m.operatorsNarrow() {
+		fixed++
+	} // compact Operator summary
+	// // app header + footer + column header
 	if m.search.active {
 		fixed++ // query and search controls occupy two footer rows
 	}

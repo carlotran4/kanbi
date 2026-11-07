@@ -470,3 +470,24 @@ verifies the installed Claude hook/socket with an isolated local model fixture;
 it is distinct from authenticated Claude provider verification. These scripts use
 owned Herdr fixtures and always stop their own server. See [delivery evidence and
 limits](session-messaging.md); terminal/socket submission alone is not reception.
+
+## Operators (GH-400)
+
+Run baseline checks, focused harness/runtime/storage tests and the schema
+upgrade/rollback drill. Operator tests cover boardless ownership, immutable
+harnesses, history across resume/fresh, stable reply routing, file reloads,
+fixed-clock cron/timezones, catch-up coalescing, independent followups,
+transactional cross-connection handoffs, intentional pause and live-process
+notification gating. All four harnesses exercise the existing lifecycle using
+owned fake adapters; native Copilot delivery tests retain its draft limitation.
+
+For real UI validation, use the project UI fixture at 160x45 and 80x24: `O`, `n`,
+edit fields/instructions, `Ctrl+S`, `p`, `Esc`, board navigation, `O`, `e`, cancel,
+`d`, cancel. Verify board preservation, focused controls and immutable harness
+editing. Use private fixtures and preserve direct file edits between wakes.
+Authenticated lifecycle and production mailbox tests remain opt-in as documented
+above; distinguish deterministic adapter coverage from actual native model turns.
+
+For native Operator wake, direct instruction-file reload and wake-triggered resume,
+run `KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi,codex python3 scripts/prototypes/real-operators.py`.
+The test owns its database/config/Herdr server and retains failure evidence.

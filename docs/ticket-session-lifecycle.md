@@ -189,3 +189,15 @@ attempt. Send/reply makes a bounded notification attempt after committing mail;
 existing refresh retries safe deferrals. Closed/paused/archived sessions are not
 started by messaging, and a native `/clear`/new conversation does not silently
 rebind mail. Copilot's terminal fallback is best effort and may affect a draft.
+
+## Operator sessions
+
+Workspace Operators reuse these start/resume/focus/close and ref-capture paths,
+with Operator ownership instead of a ticket/board. Opening a valid active Operator
+focuses its Herdr tab without creating another attempt. Activation resumes only
+with a captured reference and surfaces errors instead of replacing history.
+Explicit fresh requires explicitly closing an active session first, then creates
+a new attempt while preserving Operator identity/configuration/instructions/mail.
+Stopping sends a normal interrupt and keeps the session; pausing only affects
+scheduled triggers. Deletion retires the address/triggers, preserves all history,
+and leaves an active terminal open. See [Operators](operators.md).

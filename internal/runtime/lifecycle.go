@@ -59,10 +59,13 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 		if !fresh.SessionActive {
 			fresh.Harness = req.Ticket.Harness
 		}
+		if req.Ticket.OperatorID != 0 {
+			fresh.Body = req.Ticket.Body
+		}
 		req.Ticket = fresh
 	}
 
-	if l.manager.Store != nil {
+	if l.manager.Store != nil && req.Ticket.OperatorID == 0 {
 		board, err := l.manager.Store.BoardByID(ctx, req.Ticket.BoardID)
 		if err != nil {
 			return err
@@ -97,6 +100,9 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 	}
 	switch decision.Action {
 	case lifecycleActionSwitch:
+		if ctx.Value(operatorWakeContextKey{}) != nil {
+			return nil
+		}
 		ref := ContainerRefFromTicket(decision.Ticket)
 		return l.manager.herdrAdapter().Focus(ctx, ref)
 	case lifecycleActionRepair:
@@ -229,7 +235,9 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		if l.manager.Store == nil || claimID == 0 {
 			return cause
 		}
-		if markErr := l.manager.Store.FailSessionLaunch(ctx, claimID, cause.Error()); markErr != nil {
+		saveCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if markErr := l.manager.Store.FailSessionLaunch(saveCtx, claimID, cause.Error()); markErr != nil {
 			return errors.Join(cause, fmt.Errorf("mark launch failed: %w", markErr))
 		}
 		return cause
@@ -457,7 +465,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 		cancel()
 	}
-	if l.manager.Config.Multiplexer.Herdr.FocusOnOpen {
+	if l.manager.Config.Multiplexer.Herdr.FocusOnOpen && ctx.Value(operatorWakeContextKey{}) == nil {
 		return l.manager.herdrAdapter().Focus(ctx, containerRef)
 	}
 	return nil

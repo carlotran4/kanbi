@@ -22,6 +22,7 @@ import (
 )
 
 type Model struct {
+	operators               operatorUI
 	defaultHarness          string
 	fleet                   fleetUI
 	search                  boardSearchState
@@ -329,6 +330,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	switch msg := msg.(type) {
+	case operatorResult:
+		m.operators.busy = false
+		if msg.err != nil {
+			m.operators.error = msg.err.Error()
+		} else {
+			m.operators.error = ""
+		}
+		m.reloadOperators()
+		m.renderVersion++
+		return m, nil
 	case inspectorTickMsg:
 		return m, inspectorTickCmd()
 	case inspectorPreviewMsg:
@@ -546,6 +557,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	kind := m.activeModalKind()
+	if kind == modalOperators || (kind == modalNone && m.operators.open && m.operators.focused) {
+		return m.updateOperators(key)
+	}
 	if kind == modalNone && m.search.active {
 		m.updateBoardSearch(key)
 		return m, nil
@@ -644,6 +658,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key.String() {
+	case "O":
+		m.renderVersion++
+		if m.operators.open && !m.operators.focused {
+			m.operators.focused = true
+			m.reloadOperators()
+		} else {
+			m.toggleOperators()
+		}
+		return m, nil
 	case "v":
 		return m, m.startFleet()
 	case "?":
@@ -759,6 +782,9 @@ func (m *Model) reload() {
 }
 
 func (m *Model) applySnapshot(snapshot boardSnapshot) {
+	if m.operators.open {
+		m.reloadOperators()
+	}
 	m.renderVersion++
 	searchPosition, _ := m.searchPosition()
 	selectedID := int64(0)

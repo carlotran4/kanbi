@@ -215,3 +215,20 @@ Copilot uses the explicitly requested best-effort literal-text/Enter path after
 container validation; known busy/permission states defer. Draft preservation and
 native acceptance are not guaranteed. See [session messaging](session-messaging.md)
 for receipt/retry semantics, exact verification evidence and limits.
+
+## Operator activation
+
+Operators reuse the same compiled start/resume commands, native-ref capture,
+per-launch messaging setup and permissions. Initialization explains the standing
+instructions file. Every native wake notice explicitly directs the Operator to
+read its current absolute file path and identifies the trigger. Pi's native
+receiver receives that same generated notice through `messages pending`.
+
+Herdr's exact native phase is retained separately from its ticket state mapping:
+`done`, or native `idle` with explicit `interactive_ready` and no input-request
+reason, permits Operator delivery. `blocked`, running, unknown and mere silence do
+not. This avoids treating a permission/input request as completion. Native Pi
+editor checks, Claude hold/refuse and Codex queue remain authoritative. Copilot
+retains the accepted best-effort paste/Enter fallback, including its documented
+unsent-draft limitation. No ACP runtime or custom-agent definitions are added.
+[Operator documentation](operators.md) records lifecycle and verification limits.

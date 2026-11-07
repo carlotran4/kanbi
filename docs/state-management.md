@@ -228,3 +228,24 @@ Whole-database backup preserves mail; portable board packages exclude it.
 Closed/paused attempts retain their mail. Resume/start-fresh never silently retarget
 messages to another attempt. See [session messaging](session-messaging.md) for the
 common CLI, native delivery mechanisms, identity trust boundary, and verification limits.
+
+## Operator state
+
+An Operator ID outlives all its session attempts. `sessions.ticket_id` and
+`sessions.operator_id` are exclusive nullable owners; the lifecycle adapter's
+negative owner IDs never create ticket records. Each owner has its own unique
+active-session slot. Operator state has no board workflow or Focus membership.
+The instructions file lives under the resolved config directory; operational
+state remains in SQLite. Fresh retains instructions, schedules and stable mail.
+
+`operator_wakeups` records pending, queued, completed and cancelled activations.
+Materializing missed recurring occurrences advances the clock and keeps at most
+one pending/queued recurring wake. Each individual followup commits one durable
+mailbox entry atomically with its queued transition. Positive mailbox receipts
+complete wakes without replay; mailbox uncertainty remains fenced. Pause cancels
+unsent recurring checks, retains followups, and leaves peer mail/Run now enabled.
+Native Herdr `done` projects as Operator `completed`; an explicit native idle
+editor-ready signal projects as `ready`. Blocked input/permission,
+running and unknown states remain distinct and cannot authorize delivery. A failed
+start/resume records an error and waits for manual retry. No timer retries a failed
+turn or silently substitutes a fresh conversation.

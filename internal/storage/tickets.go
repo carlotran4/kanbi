@@ -48,6 +48,9 @@ func (s *Store) TicketByDisplayIDInBoard(ctx context.Context, displayID string, 
 }
 
 func (s *Store) TicketByID(ctx context.Context, id int64) (Ticket, error) {
+	if id < 0 {
+		return s.OperatorTicket(ctx, -id)
+	}
 	tickets, err := s.queryProjectedTickets(ctx, `where t.id=?`, id)
 	if err != nil {
 		return Ticket{}, err

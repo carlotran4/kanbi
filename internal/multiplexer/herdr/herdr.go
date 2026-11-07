@@ -501,7 +501,11 @@ func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (mul
 		detection.Session = nativeSession
 		return detection, nil
 	}
-	return multiplexer.Detection{Session: nativeSession, State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative}, nil
+	ready, _ := dotted(obj, "result.agent.interactive_ready").(bool)
+	if raw, ok := dotted(obj, "interactive_ready").(bool); ok {
+		ready = raw
+	}
+	return multiplexer.Detection{InteractiveReady: ready, NativeState: state, Session: nativeSession, State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative}, nil
 }
 
 func paneFirstAgentName(name, paneID string) string {

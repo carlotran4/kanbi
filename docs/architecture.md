@@ -260,3 +260,23 @@ runtime refresh retries deferred notices. No detached notifier or new runtime
 substrate is introduced. Copilot intentionally uses validated terminal text/Enter.
 Notification claims are persisted before side effects; uncertain outcomes are not
 automatically replayed. Private native endpoint files are outside database backups.
+
+## Workspace Operators (GH-400)
+
+Operators are workspace-wide responsibility/configuration rows independent of
+boards and tickets. A normal session attempt has exactly one owner: ticket or
+Operator. Migration 13 preserves session IDs, rows, incoming diagnostic references,
+indexes and SQLite's session-ID high-water mark while making ticket ownership
+nullable and adding Operator ownership. Partial unique indexes retain one active
+attempt per owner. Migration uses a pinned connection with FK enforcement restored
+before initialization returns and validates references before commit.
+
+`internal/storage/operators.go` owns Operator configuration, wake rows, fixed-clock
+execution timestamps and process presence. `internal/runtime/operators.go` uses the
+existing lifecycle and native mailbox adapters. The board manager owns one
+cancellable/joined scheduling loop; CLI invocations do not start it. Runtime locks
+and transactional wake-to-mailbox commits fence multiple board processes.
+`internal/app/operators.go` exposes the presentation-independent controls and the
+TUI adds a collapsible peer to the board. No ticket proxy rows, extra broker,
+external scheduler, agent memory runtime or per-Operator service is introduced.
+See [Operators](operators.md) for controls, addressing and delivery limitations.

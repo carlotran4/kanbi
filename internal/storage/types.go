@@ -97,6 +97,7 @@ type Column = ColumnView
 //
 // It is intentionally not a direct representation of a tickets table row.
 type TicketProjection struct {
+	OperatorID        int64
 	ID                int64
 	BoardID           int64
 	BoardName         string
@@ -194,6 +195,7 @@ type Note struct {
 }
 
 type Session struct {
+	OperatorID          int64
 	observationVersion  string
 	ID                  int64
 	TicketID            int64

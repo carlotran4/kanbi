@@ -74,11 +74,13 @@ type AgentSession struct {
 
 // Detection is a runtime-state observation. Session is independent of state.
 type Detection struct {
-	Session *AgentSession
-	State   string
-	Reason  string
-	Excerpt string
-	Source  DetectionSource
+	InteractiveReady bool   // exact native editor readiness, not an inactivity heuristic
+	NativeState      string // exact native phase; done differs from blocked/user input
+	Session          *AgentSession
+	State            string
+	Reason           string
+	Excerpt          string
+	Source           DetectionSource
 }
 
 // Interface is the provider-neutral seam for runtime multiplexers.

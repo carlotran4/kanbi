@@ -2,7 +2,8 @@ package storage
 
 import "context"
 
-// ActiveRuntimeTickets is an observation read model. It intentionally excludes
+// ActiveRuntimeTickets includes both owner kinds, including retired Operators
+// whose terminals remain open. It intentionally excludes
 // bodies, notes, checkpoints, and workspace projections from the global poll.
 // ActiveSession revalidates each attempt before the manager observes it.
 func (s *Store) ActiveRuntimeTickets(ctx context.Context) ([]Ticket, error) {
@@ -10,7 +11,10 @@ func (s *Store) ActiveRuntimeTickets(ctx context.Context) ([]Ticket, error) {
 s.id, s.tmux_window_id, s.tmux_window_name
 from sessions s join tickets t on t.id=s.ticket_id join boards b on b.id=t.board_id
 where s.is_active=1 and t.archived_at is null and b.archived_at is null
-order by t.id`)
+union all
+select -o.id,0,printf('O-%d',o.id),o.name,s.id,null,null
+from sessions s join operators o on o.id=s.operator_id where s.is_active=1
+order by 1`)
 	if err != nil {
 		return nil, err
 	}

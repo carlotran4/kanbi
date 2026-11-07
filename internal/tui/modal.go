@@ -7,6 +7,7 @@ type modalKind uint8
 
 const (
 	modalNone modalKind = iota
+	modalOperators
 	modalFocusSettings
 	modalFocusReplace
 	modalPause
@@ -35,6 +36,8 @@ const (
 // both select from this method so a covered modal cannot consume input.
 func (m Model) activeModalKind() modalKind {
 	switch {
+	case m.operators.editing || (m.operators.open && m.operators.focused && m.operatorsNarrow()):
+		return modalOperators
 	case m.focusSettingsOpen:
 		return modalFocusSettings
 	case m.focusReplaceOpen:

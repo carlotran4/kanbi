@@ -32,10 +32,17 @@ func migrateMessageDelivery(ctx context.Context, tx *sql.Tx) error {
 // A crash or competing notifier cannot silently repeat it. One unconfirmed handoff
 // per recipient prevents retries racing uncertain transport acceptance.
 func (s *Store) ClaimMessageNotification(ctx context.Context, recipient, id int64, transport string) (bool, error) {
+	if recipient < 0 {
+		live, e := s.OperatorRunnerAlive(ctx)
+		if e != nil || !live {
+			return false, e
+		}
+	}
 	res, err := s.db.ExecContext(ctx, `update session_messages set notification_status='uncertain',notification_transport=?,notification_error='notification in flight or acceptance unknown',notification_attempted_at=?
 where id=? and recipient=? and state='queued' and notification_status in ('pending','deferred')
-and exists(select 1 from sessions s join tickets t on t.id=s.ticket_id join boards b on b.id=t.board_id where s.id=? and s.is_active=1 and s.status not in ('starting','closing') and t.focus_paused=0 and t.archived_at is null and b.archived_at is null)
-and not exists(select 1 from session_messages other where other.recipient=? and other.id<>session_messages.id and other.state<>'acknowledged' and other.notification_status in ('uncertain','submitted'))`, transport, time.Now().UTC(), id, recipient, recipient, recipient)
+and exists(select 1 from sessions s left join tickets t on t.id=s.ticket_id left join boards b on b.id=t.board_id left join operators o on o.id=s.operator_id where ((s.id=? and s.operator_id is null) or (-s.operator_id=? and s.id=(select max(id) from sessions where operator_id=s.operator_id))) and s.is_active=1 and s.status not in ('starting','closing') and ((o.id is not null and o.deleted_at is null and s.status in ('completed','ready')) or (t.focus_paused=0 and t.archived_at is null and b.archived_at is null)))
+and (recipient>0 or sender<>0 or exists(select 1 from operators o where o.id=-recipient and (o.schedule_paused=0 or exists(select 1 from operator_wakeups w where w.operator_id=o.id and 'operator-wake-'||w.id=session_messages.request_key and w.reason='run now'))))
+and not exists(select 1 from session_messages other where other.recipient=? and other.id<>session_messages.id and other.state<>'acknowledged' and other.notification_status in ('uncertain','submitted'))`, transport, time.Now().UTC(), id, recipient, recipient, recipient, recipient)
 	if err != nil {
 		return false, err
 	}
@@ -71,7 +78,7 @@ func (s *Store) RetryMessageNotification(ctx context.Context, participant, id in
 }
 
 func (s *Store) PendingMessageRecipients(ctx context.Context) ([]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `select distinct m.recipient from session_messages m join sessions s on s.id=m.recipient join tickets t on t.id=s.ticket_id join boards b on b.id=t.board_id where m.state='queued' and m.notification_status in ('pending','deferred') and s.is_active=1 and t.focus_paused=0 and t.archived_at is null and b.archived_at is null order by m.recipient limit 32`)
+	rows, err := s.db.QueryContext(ctx, `select distinct m.recipient from session_messages m join sessions s on (s.id=m.recipient and s.operator_id is null) or (-s.operator_id=m.recipient and s.id=(select max(id) from sessions where operator_id=s.operator_id)) left join tickets t on t.id=s.ticket_id left join boards b on b.id=t.board_id left join operators o on o.id=s.operator_id where m.state='queued' and m.notification_status in ('pending','deferred') and s.is_active=1 and ((o.id is not null and o.deleted_at is null and s.status in ('completed','ready')) or (t.focus_paused=0 and t.archived_at is null and b.archived_at is null)) order by m.recipient limit 32`)
 	if err != nil {
 		return nil, err
 	}

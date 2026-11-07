@@ -21,6 +21,7 @@ Commands:
   integration List or cancel legacy integration runs
   add        Create a ticket
   templates  Manage board-scoped ticket templates
+  operators  Manage workspace Operators and scheduled wakeups
   list       List tickets
   show       Show one ticket
   update     Update ticket metadata
@@ -54,8 +55,23 @@ Exit status is 0 for success/help and 1 for command, configuration, or runtime e
 `
 
 var commandHelp = map[string]string{
+	"operators": `Usage: kanbi operators list
+       kanbi operators create --name NAME --harness pi|codex|claude|copilot --cwd PATH [--instructions TEXT|--instructions-file PATH] [--schedule CRON|15m|hourly|daily --timezone ZONE --prompt TEXT]
+       kanbi operators edit ID [--name NAME --cwd PATH --instructions TEXT|--instructions-file PATH --schedule CRON --timezone ZONE --prompt TEXT]
+       kanbi operators open|run|pause|resume|stop|close|fresh|retry|delete ID
+       kanbi operators wakeups list OPERATOR_ID
+       kanbi operators wakeups create OPERATOR_ID --at RFC3339 --prompt TEXT
+       kanbi operators wakeups cancel WAKEUP_ID
+
+Operators are workspace-wide. Harness is immutable. Standing instructions live
+in the resolved config directory and are read again on every wake. Scheduling
+runs only while the board UI is open. Pause affects schedules, not messages or
+Run now. Stop interrupts a turn; close closes the tab. Fresh requires an explicit
+close first. Delete retires triggers/address and retains history and active tabs.
+List/create/edit and wakeup list/create output JSON.
+`,
 	"messages": `Usage: kanbi messages recipients
-       kanbi messages send SESSION_ID --key RETRY_KEY --body TEXT
+       kanbi messages send SESSION_ID|operator:ID --key RETRY_KEY --body TEXT
        kanbi messages reply MESSAGE_ID --key RETRY_KEY --body TEXT
        kanbi messages inbox [--all]
        kanbi messages ack MESSAGE_ID
