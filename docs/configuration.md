@@ -2,6 +2,19 @@
 
 Kanbi reads YAML configuration from `${XDG_CONFIG_HOME:-~/.config}/kanbi/config.yaml`. Set `KANBI_CONFIG` to use another file.
 
+## Default harness
+
+```yaml
+default_harness: codex
+```
+
+The default is `pi`; supported choices are `pi`, `codex`, `copilot`, and `claude`.
+Restart Kanbi after changing this setting. It selects the harness for new blank
+TUI tickets, `kanbi add` without `--harness`, and newly created ticket templates.
+An explicit `--harness` or a selected template's saved harness takes precedence.
+Existing tickets and templates keep their saved harness. Clearing the harness
+field in the TUI ticket editor uses the configured default when saving.
+
 ## Herdr runtime
 
 Herdr is the sole runtime. Use Herdr 0.9.3 or newer with `agent start --kind` and `--pane`; unsupported command surfaces fail before launch. Defaults require no multiplexer configuration:

@@ -88,7 +88,7 @@ func (m *Model) startTemplateEditor(tmpl storage.TicketTemplate, create bool) {
 	m.templateSeedTitle = NewInputBuffer(tmpl.Title)
 	m.templateHarness = NewInputBuffer(tmpl.Harness)
 	if create && strings.TrimSpace(tmpl.Harness) == "" {
-		m.templateHarness = NewInputBuffer("pi")
+		m.templateHarness = NewInputBuffer(m.defaultHarness)
 	}
 	m.templateBodyTA = newBodyTextarea(tmpl.Body, m.width)
 	m.templateBodyTA.Placeholder = "(empty)"

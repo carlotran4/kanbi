@@ -175,6 +175,7 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		}
 		svc.DataDir = cfg.Paths.DataDir
 		model := tui.NewWithPickerStatusBarOptions(ctx, svc, reconcileWarning, *cfg.StatusBar)
+		model.SetDefaultHarness(cfg.DefaultHarness)
 		defer model.Close()
 		_, err := tea.NewProgram(model, tea.WithFPS(tui.RenderFPS)).Run()
 		return err
@@ -656,7 +657,7 @@ func runTemplates(ctx context.Context, cfg config.Config, args []string) error {
 			}
 			harnessName := opts.Harness
 			if !opts.HarnessSet {
-				harnessName = "pi"
+				harnessName = cfg.DefaultHarness
 			}
 			tmpl, err := svc.CreateTicketTemplate(ctx, board.Board.ID, opts.Name, opts.Title, opts.Body, harnessName)
 			if err != nil {
@@ -816,6 +817,9 @@ func runAdd(ctx context.Context, cfg config.Config, args []string) error {
 			}
 			t, err = cli.Service().CreateTicketFromTemplate(ctx, board.Columns[0].ID, tmpl.ID, overrides)
 		} else {
+			if !opts.HarnessSet {
+				opts.Harness = cfg.DefaultHarness
+			}
 			t, err = cli.Service().CreateTicket(ctx, board.Columns[0].ID, opts.Title, opts.Body, opts.Harness)
 		}
 		if err != nil {

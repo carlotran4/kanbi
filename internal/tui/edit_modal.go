@@ -419,7 +419,7 @@ func (m *Model) saveEdit() bool {
 	body := numberPromptImages(m.bodyTA.Value())
 	harness := stripKittyGraphicsResponseFragments(m.editInputs[2].Value())
 	if strings.TrimSpace(harness) == "" {
-		harness = "pi"
+		harness = m.defaultHarness
 	}
 	if err := m.actions.UpdateTicket(m.ctx, t.ID, strings.TrimSpace(title), body, strings.TrimSpace(harness)); err != nil {
 		m.status = err.Error()
@@ -519,7 +519,7 @@ func (m Model) editView() string {
 	meta = append(meta, statusChipForTicket(t, status))
 	harnessValue := strings.TrimSpace(m.editInputs[2].Value())
 	if harnessValue == "" {
-		harnessValue = "pi"
+		harnessValue = m.defaultHarness
 	}
 	if m.editField == 2 {
 		label := focusChip.Render("harness") + " "
@@ -695,7 +695,7 @@ func inspectorDescriptionLines(termHeight int) int {
 func (m Model) editDirty(t storage.Ticket) bool {
 	harness := strings.TrimSpace(m.editInputs[2].Value())
 	if harness == "" {
-		harness = "pi"
+		harness = m.defaultHarness
 	}
 	refChanged := m.editSessionRefVisible && strings.TrimSpace(m.editSessionRef.Value()) != strings.TrimSpace(t.SessionRef.String)
 	return m.editInputs[0].Value() != t.Title || m.bodyTA.Value() != t.Body || harness != strings.TrimSpace(t.Harness) || refChanged

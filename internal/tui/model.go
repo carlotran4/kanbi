@@ -22,6 +22,7 @@ import (
 )
 
 type Model struct {
+	defaultHarness          string
 	fleet                   fleetUI
 	search                  boardSearchState
 	inspector               inspectorState
@@ -199,6 +200,13 @@ type Model struct {
 const defaultTermWidth = 220
 const defaultTermHeight = 40
 
+// SetDefaultHarness sets the harness used for new tickets and templates.
+func (m *Model) SetDefaultHarness(name string) {
+	if name = strings.TrimSpace(name); name != "" {
+		m.defaultHarness = name
+	}
+}
+
 func New(ctx context.Context, store Actions) Model {
 	return NewWithStatusBar(ctx, store, statusbar.DefaultConfig())
 }
@@ -206,6 +214,7 @@ func New(ctx context.Context, store Actions) Model {
 func NewWithStatusBar(ctx context.Context, store Actions, statusBar statusbar.Config) Model {
 	statusBarCtx, statusBarCancel := context.WithCancel(ctx)
 	m := Model{
+		defaultHarness:   "pi",
 		ctx:              ctx,
 		refreshWorker:    newRuntimeRefreshWorker(ctx),
 		renderCache:      newRenderCache(),
@@ -875,7 +884,7 @@ func (m *Model) startMasterCreatePicker() {
 }
 
 func (m *Model) createTicketInColumn(columnID int64) {
-	t, err := m.actions.CreateTicket(m.ctx, columnID, "New ticket", "", "pi")
+	t, err := m.actions.CreateTicket(m.ctx, columnID, "New ticket", "", m.defaultHarness)
 	if err != nil {
 		m.status = err.Error()
 		return

@@ -1049,3 +1049,43 @@ func TestDoctorRejectsSuccessfulStatusWhenServerNotRunning(t *testing.T) {
 		t.Fatal("successful status exit must not imply running server")
 	}
 }
+
+func TestConfiguredDefaultHarnessCreationPrecedence(t *testing.T) {
+	run, getStore := setupCLI(t)
+	if err := os.WriteFile(os.Getenv("KANBI_CONFIG"), []byte("default_harness: codex\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", "Configured default"},
+		{"add", "Explicit harness", "--harness", "claude"},
+		{"templates", "add", "Default template"},
+		{"templates", "add", "Pi template", "--harness", "pi"},
+		{"add", "Template harness", "--template", "Pi template"},
+		{"add", "Template override", "--template", "Pi template", "--harness", "claude"},
+	} {
+		if err := run(args...); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	s := getStore()
+	tickets, err := s.ListTickets(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tickets) != 4 {
+		t.Fatalf("tickets = %+v", tickets)
+	}
+	for i, want := range []string{"codex", "claude", "pi", "claude"} {
+		if tickets[i].Harness != want {
+			t.Errorf("ticket %d harness = %q, want %q", i, tickets[i].Harness, want)
+		}
+	}
+	view, err := s.BoardView(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl, err := s.TicketTemplateByName(context.Background(), view.Board.ID, "Default template")
+	if err != nil || tmpl.Harness != "codex" {
+		t.Fatalf("default template = %+v, err = %v", tmpl, err)
+	}
+}
