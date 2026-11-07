@@ -89,7 +89,7 @@ func (m *Manager) startSessionRefCapture(sessionID int64, harnessName string, ti
 				// Bind the captured ref to the row created by this launch. Never
 				// look up the ticket's current active session: it may be a newer
 				// attempt by the time a slow harness exposes its ref.
-				if err := m.Store.UpdateSessionRef(ctx, sessionID, ref); err != nil {
+				if err := m.Store.CaptureSessionRef(ctx, sessionID, ref); err != nil {
 					if ctx.Err() == nil {
 						m.reportBackgroundError(fmt.Errorf("capture %s session ref for session %d: %w", harnessName, sessionID, err))
 					}

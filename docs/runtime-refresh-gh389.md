@@ -73,3 +73,41 @@ observation errors from runtime-lock and persistence failures without terminatin
 the agent or replacing its history. A successful subsequent refresh automatically
 clears the warning; recurring failures now remain visible instead of falsely
 reporting recovery.
+
+## Follow-up: missing Claude resume refs
+
+The follow-up report identified missing native resume refs as a separate problem.
+Herdr 0.9.3's bundled API schema exposes `AgentSessionInfo` through `agent.get`
+and `pane.get`, but Kanbi discarded that object and relied on its own prompt/history
+matching. Local `herdr integration status` also showed the Claude integration was
+not installed, so this machine could detect Claude's terminal state without
+receiving its native ref from a hook. This is a verified local setup gap, not
+proof that every affected installation has the same configuration.
+
+Kanbi now consumes matching official Herdr session reports first and saves them
+during launch, periodic refresh, active-session recovery, and before explicit
+close. An open-only launch can capture the ref without a prompt. Native session
+identity is independent of state: an owned real Herdr fixture accepted a Claude
+session report while its pane still had unknown state and `agent.get` returned
+`agent_not_found`; `pane.get` exposed the ref. Kanbi now handles that fallback.
+Existing history matching remains available when the native ref is absent.
+
+`TestClaudeNativeRefCapturedWithoutPromptAndResumedAfterClose` verifies capture,
+close, and native resume on fake Herdr without any Claude history files.
+`TestClaudeLateNativeRefCapturedByRefreshRecoveryAndClose` covers each late-capture
+entry point. Invalid/mismatched reports and delayed overwrite of a repaired ref
+or newer attempt are rejected. The opt-in real API check is:
+
+```bash
+KANBI_REAL_HERDR_REF_TESTS=1 go test -v ./internal/runtime -run '^TestRealHerdrNativeSessionRef$' -count=1
+```
+
+It starts/stops its own Herdr fixture, submits a synthetic official session
+report, and verifies that the real API result reaches the original active SQLite
+session. It does not launch an authenticated harness or consume model quota.
+Enable the actual Claude integration with `herdr integration install claude`,
+then use it for newly launched Claude processes so their SessionStart hook runs.
+No user-wide integration was installed by this investigation.
+
+API contract: <https://herdr.dev/tui/docs/socket-api/#agent-state-reporting>.
+Integration setup: <https://herdr.dev/tui/docs/integrations/#claude-code>.

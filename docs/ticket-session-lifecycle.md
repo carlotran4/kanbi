@@ -97,7 +97,7 @@ For a never-started ticket, the default `Enter` action sends the prompt and open
 - For arg-mode harnesses, append prompt to the harness command. Pi and Claude additionally receive an explicit `Enter` after launch so versions that only populate the editor submit the turn.
 - For paste-mode harnesses, wait for prompt-ready, send literal text through Herdr, send Enter.
 - Creates exactly one active session row. The row is claimed as `starting` before runtime launch and becomes `running` only after its container reference is persisted.
-- Attempts harness-specific session ref capture. Delayed Pi/Codex/Claude capture is owned by the runtime manager and updates the exact session attempt that initiated it, even if a newer attempt becomes active before capture completes. Codex retries accept only sessions created before the original prompt submission.
+- Prefers the matching official Herdr `agent_session` resume ref, then attempts harness-specific session ref capture. Delayed Pi/Codex/Claude capture is owned by the runtime manager and updates the exact session attempt that initiated it, even if a newer attempt becomes active before capture completes. Codex retries accept only sessions created before the original prompt submission.
 - If launch or prompt delivery fails, closes any newly-created container best-effort and leaves the attempt as an inactive `error` row.
 - Delayed session-ref capture is bounded, attempt-bound, and canceled on manager shutdown.
 - Workspace-backed attempts use the session's immutable launch-cwd snapshot for initial capture, delayed capture, validation, recovery, and resume.
@@ -145,7 +145,7 @@ Opening a paused ticket first shows its current description and latest checkpoin
 
 - Runtime detection never closes a session automatically. Waiting and permission classifications are advisory; the terminal container remains active until an explicit close or archive action.
 - `x` sends configured harness exit keys first, then closes the Herdr pane and marks the attempt inactive.
-- A successfully closed session is inactive and keeps its session ref if one was captured.
+- A successfully closed session is inactive and keeps its session ref if one was captured. A missing ref receives one native Herdr observation before explicit close, while the live pane can still report it. Periodic refresh and active-session recovery also save newly available native refs, even without a matching ticket prompt.
 - If a successfully launched terminal container disappears outside the close command, the attempt becomes `exited` and resumable when it has a verified session ref; without a ref it becomes `repair_needed`. Missing containers are not labeled as session errors merely because the process exited.
 - Agent transcript content never establishes session `error`: words such as `error`, `failed`, panic output, and tracebacks concern the work inside the session. Transient multiplexer read failures preserve the last known runtime state while recording diagnostic context; authoritative Herdr `agent_not_found`/`pane_not_found` responses establish that the container exited.
 - Archiving a running ticket uses the same safe close path before hiding the ticket.

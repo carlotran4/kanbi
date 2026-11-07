@@ -318,7 +318,7 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
-		if ref, ok := l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchCWD, launchStartedAt, refFile, refToken); ok && !ses.HarnessSessionRef.Valid {
+		if ref, ok := l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchCWD, launchStartedAt, refFile, refToken, containerRef); ok && !ses.HarnessSessionRef.Valid {
 			ses.HarnessSessionRef = sql.NullString{String: ref, Valid: true}
 		}
 	}
@@ -330,6 +330,14 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			return failClaim(err)
 		}
 		insertedSessionID := claimID
+		if !ses.HarnessSessionRef.Valid && !sendPrompt {
+			if ref, ok := l.manager.captureNativeSessionRef(ctx, containerRef, ticket.Harness); ok {
+				if err := l.manager.Store.CaptureSessionRef(ctx, claimID, ref); err != nil {
+					return err
+				}
+				ses.HarnessSessionRef = sql.NullString{String: ref, Valid: true}
+			}
+		}
 		// If we didn't capture the ref before upserting (e.g. Pi extension fires slowly),
 		// keep polling and update exactly the session row created by this launch.
 		if !ses.HarnessSessionRef.Valid && sendPrompt && refFile != "" {
@@ -340,6 +348,9 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 				if !l.manager.nativeHarness(ticket.Harness) {
 					return "", false
 				}
+				if ref, ok := l.manager.captureNativeSessionRef(l.manager.background.ctx, containerRef, ticket.Harness); ok {
+					return ref, true
+				}
 				return harness.CaptureSessionRefInCWD(ticket.Harness, renderedPrompt, launchCWD, launchStartedAt)
 			})
 		}
@@ -349,18 +360,24 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			promptText := renderedPrompt
 			since := launchStartedAt
 			l.manager.startSessionRefCapture(insertedSessionID, harnessName, defaultPiRefCaptureTimeout, func() (string, bool) {
+				if ref, ok := l.manager.captureNativeSessionRef(l.manager.background.ctx, containerRef, harnessName); ok {
+					return ref, true
+				}
 				return harness.CaptureSessionRefInCWD(harnessName, promptText, cwd, since)
 			})
 		}
 		// Claude Code can sit on the workspace-trust dialog for an unbounded
-		// amount of time, so keep polling its projects dir well past the
-		// synchronous capture deadline.
-		if !ses.HarnessSessionRef.Valid && sendPrompt && ticket.Harness == "claude" && l.manager.nativeHarness(ticket.Harness) {
+		// amount of time, so keep observing Herdr (with history fallback)
+		// well past the synchronous capture deadline, even for open-only launches.
+		if !ses.HarnessSessionRef.Valid && ticket.Harness == "claude" && l.manager.nativeHarness(ticket.Harness) {
 			harnessName := ticket.Harness
 			cwd := launchCWD
 			promptText := renderedPrompt
 			since := launchStartedAt
 			l.manager.startSessionRefCapture(insertedSessionID, harnessName, defaultClaudeRefCaptureTimeout, func() (string, bool) {
+				if ref, ok := l.manager.captureNativeSessionRef(l.manager.background.ctx, containerRef, harnessName); ok {
+					return ref, true
+				}
 				return harness.CaptureSessionRefInCWD(harnessName, promptText, cwd, since)
 			})
 		}
@@ -395,13 +412,13 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 				// Pane-first launches deliver the prompt after the durable claim is
 				// completed. Capture synchronously so short-lived CLI commands do not
 				// cancel the only opportunity to persist the resume handle on exit.
-				ref, captured = l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchCWD, launchStartedAt, refFile, refToken)
+				ref, captured = l.manager.captureSessionRef(ctx, ticket.Harness, renderedPrompt, launchCWD, launchStartedAt, refFile, refToken, containerRef)
 			}
 			if captured {
 				// Prompt delivery can outlive this claim if another process starts
 				// fresh. Persist against the claim created for this launch, never
 				// whichever attempt happens to be active now.
-				if err := l.manager.Store.UpdateSessionRef(ctx, claimID, ref); err != nil {
+				if err := l.manager.Store.CaptureSessionRef(ctx, claimID, ref); err != nil {
 					l.manager.reportBackgroundError(fmt.Errorf("capture %s session ref for session %d: %w", ticket.Harness, claimID, err))
 				}
 			} else if ticket.Harness == "codex" && herdrPaneFirst && l.manager.nativeHarness(ticket.Harness) {
@@ -409,6 +426,9 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 				// retries by session creation time so a later identical launch
 				// cannot be mistaken for this attempt.
 				l.manager.startSessionRefCapture(claimID, ticket.Harness, defaultCodexRefCaptureTimeout, func() (string, bool) {
+					if ref, ok := l.manager.captureNativeSessionRef(l.manager.background.ctx, containerRef, ticket.Harness); ok {
+						return ref, true
+					}
 					return harness.CaptureCodexSessionRefBefore(renderedPrompt, launchCWD, launchStartedAt, promptSubmittedAt)
 				})
 			}

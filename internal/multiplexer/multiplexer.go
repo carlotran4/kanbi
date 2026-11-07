@@ -63,9 +63,18 @@ type ReadOptions struct {
 	Lines int
 }
 
-// Detection is a runtime-state observation. Source distinguishes native provider
-// state from terminal-output detection.
+// AgentSession is a harness-native resume handle reported by the runtime.
+// It is separate from the runtime container ID and may arrive before state.
+type AgentSession struct {
+	Source string
+	Agent  string
+	Kind   string
+	Value  string
+}
+
+// Detection is a runtime-state observation. Session is independent of state.
 type Detection struct {
+	Session *AgentSession
 	State   string
 	Reason  string
 	Excerpt string

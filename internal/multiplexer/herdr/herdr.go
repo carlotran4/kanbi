@@ -472,19 +472,36 @@ func (a *Adapter) Detect(ctx context.Context, ref multiplexer.ContainerRef) (mul
 	}
 	out, err := a.run(ctx, "agent", "get", target)
 	if err != nil {
-		return unknownDetection(herdrCommandError("agent get", out, err).Error()), nil
+		detection := unknownDetection(herdrCommandError("agent get", out, err).Error())
+		// Session reports are independent of agent-state detection. The pane can
+		// have a verified ref even while agent.get cannot identify its process.
+		paneID := refMeta(ref, "pane_id", "paneId", "result.agent.pane_id", "result.pane_id")
+		if paneID == "" {
+			paneID = ref.ID
+		}
+		if paneID != "" {
+			if pane, paneErr := a.run(ctx, "pane", "get", paneID); paneErr == nil {
+				detection.Session = parseAgentSession(parseObject(pane))
+			}
+		}
+		return detection, nil
 	}
 	obj := parseObject(out)
+	nativeSession := parseAgentSession(obj)
 	state := strings.ToLower(firstString(obj, "result.agent.agent_status", "result.agent.status", "result.agent.state", "state", "status", "agent_state", "agentState", "agent.state", "agent.status"))
 	if state == "" || state == "unknown" {
-		return unknownDetection("Herdr returned unknown agent state"), nil
+		detection := unknownDetection("Herdr returned unknown agent state")
+		detection.Session = nativeSession
+		return detection, nil
 	}
 	reason := firstString(obj, "result.agent.message", "result.agent.custom_status", "result.agent.customStatus", "message", "reason", "custom_status", "customStatus", "agent.message", "agent.custom_status")
 	mapped := mapState(state, reason)
 	if mapped == "" {
-		return unknownDetection("Herdr returned unsupported agent state: " + state), nil
+		detection := unknownDetection("Herdr returned unsupported agent state: " + state)
+		detection.Session = nativeSession
+		return detection, nil
 	}
-	return multiplexer.Detection{State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative}, nil
+	return multiplexer.Detection{Session: nativeSession, State: mapped, Reason: reasonFor(reason, "Herdr agent state: "+state), Source: multiplexer.DetectionSourceNative}, nil
 }
 
 func paneFirstAgentName(name, paneID string) string {
@@ -845,4 +862,21 @@ func (a *Adapter) ReadScreen(ctx context.Context, ref multiplexer.ContainerRef) 
 		return "", err
 	}
 	return readText(out), nil
+}
+
+func parseAgentSession(obj map[string]any) *multiplexer.AgentSession {
+	var nativeSession *multiplexer.AgentSession
+	for _, prefix := range []string{"result.agent.agent_session", "result.pane.agent_session", "agent_session"} {
+		value := firstString(obj, prefix+".value")
+		if value != "" {
+			nativeSession = &multiplexer.AgentSession{
+				Source: firstString(obj, prefix+".source"),
+				Agent:  firstString(obj, prefix+".agent"),
+				Kind:   firstString(obj, prefix+".kind"),
+				Value:  value,
+			}
+			break
+		}
+	}
+	return nativeSession
 }

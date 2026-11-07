@@ -135,6 +135,11 @@ After launching with a positional prompt, Kanbi sends an explicit `Enter`. This 
 
 ### Session Ref Capture
 
+Primary capture uses Herdr's official Claude integration (`herdr integration install claude`). The integration reports the native conversation ID to Herdr, and Kanbi reads `agent_session` from agent/pane observations. This works independently of the ticket prompt and native state detection, including open-only sessions. Kanbi fills a missing ref during launch, subsequent runtime refresh, recovery of an active attempt, and immediately before an explicit close. Delayed capture updates only its original session row and never overwrites a repaired non-empty ref. Other supported harnesses also prefer matching official Herdr reports before their existing fallback capture paths.
+
+If the integration is missing, outdated, or has not yet reported a ref, the following Claude history scan remains the fallback:
+
+
 Claude Code writes each session to `~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl`, where the directory name is the absolute working directory with `/` replaced by `-`. Each line is a JSON object; non-meta user turns have the shape:
 
 ```json
