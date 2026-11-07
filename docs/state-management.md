@@ -213,13 +213,18 @@ require journal completion first. See [Fleet Mode](fleet-mode.md).
 
 ## Session mailbox
 
-Migration 11 adds a durable session-attempt mailbox independent of runtime state.
+Migrations 11–12 add a durable session-attempt mailbox and notification receipts independent of runtime state.
 Messages progress from `queued` to `notified` to `acknowledged`; explicit recipient
 acknowledgement may also occur directly after an inbox read. Notification never
-consumes mail or regresses acknowledgement. Sender-scoped retry keys deduplicate
+consumes mail or regresses acknowledgement. Notification claims are written before
+side effects. Deferred notices may retry in the existing runtime loop; uncertain
+outcomes fence competing processes and require positive receipt or explicit retry.
+Socket/terminal submission remains queued until the recipient fetches its inbox;
+native queue/context acceptance or inbox fetch marks notified. Fetch never acknowledges
+responsibility. Private endpoint credentials live outside database backups. Sender-scoped retry keys deduplicate
 commits; replies derive their destination from the parent message and stop after
 eight hops. Endpoint IDs are retained without cascading session foreign keys.
 Whole-database backup preserves mail; portable board packages exclude it.
 Closed/paused attempts retain their mail. Resume/start-fresh never silently retarget
 messages to another attempt. See [session messaging](session-messaging.md) for the
-common CLI, native prototype, identity trust boundary, and unverified wake paths.
+common CLI, native delivery mechanisms, identity trust boundary, and verification limits.

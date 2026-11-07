@@ -25,7 +25,7 @@ Commands:
   show       Show one ticket
   update     Update ticket metadata
   move       Move a ticket to a workflow column
-  messages   Durable session mailbox (experimental native delivery)
+  messages   Durable session mailbox and automatic notification
   notes      List, add, update, or delete ticket notes
   state      Show board/session state
   open       Open or resume a ticket agent session
@@ -60,16 +60,19 @@ var commandHelp = map[string]string{
        kanbi messages inbox [--all]
        kanbi messages ack MESSAGE_ID
        kanbi messages status MESSAGE_ID
+       kanbi messages retry MESSAGE_ID
        kanbi messages notified MESSAGE_ID
 
 All output is JSON. Sender and inbox identity come from KANBI_SESSION_ID in
 newly launched managed sessions. Addresses are session attempts in this database;
 closed attempts retain mail and are never silently redirected to fresh attempts.
-Send commits promptly; automatic delivery requires a verified native receiver.
-The experimental receiver calls notified only after native acceptance. Inbox reads
-do not acknowledge. Reuse the same key and content on retries. Replies derive the
-recipient from the original message and stop after eight hops. No automatic replies.
-See docs/session-messaging.md for native delivery blockers and the Pi prototype.`,
+Send commits promptly and attempts bounded automatic notification through Claude's
+native inbox, Codex queue, Pi's bundled extension, or Copilot's text/Enter fallback.
+Inbox fetches receipt messages but do not acknowledge responsibility. Notification
+status/error distinguishes deferred, submitted and uncertain outcomes. Explicit retry
+of an uncertain notice after 30 seconds can duplicate a previously accepted notice.
+Reuse the same key and content on send retries. Replies derive the recipient from the original message and stop after eight hops. No automatic replies.
+See docs/session-messaging.md for delivery mechanisms and verification limits.`,
 	"integration": `Usage: kanbi integration list
        kanbi integration cancel RUN_ID
 

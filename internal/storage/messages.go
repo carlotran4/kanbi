@@ -33,25 +33,29 @@ func migrateMessages(ctx context.Context, tx *sql.Tx) error {
 }
 
 type SessionMessage struct {
-	ID             int64      `json:"id"`
-	Sender         int64      `json:"sender"`
-	Recipient      int64      `json:"recipient"`
-	RequestKey     string     `json:"request_key"`
-	Body           string     `json:"body"`
-	ReplyTo        int64      `json:"reply_to,omitempty"`
-	Depth          int        `json:"depth"`
-	State          string     `json:"state"`
-	CreatedAt      time.Time  `json:"created_at"`
-	NotifiedAt     *time.Time `json:"notified_at"`
-	AcknowledgedAt *time.Time `json:"acknowledged_at"`
+	NotificationStatus      string     `json:"notification_status"`
+	NotificationTransport   string     `json:"notification_transport"`
+	NotificationError       string     `json:"notification_error,omitempty"`
+	NotificationAttemptedAt *time.Time `json:"notification_attempted_at"`
+	ID                      int64      `json:"id"`
+	Sender                  int64      `json:"sender"`
+	Recipient               int64      `json:"recipient"`
+	RequestKey              string     `json:"request_key"`
+	Body                    string     `json:"body"`
+	ReplyTo                 int64      `json:"reply_to,omitempty"`
+	Depth                   int        `json:"depth"`
+	State                   string     `json:"state"`
+	CreatedAt               time.Time  `json:"created_at"`
+	NotifiedAt              *time.Time `json:"notified_at"`
+	AcknowledgedAt          *time.Time `json:"acknowledged_at"`
 }
 
-const messageSelect = `select id,sender,recipient,request_key,body,reply_to,depth,state,created_at,notified_at,acknowledged_at from session_messages`
+const messageSelect = `select id,sender,recipient,request_key,body,reply_to,depth,state,created_at,notified_at,acknowledged_at,notification_status,notification_transport,notification_error,notification_attempted_at from session_messages`
 
 type messageScanner interface{ Scan(...any) error }
 
 func scanMessage(row messageScanner) (m SessionMessage, err error) {
-	err = row.Scan(&m.ID, &m.Sender, &m.Recipient, &m.RequestKey, &m.Body, &m.ReplyTo, &m.Depth, &m.State, &m.CreatedAt, &m.NotifiedAt, &m.AcknowledgedAt)
+	err = row.Scan(&m.ID, &m.Sender, &m.Recipient, &m.RequestKey, &m.Body, &m.ReplyTo, &m.Depth, &m.State, &m.CreatedAt, &m.NotifiedAt, &m.AcknowledgedAt, &m.NotificationStatus, &m.NotificationTransport, &m.NotificationError, &m.NotificationAttemptedAt)
 	return
 }
 
@@ -169,13 +173,13 @@ func (s *Store) SessionNotificationInbox(ctx context.Context, recipient int64) (
 // MarkMessageNotified records native acceptance, not model processing. Unknown
 // outcomes stay queued; native adapters must deduplicate by message ID.
 func (s *Store) MarkMessageNotified(ctx context.Context, recipient, id int64) error {
-	res, err := s.db.ExecContext(ctx, `update session_messages set state=case when state='queued' then 'notified' else state end,notified_at=coalesce(notified_at,?) where id=? and recipient=? and exists
+	res, err := s.db.ExecContext(ctx, `update session_messages set state=case when state='queued' then 'notified' else state end,notified_at=coalesce(notified_at,?),notification_status='notified',notification_error='' where id=? and recipient=? and exists
 (select 1 from sessions s join tickets t on t.id=s.ticket_id join boards b on b.id=t.board_id
 where s.id=session_messages.recipient and s.is_active=1 and s.status not in ('starting','closing') and t.focus_paused=0 and t.archived_at is null and b.archived_at is null)`, time.Now().UTC(), id, recipient)
 	return requireAffected(res, err)
 }
 func (s *Store) AcknowledgeSessionMessage(ctx context.Context, recipient, id int64) error {
-	res, err := s.db.ExecContext(ctx, `update session_messages set state='acknowledged',acknowledged_at=coalesce(acknowledged_at,?) where id=? and recipient=?`, time.Now().UTC(), id, recipient)
+	res, err := s.db.ExecContext(ctx, `update session_messages set state='acknowledged',acknowledged_at=coalesce(acknowledged_at,?),notification_status='notified',notification_error='' where id=? and recipient=?`, time.Now().UTC(), id, recipient)
 	return requireAffected(res, err)
 }
 
@@ -197,7 +201,17 @@ const messageRecipientSelect = `select s.id,s.ticket_id,b.name,t.display_id,s.ha
 
 func scanMessageRecipient(row messageScanner) (r MessageRecipient, err error) {
 	err = row.Scan(&r.SessionID, &r.TicketID, &r.Board, &r.DisplayID, &r.Harness, &r.Active, &r.Paused, &r.Archived, &r.Status, &r.Resumable)
-	r.Delivery = "native_adapter_required"
+	r.Delivery = "unsupported_harness"
+	switch r.Harness {
+	case "pi":
+		r.Delivery = "pi_extension"
+	case "codex":
+		r.Delivery = "codex_queue"
+	case "claude":
+		r.Delivery = "claude_socket"
+	case "copilot":
+		r.Delivery = "copilot_terminal_best_effort"
+	}
 	if r.Archived {
 		r.Delivery = "archived"
 	} else if r.Paused {

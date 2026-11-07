@@ -243,6 +243,10 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 				return failClaim(fmt.Errorf("resolve mailbox database path: %w", err))
 			}
 		}
+		command, err = l.manager.prepareMessageLaunch(command, claimID, ticket.Harness, launchCWD)
+		if err != nil {
+			return failClaim(err)
+		}
 		command = commandWithMessageIdentity(command, claimID, messageDBPath)
 	}
 
@@ -445,6 +449,13 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 				})
 			}
 		}
+	}
+	if l.manager.Store != nil && claimID != 0 {
+		notifyCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		if err := l.manager.NotifySessionMessages(notifyCtx, claimID); err != nil && notifyCtx.Err() == nil {
+			l.manager.reportBackgroundError(err)
+		}
+		cancel()
 	}
 	if l.manager.Config.Multiplexer.Herdr.FocusOnOpen {
 		return l.manager.herdrAdapter().Focus(ctx, containerRef)

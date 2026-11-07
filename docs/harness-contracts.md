@@ -191,14 +191,27 @@ Fake harnesses let deterministic smoke tests verify the full lifecycle without r
 
 Do not add a new harness if its session ref source cannot be verified locally without consuming quota.
 
-## Experimental cross-harness mailbox
+## Cross-harness mailbox notification
 
-All new managed launches receive `KANBI_SESSION_ID` and absolute `KANBI_DB` for the common
-`kanbi messages` CLI. Canonical Codex launches also pass these values through
-explicit per-thread shell environment policy so daemon-owned tools receive the
-same identity; the real messaging probe found that process environment alone
-was insufficient. This does not change supported start/resume commands or make
-a stored ref sufficient for automatic wake. Native notification capability,
-installed-version evidence, and blockers are tracked in the [GH-396 capability
-matrix](session-messaging.md#capability-matrix). The Pi RPC receiver is opt-in;
-normal interactive sessions have no automatic messaging injection.
+All new managed launches receive `KANBI_SESSION_ID`, absolute `KANBI_DB`, and the
+exact `KANBI_MAILBOX_CLI`. Canonical Codex also receives identity through explicit
+per-thread shell environment policy so daemon-owned tools inherit the right values.
+Kanbi records the recipient's CODEX_HOME and uses `codex queue` against its verified
+native ref; it never launches a second conversation or automatically resumes one.
+
+Claude launches add a bundled per-launch `--plugin-dir` without editing user hook
+configuration. Its SessionStart hook registers the exact native conversation,
+inbox socket and token in a private per-attempt file. Conversation changes disable
+that address. Native accept/hold/refuse remains authoritative; socket submission
+is not evidence of model acceptance. The transport uses an auth frame followed by
+a fixed user notice; the receiving CLI inbox read supplies a receipt.
+
+Pi start and resume add the bundled messaging extension alongside the existing
+ref-capture extension. It waits for native idle/pending state and an empty editor,
+rechecks after I/O, durably claims a notice, and uses native context/turn APIs.
+Native entries reconcile message IDs, and conversation changes stop the old receiver.
+
+Copilot uses the explicitly requested best-effort literal-text/Enter path after
+container validation; known busy/permission states defer. Draft preservation and
+native acceptance are not guaranteed. See [session messaging](session-messaging.md)
+for receipt/retry semantics, exact verification evidence and limits.

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Native Pi accepts repeated extension flags before start/resume arguments.
+while [[ "${1:-}" == "-e" ]]; do
+  shift 2
+done
 mode="${1:-start}"
 ref="fake-${KANBI_TICKET_ID:-${mode}}"
 if [[ -n "${KANBI_SESSION_REF_FILE:-}" ]]; then

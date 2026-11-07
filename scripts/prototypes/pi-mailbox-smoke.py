@@ -73,6 +73,9 @@ def main():
     env['KANBI_SESSION_ID'] = '1'
     sent = json.loads(cli('messages', 'send', '2', '--key', 'native-pi', '--body', 'native wake probe'))
     env['KANBI_SESSION_ID'] = '2'
+    endpoint_dir = Path(str(root / 'kanbi.db') + '.messages')
+    endpoint_dir.mkdir(mode=0o700)
+    env['KANBI_MESSAGE_ENDPOINT_FILE'] = str(endpoint_dir / '2.json')
     provider = root / 'provider.ts'
     provider.write_text(PROVIDER)
     stderr = open(root / 'stderr.log', 'w')

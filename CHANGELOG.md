@@ -6,9 +6,13 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Added
 
+- Automatic cross-harness session messaging: native Claude inbox delivery, Codex queue wake, a bundled interactive Pi receiver, and best-effort Copilot text/Enter notification. Durable receipts fence uncertain retries; existing sessions need a normal close/reopen to receive setup.
+
 - Board-scoped ticket templates with keyboard-first `N` creation and `T` management flows, Master board routing, CLI CRUD and `kanbi add --template`, snapshot semantics, provider-safe single creation, and board-package portability.
 
 ### Changed
+
+- Database schema 12 adds durable notification claims and receipts to the session mailbox. Older binaries reject the migrated database; roll back with a pre-upgrade backup. Native endpoint credentials remain in private machine-local files outside database backups.
 
 - Require the pane-first Herdr launch API (supported baseline 0.9.3); remove legacy launch fallback and the unused multiplexer registry.
 - Retire agent-assisted integration (`I`), reporting, and promotion. Keep direct ticket integration (`m`) and legacy run listing/cancellation without deleting history or candidate checkouts. Recover interrupted promotions with the previous Kanbi version.

@@ -182,3 +182,10 @@ its environment or create a mailbox identity. Closed attempts retain queued mail
 resume/start-fresh creates a new address and does not silently forward history.
 Paused work is never automatically resumed by the mailbox. See [session
 messaging](session-messaging.md) for explicit historical inbox inspection.
+
+Messaging setup is per launch and does not create another active attempt. Pi's
+receiver and Claude's registration hook bind native conversation identity to that
+attempt. Send/reply makes a bounded notification attempt after committing mail;
+existing refresh retries safe deferrals. Closed/paused/archived sessions are not
+started by messaging, and a native `/clear`/new conversation does not silently
+rebind mail. Copilot's terminal fallback is best effort and may affect a draft.

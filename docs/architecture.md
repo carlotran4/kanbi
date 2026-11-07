@@ -250,11 +250,13 @@ The canonical module path is `github.com/carlotran4/kanbi`. Supported stable/bet
 
 Operations support tools (`kanbi doctor`, opt-in diagnostics logging, `kanbi support-bundle`) are documented in [`docs/support.md`](./support.md).
 
-## Experimental session communication
+## Session communication
 
 The [GH-396 mailbox](session-messaging.md) reuses SQLite and exact session-attempt
-IDs. CLI mailbox operations use `internal/storage/messages.go`; durable commits
-are independent of optional native notification. Launch supplies `KANBI_SESSION_ID`
-and `KANBI_DB` without changing Herdr ownership. The opt-in Pi RPC experiment lives
-under `scripts/prototypes`; no detached notifier or automatic terminal injection
-is installed. This foundation does not yet provide production Operator activation.
+IDs. Durable commits remain separate from native notification. Launch supplies
+identity, a bundled Pi extension, a scoped Claude registration plugin, and Codex's
+thread-local shell environment. Send/reply performs bounded enqueue work; existing
+runtime refresh retries deferred notices. No detached notifier or new runtime
+substrate is introduced. Copilot intentionally uses validated terminal text/Enter.
+Notification claims are persisted before side effects; uncertain outcomes are not
+automatically replayed. Private native endpoint files are outside database backups.

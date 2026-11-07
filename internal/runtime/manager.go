@@ -592,6 +592,13 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			return errors.Join(errors.Join(observationErrors...), err)
 		}
 	}
+	if ctx.Err() == nil {
+		notifyCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		if err := m.notifyPendingMessages(notifyCtx); err != nil && ctx.Err() == nil {
+			m.reportBackgroundError(err)
+		}
+		cancel()
+	}
 	return errors.Join(observationErrors...)
 }
 

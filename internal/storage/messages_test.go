@@ -179,7 +179,7 @@ func TestSessionMailboxPauseAndFreshAttempt(t *testing.T) {
 func TestSessionMailboxMigrationFromV10PreservesHistory(t *testing.T) {
 	s, ctx := newTestStore(t)
 	a, b := messageEndpoints(t, s, ctx)
-	if _, err := s.db.ExecContext(ctx, `drop table session_messages; delete from schema_migrations where version=11`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `drop table session_messages; delete from schema_migrations where version>=11`); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {

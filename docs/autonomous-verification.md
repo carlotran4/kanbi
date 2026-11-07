@@ -454,13 +454,19 @@ See [the diagnosis, controlled reproduction, profiling commands, and limits](cpu
 
 ## Session mailbox (GH-396)
 
-`go test ./internal/storage -run TestSessionMailbox` covers restart persistence,
-concurrent retry keys, lifecycle eligibility, reply ownership, bounded reply chains,
-and the additive v10-to-v11 migration. `go test ./cmd/kanbi -run TestMessagesCrossHarnessMailbox`
-exercises the common CLI against synthetic cross-harness records.
-`python3 scripts/prototypes/pi-mailbox-smoke.py` optionally verifies installed Pi
-RPC idle activation using an offline fixture provider and private config/history.
-The finite authenticated exchange test is separately opt-in:
+Run focused harness/runtime/storage/CLI tests for mailbox and native notification.
+They cover cross-connection notification claims, restart fencing, explicit retry,
+conversation identity checks, native socket frames, Codex recipient-home isolation,
+and one literal Copilot paste/Enter with busy/permission deferral.
+
+`python3 scripts/prototypes/pi-mailbox-smoke.py` uses the installed Pi engine and
+an offline fixture provider. The authenticated production-path exchange is opt-in:
 `KANBI_REAL_HARNESS_TESTS=1 python3 scripts/prototypes/real-session-messaging.py`.
-See [the capability matrix and evidence limits](session-messaging.md); fake records,
-native command help, and real lifecycle checks do not establish cross-harness wake.
+It verifies normal interactive Pi automatic wake/reply, automatic Codex notification,
+busy delivery, Codex drafts at 160x45 and Pi draft deferral at 80x24. Set
+`KANBI_REAL_COPILOT_TESTS=1` to include the installed Copilot terminal fallback.
+`KANBI_NATIVE_CLAUDE_TESTS=1 python3 scripts/prototypes/claude-mailbox-smoke.py`
+verifies the installed Claude hook/socket with an isolated local model fixture;
+it is distinct from authenticated Claude provider verification. These scripts use
+owned Herdr fixtures and always stop their own server. See [delivery evidence and
+limits](session-messaging.md); terminal/socket submission alone is not reception.

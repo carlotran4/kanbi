@@ -10,8 +10,10 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -28,9 +30,22 @@ func runMessages(ctx context.Context, cfg config.Config, args []string) error {
 		return err
 	}
 	defer store.Close()
-	return executeMessages(ctx, store, os.Getenv("KANBI_SESSION_ID"), args, os.Stdout)
+	if len(args) == 1 && args[0] == "register-claude" {
+		id, err := messageSessionID(os.Getenv("KANBI_SESSION_ID"))
+		if err != nil {
+			return err
+		}
+		return runtime.RegisterClaudeMessageEndpoint(ctx, store, id, os.Stdin)
+	}
+	manager := runtime.NewManagerWithContext(ctx, cfg, store)
+	defer manager.Close()
+	return executeMessages(ctx, store, os.Getenv("KANBI_SESSION_ID"), args, os.Stdout, func(ctx context.Context, recipient int64) error {
+		notifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		return manager.NotifySessionMessages(notifyCtx, recipient)
+	})
 }
-func executeMessages(ctx context.Context, store *storage.Store, identity string, args []string, out io.Writer) error {
+func executeMessages(ctx context.Context, store *storage.Store, identity string, args []string, out io.Writer, notifiers ...func(context.Context, int64) error) error {
 	if len(args) == 0 {
 		return errors.New("usage: kanbi messages recipients|send|reply|inbox|ack|status (see --help)")
 	}
@@ -84,6 +99,12 @@ func executeMessages(ctx context.Context, store *storage.Store, identity string,
 		if err != nil {
 			return err
 		}
+		if len(notifiers) > 0 {
+			_ = notifiers[0](ctx, message.Recipient)
+		}
+		if updated, err := store.SessionMessage(ctx, message.ID); err == nil {
+			message = updated
+		}
 		// This receipt describes persistence only. Never paste into the terminal or
 		// wait for the recipient as part of sending.
 		delivery := "unknown"
@@ -99,6 +120,45 @@ func executeMessages(ctx context.Context, store *storage.Store, identity string,
 			Message  storage.SessionMessage `json:"message"`
 			Delivery string                 `json:"delivery"`
 		}{message, delivery})
+	case "claim", "defer-native", "retry":
+		if len(args) != 2 {
+			return errors.New("message ID required")
+		}
+		id, err := messageSessionID(args[1])
+		if err != nil {
+			return err
+		}
+		if args[0] == "claim" {
+			claimed, err := runtime.ClaimNativeMessage(ctx, store, sender, id)
+			if err != nil {
+				return err
+			}
+			return encode(map[string]bool{"claimed": claimed})
+		}
+		if args[0] == "defer-native" {
+			if session.Harness != "pi" {
+				return errors.New("only Pi may defer a native claim")
+			}
+			if err := store.DeferNativeMessage(ctx, sender, id); err != nil {
+				return err
+			}
+		} else {
+			if err := store.RetryMessageNotification(ctx, sender, id); err != nil {
+				return err
+			}
+			message, err := store.SessionMessage(ctx, id)
+			if err != nil {
+				return err
+			}
+			if len(notifiers) > 0 {
+				_ = notifiers[0](ctx, message.Recipient)
+			}
+		}
+		message, err := store.SessionMessage(ctx, id)
+		if err != nil {
+			return err
+		}
+		return encode(message)
 	case "pending":
 		if len(args) != 1 {
 			return errors.New("usage: kanbi messages pending")
@@ -116,6 +176,19 @@ func executeMessages(ctx context.Context, store *storage.Store, identity string,
 		messages, err := store.SessionInbox(ctx, sender, all)
 		if err != nil {
 			return err
+		}
+		for i := range messages {
+			if err := store.ReceiptMessageRead(ctx, sender, messages[i].ID); err != nil {
+				return err
+			}
+			updated, err := store.SessionMessage(ctx, messages[i].ID)
+			if err != nil {
+				return err
+			}
+			messages[i] = updated
+		}
+		if len(notifiers) > 0 {
+			_ = notifiers[0](ctx, sender)
 		}
 		return encode(messages)
 	case "ack", "notified", "status":
@@ -141,6 +214,9 @@ func executeMessages(ctx context.Context, store *storage.Store, identity string,
 		}
 		if args[0] == "ack" {
 			err = store.AcknowledgeSessionMessage(ctx, sender, id)
+			if err == nil && len(notifiers) > 0 {
+				_ = notifiers[0](ctx, sender)
+			}
 		} else {
 			if !session.IsActive {
 				return errors.New("closed sessions cannot accept notifications")
