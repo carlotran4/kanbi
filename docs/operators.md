@@ -8,7 +8,12 @@ skills and permissions. Existing sessions cannot be converted; the harness is
 chosen at creation and cannot be edited.
 
 Press `O` on the board to open the collapsible right panel. At widths below 120
-columns the board retains a one-line summary and the focused list uses an overlay.
+columns the board retains a one-line summary and the focused list uses a compact
+right-aligned overlay. Operator cards share the board card surfaces and selection
+rail, with name/harness, state, and next wake or attention on separate rows.
+Yellow marks requests for user input/permission; red marks failures. Overflow
+follows the selection and shows hidden counts. Primary controls stay at the
+bottom; `?` opens the complete action list and `Esc` closes that list.
 `Esc` returns focus to the board; `O` focuses the list again, and `O` while focused
 collapses it. Operators stay available across board changes. No inspector is needed.
 

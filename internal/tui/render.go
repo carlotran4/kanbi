@@ -33,7 +33,7 @@ func (m Model) View() string {
 		if m.operators.editing {
 			return overlayModal(base, fitModal(m.operatorEditorView(), m.height, 0, true), m.width, m.height)
 		}
-		return overlayModal(base, fitModal(modalFrame(strings.Split(m.operatorsView(modalContentWidth(focusModalWidth(m.width)), maxInt(6, m.height-8)), "\n"), focusModalWidth(m.width), palette.accent), m.height, 0, true), m.width, m.height)
+		return overlayModalPosition(base, fitModal(m.operatorsOverlay(), m.height, 0, true), m.width, m.height, true)
 	case modalFocusSettings:
 		return overlayModal(base, fitModal(m.focusSettingsView(), m.height, 0, true), m.width, m.height)
 	case modalFocusReplace:
@@ -128,7 +128,7 @@ func (m Model) baseView() string {
 	}
 
 	if m.operators.open && !m.operatorsNarrow() {
-		board = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(m.boardWidth()).Render(board), " ", m.operatorsView(35, m.boardContentHeight()+2))
+		board = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(m.boardWidth()).Render(board), lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(palette.rule).PaddingLeft(1).Render(m.operatorsView(34, m.boardContentHeight()+2)))
 	}
 	footer := []string{contextBarStyle.Render(padLine(m.contextBar(), maxInt(1, m.width)))}
 	if m.operators.open && m.operatorsNarrow() {
@@ -1001,6 +1001,10 @@ func popupWidth(termWidth int) int {
 
 // overlayModal renders boardContent dimmed and composites popup centered on top.
 func overlayModal(boardContent string, popup string, termWidth, termHeight int) string {
+	return overlayModalPosition(boardContent, popup, termWidth, termHeight, false)
+}
+
+func overlayModalPosition(boardContent string, popup string, termWidth, termHeight int, alignRight bool) string {
 	// An explicit adaptive color works even when the terminal ignores faint.
 	// Strip prior styling/graphics so attention colors cannot compete with the popup.
 	dimStyle := lipgloss.NewStyle().Foreground(palette.backdrop)
@@ -1033,6 +1037,9 @@ func overlayModal(boardContent string, popup string, termWidth, termHeight int) 
 		startRow = 0
 	}
 	startCol := (termWidth - popupW) / 2
+	if alignRight {
+		startCol = termWidth - popupW
+	}
 	if startCol < 0 {
 		startCol = 0
 	}

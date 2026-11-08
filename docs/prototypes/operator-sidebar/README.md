@@ -1,7 +1,8 @@
 # Operator sidebar alternatives
 
-Design prototypes only. The application's sidebar is unchanged. The approved
-Operator editor was implemented separately in `aa6fc80`.
+These retain the design comparison that led to the approved **A · Board cards**
+implementation. B and C remain alternatives; Current is the historical baseline.
+The Operator editor was implemented separately in `aa6fc80`.
 
 Open `operator-sidebars.html` to compare:
 

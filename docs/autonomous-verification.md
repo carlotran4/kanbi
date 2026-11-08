@@ -483,8 +483,10 @@ owned fake adapters; native Copilot delivery tests retain its draft limitation.
 
 For real UI validation, use the project UI fixture at 160x45 and 80x24: `O`, `n`,
 edit fields/instructions, `Ctrl+S`, `p`, `Esc`, board navigation, `O`, `e`, cancel,
-`d`, cancel. Verify board preservation, focused controls and immutable harness
-editing. Use private fixtures and preserve direct file edits between wakes.
+`d`, cancel. Also check the Operator card fills/attention rails, `?` action list,
+fixed footer, empty list, selection-following overflow, and the 40-column
+right-aligned overlay at 80x24. Verify board preservation, focused controls and
+immutable harness editing. Use private fixtures and preserve direct file edits between wakes.
 Authenticated lifecycle and production mailbox tests remain opt-in as documented
 above; distinguish deterministic adapter coverage from actual native model turns.
 

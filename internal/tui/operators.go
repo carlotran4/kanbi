@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -22,6 +23,7 @@ type operatorUI struct {
 	focused              bool
 	editing              bool
 	confirm              string
+	menu                 bool
 	index                int
 	field                int
 	scheduleEditing      bool
@@ -55,6 +57,7 @@ func (m *Model) reloadOperators() {
 func (m *Model) toggleOperators() {
 	m.operators.open = !m.operators.open
 	m.operators.focused = m.operators.open
+	m.operators.menu = false
 	m.inspector.open = false
 	if m.operators.open {
 		m.reloadOperators()
@@ -85,6 +88,7 @@ func (m *Model) editOperator(o storage.Operator) tea.Cmd {
 	u := &m.operators
 	u.selected = o
 	u.editing = true
+	u.menu = false
 	u.scheduleEditing = false
 	u.editorGeneration++
 	u.field = 0
@@ -120,6 +124,17 @@ func (m Model) updateOperators(key tea.KeyMsg) (Model, tea.Cmd) {
 	if u.editing {
 		return m.updateOperatorEditor(key, a)
 	}
+	if u.menu {
+		switch key.String() {
+		case "esc", "?":
+			u.menu = false
+			return m, nil
+		case "n", "e", "enter", "r", "p", "s", "x", "f", "d":
+			u.menu = false
+		default:
+			return m, nil
+		}
+	}
 	if u.confirm != "" {
 		switch key.String() {
 		case "esc", "n":
@@ -132,6 +147,8 @@ func (m Model) updateOperators(key tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key.String() {
+	case "?":
+		u.menu = true
 	case "O":
 		m.toggleOperators()
 	case "esc", "tab":
@@ -179,58 +196,112 @@ func (m *Model) operatorActionCmd(a operatorActions, id int64, action string) te
 }
 func (m Model) operatorsView(width, height int) string {
 	u := m.operators
-	lines := []string{"Operators  [O] collapse"}
+	muted := lipgloss.NewStyle().Foreground(palette.muted)
+	heading := lipgloss.NewStyle().Foreground(palette.headerText).Bold(true)
 	if u.focused {
-		lines[0] = "Operators • focused  [O] close"
+		heading = heading.Foreground(palette.accent)
 	}
-	if len(u.items) == 0 {
-		lines = append(lines, "No Operators. Press n to create.")
+	label, hide := fmt.Sprintf("OPERATORS  %d", len(u.items)), "O hide"
+	gap := maxInt(1, width-lipgloss.Width(label)-lipgloss.Width(hide))
+	lines := []string{heading.Render(label) + strings.Repeat(" ", gap) + muted.Render(hide), muted.Render(strings.Repeat("─", width))}
+	runLabel := "r run"
+	if len(u.items) > 0 && (u.items[u.index].State == "failed" || u.items[u.index].State == "error" || u.items[u.index].State == "repair_needed") {
+		runLabel = "r retry"
 	}
-	available := maxInt(1, (height-5)/2)
-	start := maxInt(0, u.index-available+1)
-	for i := start; i < len(u.items) && i < start+available; i++ {
-		o := u.items[i]
-		prefix := "  "
-		if i == u.index {
-			prefix = "> "
-		}
-		detail := "No scheduled wake"
-		if o.SchedulePaused {
-			detail = "Schedule paused"
-		} else if o.NextWake != nil {
-			detail = "Next: " + o.NextWake.Local().Format("Jan 2 15:04")
-		}
-		if o.Attention != "" {
-			detail = o.Attention
-		}
-		row := trimToWidth(prefix+o.Name+" · "+strings.ReplaceAll(o.State, "_", " "), width)
-		sub := trimToWidth("  "+detail, width)
-		if o.State == "failed" || o.State == "error" || o.State == "repair_needed" {
-			style := lipgloss.NewStyle().Foreground(palette.error_)
-			row = style.Render(row)
-			sub = style.Render(sub)
-		} else if isAttention(o.State) {
-			style := lipgloss.NewStyle().Foreground(palette.warning)
-			row = style.Render(row)
-			sub = style.Render(sub)
-		}
-		lines = append(lines, row, sub)
-	}
-	lines = append(lines, "n new  e edit  Enter open  r run", "p schedule  s stop  x close", "f fresh  d delete  Esc board")
+	footer := []string{muted.Render(strings.Repeat("─", width)), muted.Render("Enter open · " + runLabel + " · e edit"), muted.Render("n new · ? actions · Esc board")}
 	if u.busy {
-		lines = append(lines, "Working…")
+		footer = append([]string{muted.Render("Working…")}, footer...)
 	}
-	if u.error != "" {
-		lines = append(lines, trimToWidth(u.error, width))
+	if u.error != "" && !u.menu {
+		var errors []string
+		for _, line := range wrapText(u.error, width, 2) {
+			errors = append(errors, lipgloss.NewStyle().Foreground(palette.error_).Render(line))
+		}
+		footer = append(errors, footer...)
 	}
 	if u.confirm != "" {
 		text := u.confirm + " " + u.selected.Name + "? y / n"
 		if u.confirm == "delete" {
-			text = "Delete triggers/address; retain session? y / n"
+			text = "Delete triggers/address; retain history/session? y / n"
 		}
-		lines = append(lines, trimToWidth(text, width))
+		footer = append(wrapText(text, width, 3), footer...)
 	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+	if u.menu {
+		pause := "p  Pause schedule"
+		if len(u.items) > 0 && u.items[u.index].SchedulePaused {
+			pause = "p  Resume schedule"
+		}
+		lines = append(lines, "", heading.Render("Operator actions"), "", "Enter  Open session", "r  Run now / retry", "e  Edit configuration", pause, "s  Stop turn", "x  Close session…", "f  Start fresh…", "d  Delete Operator…", "", muted.Render("Esc / ? back"))
+	} else if len(u.items) == 0 {
+		lines = append(lines, "", muted.Render("No Operators yet."), muted.Render("Press n to create one."))
+	} else {
+		// Three content rows plus the same one-row gap used by board cards.
+		// Reserve a row for overflow and keep the action footer fixed in place.
+		available := maxInt(1, (height-len(lines)-len(footer)-1)/4)
+		start := maxInt(0, u.index-available+1)
+		end := minInt(len(u.items), start+available)
+		for i := start; i < end; i++ {
+			lines = append(lines, operatorCardLines(u.items[i], width, i == u.index, u.focused)...)
+		}
+		more := []string{}
+		if start > 0 {
+			more = append(more, fmt.Sprintf("%d more ↑", start))
+		}
+		if end < len(u.items) {
+			more = append(more, fmt.Sprintf("%d more ↓", len(u.items)-end))
+		}
+		lines = append(lines, muted.Render(strings.Join(more, " · ")))
+	}
+	for len(lines) < height-len(footer) {
+		lines = append(lines, "")
+	}
+	lines = append(lines, footer...)
+	for i, line := range lines {
+		lines[i] = padLine(trimToWidth(line, width), width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func operatorCardLines(o storage.Operator, width int, selected, focused bool) []string {
+	inner := maxInt(1, width-4)
+	harness := trimToWidth(o.Harness, maxInt(1, inner/3))
+	name := trimToWidth(o.Name, maxInt(1, inner-lipgloss.Width(harness)-1))
+	top := lipgloss.NewStyle().Foreground(palette.headerText).Bold(true).Render(name) + strings.Repeat(" ", maxInt(1, inner-lipgloss.Width(name)-lipgloss.Width(harness))) + lipgloss.NewStyle().Foreground(palette.cardMuted).Render(harness)
+	state := strings.ReplaceAll(o.State, "_", " ")
+	if state == "" {
+		state = "not started"
+	}
+	detail := "No scheduled wake"
+	if o.SchedulePaused {
+		detail = "Schedule paused"
+	} else if o.NextWake != nil {
+		detail = "Next: " + o.NextWake.Local().Format("Jan 2 15:04")
+	}
+	if o.Attention != "" {
+		detail = o.Attention
+	}
+	tone := palette.cardMuted
+	var rail lipgloss.TerminalColor
+	if selected {
+		rail = palette.rule
+		if focused {
+			rail = palette.accent
+		}
+	}
+	switch {
+	case o.State == "failed" || o.State == "error" || o.State == "repair_needed":
+		tone, rail = palette.error_, palette.error_
+	case isAttention(o.State):
+		tone, rail = palette.warning, palette.warning
+	}
+	style := lipgloss.NewStyle().Foreground(tone)
+	return filledCardLines([]string{top, style.Render(trimToWidth(state, inner)), style.Render(trimToWidth(detail, inner))}, width, rail, selected)
+}
+
+func (m Model) operatorsOverlay() string {
+	width := maxInt(2, minInt(40, m.width))
+	height := maxInt(3, m.height-2)
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(palette.accent).Padding(0, 1).Render(m.operatorsView(maxInt(1, width-4), height-2))
 }
 
 // Main focus follows the ticket editor: title, metadata, directory, body.

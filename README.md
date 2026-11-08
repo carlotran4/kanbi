@@ -125,10 +125,12 @@ the agent to reread the file. Scheduling runs only while Kanbi is open. See
 [Operators](docs/operators.md) for controls, CLI commands, lifecycle and the
 accepted Copilot terminal-delivery limitation.
 
+Operator cards match board cards, with a compact right-side overlay at small
+terminal sizes. Controls stay at the bottom; `?` shows all Operator actions.
 Their editor follows the ticket editor: name in the border, instructions as the
 main content, and schedule settings in a separate draft editor. Use `Tab` to
-focus Schedule, `Enter` to edit it, and `Ctrl+S` to return to the draft. Press `Ctrl+S` again to save. Instructions
-and scheduled prompts support the same editing shortcuts and `Ctrl+E` external
+focus Schedule, `Enter` to edit it, and `Ctrl+S` to return to the draft. Press
+`Ctrl+S` again to save. Instructions and scheduled prompts support the same editing shortcuts and `Ctrl+E` external
 editor as ticket descriptions.
 
 ## Session messaging

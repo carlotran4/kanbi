@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,6 +35,14 @@ func TestOperatorPanelConfigurationAndBoardNavigation(t *testing.T) {
 	}
 	if v := m.View(); !strings.Contains(v, "Intake") || !strings.Contains(v, "Board remains visible") {
 		t.Fatal(v)
+	}
+	m, _ = mustUpdate(t, m, "?")
+	if !m.operators.menu || !strings.Contains(m.View(), "Operator actions") {
+		t.Fatal("missing actions menu")
+	}
+	m, _ = mustUpdate(t, m, "esc")
+	if m.operators.menu || !m.operators.focused {
+		t.Fatal("actions back should keep the sidebar focused")
 	}
 	m, _ = mustUpdate(t, m, "e")
 	if !m.operators.editing || m.operators.instructions.Value() != "standing instructions" {
@@ -190,5 +199,49 @@ func TestOperatorEditorResizeAndExternalResultIsolation(t *testing.T) {
 				t.Fatal("footer missing")
 			}
 		}
+	}
+}
+
+func TestOperatorCardsKeepSelectionAndFooterVisible(t *testing.T) {
+	m := Model{}
+	m.operators.focused = true
+	for i := 0; i < 20; i++ {
+		m.operators.items = append(m.operators.items, storage.Operator{Name: fmt.Sprintf("Operator %02d", i), Harness: "copilot", State: "not_started"})
+	}
+	m.operators.index = 19
+	for _, size := range []struct{ w, h int }{{34, 39}, {38, 20}} {
+		for _, message := range []string{"", "An action failed with a long message that wraps across multiple lines"} {
+			m.operators.error = message
+			view := m.operatorsView(size.w, size.h)
+			if lipgloss.Width(view) != size.w || lipgloss.Height(view) != size.h {
+				t.Fatalf("panel %dx%d rendered %dx%d", size.w, size.h, lipgloss.Width(view), lipgloss.Height(view))
+			}
+			lines := strings.Split(ansiStrip(view), "\n")
+			if !strings.Contains(lines[len(lines)-1], "Esc board") || !strings.Contains(view, "Operator 19") || !strings.Contains(view, "more ↑") || !strings.Contains(view, "copilot") {
+				t.Fatal(view)
+			}
+		}
+	}
+	m.operators.menu = true
+	if view := m.operatorsView(38, 20); lipgloss.Height(view) != 20 || !strings.Contains(view, "Delete Operator") || !strings.Contains(view, "Esc / ? back") {
+		t.Fatal(view)
+	}
+}
+
+func TestOperatorNarrowOverlayIsRightAligned(t *testing.T) {
+	m := Model{width: 80, height: 24}
+	m.operators.focused = true
+	popup := m.operatorsOverlay()
+	if lipgloss.Width(popup) != 40 || lipgloss.Height(popup) != 22 {
+		t.Fatalf("overlay %dx%d", lipgloss.Width(popup), lipgloss.Height(popup))
+	}
+	board := strings.Repeat(strings.Repeat("B", 80)+"\n", 23) + strings.Repeat("B", 80)
+	view := overlayModalPosition(board, popup, 80, 24, true)
+	lines := strings.Split(ansiStrip(view), "\n")
+	if len(lines) != 24 || strings.Index(lines[1], "╭") != 40 || !strings.HasPrefix(lines[1], strings.Repeat("B", 40)) {
+		t.Fatal(view)
+	}
+	if lines[0] != strings.Repeat("B", 80) || lines[23] != strings.Repeat("B", 80) {
+		t.Fatal("header/footer were covered")
 	}
 }
