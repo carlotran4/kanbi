@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -358,6 +357,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.operators.editing {
+			m.resizeOperatorEditors()
+		}
 		m.clampResumeScroll()
 		m.resizePauseInputs()
 		if m.noteEditing {
@@ -394,6 +396,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshBusy = false
 		m.applyRuntimeRefresh(msg)
 		return m, runtimeTickCmd()
+	case operatorEditorFinished:
+		m.applyOperatorEditorResult(msg)
+		return m, tea.ClearScreen
 	case editorFinishedMsg:
 		m.applyEditorResult(msg)
 		return m, tea.ClearScreen
@@ -1271,29 +1276,8 @@ func (m *Model) openBodyEditor() tea.Cmd {
 		body = m.bodyTA.Value()
 	}
 	m.editorTicketID = ticketID
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		if _, err := exec.LookPath("nano"); err == nil {
-			editor = "nano"
-		} else {
-			editor = "vi"
-		}
-	}
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("kanbi-%s.md", t.DisplayID))
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		return func() tea.Msg { return editorFinishedMsg{ticketID: ticketID, err: err} }
-	}
-	cmd := exec.Command(editor, path)
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		if err != nil {
-			return editorFinishedMsg{ticketID: ticketID, err: err}
-		}
-		data, readErr := os.ReadFile(path)
-		_ = os.Remove(path)
-		if readErr != nil {
-			return editorFinishedMsg{ticketID: ticketID, err: readErr}
-		}
-		return editorFinishedMsg{ticketID: ticketID, body: string(data)}
+	return editTextExternally(body, func(body string, err error) tea.Msg {
+		return editorFinishedMsg{ticketID: ticketID, body: body, err: err}
 	})
 }
 

@@ -18,18 +18,22 @@ type operatorActions interface {
 	OperatorAction(context.Context, int64, string) error
 }
 type operatorUI struct {
-	open         bool
-	focused      bool
-	editing      bool
-	confirm      string
-	index        int
-	field        int
-	items        []storage.Operator
-	selected     storage.Operator
-	inputs       [6]InputBuffer
-	instructions textarea.Model
-	busy         bool
-	error        string
+	open                 bool
+	focused              bool
+	editing              bool
+	confirm              string
+	index                int
+	field                int
+	scheduleEditing      bool
+	editorGeneration     uint64
+	instructionsOriginal string
+	items                []storage.Operator
+	selected             storage.Operator
+	inputs               [5]InputBuffer
+	instructions         textarea.Model
+	scheduledPrompt      textarea.Model
+	busy                 bool
+	error                string
 }
 type operatorResult struct{ err error }
 
@@ -81,17 +85,23 @@ func (m *Model) editOperator(o storage.Operator) tea.Cmd {
 	u := &m.operators
 	u.selected = o
 	u.editing = true
+	u.scheduleEditing = false
+	u.editorGeneration++
 	u.field = 0
 	u.error = ""
-	values := []string{o.Name, o.Harness, o.CWD, o.Cron, o.Timezone, o.ScheduledPrompt}
+	values := []string{o.Name, o.Harness, o.CWD, o.Cron, o.Timezone}
 	for i, v := range values {
 		u.inputs[i] = NewInputBuffer(v)
 	}
 	ta := newBodyTextarea(text, m.width)
-	ta.SetWidth(modalContentWidth(focusModalWidth(m.width)))
-	ta.SetHeight(maxInt(2, minInt(6, m.height-18)))
+	ta.Placeholder = "Standing instructions"
 	ta.CharLimit = 0
 	u.instructions = ta
+	u.instructionsOriginal = text
+	u.scheduledPrompt = newBodyTextarea(o.ScheduledPrompt, m.width)
+	u.scheduledPrompt.Placeholder = "What should the scheduled check do?"
+	u.scheduledPrompt.CharLimit = 0
+	m.resizeOperatorEditors()
 	return nil
 }
 func (m Model) updateOperators(key tea.KeyMsg) (Model, tea.Cmd) {
@@ -108,48 +118,7 @@ func (m Model) updateOperators(key tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if u.editing {
-		switch key.String() {
-		case "esc":
-			u.editing = false
-			u.instructions.Blur()
-		case "tab", "shift+tab":
-			u.instructions.Blur()
-			delta := 1
-			if key.String() == "shift+tab" {
-				delta = 6
-			}
-			u.field = (u.field + delta) % 7
-			if u.selected.ID != 0 && u.field == 1 {
-				u.field = (u.field + delta) % 7
-			}
-			if u.field == 6 {
-				return m, u.instructions.Focus()
-			}
-		case "ctrl+s":
-			o := u.selected
-			o.Name = u.inputs[0].Value()
-			o.Harness = u.inputs[1].Value()
-			o.CWD = u.inputs[2].Value()
-			o.Cron = u.inputs[3].Value()
-			o.Timezone = u.inputs[4].Value()
-			o.ScheduledPrompt = u.inputs[5].Value()
-			_, e := a.SaveOperator(m.ctx, o, u.instructions.Value())
-			if e != nil {
-				u.error = e.Error()
-				return m, nil
-			}
-			u.editing = false
-			u.error = ""
-			m.reloadOperators()
-		default:
-			if u.field == 6 {
-				var cmd tea.Cmd
-				u.instructions, cmd = u.instructions.Update(key)
-				return m, cmd
-			}
-			u.inputs[u.field].HandleKey(key.String(), key.Runes)
-		}
-		return m, nil
+		return m.updateOperatorEditor(key, a)
 	}
 	if u.confirm != "" {
 		switch key.String() {
@@ -263,24 +232,221 @@ func (m Model) operatorsView(width, height int) string {
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
+
+// Main focus follows the ticket editor: title, metadata, directory, body.
+// Scheduling has its own local editor and stays in the draft until the main save.
+func (m Model) updateOperatorEditor(key tea.KeyMsg, a operatorActions) (Model, tea.Cmd) {
+	u := &m.operators
+	switch key.String() {
+	case "esc":
+		if u.scheduleEditing {
+			u.scheduleEditing = false
+			u.field = 7
+			u.scheduledPrompt.Blur()
+		} else {
+			u.editing = false
+			u.instructions.Blur()
+		}
+	case "tab", "shift+tab":
+		fields := []int{0, 1, 2, 6, 7}
+		if u.selected.ID != 0 {
+			fields = []int{0, 2, 6, 7}
+		}
+		if u.scheduleEditing {
+			fields = []int{3, 4, 5}
+		}
+		index := 0
+		for i, f := range fields {
+			if f == u.field {
+				index = i
+				break
+			}
+		}
+		delta := 1
+		if key.String() == "shift+tab" {
+			delta = len(fields) - 1
+		}
+		u.field = fields[(index+delta)%len(fields)]
+		u.instructions.Blur()
+		u.scheduledPrompt.Blur()
+		if u.field == 6 {
+			return m, u.instructions.Focus()
+		}
+		if u.field == 5 {
+			return m, u.scheduledPrompt.Focus()
+		}
+	case "enter":
+		if u.field == 7 {
+			u.scheduleEditing = true
+			u.field = 3
+			return m, nil
+		}
+		if u.field != 6 && u.field != 5 {
+			return m.updateOperatorEditor(tea.KeyMsg{Type: tea.KeyTab}, a)
+		}
+		return m.updateOperatorTextarea(key)
+	case "ctrl+e":
+		if u.field == 6 || u.field == 5 {
+			generation, field := u.editorGeneration, u.field
+			text := u.instructions.Value()
+			if field == 5 {
+				text = u.scheduledPrompt.Value()
+			}
+			return m, editTextExternally(text, func(text string, err error) tea.Msg {
+				return operatorEditorFinished{generation: generation, field: field, text: text, err: err}
+			})
+		}
+		if u.field < 5 {
+			u.inputs[u.field].HandleKey(key.String(), key.Runes)
+		}
+	case "ctrl+s":
+		if u.scheduleEditing {
+			u.scheduleEditing = false
+			u.field = 7
+			u.scheduledPrompt.Blur()
+			return m, nil
+		}
+		o := u.selected
+		o.Name, o.Harness, o.CWD = u.inputs[0].Value(), u.inputs[1].Value(), u.inputs[2].Value()
+		o.Cron, o.Timezone, o.ScheduledPrompt = u.inputs[3].Value(), u.inputs[4].Value(), u.scheduledPrompt.Value()
+		if _, err := a.SaveOperator(m.ctx, o, u.instructions.Value()); err != nil {
+			u.error = err.Error()
+			return m, nil
+		}
+		u.editing, u.error = false, ""
+		u.instructions.Blur()
+		m.reloadOperators()
+	default:
+		if u.field == 6 || u.field == 5 {
+			return m.updateOperatorTextarea(key)
+		}
+		if u.field < 5 {
+			u.inputs[u.field].HandleKey(key.String(), key.Runes)
+		}
+	}
+	return m, nil
+}
+
+func (m Model) updateOperatorTextarea(key tea.KeyMsg) (Model, tea.Cmd) {
+	var cmd tea.Cmd
+	if m.operators.field == 5 {
+		m.operators.scheduledPrompt, cmd = m.operators.scheduledPrompt.Update(key)
+	} else {
+		m.operators.instructions, cmd = m.operators.instructions.Update(key)
+	}
+	return m, cmd
+}
+
+type operatorEditorFinished struct {
+	generation uint64
+	field      int
+	text       string
+	err        error
+}
+
+func (m *Model) applyOperatorEditorResult(msg operatorEditorFinished) {
+	u := &m.operators
+	if !u.editing || msg.generation != u.editorGeneration {
+		return
+	}
+	if msg.err != nil {
+		u.error = msg.err.Error()
+		return
+	}
+	if msg.field == 5 {
+		u.scheduledPrompt.SetValue(msg.text)
+	} else {
+		u.instructions.SetValue(msg.text)
+	}
+	u.error = ""
+}
+
+func (m *Model) resizeOperatorEditors() {
+	width := maxInt(1, inspectorPopupWidth(m.width)-6)
+	m.operators.instructions.SetWidth(width)
+	m.operators.instructions.SetHeight(maxInt(2, minInt(24, m.height-16)))
+	m.operators.scheduledPrompt.SetWidth(width)
+	m.operators.scheduledPrompt.SetHeight(maxInt(2, minInt(10, m.height-17)))
+}
+
+func (m Model) operatorEditorDirty() bool {
+	u := m.operators
+	o := u.selected
+	return o.ID == 0 || u.inputs[0].Value() != o.Name || u.inputs[1].Value() != o.Harness || u.inputs[2].Value() != o.CWD || u.inputs[3].Value() != o.Cron || u.inputs[4].Value() != o.Timezone || u.scheduledPrompt.Value() != o.ScheduledPrompt || u.instructions.Value() != u.instructionsOriginal
+}
+
 func (m Model) operatorEditorView() string {
 	u := m.operators
-	labels := []string{"Name", "Harness (immutable)", "Working directory", "Schedule (cron / 15m / hourly / daily)", "Timezone", "Scheduled prompt"}
-	lines := []string{"Operator configuration", ""}
-	outerWidth := focusModalWidth(m.width)
-	width := modalContentWidth(outerWidth)
-	for i, label := range labels {
-		prefix := "  "
-		if u.field == i {
-			prefix = "> "
+	outerWidth := inspectorPopupWidth(m.width)
+	width := outerWidth - 6
+	muted := lipgloss.NewStyle().Foreground(palette.muted)
+	accent := lipgloss.NewStyle().Foreground(palette.accent)
+	prefix := "Operator ·"
+	if u.selected.ID == 0 {
+		prefix = "New Operator ·"
+	}
+	title := textEditorTitle(prefix, u.inputs[0], u.field == 0, m.operatorEditorDirty(), width, "Unnamed Operator")
+	var lines []string
+	footer := "Tab fields · Ctrl+E editor · Ctrl+S save · Esc cancel"
+	if u.scheduleEditing {
+		title = "Schedule · " + u.inputs[0].Value()
+		lines = append(lines, muted.Render("Repeat: cron / 15m / hourly / daily; empty = none"), "")
+		for i, label := range []string{"Repeat", "Timezone"} {
+			field := i + 3
+			prefix := "  "
+			if u.field == field {
+				prefix = "▸ "
+			}
+			lines = append(lines, modalLabeledInput(prefix+label+": ", u.inputs[field], u.field == field, width))
 		}
-		lines = append(lines, modalLabeledInput(prefix+label+": ", u.inputs[i], u.field == i, width))
+		lines = append(lines, "", accent.Render("Scheduled prompt"), textareaOverlayView(u.scheduledPrompt), "", muted.Render("Fixed clock · while Kanbi is running"))
+		footer = "Tab fields · Ctrl+E editor · Ctrl+S done · Esc back"
+	} else {
+		meta := []string{muted.Render("workspace")}
+		if u.field == 1 {
+			meta = append(meta, accent.Render("harness ")+u.inputs[1].Viewport(maxInt(1, width-25)))
+		} else {
+			harness := u.inputs[1].Value()
+			if u.selected.ID != 0 {
+				harness += " (locked)"
+			}
+			meta = append(meta, muted.Render(harness))
+		}
+		if m.operatorEditorDirty() {
+			meta = append(meta, lipgloss.NewStyle().Foreground(palette.warning).Render("unsaved"))
+		}
+		lines = append(lines, inspectorMetadataLines(width, muted.Render("  ·  "), meta...)...)
+		lines = append(lines, modalLabeledInput("Directory ", u.inputs[2], u.field == 2, width), "", accent.Render("Standing instructions"), textareaOverlayView(u.instructions), "")
+		schedule := u.inputs[3].Value()
+		switch schedule {
+		case "":
+			schedule = "No recurring schedule"
+		case "15m":
+			schedule = "Every 15 minutes"
+		case "hourly":
+			schedule = "Hourly"
+		case "daily":
+			schedule = "Daily at 09:00"
+		}
+		if u.inputs[3].Value() != "" {
+			schedule += " · " + u.inputs[4].Value()
+		}
+		label := "Schedule  " + schedule
+		if u.field == 7 {
+			label = accent.Underline(true).Render("▸ " + label + " · Enter edit")
+		} else {
+			label = muted.Render(label)
+		}
+		lines = append(lines, trimToWidth(label, width))
+		if u.field == 7 {
+			footer = "Enter edit schedule · Tab fields · Ctrl+S save · Esc cancel"
+		}
 	}
-	lines = append(lines, "Standing instructions (read again on every wake):", textareaOverlayView(u.instructions), "Tab fields · Ctrl+S save · Esc cancel")
 	if u.error != "" {
-		lines = append(lines, trimToWidth(u.error, width))
+		lines = append(lines, lipgloss.NewStyle().Foreground(palette.error_).Render(trimToWidth(u.error, width)))
 	}
-	return modalFrame(strings.Split(strings.Join(lines, "\n"), "\n"), outerWidth, palette.accent)
+	lines = append(lines, muted.Render(strings.Repeat("─", width)), muted.Render(trimToWidth(footer, width)))
+	return ticketInspectorBox(strings.Join(lines, "\n"), title, outerWidth)
 }
 
 // Keep a small summary visible while keyboard focus returns to the board.

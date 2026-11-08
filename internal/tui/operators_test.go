@@ -10,6 +10,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestOperatorPanelConfigurationAndBoardNavigation(t *testing.T) {
@@ -85,5 +86,109 @@ func TestOperatorPanelConfigurationAndBoardNavigation(t *testing.T) {
 	ops, _ := s.Operators(ctx)
 	if len(ops) != 1 {
 		t.Fatal("cancel deleted operator")
+	}
+}
+
+func TestOperatorEditorKeepsScheduleInDraftUntilMainSave(t *testing.T) {
+	s, ctx := newTestStore(t)
+	cfg := config.Defaults(config.Paths{ConfigFile: filepath.Join(t.TempDir(), "config.yaml")})
+	manager := runtime.NewManager(cfg, s)
+	defer manager.Close()
+	m := New(ctx, app.NewService(s, manager))
+	m.firstRun, m.width, m.height = false, 160, 45
+	m, _ = mustUpdate(t, m, "O")
+	m, _ = mustUpdate(t, m, "n")
+	m.operators.inputs[0] = NewInputBuffer("Intake")
+	m.operators.inputs[2] = NewInputBuffer(t.TempDir())
+	for _, field := range []int{1, 2, 6, 7} {
+		m, _ = mustUpdate(t, m, "tab")
+		if m.operators.field != field {
+			t.Fatalf("focus %d, want %d", m.operators.field, field)
+		}
+	}
+	m, _ = mustUpdate(t, m, "enter")
+	if !m.operators.scheduleEditing {
+		t.Fatal("schedule editor not opened")
+	}
+	m.operators.inputs[3] = NewInputBuffer("15m")
+	m.operators.inputs[4] = NewInputBuffer("America/Chicago")
+	m, _ = mustUpdate(t, m, "tab")
+	m, _ = mustUpdate(t, m, "tab")
+	m, _ = mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("First line")})
+	m, _ = mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Second line")})
+	m, _ = mustUpdate(t, m, "ctrl+s")
+	if m.operators.scheduleEditing || !m.operators.editing {
+		t.Fatal("done should return to the main draft")
+	}
+	ops, _ := s.Operators(ctx)
+	if len(ops) != 0 {
+		t.Fatal("schedule editor saved before the main save")
+	}
+	m, _ = mustUpdate(t, m, "shift+tab")
+	if m.operators.field != 6 {
+		t.Fatal("instructions not focused")
+	}
+	m, _ = mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello world")})
+	m, _ = mustUpdateKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlH})
+	if m.operators.instructions.Value() != "hello " {
+		t.Fatal("shared word deletion missing")
+	}
+	m, _ = mustUpdate(t, m, "ctrl+s")
+	if m.operators.editing || m.operators.error != "" {
+		t.Fatal(m.operators.error)
+	}
+	ops, _ = s.Operators(ctx)
+	if len(ops) != 1 || ops[0].Cron != "15m" || ops[0].ScheduledPrompt != "First line\nSecond line" {
+		t.Fatalf("saved operators: %+v", ops)
+	}
+	m, _ = mustUpdate(t, m, "e")
+	m, _ = mustUpdate(t, m, "tab")
+	if m.operators.field != 2 {
+		t.Fatal("immutable harness focused")
+	}
+	for _, key := range []string{"tab", "tab", "enter"} {
+		m, _ = mustUpdate(t, m, key)
+	}
+	m.operators.inputs[3] = NewInputBuffer("daily")
+	m, _ = mustUpdate(t, m, "esc")
+	m, _ = mustUpdate(t, m, "esc")
+	ops, _ = s.Operators(ctx)
+	if ops[0].Cron != "15m" {
+		t.Fatal("cancelled changes were saved")
+	}
+}
+
+func TestOperatorEditorResizeAndExternalResultIsolation(t *testing.T) {
+	s, ctx := newTestStore(t)
+	cfg := config.Defaults(config.Paths{ConfigFile: filepath.Join(t.TempDir(), "config.yaml")})
+	manager := runtime.NewManager(cfg, s)
+	defer manager.Close()
+	m := New(ctx, app.NewService(s, manager))
+	m.firstRun = false
+	m.editOperator(storage.Operator{})
+	oldGeneration := m.operators.editorGeneration
+	m.editOperator(storage.Operator{})
+	m.applyOperatorEditorResult(operatorEditorFinished{generation: oldGeneration, field: 6, text: "stale"})
+	if m.operators.instructions.Value() != "" {
+		t.Fatal("stale editor replaced a newer draft")
+	}
+	m.applyOperatorEditorResult(operatorEditorFinished{generation: m.operators.editorGeneration, field: 6, text: "current"})
+	if m.operators.instructions.Value() != "current" {
+		t.Fatal("current editor result lost")
+	}
+	for _, size := range []struct{ w, h int }{{160, 45}, {80, 24}} {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: size.w, Height: size.h})
+		m = next.(Model)
+		for _, schedule := range []bool{false, true} {
+			m.operators.scheduleEditing = schedule
+			view := m.operatorEditorView()
+			if lipgloss.Width(view) > size.w || lipgloss.Height(view) > size.h-2 {
+				t.Fatalf("%dx%d schedule %t: rendered %dx%d", size.w, size.h, schedule, lipgloss.Width(view), lipgloss.Height(view))
+			}
+			if !strings.Contains(view, "Ctrl+S") || !strings.Contains(view, "Esc") {
+				t.Fatal("footer missing")
+			}
+		}
 	}
 }

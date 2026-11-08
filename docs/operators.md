@@ -33,7 +33,15 @@ Kanbi prescribes no `state.md`, custom-agent definition or agent memory framewor
 A turn already in progress may finish with its previously read instructions.
 
 The editor supports name, immutable harness, working directory, five-field cron,
-timezone, scheduled prompt and multiline instructions (`Tab` fields, `Ctrl+S` save).
+timezone, scheduled prompt and multiline instructions. The name sits in the title
+border, with harness and directory above the main instructions editor. `Tab` /
+`Shift+Tab` move between fields; the harness is skipped after creation. Focus
+Schedule and press `Enter` for cron, timezone and the multiline scheduled prompt.
+`Ctrl+S` or `Esc` returns from scheduling to the draft; save the main editor with
+`Ctrl+S` to persist all changes, or `Esc` to discard the draft. Instructions and
+scheduled prompts share the ticket description editor, including word deletion
+and `Ctrl+E` to open `$EDITOR`. External-editor changes return to the draft before
+the main save. The instructions viewport grows with the terminal.
 An empty schedule disables recurrence. Presets are `15m`, `hourly` and `daily`
 (daily means 09:00 in the selected timezone). Cron supports standard lists, ranges,
 steps and names through robfig/cron; `@every` intervals are deliberately excluded.

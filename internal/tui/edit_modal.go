@@ -732,6 +732,10 @@ func (m Model) editFooter(dirty bool) string {
 }
 
 func ticketInspectorTitle(displayID string, title InputBuffer, focused bool, dirty bool, maxWidth int) string {
+	return textEditorTitle(displayID, title, focused, dirty, maxWidth, "Untitled ticket")
+}
+
+func textEditorTitle(displayID string, title InputBuffer, focused bool, dirty bool, maxWidth int, placeholder string) string {
 	prefix := ""
 	if dirty {
 		prefix = "* "
@@ -748,7 +752,7 @@ func ticketInspectorTitle(displayID string, title InputBuffer, focused bool, dir
 	}
 	value := strings.TrimSpace(title.Value())
 	if value == "" {
-		value = "Untitled ticket"
+		value = placeholder
 	}
 	full := prefix + value
 	if lipgloss.Width(full) > maxWidth {
