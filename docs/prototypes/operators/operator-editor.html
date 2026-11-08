@@ -1,0 +1,103 @@
+<div id="kanbi-operator-prototype" aria-label="Kanbi Operator editor prototype">
+<style>
+#kanbi-operator-prototype{--kb-bg:light-dark(#fafafa,#1a1b26);--kb-fg:light-dark(#343b58,#a9b1d6);--kb-bright:light-dark(#24283b,#c0caf5);--kb-dim:light-dark(#737aa2,#737aa2);--kb-line:light-dark(#9aa5ce,#414868);--kb-accent:light-dark(#34548a,#7aa2f7);font:14px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--kb-fg);color-scheme:light dark}
+#kanbi-operator-prototype *{box-sizing:border-box}
+#kanbi-operator-prototype .terminal{background:var(--kb-bg);padding:12px 14px;min-height:448px;position:relative}
+#kanbi-operator-prototype .board{white-space:pre-wrap;color:var(--kb-line);margin:0;overflow-wrap:anywhere;font:inherit;user-select:none}
+#kanbi-operator-prototype .chrome{display:flex;justify-content:space-between;gap:12px;color:var(--kb-fg);white-space:nowrap;overflow:hidden}
+#kanbi-operator-prototype .dialog{position:relative;background:var(--kb-bg);border:1px solid var(--kb-accent);border-radius:10px;margin:16px auto 22px;padding:0 20px 14px;min-width:0;max-width:116ch}
+#kanbi-operator-prototype legend{color:var(--kb-bright);padding:0 8px;margin-left:-8px;max-width:100%}
+#kanbi-operator-prototype input,#kanbi-operator-prototype textarea,#kanbi-operator-prototype select,#kanbi-operator-prototype button{font:inherit;color:inherit;background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;min-width:0}
+#kanbi-operator-prototype input{width:100%}
+#kanbi-operator-prototype .name{width:19ch;font-weight:500;color:var(--kb-bright)}
+#kanbi-operator-prototype .meta{display:flex;flex-wrap:wrap;gap:0 2ch;margin:7px 0;color:var(--kb-dim)}
+#kanbi-operator-prototype .path{display:flex;gap:1ch;color:var(--kb-dim);margin:6px 0 16px}
+#kanbi-operator-prototype .path input{color:var(--kb-fg)}
+#kanbi-operator-prototype .heading{color:var(--kb-accent);margin-bottom:4px}
+#kanbi-operator-prototype textarea.instructions{display:block;width:100%;height:168px;resize:none;border-left:2px solid var(--kb-accent);padding:0 0 0 1ch;color:var(--kb-fg);outline-offset:3px}
+#kanbi-operator-prototype .schedule{margin:15px 0 10px;display:flex;flex-wrap:wrap;gap:0 1ch;color:var(--kb-dim)}
+#kanbi-operator-prototype .schedule button{color:var(--kb-fg);text-decoration:underline;text-underline-offset:3px}
+#kanbi-operator-prototype .footer{border-top:1px solid var(--kb-line);padding-top:7px;margin-top:13px;color:var(--kb-dim);display:flex;flex-wrap:wrap;gap:0 1.2ch}
+#kanbi-operator-prototype button{cursor:var(--cursor-interaction,default)}
+#kanbi-operator-prototype button:hover{color:var(--kb-accent)}
+#kanbi-operator-prototype .schedule-editor{min-height:265px;padding-top:5px}
+#kanbi-operator-prototype .schedule-editor label{display:grid;grid-template-columns:12ch 1fr;gap:1ch;margin-bottom:14px}
+#kanbi-operator-prototype .schedule-editor textarea{width:100%;height:84px;border-left:2px solid var(--kb-accent);padding-left:1ch;resize:none}
+#kanbi-operator-prototype .hint{color:var(--kb-dim);margin:12px 0}
+#kanbi-operator-prototype .terminal-footer{color:var(--kb-dim);display:flex;flex-wrap:wrap;gap:0 1ch}
+#kanbi-operator-prototype .baseline{margin:0;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--kb-fg)}
+#kanbi-operator-prototype [hidden]{display:none!important}
+@media(max-width:520px){#kanbi-operator-prototype{font-size:12px}#kanbi-operator-prototype .terminal{padding:8px}#kanbi-operator-prototype .dialog{padding:0 10px 12px}#kanbi-operator-prototype .chrome span:last-child{display:none}#kanbi-operator-prototype .path{display:block}#kanbi-operator-prototype .schedule-editor label{grid-template-columns:1fr;gap:4px}#kanbi-operator-prototype textarea.instructions{height:180px}}
+</style>
+<div class="terminal">
+<div class="proposed">
+<div class="chrome"><span>KANBI / MASTER</span><span>FOCUS 4/3 · pause 1 to continue</span></div>
+<pre class="board">OPEN                       16   IN PROGRESS                 20
+─────────────────────────────   ──────────────────────────────
+  T-004                  · pi     T-005                ◆ focus
+  Set up Actual on the homelab    Release qualification and</pre>
+<fieldset class="dialog">
+<legend><span class="legend-prefix">New Operator</span> <span aria-hidden="true">·</span> <input class="name" aria-label="Operator name" value="Intake"></legend>
+<div class="main-editor">
+<div class="meta"><span>workspace</span><label>harness <select class="harness" aria-label="Harness"><option>codex</option><option>pi</option><option>claude</option><option>copilot</option></select></label><span>unsaved</span></div>
+<label class="path"><span>Directory</span><input aria-label="Working directory" value="/home/carlotran4/Developer/kanbi"></label>
+<div class="heading">▸ Standing instructions</div>
+<textarea class="instructions" aria-label="Standing instructions" spellcheck="false">Inspect incoming requests and find related work across boards.
+
+Reconcile new requests with existing tickets and sessions.
+Ask me before creating or moving tickets.
+
+Use the tools configured in your harness.</textarea>
+<div class="schedule"><span>Schedule</span><button class="open-schedule" type="button">Every 15 minutes · America/Chicago</button></div>
+<div class="footer"><span>instructions</span><span>·</span><span>Tab fields</span><button class="external-editor" type="button">Ctrl+E editor</button><button class="save" type="button">Ctrl+S save</button><button class="cancel" type="button">Esc cancel</button></div>
+</div>
+<div class="schedule-editor" hidden>
+<div class="meta">Schedule · Intake</div>
+<label><span>Repeat</span><select aria-label="Recurring schedule"><option value="15m">Every 15 minutes</option><option value="hourly">Hourly</option><option value="daily">Daily</option><option value="none">None</option><option value="custom">Custom cron</option></select></label>
+<label class="cron-row" hidden><span>Cron</span><input aria-label="Custom cron" value="*/15 * * * *"></label>
+<label><span>Timezone</span><input class="timezone" aria-label="Timezone" value="America/Chicago"></label>
+<div class="heading">Scheduled prompt</div>
+<textarea class="scheduled-prompt" aria-label="Scheduled prompt" spellcheck="false">Check incoming work for new requests.</textarea>
+<div class="hint">Fixed clock · while Kanbi is running</div>
+<div class="footer"><span>Tab fields</span><button class="close-schedule" type="button">Enter done</button><button class="close-schedule" type="button">Esc back</button></div>
+</div>
+<div class="external" hidden>
+<div class="meta">External editor · instructions.md</div>
+<textarea class="instructions external-text" aria-label="External editor simulation" spellcheck="false"></textarea>
+<div class="footer"><span>$EDITOR simulation</span><button class="return-editor" type="button">Save and return</button></div>
+</div>
+</fieldset>
+<div class="terminal-footer"><span>Enter:send/open</span><span>/:search</span><span>i:inspect</span><span>n:new</span><span>b:boards</span><span>O:operators</span><span>?:help</span></div>
+</div>
+<pre class="baseline" hidden aria-label="Actual current Operator editor at 80 by 24"></pre>
+</div>
+<script>
+(()=>{
+ const root=document.getElementById('kanbi-operator-prototype');
+ const q=s=>root.querySelector(s);
+ const state={view:'Proposed',mode:'Create',schedule:'Separate editor'};
+ let baseline=" KANBI / MASTER                                 FOCUS 4/3 \u00b7 pause 1 to continue\n OPEN                                16  IN PROGRESS                         20\n\u2500\u2500\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\u2500\n(+\u2502                                                                          \u25022\n  \u2502  Operator configuration                                                  \u2502\n  \u2502                                                                          \u2502\n  \u2502  > Name:                                                                 \u2502\n  \u2502    Harness (immutable): pi                                               \u2502\n  \u2502    Working directory: /home/carlotran4/.local/state/kanbi/worktrees/7f~  \u2502\n  \u2502    Schedule (cron / 15m / hourly / daily):                               \u2502\n\u258f \u2502    Timezone: UTC                                                         \u2502\n\u258f \u2502    Scheduled prompt:                                                     \u2502\n\u258f \u2502  Standing instructions (read again on every wake):                       \u2502\n\u258f \u2502  \u2503 (no description)                                                      \u2502\n\u258f \u2502  \u2503                                                                       \u2502\n\u258f \u2502  \u2503                                                                       \u2502\n\u258f \u2502  \u2503                                                                       \u2502\n\u258f \u2502  \u2503                                                                       \u2502\n  \u2502  \u2503                                                                       \u2502\n(+\u2502  Tab fields \u00b7 Ctrl+S save \u00b7 Esc cancel                                   \u2502\n2 \u2502                                                                          \u2502\n  \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\nOperators [O] \u00b7 none \u00b7 n to create\nEnter:open /:search i:inspect n:new b:boards O:ops v:fleet F:focus f:filters ?:\n";
+ q('.baseline').textContent=baseline;
+ const show=which=>{['.main-editor','.schedule-editor','.external'].forEach(s=>q(s).hidden=s!==which);};
+ const render=()=>{
+  q('.proposed').hidden=state.view==='Current';q('.baseline').hidden=state.view!=='Current';
+  q('.legend-prefix').textContent=state.mode==='Create'?'New Operator':'Operator';
+  const harness=q('.harness');harness.disabled=state.mode==='Edit';harness.setAttribute('aria-label',state.mode==='Edit'?'Harness (locked after creation)':'Harness');
+  q('.schedule-editor').style.minHeight=state.schedule==='Separate editor'?'265px':'auto';
+  if(state.schedule==='Inline schedule'){q('.schedule-editor').hidden=false;q('.main-editor').hidden=false;q('.close-schedule').hidden=true;}else {q('.close-schedule').hidden=false;show('.main-editor');}
+ };
+ q('.open-schedule').onclick=()=>{show('.schedule-editor');q('[aria-label="Recurring schedule"]').focus();};
+ q('[aria-label="Recurring schedule"]').onchange=e=>{q('.cron-row').hidden=e.target.value!=='custom';};
+ const done=()=>{const labels={'15m':'Every 15 minutes',hourly:'Hourly',daily:'Daily',none:'No recurring schedule',custom:q('[aria-label="Custom cron"]').value};q('.open-schedule').textContent=labels[q('[aria-label="Recurring schedule"]').value]+' · '+q('.timezone').value;show('.main-editor');q('.open-schedule').focus();};
+ root.querySelectorAll('.close-schedule').forEach(b=>b.onclick=done);
+ const external=()=>{q('.external-text').value=q('.instructions').value;show('.external');q('.external-text').focus();};
+ q('.external-editor').onclick=external;
+ q('.return-editor').onclick=()=>{q('.instructions').value=q('.external-text').value;show('.main-editor');q('.instructions').focus();};
+ q('.save').onclick=()=>{q('.meta span:last-child').textContent='saved';};
+ q('.cancel').onclick=()=>{q('.meta span:last-child').textContent='cancelled';};
+ root.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='e'){e.preventDefault();external();}if(e.ctrlKey&&e.key==='s'){e.preventDefault();q('.save').click();}if(e.key==='Escape'){show('.main-editor');}});
+ render();
+ if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:render});tweak.addSelect(state,'view',{label:'Compare',options:['Proposed','Current']});tweak.addSelect(state,'mode',{label:'Operator',options:['Create','Edit']});tweak.addSelect(state,'schedule',{label:'Schedule placement',options:['Separate editor','Inline schedule']});}
+})();
+</script>
+</div>

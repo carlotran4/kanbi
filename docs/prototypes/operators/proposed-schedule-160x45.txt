@@ -1,0 +1,45 @@
+ KANBI / MASTER                                                                                                                 FOCUS 4/3 · pause 1 to continue 
+ OPEN                                16  IN PROGRESS                         20  REVIEW                              20  DONE                                16 
+─────────────────────────────────────── ─────────────────────────────────────── ─────────────────────────────────────── ─────────────────────────────────────── 
+  T-004                          · pi    FOCUSED                              2  FOCUSED                              2 ▏ T-015                    ○ pi error   
+  Set up Actual on the homelab 4          T-005                       ◆ focus     T-006                       ◆ focus   ▏ Release qualification and             
+                                          Release qualification and               Bug - scrolling and viewport          ▏ production hardening 15               
+  not started · kanbi                     production hardening 5                  behavior 6                            ▏ pi · kanbi                            
+                                          pi · Default                            pi · Default                          ▏                                       
+                                                                                                                                                                
+  T-004                          · pi                                                                                   ▏ T-015                    ○ pi error   
+  Set up Actual on the homelab 4          T-001                       ◆ focus     T-002                       ◆ focus   ▏ Release qualification and             
+                                          Bug - scrolling and viewport            Add backend integration support 2     ▏ production hardening 15               
+  not started · personal-finance          behavior 1                                                                    ▏ pi · personal-finance                 
+                                          pi · Default                            pi · Default                          ▏                                       
+                                                                                                                                                                
+▏ T-004               ╭─ Schedule · Intake ──────────────────────────────────────────────────────────────────────────────────────────────╮         ○ pi error   
+▏ Set up Actual on the│  Schedule · Intake                                                                                               │ation and             
+▏                     │                                                                                                                  │ning 15               
+▏ not started · agent-│  Repeat     Every 15 minutes                                                                                     │n                     
+▏                     │  Timezone   America/Chicago                                                                                      │                      
+▏ Fixture description │                                                                                                                  │                      
+▏ interactive UI valid│  ▸ Scheduled prompt                                                                                              │         ○ pi error   
+▏                     │  Check incoming work for new requests.                                                                           │ation and             
+                      │                                                                                                                  │ning 15               
+  T-004               │  Fixed clock · while Kanbi is running                                                                            │                      
+  Set up Actual on the│                                                                                                                  │                      
+                      │  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────  │                      
+  not started · Defaul│  Tab fields · Enter done · Esc back                                                                              │         ○ pi error   
+                      ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯and viewport          
+                                          T-017                      ⏸ paused     T-018                      ⏸ paused   ▏ behavior 11                           
+  T-008                          · pi     Add backend integration support 17      Improve image paste and attachment    ▏ pi · kanbi                            
+  Improve image paste and attachment                                              workflow 18                           ▏                                       
+  workflow 8                              pi · agent-kanban                       pi · agent-kanban                                                             
+  not started · kanbi                                                                                                   ▏ T-011                    ○ pi error   
+                                                                                                                        ▏ Bug - scrolling and viewport          
+                                          T-017                      ⏸ paused     T-018                      ⏸ paused   ▏ behavior 11                           
+  T-008                          · pi     Add backend integration support 17      Improve image paste and attachment    ▏ pi · personal-finance                 
+  Improve image paste and attachment                                              workflow 18                           ▏                                       
+  workflow 8                              pi · Default                            pi · Default                                                                  
+  not started · personal-finance                                                                                        (+10 more ▼)                            
+                                                                                                                                                                
+                                        (+14 more ▼)                            (+14 more ▼)                                                                    
+(+10 more ▼)                                                                                                                                                    
+Enter:send/open  /:search  i:inspect  n:new  b:boards  O:operators  v:fleet  F:focus  f:filters  !:attention  ?:help                                            
+Enter:send/open  /:search  i:inspect  n:new  b:boards  O:operators                                                                                              

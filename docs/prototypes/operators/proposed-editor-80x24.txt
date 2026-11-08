@@ -1,0 +1,24 @@
+ KANBI / MASTER                                                                 
+ OPEN                                16  IN PROGRESS                         20 
+─────────────────────────────────────── ─────────────────────────────────────── 
+  T-004                          · pi    FOCUSED                              2 
+  S╭─ New Operator · Intake ────────────────────────────────────────────────╮   
+   │  workspace  ·  codex  ·  unsaved                                       │   
+  n│  Directory  /home/carlotran4/Developer/kanbi                           │   
+   │                                                                        │   
+   │  ▸ Standing instructions                                               │   
+  T│  Inspect incoming requests and find related work across boards.        │   
+  S│                                                                        │   
+   │  Reconcile new requests with existing tickets and sessions.            │   
+  n│  Ask me before creating or moving tickets.                             │   
+   │                                                                        │   
+   │  Use the tools configured in your harness.                             │   
+▏ T│                                                                        │   
+▏ S│  Schedule  Every 15 minutes · America/Chicago                          │18 
+▏  │  ────────────────────────────────────────────────────────────────────  │   
+▏ n│  Tab fields · Ctrl+E editor · Ctrl+S save · Esc cancel                 │   
+▏  ╰────────────────────────────────────────────────────────────────────────╯   
+▏ Fixture description for                 pi · kanbi                            
+▏ interactive UI validation. Card                                               
+▏                                                                               
+Enter:send/open  /:search  i:inspect  n:new  b:boards  O:operators              

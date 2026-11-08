@@ -1,0 +1,24 @@
+ KANBI / MASTER                                 FOCUS 4/3 · pause 1 to continue
+ OPEN                                16  IN PROGRESS                         20
+─────────────────────────────────────── ───────────────────────────────────────
+(+1 more ▲)                              FOCUSED                              2
+  T-004                          · pi     T-005                       ◆ focus
+  Se╭─ T-004 Set up Actual on the homelab 4  ──────────────────────────────╮
+    │                                                                      │
+  no│  agent-kanban  ·  not started  ·  pi  ·  updated just now            │
+    │                                                                      │
+    │  Fixture description for interactive UI validation. Card 4 on        │
+▏ T-│  agent-kanban.                                                       │s
+▏ Se│                                                                      │
+▏   │  Notes                                                               │
+▏ no│  No notes yet.                                                       │
+▏   │                                                                      │
+▏ Fi│  ──────────────────────────────────────────────────────────────────  │
+▏ in│  editing title · Tab body · Ctrl+S save · Esc cancel                 │
+▏   │                                                                      │
+    ╰──────────────────────────────────────────────────────────────────────╯
+(+13 more ▼)
+2 hidden ►
+
+
+Enter:open /:search i:inspect n:new b:boards O:ops v:fleet F:focus f:filters ?:

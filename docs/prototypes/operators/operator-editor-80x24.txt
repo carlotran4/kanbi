@@ -1,0 +1,24 @@
+ KANBI / MASTER                                 FOCUS 4/3 · pause 1 to continue
+ OPEN                                16  IN PROGRESS                         20
+──╭──────────────────────────────────────────────────────────────────────────╮─
+(+│                                                                          │2
+  │  Operator configuration                                                  │
+  │                                                                          │
+  │  > Name:                                                                 │
+  │    Harness (immutable): pi                                               │
+  │    Working directory: /home/carlotran4/.local/state/kanbi/worktrees/7f~  │
+  │    Schedule (cron / 15m / hourly / daily):                               │
+▏ │    Timezone: UTC                                                         │
+▏ │    Scheduled prompt:                                                     │
+▏ │  Standing instructions (read again on every wake):                       │
+▏ │  ┃ (no description)                                                      │
+▏ │  ┃                                                                       │
+▏ │  ┃                                                                       │
+▏ │  ┃                                                                       │
+▏ │  ┃                                                                       │
+  │  ┃                                                                       │
+(+│  Tab fields · Ctrl+S save · Esc cancel                                   │
+2 │                                                                          │
+  ╰──────────────────────────────────────────────────────────────────────────╯
+Operators [O] · none · n to create
+Enter:open /:search i:inspect n:new b:boards O:ops v:fleet F:focus f:filters ?:

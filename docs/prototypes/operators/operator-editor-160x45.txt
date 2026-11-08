@@ -1,0 +1,45 @@
+ KANBI / MASTER                                                                                                                 FOCUS 4/3 · pause 1 to continue
+ OPEN                       16  IN PROGRESS                20  REVIEW                     20  DONE                       16  Operators • focused  [O] close
+────────────────────────────── ────────────────────────────── ────────────────────────────── ──────────────────────────────  No Operators. Press n to create.
+  T-004                 · pi    FOCUSED                     2  FOCUSED                     2 ▏ T-015           ○ pi error    n new  e edit  Enter open  r run
+  Set up Actual on the           T-005              ◆ focus     T-006              ◆ focus   ▏ Release qualification and     p schedule  s stop  x close
+  homelab 4                      Release qualification and      Bug - scrolling and          ▏ production hardening 15       f fresh  d delete  Esc board
+  not started · kanbi            production hardening 5         viewport behavior 6          ▏ pi · kanbi
+                                 pi · Default                   pi · Default                 ▏
+
+  T-004                 · pi                                                                 ▏ T-015           ○ pi error
+  Set up Actual on the           T-001              ◆ focus     T-002              ◆ focus   ▏ Release qualification and
+  homelab 4                      Bug - scrolling and            Add backend integration      ▏ production hardening 15
+  not started · personal-fi…     viewport ╭──────────────────────────────────────────────────────────────────────────╮
+                                 pi · Defa│                                                                          │
+                                          │  Operator configuration                                                  │
+▏ T-004                 · pi              │                                                                          │ror
+▏ Set up Actual on the          PAUSED    │  > Name:                                                                 │nd
+▏ homelab 4                      T-017    │    Harness (immutable): pi                                               │
+▏ not started · agent-kanban     Add backe│    Working directory: /home/carlotran4/.local/state/kanbi/worktrees/7f~  │
+▏                                support 1│    Schedule (cron / 15m / hourly / daily):                               │
+▏ Fixture description            pi · kanb│    Timezone: UTC                                                         │
+▏ for interactive UI                      │    Scheduled prompt:                                                     │ror
+▏                                         │  Standing instructions (read again on every wake):                       │nd
+                                 T-017    │  ┃ (no description)                                                      │
+  T-004                 · pi     Add backe│  ┃                                                                       │
+  Set up Actual on the           support 1│  ┃                                                                       │
+  homelab 4                      pi · pers│  ┃                                                                       │
+  not started · Default                   │  ┃                                                                       │ror
+                                          │  ┃                                                                       │
+                                 T-017    │  Tab fields · Ctrl+S save · Esc cancel                                   │
+  T-008                 · pi     Add backe│                                                                          │
+  Improve image paste and        support 1╰──────────────────────────────────────────────────────────────────────────╯
+  attachment workflow 8          pi · agent-kanban              pi · agent-kanban
+  not started · kanbi                                                                        ▏ T-011           ○ pi error
+                                                                                             ▏ Bug - scrolling and
+                                 T-017             ⏸ paused     T-018             ⏸ paused   ▏ viewport behavior 11
+  T-008                 · pi     Add backend integration        Improve image paste and      ▏ pi · personal-finance
+  Improve image paste and        support 17                     attachment workflow 18       ▏
+  attachment workflow 8          pi · Default                   pi · Default
+  not started · personal-fi…                                                                 (+10 more ▼)
+
+                               (+14 more ▼)                   (+14 more ▼)
+(+10 more ▼)
+
+Enter:send/open  /:search  i:inspect  n:new  b:boards  O:operators  v:fleet  F:focus  f:filters  !:attention  ?:help
