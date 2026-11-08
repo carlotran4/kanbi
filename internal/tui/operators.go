@@ -87,8 +87,7 @@ func (m *Model) editOperator(o storage.Operator) tea.Cmd {
 	for i, v := range values {
 		u.inputs[i] = NewInputBuffer(v)
 	}
-	ta := textarea.New()
-	ta.SetValue(text)
+	ta := newBodyTextarea(text, m.width)
 	ta.SetWidth(modalContentWidth(focusModalWidth(m.width)))
 	ta.SetHeight(maxInt(2, minInt(6, m.height-18)))
 	ta.CharLimit = 0
@@ -277,7 +276,7 @@ func (m Model) operatorEditorView() string {
 		}
 		lines = append(lines, modalLabeledInput(prefix+label+": ", u.inputs[i], u.field == i, width))
 	}
-	lines = append(lines, "Standing instructions (read again on every wake):", u.instructions.View(), "Tab fields · Ctrl+S save · Esc cancel")
+	lines = append(lines, "Standing instructions (read again on every wake):", textareaOverlayView(u.instructions), "Tab fields · Ctrl+S save · Esc cancel")
 	if u.error != "" {
 		lines = append(lines, trimToWidth(u.error, width))
 	}
