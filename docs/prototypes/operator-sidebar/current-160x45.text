@@ -1,0 +1,45 @@
+ KANBI / MASTER                                                                                                                 FOCUS 4/3 · pause 1 to continue
+ OPEN                       16  IN PROGRESS                20  REVIEW                     20  DONE                       16  Operators • focused  [O] close
+────────────────────────────── ────────────────────────────── ────────────────────────────── ──────────────────────────────  > Intake · not started
+  T-004                 · pi    FOCUSED                     2  FOCUSED                     2 ▏ T-015           ○ pi error      Next: Nov 7 18:30
+  Set up Actual on the           T-005              ◆ focus     T-006              ◆ focus   ▏ Release qualification and       Review triage · not started
+  homelab 4                      Release qualification and      Bug - scrolling and          ▏ production hardening 15         Next: Nov 7 18:30
+  not started · kanbi            production hardening 5         viewport behavior 6          ▏ pi · kanbi                      Daily digest · not started
+                                 pi · Default                   pi · Default                 ▏                                 Schedule paused
+                                                                                                                               Dependency watcher · failed
+  T-004                 · pi                                                                 ▏ T-015           ○ pi error      Resume failed; retry required
+  Set up Actual on the           T-001              ◆ focus     T-002              ◆ focus   ▏ Release qualification and       Release follow-ups · not started
+  homelab 4                      Bug - scrolling and            Add backend integration      ▏ production hardening 15         Next: Nov 7 18:30
+  not started · personal-fi…     viewport behavior 1            support 2                    ▏ pi · personal-finance           Documentation curator · not star~
+                                 pi · Default                   pi · Default                 ▏                                 Next: Nov 7 18:30
+                                                                                                                             n new  e edit  Enter open  r run
+▏ T-004                 · pi                                                                 ▏ T-015           ○ pi error    p schedule  s stop  x close
+▏ Set up Actual on the          PAUSED                     18  PAUSED                     18 ▏ Release qualification and     f fresh  d delete  Esc board
+▏ homelab 4                      T-017             ⏸ paused     T-018             ⏸ paused   ▏ production hardening 15
+▏ not started · agent-kanban     Add backend integration        Improve image paste and      ▏ pi · agent-kanban
+▏                                support 17                     attachment workflow 18       ▏
+▏ Fixture description            pi · kanbi                     pi · kanbi
+▏ for interactive UI                                                                         ▏ T-015           ○ pi error
+▏                                                                                            ▏ Release qualification and
+                                 T-017             ⏸ paused     T-018             ⏸ paused   ▏ production hardening 15
+  T-004                 · pi     Add backend integration        Improve image paste and      ▏ pi · Default
+  Set up Actual on the           support 17                     attachment workflow 18       ▏
+  homelab 4                      pi · personal-finance          pi · personal-finance
+  not started · Default                                                                      ▏ T-011           ○ pi error
+                                                                                             ▏ Bug - scrolling and
+                                 T-017             ⏸ paused     T-018             ⏸ paused   ▏ viewport behavior 11
+  T-008                 · pi     Add backend integration        Improve image paste and      ▏ pi · kanbi
+  Improve image paste and        support 17                     attachment workflow 18       ▏
+  attachment workflow 8          pi · agent-kanban              pi · agent-kanban
+  not started · kanbi                                                                        ▏ T-011           ○ pi error
+                                                                                             ▏ Bug - scrolling and
+                                 T-017             ⏸ paused     T-018             ⏸ paused   ▏ viewport behavior 11
+  T-008                 · pi     Add backend integration        Improve image paste and      ▏ pi · personal-finance
+  Improve image paste and        support 17                     attachment workflow 18       ▏
+  attachment workflow 8          pi · Default                   pi · Default
+  not started · personal-fi…                                                                 (+10 more ▼)
+
+                               (+14 more ▼)                   (+14 more ▼)
+(+10 more ▼)
+
+Enter:send/open  /:search  i:inspect  n:new  b:boards  O:operators  v:fleet  F:focus  f:filters  !:attention  ?:help
