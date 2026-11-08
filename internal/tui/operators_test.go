@@ -217,13 +217,13 @@ func TestOperatorCardsKeepSelectionAndFooterVisible(t *testing.T) {
 				t.Fatalf("panel %dx%d rendered %dx%d", size.w, size.h, lipgloss.Width(view), lipgloss.Height(view))
 			}
 			lines := strings.Split(ansiStrip(view), "\n")
-			if !strings.Contains(lines[len(lines)-1], "Esc board") || !strings.Contains(view, "Operator 19") || !strings.Contains(view, "more ↑") || !strings.Contains(view, "copilot") {
+			if strings.Contains(strings.Join(lines, "\n"), "Enter open") || !strings.Contains(view, "Operator 19") || !strings.Contains(view, "more ↑") || !strings.Contains(view, "copilot") {
 				t.Fatal(view)
 			}
 		}
 	}
 	m.operators.menu = true
-	if view := m.operatorsView(38, 20); lipgloss.Height(view) != 20 || !strings.Contains(view, "Delete Operator") || !strings.Contains(view, "Esc / ? back") {
+	if view := m.operatorsView(38, 20); lipgloss.Height(view) != 20 || !strings.Contains(view, "Delete Operator") {
 		t.Fatal(view)
 	}
 }
@@ -243,5 +243,33 @@ func TestOperatorNarrowOverlayIsRightAligned(t *testing.T) {
 	}
 	if lines[0] != strings.Repeat("B", 80) || lines[23] != strings.Repeat("B", 80) {
 		t.Fatal("header/footer were covered")
+	}
+}
+
+func TestOperatorShortcutsUseTheSingleContextBar(t *testing.T) {
+	for _, width := range []int{80, 160} {
+		m := Model{width: width, height: 24}
+		m.operators.open, m.operators.focused = true, true
+		m.operators.items = []storage.Operator{{Name: "Intake", State: "failed"}}
+		if bar := m.contextBar(); !strings.Contains(bar, "?:actions") || !strings.Contains(bar, "r:retry") || !strings.Contains(bar, "Esc:board") || strings.Contains(bar, "/:search") {
+			t.Fatal(bar)
+		}
+		if panel := m.operatorsView(34, 20); strings.Contains(panel, "Enter open") || strings.Contains(panel, "? actions") {
+			t.Fatal(panel)
+		}
+		m.operators.menu = true
+		if bar := m.contextBar(); bar != "Operator actions  Esc/?:back" {
+			t.Fatal(bar)
+		}
+		m.operators.menu = false
+		m.operators.confirm = "delete"
+		if bar := m.contextBar(); bar != "y:confirm  n/Esc:cancel" {
+			t.Fatal(bar)
+		}
+		m.operators.confirm = ""
+		m.operators.focused = false
+		if bar := m.contextBar(); !strings.Contains(bar, "/:search") || strings.Contains(bar, "?:actions") {
+			t.Fatal(bar)
+		}
 	}
 }

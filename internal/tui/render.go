@@ -33,7 +33,16 @@ func (m Model) View() string {
 		if m.operators.editing {
 			return overlayModal(base, fitModal(m.operatorEditorView(), m.height, 0, true), m.width, m.height)
 		}
-		return overlayModalPosition(base, fitModal(m.operatorsOverlay(), m.height, 0, true), m.width, m.height, true)
+		view := overlayModalPosition(base, fitModal(m.operatorsOverlay(), m.height, 0, true), m.width, m.height, true)
+		// The single active shortcut bar stays readable outside the overlay.
+		lines := strings.Split(view, "\n")
+		context := padLine(m.contextBar(), maxInt(1, m.width))
+		for i, line := range strings.Split(base, "\n") {
+			if i < len(lines) && ansi.Strip(line) == context {
+				lines[i] = line
+			}
+		}
+		return strings.Join(lines, "\n")
 	case modalFocusSettings:
 		return overlayModal(base, fitModal(m.focusSettingsView(), m.height, 0, true), m.width, m.height)
 	case modalFocusReplace:
@@ -130,7 +139,10 @@ func (m Model) baseView() string {
 	if m.operators.open && !m.operatorsNarrow() {
 		board = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(m.boardWidth()).Render(board), lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(palette.rule).PaddingLeft(1).Render(m.operatorsView(34, m.boardContentHeight()+2)))
 	}
-	footer := []string{contextBarStyle.Render(padLine(m.contextBar(), maxInt(1, m.width)))}
+	var footer []string
+	if context := m.contextBar(); context != "" {
+		footer = append(footer, contextBarStyle.Render(padLine(context, maxInt(1, m.width))))
+	}
 	if m.operators.open && m.operatorsNarrow() {
 		footer = append([]string{trimToWidth("Operators [O] · "+m.operatorSummary(), m.width)}, footer...)
 	}
@@ -192,6 +204,29 @@ func focusHeaderLine(left, focusText string, width int) string {
 }
 
 func (m Model) contextBar() string {
+	if m.operators.open && m.operators.focused {
+		if m.operators.editing {
+			return ""
+		} // The editor owns its own modal hints.
+		if m.operators.confirm != "" {
+			return "y:confirm  n/Esc:cancel"
+		}
+		if m.operators.busy {
+			return "Working…  Esc:board"
+		}
+		if m.operators.menu {
+			return "Operator actions  Esc/?:back"
+		}
+		run := "r:run"
+		if len(m.operators.items) > 0 {
+			state := m.operators.items[m.operators.index].State
+			if state == "failed" || state == "error" || state == "repair_needed" {
+				run = "r:retry"
+			}
+		}
+		return trimToWidth("j/k:select  Enter:open  "+run+"  e:edit  n:new  ?:actions  Esc:board  O:hide", maxInt(1, m.width))
+	}
+
 	if m.inspector.open && m.inspectorNarrow() {
 		return trimToWidth("/:search i/Esc:board h/l:section j/k:scroll ←/→:pan Enter:open ?:help", maxInt(1, m.width))
 	}

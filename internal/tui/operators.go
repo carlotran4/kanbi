@@ -204,11 +204,7 @@ func (m Model) operatorsView(width, height int) string {
 	label, hide := fmt.Sprintf("OPERATORS  %d", len(u.items)), "O hide"
 	gap := maxInt(1, width-lipgloss.Width(label)-lipgloss.Width(hide))
 	lines := []string{heading.Render(label) + strings.Repeat(" ", gap) + muted.Render(hide), muted.Render(strings.Repeat("─", width))}
-	runLabel := "r run"
-	if len(u.items) > 0 && (u.items[u.index].State == "failed" || u.items[u.index].State == "error" || u.items[u.index].State == "repair_needed") {
-		runLabel = "r retry"
-	}
-	footer := []string{muted.Render(strings.Repeat("─", width)), muted.Render("Enter open · " + runLabel + " · e edit"), muted.Render("n new · ? actions · Esc board")}
+	var footer []string
 	if u.busy {
 		footer = append([]string{muted.Render("Working…")}, footer...)
 	}
@@ -220,9 +216,9 @@ func (m Model) operatorsView(width, height int) string {
 		footer = append(errors, footer...)
 	}
 	if u.confirm != "" {
-		text := u.confirm + " " + u.selected.Name + "? y / n"
+		text := u.confirm + " " + u.selected.Name + "?"
 		if u.confirm == "delete" {
-			text = "Delete triggers/address; retain history/session? y / n"
+			text = "Delete triggers/address; retain history/session?"
 		}
 		footer = append(wrapText(text, width, 3), footer...)
 	}
@@ -231,12 +227,12 @@ func (m Model) operatorsView(width, height int) string {
 		if len(u.items) > 0 && u.items[u.index].SchedulePaused {
 			pause = "p  Resume schedule"
 		}
-		lines = append(lines, "", heading.Render("Operator actions"), "", "Enter  Open session", "r  Run now / retry", "e  Edit configuration", pause, "s  Stop turn", "x  Close session…", "f  Start fresh…", "d  Delete Operator…", "", muted.Render("Esc / ? back"))
+		lines = append(lines, "", heading.Render("Operator actions"), "", "Enter  Open session", "r  Run now / retry", "e  Edit configuration", pause, "s  Stop turn", "x  Close session…", "f  Start fresh…", "d  Delete Operator…")
 	} else if len(u.items) == 0 {
-		lines = append(lines, "", muted.Render("No Operators yet."), muted.Render("Press n to create one."))
+		lines = append(lines, "", muted.Render("No Operators yet."))
 	} else {
 		// Three content rows plus the same one-row gap used by board cards.
-		// Reserve a row for overflow and keep the action footer fixed in place.
+		// Reserve a row for overflow; shortcuts live in the shared context bar.
 		available := maxInt(1, (height-len(lines)-len(footer)-1)/4)
 		start := maxInt(0, u.index-available+1)
 		end := minInt(len(u.items), start+available)
@@ -300,7 +296,7 @@ func operatorCardLines(o storage.Operator, width int, selected, focused bool) []
 
 func (m Model) operatorsOverlay() string {
 	width := maxInt(2, minInt(40, m.width))
-	height := maxInt(3, m.height-2)
+	height := maxInt(3, minInt(m.height-2, m.boardContentHeight()+2))
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(palette.accent).Padding(0, 1).Render(m.operatorsView(maxInt(1, width-4), height-2))
 }
 

@@ -12,8 +12,10 @@ columns the board retains a one-line summary and the focused list uses a compact
 right-aligned overlay. Operator cards share the board card surfaces and selection
 rail, with name/harness, state, and next wake or attention on separate rows.
 Yellow marks requests for user input/permission; red marks failures. Overflow
-follows the selection and shows hidden counts. Primary controls stay at the
-bottom; `?` opens the complete action list and `Esc` closes that list.
+follows the selection and shows hidden counts. One shared shortcut bar follows
+keyboard focus: Operator commands while the list is focused, board commands after
+returning to the board. The sidebar has no second shortcut footer. `?` opens the
+complete action list and `Esc` closes that list.
 `Esc` returns focus to the board; `O` focuses the list again, and `O` while focused
 collapses it. Operators stay available across board changes. No inspector is needed.
 
