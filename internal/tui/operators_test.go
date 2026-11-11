@@ -273,3 +273,60 @@ func TestOperatorShortcutsUseTheSingleContextBar(t *testing.T) {
 		}
 	}
 }
+
+func TestOperatorWakePreviewPreservesOnlyEditablePrompt(t *testing.T) {
+	s, ctx := newTestStore(t)
+	cfg := config.Defaults(config.Paths{ConfigFile: filepath.Join(t.TempDir(), "config.yaml")})
+	manager := runtime.NewManager(cfg, s)
+	defer manager.Close()
+	m := New(ctx, app.NewService(s, manager))
+	m.firstRun = false
+	m.width, m.height = 80, 24
+	m.operators.open, m.operators.focused = true, true
+	m.editOperator(storage.Operator{})
+	m.operators.inputs[0] = NewInputBuffer("Intake")
+	m.operators.inputs[1] = NewInputBuffer("claude")
+	m.operators.inputs[2] = NewInputBuffer(t.TempDir())
+	m.operators.scheduleEditing = true
+	m.operators.field = 5
+	m.operators.scheduledPrompt.SetValue(strings.Repeat("A follow-up line.\n", 30) + strings.Repeat("wrapped ", 40) + "END follow-up")
+	m.operators.scheduledPrompt.Focus()
+	m.resizeOperatorEditors()
+	for _, size := range []struct{ w, h int }{{160, 45}, {80, 24}} {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: size.w, Height: size.h})
+		m = next.(Model)
+		view := m.operatorEditorView()
+		for _, part := range []string{"Kanbi adds (read-only)", "Wake reason: scheduled check", "Your scheduled prompt", "Ctrl+O preview", "END follow-up"} {
+			if !strings.Contains(view, part) {
+				t.Fatalf("missing %q: %s", part, view)
+			}
+		}
+		if lipgloss.Height(view) > size.h-2 {
+			t.Fatalf("preview overflow: %dx%d", size.w, size.h)
+		}
+		draft := m.operators.scheduledPrompt.Value()
+		m, _ = mustUpdate(t, m, "ctrl+o")
+		if !m.operators.wakePreview {
+			t.Fatal("preview not opened")
+		}
+		m, _ = mustUpdate(t, m, "pgdown")
+		if m.operators.wakePreviewScroll == 0 {
+			t.Fatal("preview did not scroll")
+		}
+		m, _ = mustUpdate(t, m, "not editable")
+		if m.operators.scheduledPrompt.Value() != draft {
+			t.Fatal("read-only preview changed the draft")
+		}
+		m, _ = mustUpdate(t, m, "esc")
+		if m.operators.wakePreview || !m.operators.scheduleEditing {
+			t.Fatal("preview back lost the schedule draft")
+		}
+	}
+	m.operators.scheduledPrompt.SetValue("Only this text is editable.")
+	m, _ = mustUpdate(t, m, "ctrl+s")
+	m, _ = mustUpdate(t, m, "ctrl+s")
+	ops, err := s.Operators(ctx)
+	if err != nil || len(ops) != 1 || ops[0].ScheduledPrompt != "Only this text is editable." {
+		t.Fatalf("wrapper leaked into saved prompt: %+v %v", ops, err)
+	}
+}

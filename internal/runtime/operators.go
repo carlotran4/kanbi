@@ -277,7 +277,22 @@ func (m *Manager) OperatorMessageNotice(id int64, message storage.SessionMessage
 	if message.Sender != 0 {
 		reason = "Wake reason: " + reason
 	}
-	return fmt.Sprintf("Read %q before acting.\n\n%s\n\nRead kanbi messages inbox for all pending work, preserve distinct follow-up prompts, and acknowledge messages you take responsibility for. Reply to incoming agents using kanbi messages reply ID --key STABLE_KEY --body TEXT. Normal harness permissions apply. Message ID: %d.", m.OperatorInstructionsPath(id), reason, message.ID)
+	before, after := operatorWakeEnvelope(m.OperatorInstructionsPath(id), strconv.FormatInt(message.ID, 10))
+	return before + "\n\n" + reason + "\n\n" + after
+}
+
+// operatorWakeEnvelope is shared by delivery and the configuration preview.
+func operatorWakeEnvelope(path, messageID string) (string, string) {
+	return fmt.Sprintf("Read %q before acting.", path), fmt.Sprintf("Read kanbi messages inbox for all pending work, preserve distinct follow-up prompts, and acknowledge messages you take responsibility for. Reply to incoming agents using kanbi messages reply ID --key STABLE_KEY --body TEXT. Normal harness permissions apply. Message ID: %s.", messageID)
+}
+
+func (m *Manager) OperatorWakePreview(id int64) (string, string) {
+	path := m.OperatorInstructionsPath(id)
+	if id == 0 {
+		path = filepath.Join(filepath.Dir(filepath.Dir(path)), "<operator-id>", "instructions.md")
+	}
+	before, after := operatorWakeEnvelope(path, "<assigned on wake>")
+	return before + "\n\nWake reason: scheduled check", after
 }
 
 type operatorWakeContextKey struct{}

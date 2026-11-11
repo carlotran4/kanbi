@@ -49,6 +49,15 @@ Schedule and press `Enter` for cron, timezone and the multiline scheduled prompt
 scheduled prompts share the ticket description editor, including word deletion
 and `Ctrl+E` to open `$EDITOR`. External-editor changes return to the draft before
 the main save. The instructions viewport grows with the terminal.
+
+The schedule editor shows Kanbi’s standard wake envelope in muted, read-only
+sections above and below your editable prompt. At small terminal sizes, long
+sections are shortened; `Ctrl+O` opens the full read-only message preview, with
+Up/Down or Page Up/Page Down to scroll and `Esc` to return to the draft. Preview
+paths for new Operators and message IDs use placeholders until assigned. The
+preview shares the actual delivery formatter; the wrapper is never saved as part
+of your prompt. Claude Code may add its own outer peer-message wrapper, noted
+separately in the editor.
 An empty schedule disables recurrence. Presets are `15m`, `hourly` and `daily`
 (daily means 09:00 in the selected timezone). Cron supports standard lists, ranges,
 steps and names through robfig/cron; `@every` intervals are deliberately excluded.

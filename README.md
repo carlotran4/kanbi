@@ -132,7 +132,8 @@ Their editor follows the ticket editor: name in the border, instructions as the
 main content, and schedule settings in a separate draft editor. Use `Tab` to
 focus Schedule, `Enter` to edit it, and `Ctrl+S` to return to the draft. Press
 `Ctrl+S` again to save. Instructions and scheduled prompts support the same editing shortcuts and `Ctrl+E` external
-editor as ticket descriptions.
+editor as ticket descriptions. The schedule editor shows the fixed wake wrapper
+around your prompt; `Ctrl+O` opens the full read-only message preview.
 
 ## Session messaging
 
