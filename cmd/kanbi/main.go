@@ -956,6 +956,8 @@ func runOpen(ctx context.Context, cfg config.Config, args []string) error {
 		if ticket.FocusPaused {
 			return fmt.Errorf("%s is paused; open Kanbi to review its checkpoint and resume it", ticket.DisplayID)
 		}
+		// Match TUI Enter: first open submits the ticket; later opens focus or resume.
+		sendPrompt = sendPrompt || !ticket.SessionID.Valid
 		if err := cli.Manager().OpenTicket(ctx, ticket, sendPrompt); err != nil {
 			return err
 		}
