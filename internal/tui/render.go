@@ -543,6 +543,8 @@ func cardViewWithSearch(focused bool, ticket storage.Ticket, width int, showBoar
 		railColor = palette.warning
 	case ticket.Runtime == kanban.StateError, ticket.Runtime == kanban.StateRepairNeeded:
 		railColor = palette.error_
+	case ticket.HasQueuedPrompt && !ticket.FocusPaused:
+		railColor = palette.queued
 	case focused:
 		railColor = palette.accent
 	}
@@ -571,6 +573,9 @@ func cardBadge(ticket storage.Ticket) (string, lipgloss.TerminalColor) {
 	}
 	if ticket.FocusPaused {
 		return "⏸ paused", palette.cardMuted
+	}
+	if ticket.HasQueuedPrompt {
+		return "◷ Queued prompt", palette.queued
 	}
 	if ticket.FocusMember {
 		return "◆ focus", palette.warning
@@ -888,6 +893,7 @@ type theme struct {
 	warning          lipgloss.TerminalColor // waiting_for_user, needs_permission
 	error_           lipgloss.TerminalColor // error, repair_needed
 	success          lipgloss.TerminalColor // resumable
+	queued           lipgloss.TerminalColor // scheduled ticket prompt awaiting delivery
 	card             lipgloss.TerminalColor // filled ticket surface
 	cardSelected     lipgloss.TerminalColor // selected ticket surface
 	cardMuted        lipgloss.TerminalColor // readable secondary text on filled cards
@@ -910,6 +916,7 @@ var palette = activeTerminalTheme(theme{
 	warning:          lipgloss.AdaptiveColor{Light: "3", Dark: "3"},
 	error_:           lipgloss.AdaptiveColor{Light: "1", Dark: "1"},
 	success:          lipgloss.AdaptiveColor{Light: "2", Dark: "2"},
+	queued:           lipgloss.AdaptiveColor{Light: "6", Dark: "6"},
 	card:             lipgloss.AdaptiveColor{Light: "255", Dark: "235"},
 	cardSelected:     lipgloss.AdaptiveColor{Light: "254", Dark: "236"},
 	cardMuted:        lipgloss.AdaptiveColor{Light: "8", Dark: "7"},

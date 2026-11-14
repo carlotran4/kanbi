@@ -166,6 +166,11 @@ See [delivery mechanisms, notification states, and verification](./docs/session-
 
 ## Scheduled ticket prompts
 
+Cards with scheduled or undelivered prompts show a cyan `◷ Queued prompt` badge
+and matching left rail. Input, permission, error and paused states keep their
+existing labels; `W` always opens the full schedule. The badge clears after
+cancellation or confirmed delivery, without adding a card row.
+
 Select any ticket and press `W` to queue a prompt for later. Press `n`, enter a
 future time and prompt, then `Ctrl+S`. The default time is tomorrow; use
 `YYYY-MM-DD HH:MM` in the displayed local timezone, or RFC3339 with an explicit

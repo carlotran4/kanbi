@@ -7,6 +7,14 @@ local hour/minute. Enter `YYYY-MM-DD HH:MM` in the displayed machine-local zone,
 or RFC3339 with an explicit offset for an unambiguous instant around daylight
 saving changes. Only future times and nonblank prompts up to 16 KiB are accepted.
 
+Cards show a cyan `◷ Queued prompt` badge in the existing top-right status
+position with a matching left rail. It covers pending/activating schedules and
+queued mailbox handoffs awaiting receipt, including deferred or uncertain
+delivery. Cancellation, failure, or confirmed delivery clears that cue. Input,
+permission, error and paused labels retain priority; use `W` to inspect the
+schedule even while those labels are shown. Saving/cancelling refreshes the card
+immediately. Card height and title wrapping are unchanged.
+
 The list remains bound to the ticket it opened for, including across runtime
 refreshes. Up/Down selects, `r` refreshes status, and `x` cancels a pending/failed
 prompt or a mailbox notice still safely unsent. Submitted, uncertain and accepted

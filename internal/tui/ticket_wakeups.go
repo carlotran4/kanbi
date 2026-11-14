@@ -70,6 +70,7 @@ func (m Model) updateTicketWakes(key tea.KeyMsg) (Model, tea.Cmd) {
 				} else {
 					u.error = ""
 					m.reloadTicketWakes()
+					m.reload()
 				}
 			}
 		case "n":
@@ -112,6 +113,7 @@ func (m Model) updateTicketWakes(key tea.KeyMsg) (Model, tea.Cmd) {
 		u.prompt.Blur()
 		u.error = ""
 		m.reloadTicketWakes()
+		m.reload()
 	default:
 		if u.field == 0 {
 			u.at.HandleKey(key.String(), key.Runes)

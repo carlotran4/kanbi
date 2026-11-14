@@ -60,6 +60,9 @@ func loadOmarchyPalette(path string, base theme) theme {
 	base.warning = adaptive(colors["yellow"])
 	base.error_ = adaptive(colors["red"])
 	base.success = adaptive(colors["green"])
+	if colors["cyan"] != "" {
+		base.queued = adaptive(colors["cyan"])
+	}
 	base.card = adaptive(colors["lighter_background"])
 	base.cardSelected = adaptive(colors["selection"])
 	base.cardMuted = adaptive(colors["foreground"])

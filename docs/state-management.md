@@ -256,7 +256,11 @@ turn or silently substitutes a fresh conversation.
 Migration 14 adds durable ticket-owned wakeups. They progress from `pending` to
 `activating` to `queued` (atomic mailbox handoff), or `failed` / `cancelled`.
 A queued row references the exact attempt's mailbox message and exposes its
-notification receipt; it never implies the agent completed the work. The existing
+notification receipt; it never implies the agent completed the work. Ticket and
+board projections derive `HasQueuedPrompt` from pending/activating wakes or
+queued messages still awaiting notification receipt. The TUI uses it for the
+cyan clock badge and rail; runtime attention and paused labels keep priority.
+The existing
 joined scheduler owns activation under the runtime lock, preserves pause/archive
 holds and fails interrupted launches instead of retrying them. See
 [scheduled prompts](scheduled-prompts.md).

@@ -91,3 +91,90 @@ func TestTicketWakeValidationPauseAndCancel(t *testing.T) {
 		t.Fatal(wakes)
 	}
 }
+
+func TestQueuedPromptProjectionTracksDeliveryAcrossBoardViews(t *testing.T) {
+	s, ctx := newTestStore(t)
+	view := defaultBoardView(t, ctx, s)
+	ticket := createTicket(t, ctx, s, view.Columns[0].ID, "Scheduled badge", "", "pi")
+	check := func(want bool) {
+		t.Helper()
+		got, err := s.TicketByID(ctx, ticket.ID)
+		if err != nil || got.HasQueuedPrompt != want {
+			t.Fatalf("ticket queued=%v want %v: %v", got.HasQueuedPrompt, want, err)
+		}
+		// Read twice to exercise cache admission as well as fresh SQL.
+		for i := 0; i < 2; i++ {
+			named, err := s.BoardViewByID(ctx, ticket.BoardID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			master, err := s.MasterBoardView(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, v := range []BoardView{named, master} {
+				count := 0
+				for _, c := range v.Columns {
+					for _, got := range c.Tickets {
+						if got.ID == ticket.ID {
+							count++
+							if got.HasQueuedPrompt != want {
+								t.Fatalf("%s queued=%v want %v", v.Board.Name, got.HasQueuedPrompt, want)
+							}
+						}
+					}
+				}
+				if count != 1 {
+					t.Fatalf("%s duplicate/missing projected ticket: %d", v.Board.Name, count)
+				}
+			}
+		}
+	}
+	check(false)
+	if err := s.ScheduleTicketPrompt(ctx, ticket.ID, "check later", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+	wakes, _ := s.TicketWakeups(ctx, ticket.ID)
+	wid := wakes[0].ID
+	if err := s.CancelTicketWake(ctx, ticket.ID, wid); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+	if err := s.ScheduleTicketPrompt(ctx, ticket.ID, "another check", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+	wakes, _ = s.TicketWakeups(ctx, ticket.ID)
+	wid = wakes[len(wakes)-1].ID
+	if _, err := s.db.ExecContext(ctx, `update ticket_wakeups set state='activating' where id=?`, wid); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+	sid, err := s.UpsertActiveSession(ctx, ticket.ID, Session{Harness: "pi", Multiplexer: "herdr", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.EnqueueTicketWake(ctx, wid); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+	mail, err := s.SessionInbox(ctx, sid, false)
+	if err != nil || len(mail) != 1 {
+		t.Fatal(mail, err)
+	}
+	for _, state := range []string{"deferred", "uncertain", "submitted"} {
+		if _, err = s.db.ExecContext(ctx, `update session_messages set notification_status=? where id=?`, state, mail[0].ID); err != nil {
+			t.Fatal(err)
+		}
+		check(true)
+	}
+	if err = s.MarkMessageNotified(ctx, sid, mail[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+	if _, err = s.db.ExecContext(ctx, `update ticket_wakeups set state='failed' where id=?`, wid); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+}

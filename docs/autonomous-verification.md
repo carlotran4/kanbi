@@ -509,3 +509,12 @@ The disposable Herdr UI was exercised at 160x45 and 80x24: choose Master, `W`,
 `x`, inspect cancelled, then open the same ticket from its named board. The time,
 textarea and save/cancel controls remain visible at both sizes; board overflow
 and navigation remain available after dismissal. Stop the owned fixture afterward.
+
+The queued-prompt card cue is also validated through the disposable UI at 160x45
+and 80x24: select a named board, `W`, `n`, Tab, enter a fixture follow-up, Ctrl+S,
+Esc; confirm `◷ Queued prompt` and its cyan rail without an added row or wrapping.
+Switch to Master, inspect the same ticket, cancel with `W`, `x`, Esc, and confirm
+the normal badge/selection rail returns immediately. Check vertical/horizontal
+overflow after dismissal and stop the fixture. Projection tests cover receipt,
+uncertain/deferred delivery, cancellation and cached named/Master views; card tests
+cover clock fit at minimum width and priority for input/permission/error/pause.
