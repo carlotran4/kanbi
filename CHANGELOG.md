@@ -24,6 +24,7 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Fixed
 
+- Require Go 1.26.11 to fix the net/http MaxBytesReader header race vulnerability GO-2026-6859 and restore the CI vulnerability scan.
 - Require Go 1.26.10 to fix the crypto/x509 certificate vulnerability GO-2026-6809 and restore the CI vulnerability scan.
 - Keep template picker/manager controls, status, harness labels, truncation cues, and nearby selection visible through empty, long-list, duplicate-name, delete, and 80x24 flows.
 - Reject explicitly blank template-ticket titles, preserve omitted-title fallback semantics, and enforce Unicode-aware case-insensitive template names across CRUD, lookup, and package import.
