@@ -98,6 +98,14 @@ Stop and ask before:
 
 ## Runtime Topology
 
+The opt-in [Herdr app proof of concept](herdr-app-poc.md) lives under
+`scripts/prototypes/herdr-app-poc`. It installs a separate native mod, private
+Kanbi database/configuration and a narrow CLI bridge to a private herdr-core
+session. It exercises existing Kanbi application actions without adding a
+supported production runtime or changing ordinary session ownership. Prototype
+container references must remain confined to that private database. Fleet and
+verified real-harness resume are not provided by the experiment.
+
 Kanbi runs in Herdr. Outside Herdr, the CLI creates a focused board workspace and attaches a client; inside Herdr it runs directly. `KANBI_INNER=1` prevents recursive launches. Each ticket attempt normally runs in its own tab/pane alongside the board or in its board/project workspace. Fleet temporarily gathers validated attempts into the board tab and restores their source tabs without relaunching them.
 
 Session rows persist `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata`. Other Kanbi instances route operations through these stored references. Legacy tmux columns remain readable for exports and historical records, but no tmux commands are executed and legacy live attempts require explicit repair before a new attempt.
