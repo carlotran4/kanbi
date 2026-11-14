@@ -190,6 +190,7 @@ State bugs to avoid:
 - Do not treat Herdr `unknown`/unavailable agent state as authoritative; fall back to pane-output/harness detection.
 - Route Herdr operations through the stored container reference. Legacy tmux rows remain history; runtime removal never fabricates closure or Herdr IDs.
 - Do not create a new DB session row just because a valid active ticket window was opened again.
+- A ticket's editable harness is its fresh-conversation preference. Focus/resume uses the existing session's immutable harness; changing the preference never reinterprets its ref. Session settings (`S`) reuses the ticket editor and requires explicit confirmation for fresh. Fresh closes an active container before claiming a new attempt; cancellation is non-mutating and close failure prevents launch.
 - Do not let heuristic watcher output immediately overwrite a manual runtime override.
 - Do not close sessions from runtime detection; wait/permission classification is advisory and may be imperfect.
 - Do not infer session failure from errors printed in the agent transcript; only lifecycle/runtime operations can establish `error`.

@@ -270,7 +270,9 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 			if err := m.Store.CaptureSessionRef(ctx, ses.ID, ref); err != nil {
 				return ticket, err
 			}
-			return m.Store.TicketByID(ctx, ticket.ID)
+			updated, err := m.Store.TicketByID(ctx, ticket.ID)
+			updated.Harness = ticket.Harness
+			return updated, err
 		}
 	}
 	// Check the stable ref file first (written by the bundled Pi extension at session start).

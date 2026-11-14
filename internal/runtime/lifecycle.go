@@ -56,8 +56,19 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 		if err != nil {
 			return err
 		}
-		if !fresh.SessionActive {
+		if !fresh.SessionID.Valid {
 			fresh.Harness = req.Ticket.Harness
+		}
+		// Existing conversations always belong to their original harness. The
+		// ticket preference applies only to a new conversation.
+		if !req.StartFresh && fresh.SessionID.Valid {
+			ses, ok, err := l.manager.Store.SessionByID(ctx, fresh.SessionID.Int64)
+			if err != nil {
+				return err
+			}
+			if ok {
+				fresh.Harness = ses.Harness
+			}
 		}
 		if req.Ticket.OperatorID != 0 {
 			fresh.Body = req.Ticket.Body
@@ -72,7 +83,7 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 		}
 		req.Ticket.BoardWorktreeMode = board.WorktreeMode
 	}
-	if req.Ticket.BoardWorktreeMode == storage.WorktreeModeGit && !req.Ticket.SessionActive {
+	if req.Ticket.BoardWorktreeMode == storage.WorktreeModeGit && (!req.Ticket.SessionActive || req.StartFresh) {
 		workspace, ok, err := l.manager.Store.CurrentWorkspace(ctx, req.Ticket.ID)
 		if err != nil {
 			return err
@@ -91,7 +102,15 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 			if err != nil {
 				return err
 			}
+			if !req.StartFresh {
+				fresh.Harness = req.Ticket.Harness
+			}
 			req.Ticket = fresh
+		}
+	}
+	if req.StartFresh && req.Ticket.SessionActive {
+		if err := l.manager.CloseSession(ctx, req.Ticket); err != nil {
+			return err
 		}
 	}
 	decision, err := l.Decide(ctx, req)

@@ -107,6 +107,13 @@ type Model struct {
 	promptWindow            string
 	promptText              string
 	promptTicket            storage.Ticket
+	sessionSettings         bool
+	sessionSettingsTicketID int64
+	sessionSettingsTicket   storage.Ticket
+	sessionSettingsLatest   storage.Session
+	sessionSettingsHasPrior bool
+	sessionSettingsError    error
+	sessionFreshConfirm     bool
 	repairing               bool
 	repairEditingRef        bool
 	repairRef               InputBuffer
@@ -633,6 +640,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateColumnEdit(key), nil
 	case modalPromptFallback:
 		return m.updatePromptFallback(key)
+	case modalSessionSettings:
+		return m.updateSessionSettings(key)
 	case modalRepair:
 		return m.updateRepair(key), nil
 	case modalBranchName:
@@ -732,6 +741,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deleteColumn()
 	case "a":
 		m.archiveTicket()
+	case "S":
+		if t, ok := m.selectedTicket(); ok {
+			m.sessionSettings = true
+			m.sessionSettingsTicketID = t.ID
+			m.sessionFreshConfirm = false
+			m.refreshSessionSettings()
+		}
 	case "e":
 		m.startEdit()
 	case "E":
@@ -775,6 +791,9 @@ func (m *Model) reloadBoards() {
 }
 
 func (m *Model) reload() {
+	if m.sessionSettings {
+		m.refreshSessionSettings()
+	}
 	// Invalidate pending observations on board/filter changes and mutations.
 	m.projectionGeneration++
 	snapshot, err := m.readSnapshot(m.ctx)

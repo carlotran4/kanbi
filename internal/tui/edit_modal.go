@@ -716,12 +716,12 @@ func (m Model) editFooter(dirty bool) string {
 		return "body · Ctrl+V paste/attach · Ctrl+E editor · Ctrl+S save"
 	case 2:
 		if m.editSessionRefVisible {
-			return prefix + "editing harness · Tab session ref · Ctrl+S save · Esc cancel"
+			return prefix + "fresh-launch harness · Tab ref · Ctrl+S save · Esc cancel"
 		}
-		return prefix + "editing harness · Tab notes · Ctrl+S save · Esc cancel"
+		return prefix + "fresh-launch harness · Tab notes · Ctrl+S save · Esc cancel"
 	case 3:
 		if m.editSessionRefVisible {
-			return prefix + "editing session ref · Tab notes · Ctrl+S save · Esc cancel"
+			return prefix + "current attempt ref · Tab notes · Ctrl+S save · Esc cancel"
 		}
 		return prefix + "notes · a add · e edit · d delete · Ctrl+S save"
 	case 4:

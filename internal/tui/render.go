@@ -81,6 +81,8 @@ func (m Model) View() string {
 		return overlayModal(base, fitModal(m.columnEditView(), m.height, 0, true), m.width, m.height)
 	case modalPromptFallback:
 		return overlayModal(base, fitModal(m.promptFallbackView(), m.height, 0, true), m.width, m.height)
+	case modalSessionSettings:
+		return overlayModal(base, fitModal(m.sessionSettingsView(), m.height, 0, true), m.width, m.height)
 	case modalRepair:
 		return overlayModal(base, fitModal(m.repairView(), m.height, 0, true), m.width, m.height)
 	case modalBranchName:
@@ -236,13 +238,13 @@ func (m Model) contextBar() string {
 		}
 		return trimToWidth("/:search i:close Esc:return Tab:panel h/l:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
-	items := []string{"Enter:send/open", "/:search", "i:inspect", "n:new", "b:boards", "O:operators", "v:fleet", "F:focus"}
+	items := []string{"Enter:send/open", "/:search", "i:inspect", "S:session", "n:new", "b:boards", "O:operators", "v:fleet", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
 	items = append(items, "!:attention", "?:help")
 	if m.width <= 80 {
-		items = []string{"Enter:open", "/:search", "i:inspect", "n:new", "b:boards", "O:ops", "v:fleet", "F:focus"}
+		items = []string{"Enter:open", "/:search", "i:inspect", "S:session", "n:new", "b:boards", "O:ops"}
 		if m.masterBoard {
 			items = append(items, "f:filters")
 		}
@@ -1230,6 +1232,7 @@ func (m Model) helpView() string {
 
 	section("Tickets")
 	row("Enter", "send a new prompt, or open/resume the session")
+	row("S", "session settings: harness/ref editor and confirmed start fresh")
 	row("x", "safely close session")
 	row("n/N/T · e/E", "new / template / manage · inspect / $EDITOR")
 	row("g / a / m", "open GitHub / archive / mark state")

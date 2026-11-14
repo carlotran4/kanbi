@@ -30,6 +30,7 @@ const (
 	modalRepair
 	modalBranchName
 	modalWorkspaceIntegration
+	modalSessionSettings
 )
 
 // activeModalKind preserves the visible overlay order. Update and View must
@@ -82,6 +83,8 @@ func (m Model) activeModalKind() modalKind {
 		return modalBranchName
 	case m.workspaceIntegrating:
 		return modalWorkspaceIntegration
+	case m.sessionSettings:
+		return modalSessionSettings
 	default:
 		return modalNone
 	}

@@ -84,6 +84,8 @@ Press `i` to toggle a read-only inspector for the selected ticket. At 120 column
 
 Press `v` from the board or inspector to preview Fleet Mode: gather active agents on this board, or all boards on this Herdr server from Master, into equal live panes below a compact Kanbi header. Use native Herdr pane focus and zoom to interact with agents. Focus the header and press `v`, `Enter`, or `Esc`, or click **Return to board**, to restore their source tabs and your board view. Agent-pane input goes directly to its harness. Membership stays fixed until re-entry; pane exits preserve surviving positions. Fleet supports up to six agents and refuses layouts too small to read (at 80×24, one or two agents). Interrupted moves offer startup recovery. Return from Fleet before a database backup or board deletion. See [Fleet Mode](docs/fleet-mode.md).
 
+Press `S` on a selected ticket for session settings, even when it is healthy. The dialog shows the current attempt, harness and resume ref. `e` opens the existing ticket editor at the harness field (Tab reaches a captured session ref); save with `Ctrl+S` or cancel with `Esc` to return. Harness edits select the **next fresh conversation**: they do not stop a running agent or change the harness used to focus/resume the existing conversation. Ref edits update the current attempt only. `f`, then `Enter`, starts fresh with the saved harness and ticket prompt: any active agent is closed first, history is preserved, and the previous conversation ref is not reused. `Esc` backs out without starting anything. A ticket with no history starts its first conversation; paused tickets must be resumed first.
+
 Press `?` for controls. The important distinction is:
 
 - `x` closes the selected agent session.

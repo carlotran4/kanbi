@@ -501,6 +501,14 @@ func (s *Service) KillAllSessions(ctx context.Context) error {
 	}
 	return s.Manager.KillSession(ctx)
 }
+func (s *Service) TicketByID(ctx context.Context, id int64) (storage.Ticket, error) {
+	return s.Store.TicketByID(ctx, id)
+}
+
+func (s *Service) LatestSession(ctx context.Context, id int64) (storage.Session, bool, error) {
+	return s.Store.LatestSession(ctx, id)
+}
+
 func (s *Service) StartFreshTicket(ctx context.Context, ticket storage.Ticket, send bool) error {
 	if s.Manager == nil {
 		return fmt.Errorf("start fresh unavailable")
