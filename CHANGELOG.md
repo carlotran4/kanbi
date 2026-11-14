@@ -12,6 +12,10 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Changed
 
+- Embed [Poke](https://github.com/carlotran4/poke) for durable messaging and native
+  notification. Preserve `kanbi messages`, existing mail/history, database schema,
+  Operator wake transactions and Herdr ownership; no separate binary is required.
+
 - Database schema 12 adds durable notification claims and receipts to the session mailbox. Older binaries reject the migrated database; roll back with a pre-upgrade backup. Native endpoint credentials remain in private machine-local files outside database backups.
 
 - Require the pane-first Herdr launch API (supported baseline 0.9.3); remove legacy launch fallback and the unused multiplexer registry.

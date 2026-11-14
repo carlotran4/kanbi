@@ -1,5 +1,12 @@
 # GH-399: Messaging extraction assessment
 
+Implementation update (2026-11-14): the user approved proceeding with extraction
+under the name [Poke](https://github.com/carlotran4/poke). The original assessment
+below is retained as decision history. Kanbi now embeds Poke's mailbox and native
+adapters while retaining its host policy, ordered migrations, Operator transactions
+and CLI compatibility. See [session messaging](session-messaging.md) for the
+current implementation contract.
+
 ## Recommendation
 
 Extraction is feasible and worth a bounded experiment. The highest-value product

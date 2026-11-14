@@ -213,6 +213,12 @@ require journal completion first. See [Fleet Mode](fleet-mode.md).
 
 ## Session mailbox
 
+The mailbox implementation is embedded from Poke while Kanbi retains ownership of
+the database and ordered migrations. Host eligibility is passed as atomic SQL
+guards; sends authorize endpoints inside the same write transaction. Runtime
+locks still serialize transport submission against close/rebind/Fleet. This
+extraction changes no schema, message IDs, session ownership or historical rows.
+
 Migrations 11–12 add a durable session-attempt mailbox and notification receipts independent of runtime state.
 Messages progress from `queued` to `notified` to `acknowledged`; explicit recipient
 acknowledgement may also occur directly after an inbox read. Notification never

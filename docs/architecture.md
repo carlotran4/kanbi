@@ -252,6 +252,16 @@ Operations support tools (`kanbi doctor`, opt-in diagnostics logging, `kanbi sup
 
 ## Session communication
 
+Kanbi embeds `github.com/carlotran4/poke`: its `mailbox` package owns the message
+model, idempotent sends, replies, inbox and notification state transitions; its
+`adapters` package owns native transports, launch assets and identity injection.
+Kanbi's storage adapter supplies transaction-local send authorization and atomic
+SQL delivery guards. The runtime retains cross-process lifecycle locks, verified
+refs, container validation, host notices and the Copilot terminal fallback.
+Kanbi owns its existing ordered migrations and Operator wake transactions. No
+message rows, IDs or schema versions change, and no standalone Poke database,
+registry, binary or background process is introduced into Kanbi.
+
 The [GH-396 mailbox](session-messaging.md) reuses SQLite and exact session-attempt
 IDs. Durable commits remain separate from native notification. Launch supplies
 identity, a bundled Pi extension, a scoped Claude registration plugin, and Codex's

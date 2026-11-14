@@ -6,6 +6,11 @@ Built-in harness contracts are localized in `internal/harness/contracts.go`: com
 
 Currently supported: Pi, Codex, Copilot, Claude.
 
+Mailbox launch assets, native transports and per-thread identity setup are
+embedded from [Poke](https://github.com/carlotran4/poke). Kanbi still owns verified
+ref capture, lifecycle/container validation and the Copilot terminal fallback.
+The harness command names and start/resume contracts below are unchanged.
+
 ## Pi
 
 **Binary:** `pi`

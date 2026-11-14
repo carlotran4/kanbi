@@ -138,6 +138,10 @@ around your prompt; `Ctrl+O` opens the full read-only message preview.
 
 ## Session messaging
 
+Kanbi embeds [Poke](https://github.com/carlotran4/poke), a reusable Go library and
+JSON CLI for durable agent messaging and native notification. No separate Poke
+installation is needed; Kanbi retains its lifecycle and Operator policies.
+
 Agents in managed sessions can discover peers and exchange durable messages with
 `kanbi messages recipients`, `send`, `inbox`, `ack`, and `reply`. Kanbi supplies
 sender identity and reply routing. Sends return without waiting for a response.

@@ -454,6 +454,13 @@ See [the diagnosis, controlled reproduction, profiling commands, and limits](cpu
 
 ## Session mailbox (GH-396)
 
+The reusable implementation now lives in the versioned Poke module. Kanbi's
+focused tests continue covering its host policy and historical database contract.
+The Pi offline smoke resolves the receiver from the actual selected Poke module,
+so it tests the dependency's extension rather than a copied prototype. Run Poke's
+own Go/race/vet and Node receiver tests when changing that dependency, then pin
+the published version/checksum and rerun Kanbi's baseline and native fixtures.
+
 Run focused harness/runtime/storage/CLI tests for mailbox and native notification.
 They cover cross-connection notification claims, restart fencing, explicit retry,
 conversation identity checks, native socket frames, Codex recipient-home isolation,
