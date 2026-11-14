@@ -486,7 +486,9 @@ edit fields/instructions, `Ctrl+S`, `p`, `Esc`, board navigation, `O`, `e`, canc
 `d`, cancel. Also check the Operator card fills/attention rails, `?` action list,
 single context-sensitive shortcut bar, empty list, selection-following overflow, and the 40-column
 right-aligned overlay at 80x24. Verify board preservation, focused controls and
-immutable harness editing. Use private fixtures and preserve direct file edits between wakes.
+immutable harness editing. In scheduling, verify the read-only envelope around
+the editable prompt, `Ctrl+O` full preview/scroll/back, long content at 80x24, and
+that only the user prompt is saved. Use private fixtures and preserve direct file edits between wakes.
 Authenticated lifecycle and production mailbox tests remain opt-in as documented
 above; distinguish deterministic adapter coverage from actual native model turns.
 
