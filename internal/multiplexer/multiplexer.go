@@ -15,8 +15,9 @@ var ErrContainerNotFound = errors.New("multiplexer container not found")
 type Kind string
 
 const (
-	KindTmux  Kind = "tmux"
-	KindHerdr Kind = "herdr"
+	KindTmux      Kind = "tmux"
+	KindHerdr     Kind = "herdr"
+	KindHerdrCore Kind = "herdr-core"
 )
 
 // DetectionSource describes where runtime state came from. Native provider state
