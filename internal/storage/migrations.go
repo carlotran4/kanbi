@@ -31,6 +31,7 @@ var migrations = []migration{
 	{version: 11, name: "durable session mailbox", apply: migrateMessages},
 	{version: 12, name: "session message notification receipts", apply: migrateMessageDelivery},
 	{version: 13, name: "workspace operators", apply: migrateOperators},
+	{version: 14, name: "scheduled ticket prompts", apply: migrateTicketWakeups},
 }
 
 // CurrentSchemaVersion is the newest SQLite migration understood by this build.

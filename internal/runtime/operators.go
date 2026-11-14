@@ -321,7 +321,10 @@ func (m *Manager) StartOperators() {
 			locked, unlock, e := m.lockRuntime(ctx)
 			if e == nil {
 				if e = m.runtimeReady(locked); e == nil {
-					e = m.RefreshOperators(locked)
+					e = m.refreshTicketWakeups(locked)
+					if e == nil {
+						e = m.RefreshOperators(locked)
+					}
 				}
 				unlock()
 			}

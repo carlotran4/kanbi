@@ -213,3 +213,13 @@ a new attempt while preserving Operator identity/configuration/instructions/mail
 Stopping sends a normal interrupt and keeps the session; pausing only affects
 scheduled triggers. Deletion retires the address/triggers, preserves all history,
 and leaves an active terminal open. See [Operators](operators.md).
+
+## Scheduled prompts
+
+`W` queues a ticket-owned follow-up for a future instant. The existing scheduler
+uses normal open/start/resume policy without focusing the agent. Never-started
+tickets receive normal ticket context before the mailbox follow-up. Paused or
+archived work waits; repair, branch preflight and launch failures surface for
+manual attention. No automatic fresh or failed-launch retry is permitted. Once
+handed off, delivery stays bound to the exact session attempt and uses the normal
+mailbox receipt/uncertainty contract. See [scheduled prompts](scheduled-prompts.md).

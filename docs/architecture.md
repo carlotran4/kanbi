@@ -280,3 +280,12 @@ and transactional wake-to-mailbox commits fence multiple board processes.
 TUI adds a collapsible peer to the board. No ticket proxy rows, extra broker,
 external scheduler, agent memory runtime or per-Operator service is introduced.
 See [Operators](operators.md) for controls, addressing and delivery limitations.
+
+## Scheduled ticket follow-ups
+
+Ticket-owned scheduled prompts reuse the Operator scheduler's existing joined
+in-process worker and the session mailbox transports. SQLite owns wake time,
+activation claim, failure and atomic mailbox handoff. The runtime lock serializes
+activation against other schedulers and lifecycle actions; normal lifecycle policy
+preserves verified resume refs and session history. The TUI `W` dialog owns only
+the draft and a stable ticket identity. See [scheduled prompts](scheduled-prompts.md).

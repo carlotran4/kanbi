@@ -107,6 +107,7 @@ type Model struct {
 	promptWindow            string
 	promptText              string
 	promptTicket            storage.Ticket
+	ticketWakes             ticketWakeUI
 	sessionSettings         bool
 	sessionSettingsTicketID int64
 	sessionSettingsTicket   storage.Ticket
@@ -364,6 +365,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.resizeTicketWakeEditor()
 		if m.operators.editing {
 			m.resizeOperatorEditors()
 		}
@@ -640,6 +642,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateColumnEdit(key), nil
 	case modalPromptFallback:
 		return m.updatePromptFallback(key)
+	case modalTicketWakes:
+		return m.updateTicketWakes(key)
 	case modalSessionSettings:
 		return m.updateSessionSettings(key)
 	case modalRepair:
@@ -741,6 +745,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deleteColumn()
 	case "a":
 		m.archiveTicket()
+	case "W":
+		if t, ok := m.selectedTicket(); ok {
+			m.openTicketWakes(t)
+		}
+		return m, nil
 	case "S":
 		if t, ok := m.selectedTicket(); ok {
 			m.sessionSettings = true

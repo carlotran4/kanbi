@@ -495,3 +495,17 @@ above; distinguish deterministic adapter coverage from actual native model turns
 For native Operator wake, direct instruction-file reload and wake-triggered resume,
 run `KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi,codex python3 scripts/prototypes/real-operators.py`.
 The test owns its database/config/Herdr server and retains failure evidence.
+
+## Scheduled ticket prompts (GH-398)
+
+`go test ./internal/storage ./internal/runtime ./internal/tui` covers future-time
+validation, pause/archive holds, atomic mailbox handoff, repeated-claim fencing,
+uncertain-delivery cancellation refusal, interrupted activation, start/resume/repair
+history and stable ticket-bound editor drafts. Native delivery retains the existing
+messaging adapter coverage; these tests do not assert authenticated model responses.
+
+The disposable Herdr UI was exercised at 160x45 and 80x24: choose Master, `W`,
+`n`, Tab, enter a follow-up, Ctrl+S, inspect pending, resize, open/cancel a draft,
+`x`, inspect cancelled, then open the same ticket from its named board. The time,
+textarea and save/cancel controls remain visible at both sizes; board overflow
+and navigation remain available after dismissal. Stop the owned fixture afterward.

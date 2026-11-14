@@ -250,3 +250,13 @@ editor-ready signal projects as `ready`. Blocked input/permission,
 running and unknown states remain distinct and cannot authorize delivery. A failed
 start/resume records an error and waits for manual retry. No timer retries a failed
 turn or silently substitutes a fresh conversation.
+
+## Scheduled ticket prompts
+
+Migration 14 adds durable ticket-owned wakeups. They progress from `pending` to
+`activating` to `queued` (atomic mailbox handoff), or `failed` / `cancelled`.
+A queued row references the exact attempt's mailbox message and exposes its
+notification receipt; it never implies the agent completed the work. The existing
+joined scheduler owns activation under the runtime lock, preserves pause/archive
+holds and fails interrupted launches instead of retrying them. See
+[scheduled prompts](scheduled-prompts.md).

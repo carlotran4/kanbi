@@ -31,12 +31,15 @@ const (
 	modalBranchName
 	modalWorkspaceIntegration
 	modalSessionSettings
+	modalTicketWakes
 )
 
 // activeModalKind preserves the visible overlay order. Update and View must
 // both select from this method so a covered modal cannot consume input.
 func (m Model) activeModalKind() modalKind {
 	switch {
+	case m.ticketWakes.open:
+		return modalTicketWakes
 	case m.operators.editing || (m.operators.open && m.operators.focused && m.operatorsNarrow()):
 		return modalOperators
 	case m.focusSettingsOpen:

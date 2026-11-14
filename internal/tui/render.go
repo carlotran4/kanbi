@@ -81,6 +81,8 @@ func (m Model) View() string {
 		return overlayModal(base, fitModal(m.columnEditView(), m.height, 0, true), m.width, m.height)
 	case modalPromptFallback:
 		return overlayModal(base, fitModal(m.promptFallbackView(), m.height, 0, true), m.width, m.height)
+	case modalTicketWakes:
+		return overlayModal(base, fitModal(m.ticketWakesView(), m.height, 0, true), m.width, m.height)
 	case modalSessionSettings:
 		return overlayModal(base, fitModal(m.sessionSettingsView(), m.height, 0, true), m.width, m.height)
 	case modalRepair:
@@ -238,7 +240,7 @@ func (m Model) contextBar() string {
 		}
 		return trimToWidth("/:search i:close Esc:return Tab:panel h/l:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
-	items := []string{"Enter:send/open", "/:search", "i:inspect", "S:session", "n:new", "b:boards", "O:operators", "v:fleet", "F:focus"}
+	items := []string{"Enter:send/open", "/:search", "i:inspect", "S:session", "W:schedule", "n:new", "b:boards", "O:operators", "v:fleet", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
@@ -1232,13 +1234,13 @@ func (m Model) helpView() string {
 
 	section("Tickets")
 	row("Enter", "send a new prompt, or open/resume the session")
+	row("W", "queue, inspect and cancel scheduled ticket prompts")
 	row("S", "session settings: harness/ref editor and confirmed start fresh")
 	row("x", "safely close session")
 	row("n/N/T · e/E", "new / template / manage · inspect / $EDITOR")
 	row("g / a / m", "open GitHub / archive / mark state")
 	row("worktree m / r", "merge into source / resolve conflicts")
-	row("H/L", "move ticket left/right")
-	row("J/K", "reorder ticket up/down")
+	row("H/L · J/K", "move ticket left/right · reorder up/down")
 
 	section("Boards and columns")
 	row("b / f", "board picker / Master filters")
