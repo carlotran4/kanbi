@@ -94,11 +94,12 @@ fi
 "$BIN" add "Smoke test ticket" --body "Verify smoke path" --harness pi
 LIST_OUTPUT="$("$BIN" list)"
 grep -q "T-001" <<<"$LIST_OUTPUT"
-"$BIN" open T-001 --send-prompt
+# First opens submit the prompt without an explicit flag, just like TUI Enter.
+"$BIN" open T-001
 "$BIN" add "Codex smoke ticket" --body "Verify codex prompt arg" --harness codex
 LIST_OUTPUT="$("$BIN" list)"
 grep -q "T-002" <<<"$LIST_OUTPUT"
-"$BIN" open T-002 --send-prompt
+"$BIN" open T-002
 "$BIN" add "Claude smoke ticket" --body "Verify claude prompt arg" --harness claude
 LIST_OUTPUT="$("$BIN" list)"
 grep -q "T-003" <<<"$LIST_OUTPUT"

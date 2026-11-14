@@ -109,6 +109,7 @@ kanbi                    # open the TUI
 kanbi doctor             # check your setup
 kanbi boards             # list boards
 kanbi list --json        # inspect tickets from scripts
+kanbi open T-001         # start with the ticket prompt, or focus/resume
 kanbi sync               # sync provider-backed boards
 kanbi backup backup.kanbi
 ```

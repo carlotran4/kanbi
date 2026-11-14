@@ -113,6 +113,10 @@ These rules apply to ordinary board controls. While the `/` title-search query h
 - If the latest session is inactive and has no `session_ref`, show repair/start-fresh.
 - Opening an already-active valid terminal container must not create a new session row.
 
+### CLI `open`
+
+`kanbi open T-001 [--board NAME]` follows the default ticket action: a never-started ticket receives its rendered prompt; an existing session is focused, resumed, or reports repair-needed. Reopening never resends the ticket prompt. Paused tickets require checkpoint review in the TUI. The optional `--send-prompt` flag remains an explicit first-start request and rejects tickets with session history.
+
 ### Session Ref Editing And Repair
 
 When the latest session already has a non-blank harness session ref, the normal ticket editor shows it after the harness field. Tab or Shift+Tab can focus it, and saving the editor updates that same latest session attempt. Tickets without a stored ref omit the field; use the repair flow to supply a missing ref. Editing a ref never creates, deletes, or flattens session history.
