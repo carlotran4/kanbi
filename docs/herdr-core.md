@@ -49,6 +49,24 @@ attempts must remain reachable. Avoid two Kanbi instances managing the same
 board while experimenting with different hosts; use a separate `KANBI_CONFIG`
 and `KANBI_DB` for a trial.
 
+## Colors and graphical trial launches
+
+Kanbi honors `NO_COLOR` on both hosts. A nonempty inherited `NO_COLOR` disables
+card fills, attention colors and selection styling, even when the terminal
+reports true-color support. An automation-launched graphical trial must pass
+`NO_COLOR=''` explicitly so it also overrides a core server started with the
+runner's no-color environment. Merely dropping the variable from the launcher
+is insufficient if it remains in the server's environment. The separate
+`kanbi-herdr-core` trial launcher applies this override; ordinary Kanbi CLI
+invocations still honor an intentional `NO_COLOR` preference.
+
+The app/core smoke checks real VT paint for foreground colors and distinct
+header/selected-card background fills at 160x45 and 80x24, in addition to text
+and controls. Text-only `terminal.read` snapshots cannot verify appearance.
+On 2026-11-14 the actual card/header colors matched the disposable Herdr TUI
+fixture at both sizes; deliberately reintroducing `NO_COLOR=1` failed the new
+visual assertion. No theme, card layout or renderer behavior was changed.
+
 ## Runtime behavior
 
 - Core launches the configured harness argv directly, with its working directory,
