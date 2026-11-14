@@ -34,11 +34,13 @@ func (m *Manager) PreviewTicket(ctx context.Context, ticket storage.Ticket) (mul
 		return multiplexer.TerminalPreview{}, fmt.Errorf("selected attempt is no longer active")
 	}
 	ref := ContainerRefFromTicket(fresh)
-	if ref.Kind != multiplexer.KindHerdr {
+	if !supportedKind(ref.Kind) {
 		return multiplexer.TerminalPreview{}, fmt.Errorf("screen preview unavailable for historical %s session", ref.Kind)
 	}
-	adapter := m.herdrAdapter()
-	adapter.Runner = herdrmux.ExecRunner{Session: adapter.Config.Session, Preview: true}
+	adapter, _ := m.multiplexerAdapter(ref.Kind)
+	if a, ok := adapter.(*herdrmux.Adapter); ok {
+		a.Runner = herdrmux.ExecRunner{Session: a.Config.Session, Preview: true}
+	}
 	valid, err := adapter.Validate(ctx, ref)
 	if err != nil {
 		return multiplexer.TerminalPreview{}, err
@@ -46,7 +48,13 @@ func (m *Manager) PreviewTicket(ctx context.Context, ticket storage.Ticket) (mul
 	if !valid {
 		return multiplexer.TerminalPreview{}, fmt.Errorf("terminal container unavailable")
 	}
-	text, err := adapter.ReadScreen(ctx, ref)
+	text := ""
+	screen, ok := adapter.(multiplexer.ScreenReader)
+	if ok {
+		text, err = screen.ReadScreen(ctx, ref)
+	} else {
+		err = fmt.Errorf("screen capture unsupported")
+	}
 	source, warning := "visible screen · ANSI", ""
 	if err != nil {
 		warning = "Screen unavailable; showing transcript fallback"

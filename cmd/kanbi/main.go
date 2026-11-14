@@ -64,6 +64,9 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
+			if cfg.Multiplexer.Default == "herdr-core" {
+				return boardruntime.LaunchCoreBoard(cfg, exe)
+			}
 			return boardruntime.LaunchHerdrBoard(cfg, exe)
 		}
 		return runBoard(ctx, cfg)
@@ -1446,6 +1449,9 @@ func (c *cliContext) Service() *app.Service {
 }
 
 func shouldLaunchHerdrBoard(cfg config.Config) bool {
+	if cfg.Multiplexer.Default == "herdr-core" {
+		return os.Getenv("HC_TERMINAL_ID") == ""
+	}
 	return os.Getenv("HERDR_ENV") != "1"
 }
 

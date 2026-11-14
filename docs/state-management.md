@@ -66,6 +66,10 @@ Focus Mode is a process-global configuration policy (`focus.enabled`, `focus.lim
 
 `pause_checkpoints` is append-only local metadata with `why`, `completed`, `next_action`, `paused_at`, and nullable `resumed_at`; a partial unique index permits at most one open checkpoint per ticket. Pausing closes any active session first. Only a successful close is followed by the transaction that writes the checkpoint and paused state. Leaving focus columns clears paused state and closes its open checkpoint. Backups and board packages preserve checkpoint history.
 
+## App/core references
+
+New app/core attempts store `multiplexer=herdr-core`, the configured core session in `mux_namespace`, the core address in `mux_container_id`, and core identity/ownership token/program PID/creation time in `mux_metadata`. Core recovery to a shell fails original-process validation. Existing rows and history are never converted. See [host details](herdr-core.md).
+
 ## Ticket Projection Data Flow
 
 ```mermaid

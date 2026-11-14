@@ -14,6 +14,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/buildinfo"
 	"github.com/carlotran4/kanbi/internal/config"
 	herdrmux "github.com/carlotran4/kanbi/internal/multiplexer/herdr"
+	"github.com/carlotran4/kanbi/internal/multiplexer/herdrcore"
 	"github.com/carlotran4/kanbi/internal/storage"
 )
 
@@ -137,6 +138,20 @@ func probeDoctor(ctx context.Context, cfg config.Config, prober doctorProber) do
 					add(doctorOK, "herdr", "session "+cfg.Multiplexer.Herdr.Session, nil)
 				}
 			}
+		}
+	} else if configuredMux == "herdr-core" {
+		add(doctorOK, "multiplexer", configuredMux, nil)
+		c := cfg.Multiplexer.HerdrCore
+		a := herdrcore.NewAdapter(herdrcore.Config{Binary: c.Binary, Session: c.Session, AppBinary: c.AppBinary})
+		if _, err := prober.lookPath(a.Config.Binary); err != nil {
+			add(doctorFatal, "herdr-core", "install hc or set multiplexer.herdr_core.binary", err)
+		} else if err := a.Ensure(ctx, ""); err != nil {
+			add(doctorFatal, "herdr-core", "requires reachable generation-1 core", err)
+		} else {
+			add(doctorOK, "herdr-core", "session "+a.Config.Session, nil)
+		}
+		if _, err := prober.lookPath(a.Config.AppBinary); err != nil {
+			add(doctorWarn, "herdr-app", "app required for graphical focus; hc attach remains available", err)
 		}
 	} else {
 		detail := "unknown configured multiplexer " + configuredMux + "; only Herdr is supported"

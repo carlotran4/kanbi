@@ -2,8 +2,9 @@
 
 This opt-in Linux experiment puts a native Kanbi board beside actual herdr-core
 terminals. It retains the existing Kanbi application and SQLite lifecycle through
-CLI calls and a narrow prototype bridge. The supported runtime remains Herdr TUI;
-this is a private sandbox, not a production migration.
+CLI calls and a narrow prototype bridge. This is a historical graphical experiment
+and a private sandbox, not the app/core host adapter. For the unchanged Kanbi TUI
+on either supported Herdr host, use [Herdr app/core setup](herdr-core.md).
 
 ## Open the installed POC
 

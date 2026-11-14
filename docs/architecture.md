@@ -1,6 +1,8 @@
 # Architecture
 
-Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses a multiplexer runtime backend; Herdr is the only supported runtime.
+Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses a multiplexer runtime backend; The Herdr family is the only supported runtime (TUI or app/core).
+
+The Herdr family has two host adapters: `herdr` (existing TUI, default) and `herdr-core` (app/core). Both run the same Kanbi TUI and lifecycle policy. Core uses public generation-1 RPC over `hc connect`, independent argv launches and fenced program identities; active references retain their original host. No schema migration or graphical board is required. See [core host contracts and limitations](herdr-core.md).
 
 ## Core Model
 

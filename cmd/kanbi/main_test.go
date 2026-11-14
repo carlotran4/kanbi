@@ -1089,3 +1089,42 @@ func TestConfiguredDefaultHarnessCreationPrecedence(t *testing.T) {
 		t.Fatalf("default template = %+v, err = %v", tmpl, err)
 	}
 }
+
+func TestHostEntryUsesMatchingTerminalEnvironment(t *testing.T) {
+	cfg := config.Defaults(config.Paths{})
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HC_TERMINAL_ID", "")
+	if shouldLaunchHerdrBoard(cfg) {
+		t.Fatal("nested old Herdr board")
+	}
+	cfg.Multiplexer.Default = "herdr-core"
+	if !shouldLaunchHerdrBoard(cfg) {
+		t.Fatal("old Herdr environment suppressed core host")
+	}
+	t.Setenv("HC_TERMINAL_ID", "t7")
+	if shouldLaunchHerdrBoard(cfg) {
+		t.Fatal("nested core board")
+	}
+	cfg.Multiplexer.Default = "herdr"
+	t.Setenv("HERDR_ENV", "")
+	if !shouldLaunchHerdrBoard(cfg) {
+		t.Fatal("core environment suppressed old host")
+	}
+}
+
+func TestDoctorRecognizesCoreHost(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "hc")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"generation\":1,\"core\":{\"id\":\"test-core\"}}}'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(config.Paths{})
+	cfg.Multiplexer.Default = "herdr-core"
+	cfg.Multiplexer.HerdrCore.Binary = binary
+	report := probeDoctor(context.Background(), cfg, doctorProber{lookPath: func(s string) (string, error) { return s, nil }, openStore: func(context.Context, config.Config) (io.Closer, error) { return noopCloser{}, nil }, ensureDirs: func(config.Config) error { return nil }})
+	if err := report.FatalErr(); err != nil {
+		t.Fatal(err)
+	}
+	assertDoctorResult(t, report, doctorOK, "multiplexer", "herdr-core")
+	assertDoctorResult(t, report, doctorOK, "herdr-core", "session default")
+}

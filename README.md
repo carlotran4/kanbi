@@ -58,6 +58,8 @@ Use `pi`, `codex`, or `copilot` in place of `claude` for those agents. The integ
 
 See [Installation](./docs/installation.md) for downloads, checksum verification, upgrades, and source builds.
 
+For Herdr app/core, keep the same Kanbi TUI and select `multiplexer.default: herdr-core`. See [app/core setup and host limitations](docs/herdr-core.md). Herdr TUI remains the default.
+
 ## Quick start
 
 ```bash

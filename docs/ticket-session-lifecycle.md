@@ -7,6 +7,8 @@ This document specializes `docs/state-management.md` for ticket/session commands
 - A **runtime container** is the live process container for an active session. This is a Herdr agent/pane in a workspace.
 - A **harness session ref** is the agent-native resume handle, when the harness exposes one.
 
+The same command rules apply on app/core. New attempts use the configured host; active attempts focus/close/observe through their persisted host. Core PID/creation/ownership checks reject replacement shells, and core status does not provide a resume ref. See [app/core](herdr-core.md).
+
 ## Lifecycle State Diagram
 
 ```mermaid

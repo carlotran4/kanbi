@@ -21,6 +21,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/multiplexer"
 	herdrmux "github.com/carlotran4/kanbi/internal/multiplexer/herdr"
+	coremux "github.com/carlotran4/kanbi/internal/multiplexer/herdrcore"
 	"github.com/carlotran4/kanbi/internal/prompt"
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -45,6 +46,7 @@ type Manager struct {
 	fleetOwnerMu  sync.Mutex
 	fleetOwner    *os.File
 
+	CoreAdapter  *coremux.Adapter  // Optional deterministic test seam.
 	FleetAdapter *herdrmux.Adapter // Optional deterministic test seam.
 	Config       config.Config
 	Store        *storage.Store
@@ -214,6 +216,9 @@ func (m *Manager) herdrAdapter() *herdrmux.Adapter {
 }
 
 func (m *Manager) multiplexerAdapter(kind multiplexer.Kind) (multiplexer.Interface, error) {
+	if kind == multiplexer.KindHerdrCore {
+		return m.coreAdapter(), nil
+	}
 	if kind != multiplexer.KindHerdr {
 		return nil, fmt.Errorf("runtime %q is retired or unsupported; close its terminal externally and start a new Herdr attempt", kind)
 	}
@@ -229,7 +234,29 @@ func (m *Manager) currentHerdrWorkspace(ctx context.Context) string {
 	return m.herdrWorkspaceID
 }
 
-func (m *Manager) EnsureSession(ctx context.Context) error { return m.herdrAdapter().Ensure(ctx, "") }
+func (m *Manager) coreAdapter() *coremux.Adapter {
+	if m.CoreAdapter != nil {
+		return m.CoreAdapter
+	}
+	c := m.Config.Multiplexer.HerdrCore
+	return coremux.NewAdapter(coremux.Config{Binary: c.Binary, Session: c.Session, AppBinary: c.AppBinary})
+}
+func (m *Manager) configuredKind() multiplexer.Kind {
+	if m.Config.Multiplexer.Default == "herdr-core" {
+		return multiplexer.KindHerdrCore
+	}
+	return multiplexer.KindHerdr
+}
+func supportedKind(k multiplexer.Kind) bool {
+	return k == multiplexer.KindHerdr || k == multiplexer.KindHerdrCore
+}
+func (m *Manager) EnsureSession(ctx context.Context) error {
+	a, e := m.multiplexerAdapter(m.configuredKind())
+	if e != nil {
+		return e
+	}
+	return a.Ensure(ctx, "")
+}
 
 func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
 	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt})
@@ -247,7 +274,7 @@ func (m *Manager) recoverMissingSessionRef(ctx context.Context, ticket storage.T
 	if ticket.OperatorID != 0 {
 		return ticket, nil
 	}
-	if m.Store == nil || !ticket.SessionID.Valid || !m.nativeHarness(ticket.Harness) || (ticket.SessionActive && ContainerRefFromTicket(ticket).Kind != multiplexer.KindHerdr) {
+	if m.Store == nil || !ticket.SessionID.Valid || !m.nativeHarness(ticket.Harness) || (ticket.SessionActive && !supportedKind(ContainerRefFromTicket(ticket).Kind)) {
 		return ticket, nil
 	}
 	promptText := prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
@@ -325,6 +352,14 @@ func (m *Manager) RenameTicketWindow(ctx context.Context, ticket storage.Ticket,
 		return nil
 	}
 	ref := ContainerRefFromTicket(ticket)
+	if ref.Kind == multiplexer.KindHerdrCore {
+		updated := ticket
+		updated.Title = title
+		if err := m.coreAdapter().Rename(ctx, ref, TicketWindowName(updated)); err != nil {
+			return err
+		}
+		return m.Store.RenameSessionWindow(ctx, ticket.ID, TicketWindowName(updated))
+	}
 	if ref.Kind != multiplexer.KindHerdr {
 		return nil
 	}
@@ -397,15 +432,15 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		if !sessionID.Valid || !ticket.SessionActive || ticket.Runtime == kanban.StateStarting {
 			continue
 		}
-		if ContainerRefFromTicket(ticket).Kind != multiplexer.KindHerdr {
+		if !supportedKind(ContainerRefFromTicket(ticket).Kind) {
 			if err := m.Store.RecordSessionObservationFailure(ctx, sessionID.Int64, "system", "legacy runtime retired; terminal was not inspected or closed"); err != nil {
 				return err
 			}
 			continue
 		}
 
-		adapter := m.herdrAdapter()
 		ref := ContainerRefFromTicket(ticket)
+		adapter, _ := m.multiplexerAdapter(ref.Kind)
 		valid, validateErr := adapter.Validate(ctx, ref)
 		if validateErr != nil {
 			if err := m.Store.RecordSessionObservationFailure(ctx, sessionID.Int64, "herdr", validateErr.Error()); err != nil {
@@ -521,11 +556,11 @@ func (m *Manager) RefreshRuntime(ctx context.Context) error {
 			continue
 		}
 		containerRef := ContainerRefFromSession(ses)
-		if containerRef.Kind != multiplexer.KindHerdr {
+		if !supportedKind(containerRef.Kind) {
 			continue
 		}
 		detectionSource := "herdr"
-		adapter := m.herdrAdapter()
+		adapter, _ := m.multiplexerAdapter(containerRef.Kind)
 		detection, detectErr := adapter.Detect(ctx, containerRef)
 		if detection.Source == multiplexer.DetectionSourceNative && detection.State != "" {
 			if ses.OperatorID != 0 && detection.NativeState == "done" {
@@ -629,7 +664,7 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 	if err != nil || !ok {
 		return err
 	}
-	if ses.Multiplexer != string(multiplexer.KindHerdr) {
+	if !supportedKind(multiplexer.Kind(ses.Multiplexer)) {
 		return fmt.Errorf("legacy runtime retired; close its terminal externally")
 	}
 
@@ -644,15 +679,21 @@ func (m *Manager) CloseSession(ctx context.Context, ticket storage.Ticket) error
 	if err := m.Store.UpdateSessionRuntime(ctx, ses.ID, kanban.StateClosing, "system", "graceful close requested", "", false); err != nil {
 		return err
 	}
-	adapter := m.herdrAdapter()
+	adapter, _ := m.multiplexerAdapter(containerRef.Kind)
 	for _, key := range harness.ExitKeys(m.Config.Harnesses, ses.Harness) {
 		if isTextExitCommand(key) {
 			if err := adapter.SendText(ctx, containerRef, key); err != nil {
+				if errors.Is(err, multiplexer.ErrContainerNotFound) {
+					break
+				}
 				return err
 			}
 			continue
 		}
 		if err := adapter.SendKeys(ctx, containerRef, key); err != nil {
+			if errors.Is(err, multiplexer.ErrContainerNotFound) {
+				break
+			}
 			return err
 		}
 	}
@@ -729,7 +770,11 @@ func (m *Manager) waitHerdrContainerLive(ctx context.Context, ref multiplexer.Co
 		return ctx.Err()
 	case <-time.After(checkAfter):
 	}
-	if _, err := m.herdrAdapter().Read(ctx, ref, multiplexer.ReadOptions{Lines: 1}); err != nil {
+	adapter, err := m.multiplexerAdapter(ref.Kind)
+	if err != nil {
+		return err
+	}
+	if _, err := adapter.Read(ctx, ref, multiplexer.ReadOptions{Lines: 1}); err != nil {
 		return fmt.Errorf("Herdr pane exited immediately (harness may have rejected the session ref): %w", err)
 	}
 	return nil
@@ -965,7 +1010,7 @@ func (m *Manager) KillSession(ctx context.Context) error {
 		return err
 	}
 	for _, ticket := range tickets {
-		if ticket.SessionActive && ContainerRefFromTicket(ticket).Kind == multiplexer.KindHerdr {
+		if ticket.SessionActive && supportedKind(ContainerRefFromTicket(ticket).Kind) {
 			if err := m.CloseSession(ctx, ticket); err != nil {
 				return err
 			}
