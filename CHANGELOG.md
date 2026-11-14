@@ -26,6 +26,8 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Fixed
 
+- Restore card fills, colors and selection styling in the separate Herdr app/core trial by clearing an inherited automation `NO_COLOR` flag. Verify real colored terminal paint at 160x45 and 80x24 instead of relying only on text snapshots. Normal CLI no-color preferences remain unchanged.
+
 - Require Go 1.26.11 to fix the net/http MaxBytesReader header race vulnerability GO-2026-6859 and restore the CI vulnerability scan.
 - Require Go 1.26.10 to fix the crypto/x509 certificate vulnerability GO-2026-6809 and restore the CI vulnerability scan.
 - Keep template picker/manager controls, status, harness labels, truncation cues, and nearby selection visible through empty, long-list, duplicate-name, delete, and 80x24 flows.

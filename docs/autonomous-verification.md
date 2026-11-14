@@ -317,6 +317,8 @@ An autonomous agent should stop and ask before:
 
 ## App/core checks
 
+The desktop fixture explicitly clears inherited automation `NO_COLOR` and records real ANSI VT paints at 160x45 and 80x24. Require foreground colors plus distinct header/selected-card backgrounds; plain-text snapshots and the presence of cursor escape sequences alone do not establish visual parity. Preserve intentional no-color behavior in ordinary CLI runs.
+
 Run `go test ./internal/multiplexer/herdrcore ./internal/runtime ./internal/config ./internal/storage ./internal/boardruntime ./cmd/kanbi` for host changes. After deterministic checks, `KANBI_CORE_TESTS=1 go test -v ./internal/multiplexer/herdrcore -run '^TestRealCore$' -count=1` tests real transport in an owned session. `python3 scripts/herdr-core-smoke.py /path/to/kanbi` uses an owned app/core, offline harness and private DB for TUI/lifecycle validation at 160x45 and 80x24. Both clean up only their resources. See [contracts and evidence limits](herdr-core.md).
 
 ## Opt-In Real Multiplexer Checks
