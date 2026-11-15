@@ -18,6 +18,7 @@ func TestRealCore(t *testing.T) {
 	if os.Getenv("KANBI_CORE_TESTS") != "1" {
 		t.Skip("set KANBI_CORE_TESTS=1")
 	}
+	t.Setenv("HC_TERMINAL_ID", "")
 	binary := os.Getenv("KANBI_CORE_BINARY")
 	if binary == "" {
 		binary = "hc"

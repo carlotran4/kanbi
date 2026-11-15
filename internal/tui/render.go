@@ -81,6 +81,8 @@ func (m Model) View() string {
 		return overlayModal(base, fitModal(m.columnEditView(), m.height, 0, true), m.width, m.height)
 	case modalPromptFallback:
 		return overlayModal(base, fitModal(m.promptFallbackView(), m.height, 0, true), m.width, m.height)
+	case modalTicketWakes:
+		return overlayModal(base, fitModal(m.ticketWakesView(), m.height, 0, true), m.width, m.height)
 	case modalSessionSettings:
 		return overlayModal(base, fitModal(m.sessionSettingsView(), m.height, 0, true), m.width, m.height)
 	case modalRepair:
@@ -238,7 +240,7 @@ func (m Model) contextBar() string {
 		}
 		return trimToWidth("/:search i:close Esc:return Tab:panel h/l:section hjkl:move Enter:open ?:help", maxInt(1, m.width))
 	}
-	items := []string{"Enter:send/open", "/:search", "i:inspect", "S:session", "n:new", "b:boards", "O:operators", "v:fleet", "F:focus"}
+	items := []string{"Enter:send/open", "/:search", "i:inspect", "S:session", "W:schedule", "n:new", "b:boards", "O:operators", "v:fleet", "F:focus"}
 	if m.masterBoard {
 		items = append(items, "f:filters")
 	}
@@ -541,6 +543,8 @@ func cardViewWithSearch(focused bool, ticket storage.Ticket, width int, showBoar
 		railColor = palette.warning
 	case ticket.Runtime == kanban.StateError, ticket.Runtime == kanban.StateRepairNeeded:
 		railColor = palette.error_
+	case ticket.HasQueuedPrompt && !ticket.FocusPaused:
+		railColor = palette.queued
 	case focused:
 		railColor = palette.accent
 	}
@@ -569,6 +573,9 @@ func cardBadge(ticket storage.Ticket) (string, lipgloss.TerminalColor) {
 	}
 	if ticket.FocusPaused {
 		return "⏸ paused", palette.cardMuted
+	}
+	if ticket.HasQueuedPrompt {
+		return "◷ Queued prompt", palette.queued
 	}
 	if ticket.FocusMember {
 		return "◆ focus", palette.warning
@@ -886,6 +893,7 @@ type theme struct {
 	warning          lipgloss.TerminalColor // waiting_for_user, needs_permission
 	error_           lipgloss.TerminalColor // error, repair_needed
 	success          lipgloss.TerminalColor // resumable
+	queued           lipgloss.TerminalColor // scheduled ticket prompt awaiting delivery
 	card             lipgloss.TerminalColor // filled ticket surface
 	cardSelected     lipgloss.TerminalColor // selected ticket surface
 	cardMuted        lipgloss.TerminalColor // readable secondary text on filled cards
@@ -908,6 +916,7 @@ var palette = activeTerminalTheme(theme{
 	warning:          lipgloss.AdaptiveColor{Light: "3", Dark: "3"},
 	error_:           lipgloss.AdaptiveColor{Light: "1", Dark: "1"},
 	success:          lipgloss.AdaptiveColor{Light: "2", Dark: "2"},
+	queued:           lipgloss.AdaptiveColor{Light: "6", Dark: "6"},
 	card:             lipgloss.AdaptiveColor{Light: "255", Dark: "235"},
 	cardSelected:     lipgloss.AdaptiveColor{Light: "254", Dark: "236"},
 	cardMuted:        lipgloss.AdaptiveColor{Light: "8", Dark: "7"},
@@ -1232,13 +1241,13 @@ func (m Model) helpView() string {
 
 	section("Tickets")
 	row("Enter", "send a new prompt, or open/resume the session")
+	row("W", "queue, inspect and cancel scheduled ticket prompts")
 	row("S", "session settings: harness/ref editor and confirmed start fresh")
 	row("x", "safely close session")
 	row("n/N/T · e/E", "new / template / manage · inspect / $EDITOR")
 	row("g / a / m", "open GitHub / archive / mark state")
 	row("worktree m / r", "merge into source / resolve conflicts")
-	row("H/L", "move ticket left/right")
-	row("J/K", "reorder ticket up/down")
+	row("H/L · J/K", "move ticket left/right · reorder up/down")
 
 	section("Boards and columns")
 	row("b / f", "board picker / Master filters")

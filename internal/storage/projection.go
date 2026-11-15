@@ -40,6 +40,7 @@ var ticketProjectionColumns = []string{
 	"t.position",
 	"t.archived_at",
 	"coalesce(t.focus_paused,0)",
+	"qw.ticket_id is not null",
 	"pc.id",
 	"pc.why",
 	"pc.completed",
@@ -90,6 +91,12 @@ left join sessions s on s.id=(
 left join ticket_workspaces w on w.id=(
   select id from ticket_workspaces where ticket_id=t.id and is_current=1 order by id desc limit 1
 )
+left join (
+ select distinct tw.ticket_id from ticket_wakeups tw
+ left join session_messages m on m.id=tw.message_id
+ where tw.state in ('pending','activating')
+    or (tw.state='queued' and m.state='queued' and m.notification_status<>'notified')
+) qw on qw.ticket_id=t.id
 left join pause_checkpoints pc on pc.id=(
   select id from pause_checkpoints where ticket_id=t.id order by paused_at desc, id desc limit 1
 ) `
@@ -133,7 +140,7 @@ func scanProjectedTicket(rows *sql.Rows) (Ticket, error) {
 	var checkpointID sql.NullInt64
 	var checkpointWhy, checkpointCompleted, checkpointNext sql.NullString
 	var checkpointPausedAt, checkpointResumedAt sql.NullTime
-	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardUUID, &t.BoardWorkdir, &t.BoardWorktreeMode, &t.ColumnID, &t.ColumnName, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &paused, &checkpointID, &checkpointWhy, &checkpointCompleted, &checkpointNext, &checkpointPausedAt, &checkpointResumedAt, &t.RemotePushState, &t.RemotePushToken, &t.RemotePushAttemptedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.Multiplexer, &t.MuxNamespace, &t.MuxContainerID, &t.MuxContainerName, &t.MuxMetadata, &t.SessionID, &t.SessionRef, &t.SessionWorkspaceID, &t.SessionLaunchCWD, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.WorkspaceID, &t.WorkspaceState, &t.WorkspaceBranch, &t.WorkspaceSourceBranch, &t.WorkspaceLaunchCWD, &t.WorkspaceStatusJSON, &t.WorkspaceLastError, &t.CreatedAt, &t.UpdatedAt, &t.NoteCount); err != nil {
+	if err := rows.Scan(&t.ID, &t.BoardID, &t.BoardName, &t.BoardUUID, &t.BoardWorkdir, &t.BoardWorktreeMode, &t.ColumnID, &t.ColumnName, &t.ExternalID, &t.ExternalURL, &t.ExternalUpdatedAt, &t.SyncVersion, &t.DisplayID, &t.DisplayNum, &t.Title, &t.Body, &t.Harness, &t.Position, &t.ArchivedAt, &paused, &t.HasQueuedPrompt, &checkpointID, &checkpointWhy, &checkpointCompleted, &checkpointNext, &checkpointPausedAt, &checkpointResumedAt, &t.RemotePushState, &t.RemotePushToken, &t.RemotePushAttemptedAt, &t.Runtime, &active, &t.TmuxSessionName, &t.WindowID, &t.WindowName, &t.Multiplexer, &t.MuxNamespace, &t.MuxContainerID, &t.MuxContainerName, &t.MuxMetadata, &t.SessionID, &t.SessionRef, &t.SessionWorkspaceID, &t.SessionLaunchCWD, &t.LastOutputAt, &t.LastStateChangeAt, &t.LastDetectedState, &t.LastAttentionReason, &t.LastDetectionSource, &t.LastObservedExcerpt, &t.WorkspaceID, &t.WorkspaceState, &t.WorkspaceBranch, &t.WorkspaceSourceBranch, &t.WorkspaceLaunchCWD, &t.WorkspaceStatusJSON, &t.WorkspaceLastError, &t.CreatedAt, &t.UpdatedAt, &t.NoteCount); err != nil {
 		return Ticket{}, err
 	}
 	t.SessionActive = active == 1

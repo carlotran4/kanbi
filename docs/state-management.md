@@ -68,7 +68,7 @@ Focus Mode is a process-global configuration policy (`focus.enabled`, `focus.lim
 
 ## App/core references
 
-New app/core attempts store `multiplexer=herdr-core`, the configured core session in `mux_namespace`, the core address in `mux_container_id`, and core identity/ownership token/program PID/creation time in `mux_metadata`. Core recovery to a shell fails original-process validation. Existing rows and history are never converted. See [host details](herdr-core.md).
+New app/core attempts store `multiplexer=herdr-core`, the configured core session in `mux_namespace`, the core address in `mux_container_id`, and core identity/ownership token/program PID/creation time in `mux_metadata`. New core metadata also records optional `space_id` presentation placement. It is separate from the core-session namespace. New attempts inherit the live calling board’s space; reopening retains the terminal’s actual labels. Older metadata without `space_id` remains valid and is not rewritten. Core recovery to a shell fails original-process validation. Existing rows and history are never converted. See [host details](herdr-core.md).
 
 ## Ticket Projection Data Flow
 
@@ -254,3 +254,17 @@ editor-ready signal projects as `ready`. Blocked input/permission,
 running and unknown states remain distinct and cannot authorize delivery. A failed
 start/resume records an error and waits for manual retry. No timer retries a failed
 turn or silently substitutes a fresh conversation.
+
+## Scheduled ticket prompts
+
+Migration 14 adds durable ticket-owned wakeups. They progress from `pending` to
+`activating` to `queued` (atomic mailbox handoff), or `failed` / `cancelled`.
+A queued row references the exact attempt's mailbox message and exposes its
+notification receipt; it never implies the agent completed the work. Ticket and
+board projections derive `HasQueuedPrompt` from pending/activating wakes or
+queued messages still awaiting notification receipt. The TUI uses it for the
+cyan clock badge and rail; runtime attention and paused labels keep priority.
+The existing
+joined scheduler owns activation under the runtime lock, preserves pause/archive
+holds and fails interrupted launches instead of retrying them. See
+[scheduled prompts](scheduled-prompts.md).

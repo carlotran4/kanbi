@@ -166,3 +166,22 @@ See [delivery mechanisms, notification states, and verification](./docs/session-
 ## License
 
 [MIT](./LICENSE) © 2026 Carlo Tran
+
+## Scheduled ticket prompts
+
+Cards with scheduled or undelivered prompts show a cyan `◷ Queued prompt` badge
+and matching left rail. Input, permission, error and paused states keep their
+existing labels; `W` always opens the full schedule. The badge clears after
+cancellation or confirmed delivery, without adding a card row.
+
+Select any ticket and press `W` to queue a prompt for later. Press `n`, enter a
+future time and prompt, then `Ctrl+S`. The default time is tomorrow; use
+`YYYY-MM-DD HH:MM` in the displayed local timezone, or RFC3339 with an explicit
+offset. `Tab` switches time/prompt. The list shows delivery status; `r` refreshes,
+`x` cancels an unsent prompt, and `Esc` closes the dialog.
+
+Kanbi must be open to run schedules. Due prompts start a never-started ticket
+with its normal ticket context, or reuse/resume its existing conversation, then
+arrive through the session mailbox. Paused and archived tickets/boards wait.
+Repair or launch failures appear in the list and require manual attention; Kanbi
+never starts fresh automatically. See [scheduled prompts](docs/scheduled-prompts.md).

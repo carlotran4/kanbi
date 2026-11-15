@@ -20,6 +20,7 @@ bright_foreground = "#c0caf5"
 red = "#f7768e"
 yellow = "#e0af68"
 green = "#9ece6a"
+cyan = "#7dcfff"
 `
 	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 		t.Fatal(err)
@@ -33,6 +34,7 @@ green = "#9ece6a"
 		{"card", got.card, "#24283b"},
 		{"selected", got.cardSelected, "#292e42"},
 		{"warning", got.warning, "#e0af68"},
+		{"queued", got.queued, "#7dcfff"},
 	} {
 		color, ok := tc.color.(lipgloss.AdaptiveColor)
 		if !ok || color.Dark != tc.want || color.Light != tc.want {

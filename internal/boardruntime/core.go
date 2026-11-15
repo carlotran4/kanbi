@@ -28,7 +28,7 @@ func LaunchCoreBoard(cfg config.Config, exe string) error {
 	if err != nil {
 		return err
 	}
-	ref, err := a.Launch(ctx, multiplexer.LaunchSpec{Name: "Kanbi", CWD: cwd, Command: command})
+	ref, err := a.LaunchBoard(ctx, multiplexer.LaunchSpec{Name: "Kanbi", CWD: cwd, Command: command})
 	if err != nil {
 		return err
 	}

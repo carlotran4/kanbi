@@ -138,20 +138,40 @@ while True:
             return p.returncode==0
         until(app_ready,'app startup',30)
         command([binary,'doctor'])
+        # Start with an existing user space; neither the board nor its agents
+        # may fabricate a separate Kanbi space alongside it.
+        command([app,'do','space.new',json.dumps({'name':'Existing project','folder':str(root)})])
+        primary=until(lambda:json.loads(command([app,'status'])).get('space'),'existing project space')
         command([binary,'add','Core smoke ticket','--harness','pi','--body','Fixture prompt'])
-        command([binary,'open','T-001'])
-        first=rows()[-1];assert first['multiplexer']=='herdr-core'
-        agent=first['mux_container_id'];original=rpc('terminal.get',{'terminal':agent})
-        assert original['parent'] is None and not original['keep']
-        command([binary,'open','T-001'])
-        assert len(rows())==1 and rpc('terminal.get',{'terminal':agent})['pid']==original['pid']
-        # Exercise outside-host startup, which must show the unchanged board.
         command([binary])
         all_terms=rpc('terminal.list')['terminals']
-        board=next(t['address'] for t in all_terms if t['labels'].get('kanbi.title')=='Kanbi')
-        until(lambda: 'Master' in screen(board),'board picker')
+        board_record=next(t for t in all_terms if t['labels'].get('kanbi.title')=='Kanbi')
+        board=board_record['address']
+        assert board_record['labels']['herdr.space']==primary, 'board did not inherit selected project space'
+        assert len(json.loads(command([app,'ls']))['spaces'])==1, 'board created an extra space'
+        until(lambda: 'Select board' in screen(board),'board picker')
         rpc('terminal.keys',{'terminal':board,'keys':['enter']})
-        until(lambda: 'Core smoke ticket' in screen(board),'Master board')
+        until(lambda: 'Core smoke ticket' in screen(board) and 'Select board' not in screen(board),'Master board')
+        # A scheduler/background event can run while another app space has
+        # focus. First-open through the actual board must use its own terminal.
+        command([app,'do','space.new',json.dumps({'name':'Unrelated project','folder':str(root)})])
+        other=until(lambda:(value:=json.loads(command([app,'status'])).get('space')) and value!=primary and value,'unrelated project space')
+        rpc('terminal.keys',{'terminal':board,'keys':['enter']})
+        first=until(lambda:(attempts:=rows()) and attempts[-1]['mux_container_id'] and attempts[-1]['is_active'] and attempts[-1], 'first-open from board')
+        assert first['multiplexer']=='herdr-core'
+        agent=first['mux_container_id'];original=rpc('terminal.get',{'terminal':agent})
+        assert original['parent'] is None
+        assert original['labels']['herdr.space']==primary, 'ticket followed unrelated GUI focus instead of its board'
+        assert original['labels']['herdr.tab']!=board_record['labels']['herdr.tab'], 'ticket reused board tab'
+        until(lambda:json.loads(command([app,'status'])).get('tab')==original['labels']['herdr.tab'],'ticket tab focus')
+        assert not rpc('terminal.get',{'terminal':agent})['keep']
+        assert len(json.loads(command([app,'ls']))['spaces'])==2, 'ticket created an extra space'
+        # Reopening from another space retains the original tab and process.
+        command([app,'do','space.select',json.dumps({'id':other})])
+        command([binary,'open','T-001'])
+        assert len(rows())==1 and rpc('terminal.get',{'terminal':agent})['pid']==original['pid']
+        assert rpc('terminal.get',{'terminal':agent})['labels']['herdr.space']==primary
+        assert len(json.loads(command([app,'ls']))['spaces'])==2, 'reopen created an extra space'
         for cols,lines in [(160,45),(80,24)]:
             def check():
                 def frame():
@@ -229,8 +249,18 @@ while True:
                 until(lambda:response.search(screen(resumed['mux_container_id'])),harness+' resumed conversation output',40)
                 rpc('terminal.kill',{'terminal':resumed['mux_container_id']})
                 print(harness+': actual response, verified ref, resume and restored conversation: PASS',flush=True)
+        # Also test the genuinely empty-app bootstrap, not just adoption into
+        # an existing project. Only these fixture spaces/processes are closed.
+        for space in json.loads(command([app,'ls']))['spaces']:
+            command([app,'do','space.close',json.dumps({'id':space['id'],'confirmed':True})])
+        until(lambda:not json.loads(command([app,'ls']))['spaces'],'empty app')
+        command([binary])
+        fresh=until(lambda:[t for t in rpc('terminal.list')['terminals'] if t['labels'].get('kanbi.title')=='Kanbi' and t['state']=='live'],'empty-app board')[0]
+        fresh_space=fresh['labels']['herdr.space']
+        assert fresh_space and fresh_space not in [primary,other,'kanbi-managed']
+        until(lambda:len(spaces:=json.loads(command([app,'ls']))['spaces'])==1 and spaces[0]['id']==fresh_space,'single bootstrap space')
         print(json.dumps({'passed':True,'artifacts':str(root),'checks':[
-            'doctor','native app focus','same PID/attempt on reopen','unchanged TUI at 160x45 and 80x24','foreground colors and card fills at both sizes',
+            'doctor','empty-app bootstrap creates one space','board uses existing project space','first-open stays with board despite unrelated GUI focus','reopen preserves space/tab/PID','native app focus','same PID/attempt on reopen','unchanged TUI at 160x45 and 80x24','foreground colors and card fills at both sizes',
             'TUI Enter focus','tab rename without focus change','TUI close','fixture verified-ref resume/history','app restart persistence','missing program reconciliation']}))
     finally:
         if window:
