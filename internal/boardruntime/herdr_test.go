@@ -72,3 +72,14 @@ func TestHerdrBoardLaunchStartsServerWhenUnavailable(t *testing.T) {
 		t.Fatalf("unexpected Herdr calls: %v", got)
 	}
 }
+
+func TestDevelopmentReloadEnvironmentReachesBoard(t *testing.T) {
+	t.Setenv("KANBI_DEV_RELOAD", "1")
+	t.Setenv("KANBI_DEV_ROOT", "/tmp/dev checkout")
+	command := HerdrBoardShellCommand("/tmp/kanbi")
+	for _, want := range []string{"'KANBI_DEV_RELOAD=1'", "'KANBI_DEV_ROOT=/tmp/dev checkout'"} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("development setting missing: %s", command)
+		}
+	}
+}

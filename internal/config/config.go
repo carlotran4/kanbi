@@ -37,9 +37,17 @@ type Herdr struct {
 	FocusOnOpen       bool   `yaml:"focus_on_open"`
 }
 
+type HerdrCore struct {
+	Binary      string `yaml:"binary"`
+	Session     string `yaml:"session"`
+	AppBinary   string `yaml:"app_binary"`
+	FocusOnOpen bool   `yaml:"focus_on_open"`
+}
+
 type Multiplexer struct {
-	Default string `yaml:"default"`
-	Herdr   Herdr  `yaml:"herdr"`
+	HerdrCore HerdrCore `yaml:"herdr_core"`
+	Default   string    `yaml:"default"`
+	Herdr     Herdr     `yaml:"herdr"`
 }
 
 type Timeouts struct {
@@ -313,8 +321,8 @@ func Normalize(raw Config, paths Paths, opts NormalizeOptions) (Config, error) {
 		cfg.Multiplexer.Default = opts.Env.DefaultMultiplexer
 	}
 	syncMultiplexerConfig(&cfg)
-	if cfg.Multiplexer.Default != "herdr" {
-		return Config{}, fmt.Errorf("multiplexer %q is no longer supported; set multiplexer.default: herdr", cfg.Multiplexer.Default)
+	if cfg.Multiplexer.Default != "herdr" && cfg.Multiplexer.Default != "herdr-core" {
+		return Config{}, fmt.Errorf("multiplexer %q is no longer supported; set multiplexer.default: herdr or herdr-core", cfg.Multiplexer.Default)
 	}
 	applyDiagnosticsDefaults(&cfg, opts.Env)
 	applyTimeoutDefaults(&cfg)
@@ -372,7 +380,7 @@ func defaultConfig(paths Paths, env Env) Config {
 		Paths:               paths,
 		DBPath:              paths.DBFile,
 		DefaultHarness:      "pi",
-		Multiplexer:         Multiplexer{Default: "herdr", Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board"}},
+		Multiplexer:         Multiplexer{HerdrCore: HerdrCore{Binary: "hc", Session: "default", AppBinary: "herdr-app"}, Default: "herdr", Herdr: Herdr{Binary: "herdr", Session: "default", WorkspaceStrategy: "board"}},
 		Diagnostics:         Diagnostics{Level: "off", MaxBytes: 1 << 20, MaxFiles: 3},
 		Focus:               Focus{Enabled: false, Limit: 3},
 		StatusBar:           &statusBar,
@@ -389,6 +397,17 @@ func defaultConfig(paths Paths, env Env) Config {
 }
 
 func overlayRawConfig(cfg *Config, raw Config) {
+	c := raw.Multiplexer.HerdrCore
+	if c.Binary != "" {
+		cfg.Multiplexer.HerdrCore.Binary = c.Binary
+	}
+	if c.Session != "" {
+		cfg.Multiplexer.HerdrCore.Session = c.Session
+	}
+	if c.AppBinary != "" {
+		cfg.Multiplexer.HerdrCore.AppBinary = c.AppBinary
+	}
+	cfg.Multiplexer.HerdrCore.FocusOnOpen = c.FocusOnOpen
 	if raw.DBPath != "" {
 		cfg.DBPath = raw.DBPath
 	}
@@ -446,6 +465,15 @@ func overlayRawConfig(cfg *Config, raw Config) {
 }
 
 func syncMultiplexerConfig(cfg *Config) {
+	if cfg.Multiplexer.HerdrCore.Binary == "" {
+		cfg.Multiplexer.HerdrCore.Binary = "hc"
+	}
+	if cfg.Multiplexer.HerdrCore.Session == "" {
+		cfg.Multiplexer.HerdrCore.Session = "default"
+	}
+	if cfg.Multiplexer.HerdrCore.AppBinary == "" {
+		cfg.Multiplexer.HerdrCore.AppBinary = "herdr-app"
+	}
 	if cfg.Multiplexer.Default == "" {
 		cfg.Multiplexer.Default = "herdr"
 	}

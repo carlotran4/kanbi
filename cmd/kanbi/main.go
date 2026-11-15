@@ -19,6 +19,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/boardpackage"
 	"github.com/carlotran4/kanbi/internal/boardruntime"
 	"github.com/carlotran4/kanbi/internal/config"
+	"github.com/carlotran4/kanbi/internal/devreload"
 	"github.com/carlotran4/kanbi/internal/diagnostics"
 	"github.com/carlotran4/kanbi/internal/runtime"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -63,6 +64,9 @@ func run(args []string) error {
 			exe, err := os.Executable()
 			if err != nil {
 				return err
+			}
+			if cfg.Multiplexer.Default == "herdr-core" {
+				return boardruntime.LaunchCoreBoard(cfg, exe)
 			}
 			return boardruntime.LaunchHerdrBoard(cfg, exe)
 		}
@@ -155,7 +159,8 @@ func runRestore(ctx context.Context, cfg config.Config, args []string) error {
 }
 
 func runBoard(ctx context.Context, cfg config.Config) error {
-	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
+	var restart, saved string
+	err := withCLIContext(ctx, cfg, func(cli *cliContext) error {
 		manager := cli.Manager()
 		reconcileErr := manager.Reconcile(ctx)
 		reconcileWarning := ""
@@ -182,9 +187,41 @@ func runBoard(ctx context.Context, cfg config.Config) error {
 		model := tui.NewWithPickerStatusBarOptions(ctx, svc, reconcileWarning, *cfg.StatusBar)
 		model.SetDefaultHarness(cfg.DefaultHarness)
 		defer model.Close()
-		_, err := tea.NewProgram(model, tea.WithFPS(tui.RenderFPS)).Run()
+		root := os.Getenv("KANBI_DEV_ROOT")
+		enabled := os.Getenv("KANBI_DEV_RELOAD") == "1" && root != ""
+		if enabled {
+			model.EnableDevReload(os.Getenv("KANBI_DEV_VIEW"))
+		}
+		program := tea.NewProgram(model, tea.WithFPS(tui.RenderFPS))
+		if enabled {
+			target, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			watchCtx, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			defer func() { cancel(); <-done }()
+			go func() {
+				defer close(done)
+				devreload.Watch(watchCtx, root, target, func(result devreload.Result) { program.Send(result) })
+			}()
+		}
+		final, err := program.Run()
+		if err == nil {
+			if result, ok := final.(tui.Model); ok {
+				restart, saved = result.DevRestart()
+			}
+		}
 		return err
 	})
+	if err != nil || restart == "" {
+		return err
+	}
+	// Runtime workers, sync and storage have drained before replacing this TUI.
+	if err := os.Setenv("KANBI_DEV_VIEW", saved); err != nil {
+		return err
+	}
+	return syscall.Exec(restart, append([]string{restart}, os.Args[1:]...), os.Environ())
 }
 
 func runDoctor(ctx context.Context, cfg config.Config, args ...string) error {
@@ -1446,6 +1483,9 @@ func (c *cliContext) Service() *app.Service {
 }
 
 func shouldLaunchHerdrBoard(cfg config.Config) bool {
+	if cfg.Multiplexer.Default == "herdr-core" {
+		return os.Getenv("HC_TERMINAL_ID") == ""
+	}
 	return os.Getenv("HERDR_ENV") != "1"
 }
 

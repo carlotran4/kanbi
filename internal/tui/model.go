@@ -21,6 +21,11 @@ import (
 )
 
 type Model struct {
+	devEnabled              bool
+	devPending              string
+	devRestart              bool
+	devActions              int
+	devEditor               bool
 	operators               operatorUI
 	defaultHarness          string
 	fleet                   fleetUI
@@ -107,6 +112,14 @@ type Model struct {
 	promptWindow            string
 	promptText              string
 	promptTicket            storage.Ticket
+	ticketWakes             ticketWakeUI
+	sessionSettings         bool
+	sessionSettingsTicketID int64
+	sessionSettingsTicket   storage.Ticket
+	sessionSettingsLatest   storage.Session
+	sessionSettingsHasPrior bool
+	sessionSettingsError    error
+	sessionFreshConfirm     bool
 	repairing               bool
 	repairEditingRef        bool
 	repairRef               InputBuffer
@@ -260,7 +273,7 @@ func NewWithPickerStatusBarOptions(ctx context.Context, store Actions, reconcile
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(runtimeTickCmd(), inspectorTickCmd(), m.initialStatusBarCmd(), m.fleetCmd("startup"))
+	return tea.Batch(runtimeTickCmd(), inspectorTickCmd(), m.initialStatusBarCmd(), m.fleetCmd("startup"), m.devTick())
 }
 
 type runtimeTickMsg time.Time
@@ -325,6 +338,15 @@ func runtimeTickCmd() tea.Cmd {
 }
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if handled, cmd := m.updateDevReload(msg); handled {
+		return m, cmd
+	}
+	switch msg.(type) {
+	case openTicketMsg, closeSessionMsg, workspaceActionMsg:
+		if m.devActions > 0 {
+			m.devActions--
+		}
+	}
 	if handled, cmd := m.updateFleet(msg); handled {
 		return m, cmd
 	}
@@ -357,6 +379,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.resizeTicketWakeEditor()
 		if m.operators.editing {
 			m.resizeOperatorEditors()
 		}
@@ -400,6 +423,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyOperatorEditorResult(msg)
 		return m, tea.ClearScreen
 	case editorFinishedMsg:
+		m.devEditor = false
 		m.applyEditorResult(msg)
 		return m, tea.ClearScreen
 	case bodyClipboardPasteMsg:
@@ -633,6 +657,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateColumnEdit(key), nil
 	case modalPromptFallback:
 		return m.updatePromptFallback(key)
+	case modalTicketWakes:
+		return m.updateTicketWakes(key)
+	case modalSessionSettings:
+		return m.updateSessionSettings(key)
 	case modalRepair:
 		return m.updateRepair(key), nil
 	case modalBranchName:
@@ -645,6 +673,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.workspaceIntegrating = false
 			t := m.workspaceActionTicket
+			m.devActions++
 			return m, func() tea.Msg {
 				return workspaceActionMsg{displayID: t.DisplayID, action: "integrate", err: m.actions.IntegrateTicketWorkspace(m.ctx, t)}
 			}
@@ -723,6 +752,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.startColumnEdit("add")
 	case "r":
 		if t, ok := m.selectedTicket(); ok && t.WorkspaceID.Valid && workspaceNeedsResolution(t) {
+			m.devActions++
 			return m, func() tea.Msg {
 				return workspaceActionMsg{displayID: t.DisplayID, action: "resolve", err: m.actions.ResolveTicketWorkspace(m.ctx, t)}
 			}
@@ -732,6 +762,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deleteColumn()
 	case "a":
 		m.archiveTicket()
+	case "W":
+		if t, ok := m.selectedTicket(); ok {
+			m.openTicketWakes(t)
+		}
+		return m, nil
+	case "S":
+		if t, ok := m.selectedTicket(); ok {
+			m.sessionSettings = true
+			m.sessionSettingsTicketID = t.ID
+			m.sessionFreshConfirm = false
+			m.refreshSessionSettings()
+		}
 	case "e":
 		m.startEdit()
 	case "E":
@@ -775,6 +817,9 @@ func (m *Model) reloadBoards() {
 }
 
 func (m *Model) reload() {
+	if m.sessionSettings {
+		m.refreshSessionSettings()
+	}
 	// Invalidate pending observations on board/filter changes and mutations.
 	m.projectionGeneration++
 	snapshot, err := m.readSnapshot(m.ctx)
@@ -1100,6 +1145,7 @@ func (m *Model) defaultTicketCmd() tea.Cmd {
 }
 
 func (m *Model) openTicketCmd(t storage.Ticket, sendPrompt bool) tea.Cmd {
+	m.devActions++
 	if sendPrompt {
 		m.status = "sending prompt " + t.DisplayID + "…"
 	} else {
@@ -1172,6 +1218,7 @@ func (m Model) updateBranchName(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.branchNaming = false
 		if m.branchTicket.SessionID.Valid {
 			t := m.branchTicket
+			m.devActions++
 			return m, func() tea.Msg {
 				return openTicketMsg{ticket: t, sendPrompt: true, err: m.actions.StartFreshTicket(m.ctx, t, true)}
 			}
@@ -1192,6 +1239,7 @@ func (m *Model) closeSessionCmd() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	m.devActions++
 	m.status = "closing " + t.DisplayID + "…"
 	ctx := m.ctx
 	displayID := t.DisplayID
@@ -1275,6 +1323,7 @@ func (m *Model) openBodyEditor() tea.Cmd {
 	if m.editing {
 		body = m.bodyTA.Value()
 	}
+	m.devEditor = true
 	m.editorTicketID = ticketID
 	return editTextExternally(body, func(body string, err error) tea.Msg {
 		return editorFinishedMsg{ticketID: ticketID, body: body, err: err}

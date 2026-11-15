@@ -19,6 +19,16 @@ go test ./...
 
 The development launcher builds with disposable compiler/linker scratch space under the development binary's cache directory (`.bin/build-tmp` by default), then removes that scratch directory. This avoids filling a quota-limited `/tmp` during CGO linking. Set `KANBI_DEV_TMPDIR` to choose another build-scratch parent; the override applies only to compilation, not to the running application.
 
+For automatic rebuild and restart while dogfooding, opt in when launching the installed development wrapper:
+
+```bash
+KANBI_DEV_RELOAD=1 kanbi
+```
+
+Re-run `./scripts/install-dev.sh` once to update an existing launcher. Only the board TUI watches sources; ordinary CLI commands still run once. The watcher belongs to that process and exits with it. It checks `cmd/`, `internal/` (including embedded assets), `go.mod`, and `go.sum` every 750 ms and waits for two matching observations before building. Builds use disposable scratch space beside the development binary and atomically replace it only on success. Compiler output goes to `<development-binary>.reload.log`; failures leave the current TUI running and retry after another source edit.
+
+A successful build restarts when normal board navigation is safe. Save or cancel editors and dialogs, leave search and Operators, and return from Fleet Mode first; in-flight ticket lifecycle actions also defer restart. Board/Master selection, selected ticket, filters, viewport and inspector state survive through transient process environment, without new database state. Ticket agents keep running in Herdr. Quitting normally exits instead of restarting. This is development-only: source changes that introduce database migrations still carry the usual migration/rollback implications.
+
 Requirements: Go version from `go.mod`, a C compiler (CGO / `go-sqlite3`), and Herdr, Python 3 and sqlite3 for smoke tests.
 
 ## Coding standards

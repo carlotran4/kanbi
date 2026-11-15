@@ -320,3 +320,15 @@ func TestOperatorNativeReceiptDoesNotRequireTicketOwnership(t *testing.T) {
 		t.Fatal(w)
 	}
 }
+
+func TestCoreOperatorClaimPreservesHost(t *testing.T) {
+	s, ctx, o := operatorFixture(t)
+	id, err := s.ClaimOperatorSession(ctx, o.ID, Session{Harness: o.Harness, Multiplexer: "herdr-core"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ses, ok, err := s.SessionByID(ctx, id)
+	if err != nil || !ok || ses.Multiplexer != "herdr-core" {
+		t.Fatal(ses, ok, err)
+	}
+}

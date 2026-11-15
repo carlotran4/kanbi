@@ -6,7 +6,7 @@ Kanbi launches agent harnesses inside a configured multiplexer runtime substrate
 
 - **Configured multiplexer**: the runtime substrate selected by `multiplexer.default` in config.
 - **Terminal container**: the live process container for one active Kanbi session.
-- **Herdr pane/agent**: the terminal container type used by the sole `herdr` implementation.
+- **Herdr pane/agent**: the terminal container type used by the `herdr` TUI implementation.
 - **Harness**: the agent CLI adapter (`pi`, `codex`, `copilot`, `claude`, fake smoke harnesses). Harnesses are separate from multiplexers.
 
 ## Adapter Contract
@@ -26,9 +26,13 @@ A multiplexer adapter must provide these operations for one terminal container:
 
 Session rows persist the generic fields `multiplexer`, `mux_namespace`, `mux_container_id`, `mux_container_name`, and `mux_metadata`. Legacy tmux fields remain readable for historical rows and exports; new Herdr launches write generic references. Retired integration-run container metadata remains readable solely for explicit legacy cancellation.
 
+## Herdr app/core
+
+`herdr-core` is an additional adapter using the public generation-1 API over `hc connect`; `herdr` remains default. It persists the core session/address and core identity, random label token, PID and creation time. No-parent argv launches survive board/window exit. New ticket tabs inherit the calling board terminal’s current app-space labels, independently of GUI focus; the caller’s core and live address are checked before launch. An externally launched board receives its selected local space/tab labels before its process starts. Empty apps create one initial space; there is no fixed shared destination. App focus preserves existing placement and matches the exact tab/address before selecting its pane. Literal text uses framed attach/paste/detach at existing dimensions, without implicit Enter. Finished/not-found and identity mismatch are authoritative absence; transport errors are degraded observation, never automatic closure. Core-native status is mapped only for known states and never fabricated into a harness ref. Screen preview is a labeled transcript fallback; Fleet relocation remains specific to the old host. See [setup and full contracts](herdr-core.md).
+
 ## Herdr Behavior
 
-Herdr 0.9.3 or newer is the supported runtime baseline; its `agent start` must expose both `--kind` and `--pane`. Herdr is the only runtime and the default:
+Herdr 0.9.3 or newer is the supported runtime baseline; its `agent start` must expose both `--kind` and `--pane`. The Herdr TUI host remains the default:
 
 ```yaml
 multiplexer:

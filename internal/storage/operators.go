@@ -207,7 +207,11 @@ func (s *Store) ClaimOperatorSession(ctx context.Context, id int64, ses Session)
 		return 0, errors.New("operator harness mismatch")
 	}
 	now := time.Now().UTC()
-	r, e := tx.ExecContext(ctx, `insert into sessions(operator_id,harness,harness_session_ref,tmux_session_name,tmux_window_name,multiplexer,launch_cwd,status,is_active,started_at,created_at,updated_at) values(?,?,?,'','','herdr',?,'starting',1,?,?,?)`, id, harness, nullableString(ses.HarnessSessionRef.String), ses.LaunchCWD.String, now, now, now)
+	mux := ses.Multiplexer
+	if mux == "" {
+		mux = "herdr"
+	}
+	r, e := tx.ExecContext(ctx, `insert into sessions(operator_id,harness,harness_session_ref,tmux_session_name,tmux_window_name,multiplexer,launch_cwd,status,is_active,started_at,created_at,updated_at) values(?,?,?,'','',?,?,'starting',1,?,?,?)`, id, harness, nullableString(ses.HarnessSessionRef.String), mux, ses.LaunchCWD.String, now, now, now)
 	if e != nil {
 		return 0, e
 	}

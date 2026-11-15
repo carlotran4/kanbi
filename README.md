@@ -58,6 +58,8 @@ Use `pi`, `codex`, or `copilot` in place of `claude` for those agents. The integ
 
 See [Installation](./docs/installation.md) for downloads, checksum verification, upgrades, and source builds.
 
+For Herdr app/core, keep the same Kanbi TUI and select `multiplexer.default: herdr-core`. See [app/core setup and host limitations](docs/herdr-core.md). Herdr TUI remains the default.
+
 ## Quick start
 
 ```bash
@@ -83,6 +85,8 @@ The header status bar is configurable with Starship-style modules and independen
 Press `i` to toggle a read-only inspector for the selected ticket. At 120 columns or wider it sits beside the board; at smaller sizes it temporarily replaces the board. `Tab` focuses the side panel. While focused, `h/l` switch Context, Output, and Worktree; `j/k` or Up/Down scroll detail; Left/Right pan Output without resizing the agent. `[`/`]` also switch sections while the board has focus. `Esc` returns to the board; `i` closes the panel. Inspection suppresses inline body previews, retains selection and viewport anchors, and never starts an agent or sends terminal input. The inspector stays on the board canvas, with a column-style underline showing keyboard focus and an underline marking the active section. Context puts the latest pause’s next action first, keeps completed work and the pause reason compact, and formats task headings, indented lists, inline emphasis, and code blocks. Runtime attention keeps its own colors. Output opens at the newest captured line and follows new output while at the bottom; scrolling up holds the reading position. It refreshes bounded ANSI visible-screen snapshots while visible, labels transcript fallback, and shows unavailable/stale observations explicitly. `Enter` keeps its existing send/open/resume behavior.
 
 Press `v` from the board or inspector to preview Fleet Mode: gather active agents on this board, or all boards on this Herdr server from Master, into equal live panes below a compact Kanbi header. Use native Herdr pane focus and zoom to interact with agents. Focus the header and press `v`, `Enter`, or `Esc`, or click **Return to board**, to restore their source tabs and your board view. Agent-pane input goes directly to its harness. Membership stays fixed until re-entry; pane exits preserve surviving positions. Fleet supports up to six agents and refuses layouts too small to read (at 80×24, one or two agents). Interrupted moves offer startup recovery. Return from Fleet before a database backup or board deletion. See [Fleet Mode](docs/fleet-mode.md).
+
+Press `S` on a selected ticket for session settings, even when it is healthy. The dialog shows the current attempt, harness and resume ref. `e` opens the existing ticket editor at the harness field (Tab reaches a captured session ref); save with `Ctrl+S` or cancel with `Esc` to return. Harness edits select the **next fresh conversation**: they do not stop a running agent or change the harness used to focus/resume the existing conversation. Ref edits update the current attempt only. `f`, then `Enter`, starts fresh with the saved harness and ticket prompt: any active agent is closed first, history is preserved, and the previous conversation ref is not reused. `Esc` backs out without starting anything. A ticket with no history starts its first conversation; paused tickets must be resumed first.
 
 Press `?` for controls. The important distinction is:
 
@@ -160,8 +164,28 @@ See [delivery mechanisms, notification states, and verification](./docs/session-
 - [Compatibility](./docs/compatibility.md)
 - [Support](./docs/support.md)
 - [Kanbi agent skill](./docs/agent-skill.md)
-- [Contributing](./CONTRIBUTING.md)
+- [Experimental Herdr app POC](./docs/herdr-app-poc.md) — opt-in private sandbox; current runtime defaults are unchanged.
+- [Contributing](./CONTRIBUTING.md) — development setup and opt-in automatic rebuild/restart (`KANBI_DEV_RELOAD=1 kanbi`)
 
 ## License
 
 [MIT](./LICENSE) © 2026 Carlo Tran
+
+## Scheduled ticket prompts
+
+Cards with scheduled or undelivered prompts show a cyan `◷ Queued prompt` badge
+and matching left rail. Input, permission, error and paused states keep their
+existing labels; `W` always opens the full schedule. The badge clears after
+cancellation or confirmed delivery, without adding a card row.
+
+Select any ticket and press `W` to queue a prompt for later. Press `n`, enter a
+future time and prompt, then `Ctrl+S`. The default time is tomorrow; use
+`YYYY-MM-DD HH:MM` in the displayed local timezone, or RFC3339 with an explicit
+offset. `Tab` switches time/prompt. The list shows delivery status; `r` refreshes,
+`x` cancels an unsent prompt, and `Esc` closes the dialog.
+
+Kanbi must be open to run schedules. Due prompts start a never-started ticket
+with its normal ticket context, or reuse/resume its existing conversation, then
+arrive through the session mailbox. Paused and archived tickets/boards wait.
+Repair or launch failures appear in the list and require manual attention; Kanbi
+never starts fresh automatically. See [scheduled prompts](docs/scheduled-prompts.md).

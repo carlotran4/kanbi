@@ -189,3 +189,21 @@ func TestUpdateTicketSkipsRenameForUnchangedTitleOrNoWindow(t *testing.T) {
 		t.Fatalf("scheduled boards=%v, want %v", syncer.boardIDs, want)
 	}
 }
+
+func TestCoreTitleEditRenamesActiveContainer(t *testing.T) {
+	ctx, store, view, _, manager, service := newMutationService(t)
+	ticket, err := store.CreateTicket(ctx, view.Columns[0].ID, "Original", "body", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.UpsertActiveSession(ctx, ticket.ID, storage.Session{Harness: "pi", Multiplexer: "herdr-core", MuxContainerName: sql.NullString{String: "old", Valid: true}, Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.UpdateTicket(ctx, ticket.ID, "Changed", "body", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	if len(manager.renames) != 1 {
+		t.Fatal(manager.renames)
+	}
+}

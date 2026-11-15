@@ -48,6 +48,10 @@ if needs_build; then
   fi
 fi
 
+if [[ "\${KANBI_DEV_RELOAD:-}" == 1 ]]; then
+  export KANBI_DEV_ROOT="\$ROOT"
+fi
+
 exec "\$DEV_BIN" "\$@"
 EOF
 
