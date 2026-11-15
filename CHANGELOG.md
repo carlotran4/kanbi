@@ -26,6 +26,8 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Fixed
 
+- Open Herdr app/core ticket agents as tabs in their calling Kanbi board’s space, including when another space has GUI focus. Resolve placement before starting the board or its agents, follow moved boards for new attempts, and preserve existing ticket tab/process identity on reopen.
+
 - Restore card fills, colors and selection styling in the separate Herdr app/core trial by clearing an inherited automation `NO_COLOR` flag. Verify real colored terminal paint at 160x45 and 80x24 instead of relying only on text snapshots. Normal CLI no-color preferences remain unchanged.
 
 - Require Go 1.26.11 to fix the net/http MaxBytesReader header race vulnerability GO-2026-6859 and restore the CI vulnerability scan.

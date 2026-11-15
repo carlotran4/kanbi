@@ -19,6 +19,7 @@ import (
 func TestCoreLifecycle(t *testing.T) {
 	for _, h := range []string{"pi", "codex", "copilot", "claude"} {
 		t.Run(h, func(t *testing.T) {
+			t.Setenv("HC_TERMINAL_ID", "")
 			t.Setenv("CODEX_HOME", t.TempDir())
 			store, ctx := newRuntimeTestStore(t)
 			view := defaultBoardView(t, ctx, store)
@@ -29,7 +30,7 @@ func TestCoreLifecycle(t *testing.T) {
 			cfg.Multiplexer.HerdrCore.Session = "test"
 			cfg.Harnesses[h] = config.Harness{Start: []string{"/fake/" + h}, Resume: []string{"/fake/" + h, "resume", "{session_ref}"}, PromptMode: "arg", SessionRef: "SESSION_REF="}
 			app := filepath.Join(dir, "app")
-			if err := os.WriteFile(app, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+			if err := os.WriteFile(app, []byte("#!/bin/sh\nprintf '%s\\n' '{}'\n"), 0700); err != nil {
 				t.Fatal(err)
 			}
 			a := herdrcore.NewAdapter(herdrcore.Config{Session: "test", AppBinary: app})

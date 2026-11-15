@@ -68,7 +68,7 @@ Focus Mode is a process-global configuration policy (`focus.enabled`, `focus.lim
 
 ## App/core references
 
-New app/core attempts store `multiplexer=herdr-core`, the configured core session in `mux_namespace`, the core address in `mux_container_id`, and core identity/ownership token/program PID/creation time in `mux_metadata`. Core recovery to a shell fails original-process validation. Existing rows and history are never converted. See [host details](herdr-core.md).
+New app/core attempts store `multiplexer=herdr-core`, the configured core session in `mux_namespace`, the core address in `mux_container_id`, and core identity/ownership token/program PID/creation time in `mux_metadata`. New core metadata also records optional `space_id` presentation placement. It is separate from the core-session namespace. New attempts inherit the live calling board’s space; reopening retains the terminal’s actual labels. Older metadata without `space_id` remains valid and is not rewritten. Core recovery to a shell fails original-process validation. Existing rows and history are never converted. See [host details](herdr-core.md).
 
 ## Ticket Projection Data Flow
 

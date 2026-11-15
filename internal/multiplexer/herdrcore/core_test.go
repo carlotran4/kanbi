@@ -12,6 +12,7 @@ import (
 
 func fixture(t *testing.T) (*Adapter, *terminal, *string, *[]string) {
 	t.Helper()
+	t.Setenv("HC_TERMINAL_ID", "")
 	a := NewAdapter(Config{Session: "test"})
 	id := "core-one"
 	calls := []string{}

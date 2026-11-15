@@ -76,6 +76,19 @@ visual assertion. No theme, card layout or renderer behavior was changed.
   token, terminal address, program PID and creation time. Validation checks all
   of them before input, focus, reads and close. A recovered shell at the same
   address is not the original agent and follows normal missing-session repair.
+- Ticket tabs inherit the calling board terminal's current `herdr.space` label,
+  read on every new attempt. Selecting another GUI space does not redirect a
+  board's agents; moving the board changes future launch destinations. The
+  caller's core identity and live address are checked before process creation.
+- Starting Kanbi outside core uses the selected local app space. Only an empty
+  app needs a new space. The board receives its space/tab labels atomically at
+  launch, before its UI or scheduler can start agents. There is no shared,
+  hard-coded Kanbi destination space.
+- Headless launches without a calling terminal remain possible without a GUI;
+  their first presentation uses the selected local app space, or creates one
+  if the app is empty. Reopening already-presented agents preserves their
+  current labels and focuses the exact tab, including sessions from older
+  versions. Existing terminals are never moved automatically.
 - App adoption uses public `herdr.space`/`herdr.tab` labels. Kanbi disables core
   keep after adoption completes; the app may enable it again when adopting a
   terminal after restart. PID/creation/reason checks remain authoritative.
@@ -115,7 +128,8 @@ go build -o /tmp/kanbi-core-candidate ./cmd/kanbi
 python3 scripts/herdr-core-smoke.py /tmp/kanbi-core-candidate
 ```
 
-It checks app focus/adoption, TUI Enter, tab renaming without focus changes,
+It checks existing-space board placement, first-open with unrelated GUI focus,
+reopen space/tab/PID identity, app focus/adoption, TUI Enter, and tab renaming without focus changes,
 unchanged board at 160x45 and 80x24, duplicate-open
 PID/attempt identity, TUI close, fixture-ref resume, app restart persistence and
 missing-program reconciliation. These are offline fixture refs, not evidence

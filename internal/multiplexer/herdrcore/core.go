@@ -18,10 +18,16 @@ import (
 	"github.com/carlotran4/kanbi/internal/multiplexer"
 )
 
-type Config struct{ Binary, Session, AppBinary string }
+type Config struct {
+	Binary, Session, AppBinary string
+	// CallerTerminal identifies the board/calling terminal, not the terminal that
+	// happens to have GUI focus. Read its current labels for every fresh launch.
+	CallerTerminal string
+}
 type Adapter struct {
 	Config Config
 	Call   func(context.Context, string, any, any) error
+	Query  func(context.Context, ...string) ([]byte, error)
 }
 
 func NewAdapter(c Config) *Adapter {
@@ -33,6 +39,9 @@ func NewAdapter(c Config) *Adapter {
 	}
 	if c.AppBinary == "" {
 		c.AppBinary = "herdr-app"
+	}
+	if c.CallerTerminal == "" {
+		c.CallerTerminal = os.Getenv("HC_TERMINAL_ID")
 	}
 	return &Adapter{Config: c}
 }
@@ -153,6 +162,7 @@ type metadata struct {
 	Token   string `json:"token"`
 	PID     uint32 `json:"pid"`
 	Created uint64 `json:"created_ms"`
+	Space   string `json:"space_id,omitempty"`
 }
 type terminal struct {
 	Address    string            `json:"address"`
@@ -166,6 +176,37 @@ type terminal struct {
 }
 
 func (a *Adapter) Launch(ctx context.Context, s multiplexer.LaunchSpec) (multiplexer.ContainerRef, error) {
+	return a.launch(ctx, s, "")
+}
+
+// LaunchBoard resolves its destination before starting the UI, so its scheduler
+// cannot launch agents before the board's space labels have been assigned.
+func (a *Adapter) LaunchBoard(ctx context.Context, s multiplexer.LaunchSpec) (multiplexer.ContainerRef, error) {
+	id, err := a.identity(ctx)
+	if err != nil {
+		return multiplexer.ContainerRef{}, err
+	}
+	space, err := a.originSpace(ctx, id)
+	if err != nil {
+		return multiplexer.ContainerRef{}, err
+	}
+	if space == "" {
+		space, err = a.selectedSpace(ctx)
+		if err != nil {
+			return multiplexer.ContainerRef{}, err
+		}
+	}
+	if space == "" {
+		b := make([]byte, 16)
+		if _, err = rand.Read(b); err != nil {
+			return multiplexer.ContainerRef{}, err
+		}
+		space = "kanbi-" + hex.EncodeToString(b)
+	}
+	return a.launch(ctx, s, space)
+}
+
+func (a *Adapter) launch(ctx context.Context, s multiplexer.LaunchSpec, space string) (multiplexer.ContainerRef, error) {
 	if s.Namespace != "" && s.Namespace != a.Config.Session {
 		return multiplexer.ContainerRef{}, errors.New("core launch namespace does not match configuration")
 	}
@@ -175,6 +216,12 @@ func (a *Adapter) Launch(ctx context.Context, s multiplexer.LaunchSpec) (multipl
 	id, err := a.identity(ctx)
 	if err != nil {
 		return multiplexer.ContainerRef{}, err
+	}
+	if space == "" {
+		space, err = a.originSpace(ctx, id)
+		if err != nil {
+			return multiplexer.ContainerRef{}, err
+		}
 	}
 	b := make([]byte, 16)
 	if _, err = rand.Read(b); err != nil {
@@ -190,11 +237,16 @@ func (a *Adapter) Launch(ctx context.Context, s multiplexer.LaunchSpec) (multipl
 		}
 		childEnv[k] = val
 	}
-	err = a.RPC(ctx, "terminal.run", map[string]any{"env": childEnv, "argv": s.Command, "cwd": s.CWD, "no_parent": true, "no_notify": true, "keep": false, "labels": map[string]string{"kanbi.owner": token, "kanbi.title": s.Name}}, &t)
+	labels := map[string]string{"kanbi.owner": token, "kanbi.title": s.Name}
+	if space != "" {
+		labels["herdr.space"] = space
+		labels["herdr.tab"] = "kanbi-" + token
+	}
+	err = a.RPC(ctx, "terminal.run", map[string]any{"env": childEnv, "argv": s.Command, "cwd": s.CWD, "no_parent": true, "no_notify": true, "keep": false, "labels": labels}, &t)
 	if err != nil {
 		return multiplexer.ContainerRef{}, err
 	}
-	raw, _ := json.Marshal(metadata{id, token, t.PID, t.Created})
+	raw, _ := json.Marshal(metadata{CoreID: id, Token: token, PID: t.PID, Created: t.Created, Space: space})
 	ref := multiplexer.ContainerRef{Kind: a.Kind(), Namespace: a.Config.Session, ID: t.Address, Name: s.Name, Metadata: string(raw)}
 	if t.Address == "" || t.State != "live" || t.PID == 0 {
 		if t.Address != "" && t.Labels["kanbi.owner"] == token {
@@ -326,7 +378,8 @@ func (a *Adapter) App(ctx context.Context, method string, params any) error {
 	return nil
 }
 
-// Focus adopts through documented app labels, without requiring an existing space.
+// Focus preserves existing placement. Unpresented agents use their launch space;
+// only callers without a GUI origin fall back to the selected app space.
 // Match the random tab id as well as the core-local address before focusing;
 // another app home/core can have its own unrelated t1.
 func (a *Adapter) Focus(ctx context.Context, r multiplexer.ContainerRef) error {
@@ -338,8 +391,21 @@ func (a *Adapter) Focus(ctx context.Context, r multiplexer.ContainerRef) error {
 	_ = json.Unmarshal([]byte(r.Metadata), &m)
 	space, tab := t.Labels["herdr.space"], t.Labels["herdr.tab"]
 	if space == "" || tab == "" {
-		space = "kanbi-managed"
-		tab = "kanbi-" + m.Token
+		if space == "" {
+			space = m.Space
+		}
+		if space == "" {
+			space, err = a.selectedSpace(ctx)
+			if err != nil {
+				return err
+			}
+		}
+		if space == "" {
+			space = "kanbi-" + m.Token
+		}
+		if tab == "" {
+			tab = "kanbi-" + m.Token
+		}
 		var v any
 		if err = a.RPC(ctx, "terminal.label", map[string]any{"terminal": r.ID, "labels": map[string]string{"herdr.space": space, "herdr.tab": tab}}, &v); err != nil {
 			return err
@@ -376,23 +442,13 @@ func (a *Adapter) Focus(ctx context.Context, r multiplexer.ContainerRef) error {
 	}
 }
 func (a *Adapter) appPane(ctx context.Context, space, tab, address string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	out, e := a.command(ctx, a.Config.AppBinary, "ls").Output()
-	if e != nil {
-		return "", fmt.Errorf("Herdr app unavailable: %w; open the app with HC_SESSION=%s and the matching HERDR_APP_HOME", e, a.Config.Session)
+	raw, err := a.appQuery(ctx, "ls")
+	if err != nil {
+		return "", err
 	}
-	var world struct {
-		Spaces []struct {
-			ID   string
-			Tabs []struct {
-				ID        string
-				Terminals []struct{ Terminal, Pane string }
-			}
-		}
-	}
-	if e = json.Unmarshal(out, &world); e != nil {
-		return "", e
+	var world appWorld
+	if err = json.Unmarshal(raw, &world); err != nil {
+		return "", err
 	}
 	for _, s := range world.Spaces {
 		if s.ID != space {
