@@ -18,7 +18,7 @@ func LaunchCoreBoard(cfg config.Config, exe string) error {
 	a := herdrcore.NewAdapter(herdrcore.Config{Binary: c.Binary, Session: c.Session, AppBinary: c.AppBinary})
 	ctx := context.Background()
 	command := []string{"env", "KANBI_INNER=1", "KANBI_MULTIPLEXER=herdr-core"}
-	for _, key := range []string{"KANBI_CONFIG", "KANBI_DB", "KANBI_DATA_DIR", "KANBI_STATE_DIR"} {
+	for _, key := range []string{"KANBI_CONFIG", "KANBI_DB", "KANBI_DATA_DIR", "KANBI_STATE_DIR", "KANBI_DEV_RELOAD", "KANBI_DEV_ROOT"} {
 		if val := os.Getenv(key); val != "" {
 			command = append(command, key+"="+val)
 		}

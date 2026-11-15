@@ -67,6 +67,7 @@ func (m Model) updateSessionSettings(key tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		m.sessionFreshConfirm = false
+		m.devActions++
 		m.status = "starting fresh " + t.DisplayID + "…"
 		return m, func() tea.Msg {
 			return openTicketMsg{ticket: t, sendPrompt: true, err: m.actions.StartFreshTicket(m.ctx, t, true)}

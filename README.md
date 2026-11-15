@@ -161,7 +161,7 @@ See [delivery mechanisms, notification states, and verification](./docs/session-
 - [Support](./docs/support.md)
 - [Kanbi agent skill](./docs/agent-skill.md)
 - [Experimental Herdr app POC](./docs/herdr-app-poc.md) — opt-in private sandbox; current runtime defaults are unchanged.
-- [Contributing](./CONTRIBUTING.md)
+- [Contributing](./CONTRIBUTING.md) — development setup and opt-in automatic rebuild/restart (`KANBI_DEV_RELOAD=1 kanbi`)
 
 ## License
 

@@ -524,3 +524,14 @@ the normal badge/selection rail returns immediately. Check vertical/horizontal
 overflow after dismissal and stop the fixture. Projection tests cover receipt,
 uncertain/deferred delivery, cancellation and cached named/Master views; card tests
 cover clock fit at minimum width and priority for input/permission/error/pause.
+
+## Development reload (GH-405)
+
+Run `go test ./internal/devreload ./internal/tui ./internal/boardruntime ./cmd/kanbi`
+for source fingerprints, failed/atomic builds, restart deferral and navigation
+restoration. In the owned UI fixture, launch the private binary with
+`KANBI_DEV_RELOAD=1 KANBI_DEV_ROOT=/path/to/checkout`, select a board/ticket,
+open an editor, and change a watched source. Verify the successful build waits
+until editor dismissal, then restores selection after restart. Repeat at 80x24;
+a compile failure must retain the running TUI and report the private compiler log.
+Return from Fleet before reload and always stop the owned fixture afterward.

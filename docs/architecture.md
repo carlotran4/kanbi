@@ -78,6 +78,7 @@ Stop and ask before:
 | `internal/app` | Presentation-independent board, ticket, note, and session use-case orchestration, including post-save runtime effects and manager-owned mutation sync scheduling. |
 | `internal/boardruntime` | Starts the board process in the configured runtime, including Herdr availability, workspace, pane, environment, and attach orchestration. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
+| `internal/devreload` | Opt-in board-process source watcher, debounced development builds and atomic binary replacement; no daemon or agent ownership. |
 | `internal/buildinfo` | Release-injected semantic version, commit/build metadata, Go platform, and schema compatibility reporting. |
 | `internal/diagnostics` | Opt-in bounded private log writer and redacted support-bundle collection (`kanbi-support-bundle`). |
 | `internal/archiveutil` | Policy-free symlink-aware path containment, bounded ZIP reads, and regular-file extraction safety shared by archive formats. |

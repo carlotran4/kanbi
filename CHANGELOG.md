@@ -6,6 +6,8 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Added
 
+- Opt-in development hot reload (`KANBI_DEV_RELOAD=1 kanbi` after updating the development launcher): rebuild in the background, defer TUI restart during protected interactions, preserve board navigation, and leave Herdr agents running. Failed builds keep the current TUI open.
+
 - Herdr app/core host support (`multiplexer.default: herdr-core`) for the unchanged Kanbi TUI, with independent terminals, ownership validation and preserved session history. Herdr TUI remains default. Core currently uses text inspector output; Fleet remains specific to Herdr TUI.
 
 - Automatic cross-harness session messaging: native Claude inbox delivery, Codex queue wake, a bundled interactive Pi receiver, and best-effort Copilot text/Enter notification. Durable receipts fence uncertain retries; existing sessions need a normal close/reopen to receive setup.
