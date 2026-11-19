@@ -1,0 +1,241 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kanbi in the Herdr app proposal</title><style>
+*{box-sizing:border-box}body{margin:0;color:#20252b;background:#eeefed;font:17px/1.65 system-ui,sans-serif}main{max-width:1220px;margin:36px auto;background:white;padding:64px 66px}h1{font-size:48px;line-height:1.12;letter-spacing:-1.5px;margin:0 0 16px;color:#111}h2{font-size:29px;line-height:1.25;margin:54px 0 18px;color:#111}h3{font-size:22px;margin:32px 0 12px;color:#111}p,li{max-width:88ch}a{color:#285c76}table{width:100%;border-collapse:collapse;font-size:14px;line-height:1.5;margin:24px 0}th,td{border:1px solid #d9d9d9;text-align:left;padding:13px;vertical-align:top}th{background:#e5edf0}tr:nth-child(even){background:#f6f8f9}figure{margin:28px 0 38px}figcaption{font-size:14px;color:#626c76;margin:12px 0}.window{background:#13191f;color:#d6dde4;border-radius:10px;overflow:hidden;font-size:12px;line-height:1.4;border:1px solid #303943}.chrome{height:38px;background:#252d35;padding:10px 16px;color:#afb9c3;display:flex;justify-content:space-between}.desk{display:grid;grid-template-columns:130px 1fr;min-height:500px}.nav{background:#192128;padding:18px 12px;border-right:1px solid #35404a}.nav b,.nav span{display:block;margin-bottom:18px}.nav .chosen{background:#34444e;color:white;padding:9px;border-radius:5px}.nav small{color:#8493a0}.surface{min-width:0}.toolbar{padding:15px 18px;border-bottom:1px solid #36414b;display:flex;justify-content:space-between;gap:10px;font-size:13px}.workspace{display:grid;grid-template-columns:1.2fr 1fr;min-height:455px}.board{padding:14px;min-width:0;overflow:auto}.cols{min-width:680px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.column h4{margin:0 0 14px;padding-bottom:9px;border-bottom:1px solid #72818c;color:#bbc6cf;font-size:10px;letter-spacing:.5px}.card{background:#28333d;border-left:3px solid #53616b;padding:9px 7px;margin-bottom:10px;border-radius:3px;min-height:105px;overflow-wrap:anywhere}.card.sel{outline:1px solid #91afc2;background:#324451}.card.warn{border-left-color:#e1b96c}.card small{display:block;color:#aab7c0;font-size:10px}.card strong{display:block;margin:7px 0 12px;font-size:13px;font-weight:600}.card em{font-size:9px;color:#b6c7cc;font-style:normal}.terminal{background:#10161b;border-left:1px solid #45525e;min-width:0}.termhead{background:#27333d;padding:12px;font-size:11px;border-bottom:1px solid #506575}.termhead b{color:#e8c16e}.termtext{padding:16px;font:11px/1.9 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#b8c6cf}.termtext .bright{color:#ecf0f3}.termtext .amber{color:#e8c16e}.termtext .green{color:#9fc8a8}.prompt{border:1px solid #c4a967;padding:12px;margin:18px 0;color:#f1d298}.context{padding:20px;background:#1d2831}.context h4{font-size:17px;margin:4px 0 12px}.context p{font-size:12px;color:#b9c5cd}.tabs{padding:10px 16px;color:#afc3ce;border-bottom:1px solid #4a5b67}.review{display:grid;grid-template-columns:1fr 1.1fr 1fr}.diff{padding:14px;background:#15221c;font:10px/2 monospace;color:#9dc2a7;white-space:pre-wrap}.files{padding:14px;font-size:11px;color:#a9b8c5}.fleet{display:grid;grid-template-columns:170px 1fr}.rail{padding:14px;background:#1d2831}.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px}.tile{border:1px solid #465562;background:#10161b;min-height:185px}.tile .termtext{font-size:10px}.base{background:#151c22;color:#c3ccd3;padding:18px;overflow:auto;font:9px/1.35 ui-monospace,monospace;white-space:pre}.foot{padding:9px 16px;border-top:1px solid #36414b;color:#9baebc;font-size:10px}.overview{font-size:13px;letter-spacing:1px;color:#61717c;text-transform:uppercase}.diagram{display:flex;gap:10px;align-items:stretch;margin:25px 0;font-size:14px}.diagram div{flex:1;padding:18px;border:1px solid #d9d9d9;background:#fafbfc}.diagram b{display:block;margin-bottom:8px}.legend{font-size:13px;color:#596873}
+@media(max-width:800px){main{padding:28px 20px;margin:0}h1{font-size:36px}.window{overflow:auto}.desk{min-width:940px}table{display:block;overflow:auto}.diagram{display:block}.diagram div{margin-bottom:8px}}
+@media print{body{background:white;font-size:11pt}main{padding:0;margin:0;max-width:none}h1{font-size:32pt}h2{break-after:avoid;margin-top:28px}h3{break-after:avoid}figure{break-inside:avoid}table{font-size:9pt}tr{break-inside:avoid}.window{print-color-adjust:exact;-webkit-print-color-adjust:exact}.desk{min-height:420px}.base{font-size:6px}a{color:inherit} }
+</style></head><body><main><p class="overview">Product direction / GH-404</p><h1>Kanbi in the Herdr app</h1>
+<p>Product proposal · GH-404 · 14 November 2026</p>
+<h2>Recommendation</h2>
+<p>Offer Kanbi as a native board inside Herdr app, backed by Kanbi’s existing application services and SQLite state, with agent terminals running in herdr-core. Keep the Kanbi TUI and CLI available. The desktop experience should make a ticket, its live agent and its working context visible together.</p>
+<p>The proposed destination is a Kanbi mod and personal Herdr layout. Running the existing TUI in an app terminal remains a useful alternative, but a native panel gives us greater freedom to keep tickets readable beside interactive agents. This proposal describes product behavior, not an implementation commitment or a change to current runtime support. It contains no build-time or effort estimates.</p>
+<h2>What the user gains</h2>
+<p>Kanbi already has a board, inspector and live Fleet panes. The app’s additional value is a flexible arrangement of those experiences: keep the board on screen while answering an agent; expand a ticket’s context without replacing the agent; review its changes beside the conversation; and choose a layout that suits the work. The gain is continuity of context and easier spatial navigation. It is not a new claim that only the app can keep agents alive or reach remote machines.</p>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Current Kanbi in Herdr TUI</th>
+<th>Proposed app experience</th>
+<th>Value added</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>An agent needs an answer</td>
+<td>Open its ticket to focus the terminal; return to the board afterward</td>
+<td>Select the card and interact in the adjacent live terminal</td>
+<td>The board stays visible while answering</td>
+</tr>
+<tr>
+<td>Resume a paused task</td>
+<td>Read the checkpoint in the inspector and open/resume the session</td>
+<td>Read the next action beside the selected ticket and conversation</td>
+<td>Less navigation between handoff and execution</td>
+</tr>
+<tr>
+<td>Supervise several agents</td>
+<td>Enter Fleet to gather live panes and return to restore them</td>
+<td>Open a Fleet layout with board navigation retained</td>
+<td>More freedom to arrange and resize supervision views</td>
+</tr>
+<tr>
+<td>Review a worktree</td>
+<td>Inspect worktree health and use terminal/Git tools</td>
+<td>Show ticket-owned changes and diff beside the live agent</td>
+<td>Easier comparison between requested work and changed code</td>
+</tr>
+<tr>
+<td>Move between projects</td>
+<td>Use the board picker or Master</td>
+<td>Keep Master and board switching in the Kanbi panel</td>
+<td>Ticket ownership remains visible across project navigation</td>
+</tr>
+<tr>
+<td>Work over SSH</td>
+<td>Use the existing terminal experience</td>
+<td>Continue using the TUI or attach to a core terminal</td>
+<td>Desktop adoption does not remove terminal access</td>
+</tr>
+</tbody>
+</table>
+<h2>Proposed screens</h2>
+<p>The visual document includes three illustrative screens using the same sample ticket and coherent state. These are proposed Kanbi layouts, not screenshots of a shipped Herdr integration. Sample terminal output and diffs are illustrative. The native design deliberately departs from terminal cell geometry; it retains the board hierarchy, separate runtime row, title, metadata and attention rail.</p>
+<h3>Board and selected agent</h3><figure><div class="window"><div class="chrome"><span>● ● ● &nbsp; Herdr — Kanbi workspace</span><span>PROPOSED LAYOUT</span></div><div class="desk"><aside class="nav"><b>HERDR</b><small>SPACES</small><span class="chosen">Kanbi</span><span>Personal finance</span><span>Homelab</span><small>WORKSPACE</small><span>Board</span><span>Agents</span><span>Files</span><small>Kanbi owns ticket<br>workflow and history</small></aside><div class="surface"><div class="toolbar"><b>Kanbi / Board</b><span>Board &nbsp; Context &nbsp; Review &nbsp; Fleet</span></div><div class="workspace"><div class="board"><div class="cols"><div class="column"><h4>OPEN · 2</h4><div class="card  "><small>T-406 · not started</small><strong>Clarify export behavior</strong><em>codex</em></div><div class="card  "><small>T-409 · not started</small><strong>Improve attachment preview</strong><em>pi</em></div></div><div class="column"><h4>IN PROGRESS · 2</h4><div class="card sel warn"><small>T-404 · needs permission</small><strong>Investigate Herdr app</strong><em>codex</em></div><div class="card  "><small>T-408 · running</small><strong>Improve runtime detection</strong><em>claude</em></div></div><div class="column"><h4>REVIEW · 1</h4><div class="card  "><small>T-402 · closed</small><strong>Polish board picker</strong><em>pi</em></div></div><div class="column"><h4>DONE · 1</h4><div class="card  "><small>T-398 · closed</small><strong>Preserve session history</strong><em>codex</em></div></div></div></div><div class="terminal"><div class="termhead">T-404 · codex · <b>needs permission</b><br>Kanbi · ticket worktree · existing attempt</div><div class="termtext"><span class="bright">Investigate Herdr app</span>
+
+I have compared the core protocol with
+Kanbi’s current runtime contract.
+
+Next I’ll validate the lifecycle using
+an isolated fake agent.
+<div class="prompt">Allow this command?
+
+  ./scripts/core-lifecycle-fixture.sh
+
+  Approve once       Cancel</div><span class="amber">Harness interaction stays here.</span>
+The board remains visible beside it.</div></div></div><div class="foot">Board focus · Enter open agent · / search · i context · v fleet</div></div></div></div><figcaption>Concept 1 · Default desktop layout at a wide window size. The board remains visible during agent interaction.</figcaption></figure>
+<p>The default desktop view has a narrow Herdr navigation area, the Kanbi board in the center and a live terminal on the right. Four workflow columns remain in their configured order. Horizontal overflow stays inside the board; terminal width does not squeeze every column into unreadable cards.</p>
+<p>Selecting a card updates its read-only context and identifies the associated attempt. Open agent focuses that attempt’s live terminal. A selected ticket that has never started shows Start agent; an inactive attempt with a verified ref shows Resume; an unavailable or unverified attempt offers repair. Selection alone never starts an agent or submits a prompt.</p>
+<p>The terminal is an interactive core-backed terminal, not the inspector’s captured output. Clicking it moves keyboard focus to the harness, visibly marked in the header. Board shortcuts run only while the board has focus. Escape follows the focused surface’s behavior; a dedicated Return to board command always returns focus without killing the agent. Starting fresh remains an explicit, confirmed action.</p>
+<h3>Ticket context and review</h3><figure><div class="window"><div class="chrome"><span>● ● ● &nbsp; Herdr — Kanbi workspace</span><span>PROPOSED LAYOUT</span></div><div class="desk"><aside class="nav"><b>HERDR</b><small>SPACES</small><span class="chosen">Kanbi</span><span>Personal finance</span><span>Homelab</span><small>WORKSPACE</small><span>Board</span><span>Agents</span><span>Files</span><small>Kanbi owns ticket<br>workflow and history</small></aside><div class="surface"><div class="toolbar"><b>Kanbi / Ticket review</b><span>Board &nbsp; Context &nbsp; Review &nbsp; Fleet</span></div><div class="review"><div class="context"><small>KANBI / T-404</small><h4>Investigate Herdr app</h4><p>needs permission · codex</p><div class="tabs">Context &nbsp; Notes &nbsp; History</div><h4>Next action</h4><p>Validate process ownership and recovery using a disposable runtime.</p><h4>Task</h4><p>Compare core with our current integration. Preserve history and safe resume.</p><h4>Worktree</h4><p>…/worktrees/445<br>branch: herdr-new-app-investigation</p><p>Open agent &nbsp; Session settings</p></div><div><div class="termhead">Ticket worktree · Changes</div><div class="files">M &nbsp; docs/herdr-app-investigation.md<br><br>Read-only diff · illustrative content</div><div class="diff">+ ## Runtime ownership
++
++ Ticket attempts remain independent
++ of the board process.
++
++ Recovering as a shell does not
++ resume the agent conversation.</div><div class="files">Review merge…<br><br>Runs Kanbi preflight and confirmation</div></div><div class="terminal"><div class="termhead">T-404 · codex · <b>needs permission</b><br>Kanbi · ticket worktree · existing attempt</div><div class="termtext"><span class="bright">Investigate Herdr app</span>
+
+I have compared the core protocol with
+Kanbi’s current runtime contract.
+
+Next I’ll validate the lifecycle using
+an isolated fake agent.
+<div class="prompt">Allow this command?
+
+  ./scripts/core-lifecycle-fixture.sh
+
+  Approve once       Cancel</div><span class="amber">Harness interaction stays here.</span>
+The board remains visible beside it.</div></div></div><div class="foot">Review focus · exact ticket worktree · merge requires confirmation</div></div></div></div><figcaption>Concept 2 · Ticket-bound context, an illustrative worktree diff and the same live attempt. The native review binding is proposed.</figcaption></figure>
+<p>A review layout keeps the selected ticket’s title, body, notes, latest checkpoint and session history in one panel. A second panel shows the exact ticket worktree’s files and diff; the agent conversation remains accessible beside it. Board ownership and the checkout path are always visible because a board can have several ticket worktrees.</p>
+<p>The review panel must resolve the ticket’s recorded worktree rather than infer a directory from Herdr’s selected space. Herdr’s shipped Changes panel is useful inspiration, but exact ticket binding and Kanbi’s merge action are proposed integration behavior. Merge retains Kanbi’s existing preflight, confirmation, session close and history rules. A diff is evidence for review, not proof that a ticket is complete.</p>
+<h3>Fleet with the board retained</h3><figure><div class="window"><div class="chrome"><span>● ● ● &nbsp; Herdr — Kanbi workspace</span><span>PROPOSED LAYOUT</span></div><div class="desk"><aside class="nav"><b>HERDR</b><small>SPACES</small><span class="chosen">Kanbi</span><span>Personal finance</span><span>Homelab</span><small>WORKSPACE</small><span>Board</span><span>Agents</span><span>Files</span><small>Kanbi owns ticket<br>workflow and history</small></aside><div class="surface"><div class="toolbar"><b>Kanbi / Fleet</b><span>Board &nbsp; Context &nbsp; Review &nbsp; Fleet</span></div><div class="fleet"><div class="rail"><b>Kanbi / Fleet</b><p>Visit membership fixed</p><div class="card sel warn"><small>T-404 · needs permission</small><strong>Investigate Herdr app</strong><em>codex</em></div><div class="card  "><small>T-408 · running</small><strong>Runtime detection</strong><em>claude</em></div><p>Return to board</p><small>Existing attempts only<br>No agent relaunch</small></div><div class="tiles"><div class="tile"><div class="termhead">T-404 · codex · needs permission</div><div class="termtext">Allow isolated lifecycle check?
+
+Approve once   Cancel</div></div><div class="tile"><div class="termhead">T-408 · claude · running</div><div class="termtext">Inspecting native state transitions…
+
+Checking unknown status fallback.</div></div><div class="tile"><div class="termhead">T-411 · pi · waiting for user</div><div class="termtext">The schema comparison is ready.
+
+Which compatibility case comes next?</div></div><div class="tile"><div class="termhead">T-415 · copilot · running</div><div class="termtext">Reviewing command error handling…
+
+Preserving last known state.</div></div></div></div><div class="foot">Agent focus · native terminal input · zoom selected · Return to board restores layout</div></div></div></div><figcaption>Concept 3 · Four existing live attempts with a compact Kanbi rail. Sample tile content is illustrative.</figcaption></figure>
+<p>Fleet shows a compact board rail and a grid of existing live attempts. Each terminal has its ticket ID, board, harness and observed state. Selecting a tile focuses it; zoom expands it temporarily. Returning to the board restores the prior arrangement and selection.</p>
+<p>This is a proposed desktop counterpart to current Fleet, not a claim of command parity. It must preserve terminal/session identity and journal any structural changes. Layout changes never launch replacement agents. Membership is explicit for the visit; a new agent does not silently rearrange a terminal the user is typing into. Only one controlling view should own a terminal’s size at a time; other previews observe without resizing it.</p>
+<h2>A normal working session</h2>
+<ol>
+<li>Open Herdr and choose the Kanbi layout. Master shows tickets across boards, with owning board labels and the existing workflow filters.</li>
+<li>Select a ticket waiting for permission. Read its task and checkpoint, then use Open agent. The existing validated attempt appears beside the board; no duplicate session is created.</li>
+<li>Click into the terminal and answer the harness. Permission approval stays in the harness’s real interface. Kanbi updates the card when it receives a trustworthy observation.</li>
+<li>Move to Review. Open the ticket’s worktree diff, inspect the conversation and run the normal merge flow when ready. Workflow placement and runtime state remain separate.</li>
+<li>Close the desktop window. Agents remain owned by core. Reopening reconstructs the view; a lost program that recovered as a shell is presented as an ended or repair-needed attempt, not as a resumed conversation.</li>
+</ol>
+<h2>Product boundaries</h2><div class="diagram"><div><b>Kanbi</b>Tickets · attempts · worktrees<br>Application services and SQLite</div><div><b>Herdr app</b>Native board mod · layout<br>Live terminal presentation and focus</div><div><b>Herdr core</b>Terminal processes · input/output<br>Program status and events</div></div>
+<p>Kanbi owns tickets, columns, Master filters, provider sync, attempts, harness resume refs, worktrees, checkpoints, messaging and Operators. Herdr app owns the desktop window, graphical layout, terminal presentation and focus. Core owns terminal processes, addresses, input/output and program-reported status. Kanbi’s SQLite database remains the durable record for local workflow and attempt history; provider-backed ticket metadata retains its existing source of truth.</p>
+<p>A board can be associated with a Herdr space for convenience, but the mapping is presentation metadata. Moving a pane never changes a ticket’s board or launch directory. Master can show several boards while one agent is focused. Operators remain workspace-wide and do not become tickets merely because they appear in a sidebar.</p>
+<p>The mod should invoke Kanbi application actions through a defined command/API boundary. It must not write SQLite directly or independently implement launch, merge, pause or resume rules. Existing CLI JSON surfaces can cover supported actions; additional structured surfaces may be needed. The desktop window is not the scheduler owner: closing or opening it must not implicitly create a second scheduler. The exact ownership model must be decided before promising closed-window Operator scheduling; this proposal adds no background daemon.</p>
+<h2>Runtime and interface choices</h2>
+<p>Use herdr-core’s structured API as the new runtime boundary. Keep desktop commands in a separate presentation adapter so core-backed sessions can still be used from a terminal. Store backend and endpoint ownership on every attempt, and route existing attempts through those stored references. The current Herdr TUI backend remains independently supported; old live panes are not automatically shared with core or migrated into the app.</p>
+<p>Core documents a preview generation-1 protocol with an additive compatibility policy and released-schema checks. That is a sound basis for a versioned adapter, but behavior still needs validation. In particular, core status requires program reporting; an absent report must not become a healthy green state. Its current terminal schema has no equivalent of the older Herdr agent_session resume object. Harness-specific ref capture remains necessary.</p>
+<p>The app supports custom layouts, JavaScript mods, live terminal blocks and commands for focus and terminal adoption. Mods describe native GPUI elements; this HTML proposal illustrates the intended result and is not code that can be installed as a mod. Runtime support, exact worktree binding and the native Kanbi board are proposed additions.</p>
+<h2>States that must stay understandable</h2>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>What the user sees</th>
+<th>Required behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Existing valid attempt opened twice</td>
+<td>The same agent terminal</td>
+<td>One active attempt, no duplicate process</td>
+</tr>
+<tr>
+<td>Core or remote connection unavailable</td>
+<td>Last known state with an unavailable or stale label</td>
+<td>No guessed closure, launch or automatic resubmission</td>
+</tr>
+<tr>
+<td>Native status not reported</td>
+<td>Unknown state or a clearly identified fallback observation</td>
+<td>No fabricated native confidence</td>
+</tr>
+<tr>
+<td>Agent lost and kept terminal becomes a shell</td>
+<td>Ended attempt with Resume or Repair as appropriate</td>
+<td>Address existence cannot validate the original agent</td>
+</tr>
+<tr>
+<td>No verified harness ref</td>
+<td>Repair or Start fresh</td>
+<td>Never advertise safe resume from an address alone</td>
+</tr>
+<tr>
+<td>App window closed</td>
+<td>Agents continue; layout can be restored</td>
+<td>No parent-child teardown of independent ticket agents</td>
+</tr>
+<tr>
+<td>Ticket moved into Done</td>
+<td>Workflow changes independently of observed process state</td>
+<td>Do not invent an implicit kill or completion rule</td>
+</tr>
+<tr>
+<td>Old-runtime ticket selected in the app</td>
+<td>Clear existing-backend action</td>
+<td>Do not reinterpret legacy pane IDs as core addresses</td>
+</tr>
+</tbody>
+</table>
+<h2>Presentation and accessibility</h2>
+<p>Use text labels with attention colors and a visible focus indicator. Permission and input requests remain distinguishable from errors. Keep card navigation, search, board switching and inspector actions available from the keyboard, while allowing pointer selection and resizable panels. Put a ticket’s board and harness near its title; keep long descriptions in context rather than expanding every card.</p>
+<p>At a wide desktop size, show board and agent together. At smaller widths, switch between Board, Agent and Context rather than compressing them all. The 80 by 24 terminal experience retains the current Kanbi TUI’s compact navigation. A native mod is a desktop alternative; it is not expected to reproduce pixel-based splits inside an 80-column terminal.</p>
+<h2>Scope and decision</h2>
+<p>Recommend the native board plus live-agent layout as the product destination, with the existing TUI as a supported alternative. Include ticket context, explicit agent focus, worktree review and a Fleet layout. Preserve the current workflow and session model. Defer remote ticket execution promises until worktree paths, provider access and harness refs have been validated on the execution machine.</p>
+<p>Accept the experience when a user can answer a blocked agent without losing board context, review the correct worktree beside its ticket, return from Fleet without changing attempts, and switch between graphical and terminal access without duplicate processes. Verify the same lifecycle outcomes for Pi, Codex, Claude and Copilot; verify focus, reconnect, stale observations and shell recovery. These are acceptance conditions, not delivery estimates.</p>
+<p>The decision requested is whether this combined board-and-terminal workspace is a desirable product direction. Adoption as the default runtime remains a separate decision after compatibility evidence. The desktop app’s feature cadence should not alone determine core adoption, and core adoption should not require a desktop-only Kanbi.</p>
+<h2>Evidence and references</h2>
+<p>Upstream capabilities were checked on 14 November 2026. Default-branch documentation can include unreleased behavior; implementation should select and verify a released core/app combination.</p>
+<ul>
+<li><a href="https://github.com/herdrdev/herdr-app/blob/master/README.md">Herdr app overview</a> — desktop model, platform requirements and terminal lifetime.</li>
+<li><a href="https://github.com/herdrdev/herdr-app/blob/master/defaults/AGENTS.md">App layout and mod guide</a> — native mods, terminal blocks, labels, focus and shared layout behavior.</li>
+<li><a href="https://github.com/herdrdev/herdr-app/blob/master/docs/commands.md">App commands</a> — presentation command surfaces.</li>
+<li><a href="https://github.com/herdrdev/herdr-core/blob/master/schema/README.md">Core API</a> — protocol compatibility, events, terminal lifetime and viewer ownership.</li>
+<li><a href="https://github.com/herdrdev/herdr-core/blob/master/schema/hc.openrpc.json">Core schema</a> — terminal and status fields.</li>
+<li><a href="https://github.com/herdrdev/herdr-core/blob/master/docs/templates.md">Core templates</a> — reported status and readiness semantics.</li>
+<li><a href="../../herdr-app-investigation-gh404.md">GH-404 investigation</a> — current Kanbi integration and compatibility gaps.</li>
+</ul>
+<p>The visual baseline was captured from the repository’s disposable Herdr fixture at 160 by 45 cells. It shows Master, four workflow columns, filled cards, focus groups and the keyboard footer. Proposed desktop screens deliberately simplify the fixture content and use a native board; they do not claim pixel fidelity to either shipped application.</p><h2>Current terminal baseline</h2><p>This captured fixture frame anchors the existing topology. The native concepts above intentionally use different sample tickets and omit fixture-only Focus groups.</p><figure><pre class="base"> KANBI / MASTER                                                                                                                 FOCUS 4/3 · pause 1 to continue
+ OPEN                                16  IN PROGRESS                         20  REVIEW                              20  DONE                                16
+─────────────────────────────────────── ─────────────────────────────────────── ─────────────────────────────────────── ───────────────────────────────────────
+  T-004                          · pi    FOCUSED                              2  FOCUSED                              2 ▏ T-015                    ○ pi error
+  Set up Actual on the homelab 4          T-005                       ◆ focus     T-006                       ◆ focus   ▏ Release qualification and
+                                          Release qualification and               Bug - scrolling and viewport          ▏ production hardening 15
+  not started · kanbi                     production hardening 5                  behavior 6                            ▏ pi · kanbi
+                                          pi · Default                            pi · Default                          ▏
+
+  T-004                          · pi                                                                                   ▏ T-015                    ○ pi error
+  Set up Actual on the homelab 4          T-001                       ◆ focus     T-002                       ◆ focus   ▏ Release qualification and
+                                          Bug - scrolling and viewport            Add backend integration support 2     ▏ production hardening 15
+  not started · personal-finance          behavior 1                                                                    ▏ pi · personal-finance
+                                          pi · Default                            pi · Default                          ▏
+
+▏ T-004                          · pi                                                                                   ▏ T-015                    ○ pi error
+▏ Set up Actual on the homelab 4         PAUSED                              18  PAUSED                              18 ▏ Release qualification and
+▏                                         T-017                      ⏸ paused     T-018                      ⏸ paused   ▏ production hardening 15
+▏ not started · agent-kanban              Add backend integration support 17      Improve image paste and attachment    ▏ pi · agent-kanban
+▏                                                                                 workflow 18                           ▏
+▏ Fixture description for                 pi · kanbi                              pi · kanbi
+▏ interactive UI validation. Card                                                                                       ▏ T-015                    ○ pi error
+▏                                                                                                                       ▏ Release qualification and
+                                          T-017                      ⏸ paused     T-018                      ⏸ paused   ▏ production hardening 15
+  T-004                          · pi     Add backend integration support 17      Improve image paste and attachment    ▏ pi · Default
+  Set up Actual on the homelab 4                                                  workflow 18                           ▏
+                                          pi · personal-finance                   pi · personal-finance
+  not started · Default                                                                                                 ▏ T-011                    ○ pi error
+                                                                                                                        ▏ Bug - scrolling and viewport
+                                          T-017                      ⏸ paused     T-018                      ⏸ paused   ▏ behavior 11
+  T-008                          · pi     Add backend integration support 17      Improve image paste and attachment    ▏ pi · kanbi
+  Improve image paste and attachment                                              workflow 18                           ▏
+  workflow 8                              pi · agent-kanban                       pi · agent-kanban
+  not started · kanbi                                                                                                   ▏ T-011                    ○ pi error
+                                                                                                                        ▏ Bug - scrolling and viewport
+                                          T-017                      ⏸ paused     T-018                      ⏸ paused   ▏ behavior 11
+  T-008                          · pi     Add backend integration support 17      Improve image paste and attachment    ▏ pi · personal-finance
+  Improve image paste and attachment                                              workflow 18                           ▏
+  workflow 8                              pi · Default                            pi · Default
+  not started · personal-finance                                                                                        (+10 more ▼)
+
+                                        (+14 more ▼)                            (+14 more ▼)
+(+10 more ▼)
+Enter:send/open  /:search  i:inspect  S:session  n:new  b:boards  O:operators  v:fleet  F:focus  f:filters  !:attention  ?:help
+switched to Master
+</pre><figcaption>Current Kanbi · disposable Master fixture · 160 by 45 cells · no production data.</figcaption></figure></main></body></html>

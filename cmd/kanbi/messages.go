@@ -196,6 +196,13 @@ func executeMessages(ctx context.Context, store *storage.Store, identity string,
 				messages[i].WakePrompt = manager.OperatorMessageNotice(-sender, messages[i])
 			}
 		}
+		if sender > 0 {
+			for i := range messages {
+				if messages[i].Sender == 0 {
+					messages[i].WakePrompt = runtime.ScheduledTicketMessageNotice(messages[i].ID)
+				}
+			}
+		}
 		return encode(messages)
 	case "inbox":
 		all := len(args) == 2 && args[1] == "--all"

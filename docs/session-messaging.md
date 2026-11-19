@@ -1,6 +1,13 @@
 # Cross-harness session messaging
 
 Kanbi provides one durable mailbox across Claude Code, Codex, Pi, and Copilot.
+The reusable mailbox and native adapters come from
+[Poke](https://github.com/carlotran4/poke), embedded as a versioned Go dependency.
+Kanbi retains `kanbi messages`, existing JSON shapes and addresses, its database
+migrations, runtime locking, session eligibility and Operator wake transactions.
+Existing history stays in place. Installing or running the standalone `poke`
+command is unnecessary; do not point it at Kanbi's database.
+
 New managed sessions automatically receive notification support. Agents send and
 reply through the same CLI; no additional framework or separately installed
 daemon is required.
@@ -149,7 +156,9 @@ The investigation reviewed claude-code-tools msg, Hardline MCP, Agent Deck,
 cross-agent_mcp, Agent Exchange, and Agent Intercom. Kanbi keeps its existing
 SQLite/session/Herdr infrastructure and implements the small native delivery
 adapters directly. No messaging framework or external broker is a dependency.
-MCP remains optional future tooling, not a prerequisite for wake delivery.
+MCP remains optional future tooling, not a prerequisite for wake delivery. GH-399
+subsequently extracted the reusable implementation into Poke; Kanbi now embeds
+that library rather than maintaining its own mailbox and native transport copies.
 
 Verified locally for this change: the authenticated interactive Pi/Codex production
 exchange, busy Codex delivery, Codex draft preservation, and actual Pi PTY draft
@@ -166,3 +175,31 @@ addresses (negative IDs in JSON). Operator recipients survive session close/fres
 automatically resume through the board-owned worker, and require current instructions
 on every wake. Ticket-session addressing and closed-recipient behavior above remain
 unchanged. Deleted Operator addresses retire while retaining correspondence.
+
+## Poke extraction verification (GH-399)
+
+Kanbi pins public Poke `v0.1.0` with module checksums; no local `replace` or external
+binary is required. Poke's [initial Linux/macOS CI](https://github.com/carlotran4/poke/actions/runs/43633917501)
+passed Go tests, race checks, vet, the standalone example, six Node receiver cases,
+and CLI build/help. Public `go install` and a standalone JSON exchange also passed.
+
+On 2026-11-14, Kanbi passed `go fmt ./...`, `go test ./...`, `go vet ./...`,
+`./scripts/smoke.sh --skip-checks`, and focused harness/runtime/storage tests.
+`go test -race ./internal/storage ./internal/runtime ./cmd/kanbi` also passed.
+The installed-Pi offline test passed with the receiver resolved from the selected
+Poke module. Poke's own standalone native-launch offline test passed with Pi 0.84.2.
+Authenticated Pi 0.84.2 and Codex 0.169.0 lifecycle tests passed launch, verified
+ref capture, focus, exit/resume and preserved history.
+
+The authenticated messaging fixture established the initial exchange and passed
+Codex draft-preservation and busy-delivery checks, but timed out waiting for Pi
+delivery after clearing its draft at 80x24. This is partial native evidence, not a
+passing whole-fixture result. Deterministic receiver tests cover draft deferral
+and post-I/O checks; offline native wake alone does not settle that interactive case.
+The pre-extraction authenticated fixture also timed out waiting for Pi's initial
+read/ack/reply. That shows native instability in this environment but does not
+isolate the cause of the later draft-specific timeout.
+Claude 2.1.319's offline fixture was blocked by Herdr `agent_not_ready` before
+registration on both the extraction and pre-extraction source. Its native reception
+was not reverified; deterministic socket/receipt tests passed. Authenticated Copilot
+reception remains outside this extraction's verified coverage.

@@ -9,6 +9,8 @@ import (
 )
 
 type BoardQueries interface {
+	TicketByID(context.Context, int64) (storage.Ticket, error)
+	LatestSession(context.Context, int64) (storage.Session, bool, error)
 	BoardView(context.Context) (storage.BoardView, error)
 	ListBoards(context.Context) ([]storage.Board, error)
 	ListBoardsFiltered(context.Context, bool) ([]storage.Board, error)

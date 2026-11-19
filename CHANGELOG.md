@@ -6,11 +6,19 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Added
 
+- Opt-in development hot reload (`KANBI_DEV_RELOAD=1 kanbi` after updating the development launcher): rebuild in the background, defer TUI restart during protected interactions, preserve board navigation, and leave Herdr agents running. Failed builds keep the current TUI open.
+
+- Herdr app/core host support (`multiplexer.default: herdr-core`) for the unchanged Kanbi TUI, with independent terminals, ownership validation and preserved session history. Herdr TUI remains default. Core currently uses text inspector output; Fleet remains specific to Herdr TUI.
+
 - Automatic cross-harness session messaging: native Claude inbox delivery, Codex queue wake, a bundled interactive Pi receiver, and best-effort Copilot text/Enter notification. Durable receipts fence uncertain retries; existing sessions need a normal close/reopen to receive setup.
 
 - Board-scoped ticket templates with keyboard-first `N` creation and `T` management flows, Master board routing, CLI CRUD and `kanbi add --template`, snapshot semantics, provider-safe single creation, and board-package portability.
 
 ### Changed
+
+- Embed [Poke](https://github.com/carlotran4/poke) for durable messaging and native
+  notification. Preserve `kanbi messages`, existing mail/history, database schema,
+  Operator wake transactions and Herdr ownership; no separate binary is required.
 
 - Database schema 12 adds durable notification claims and receipts to the session mailbox. Older binaries reject the migrated database; roll back with a pre-upgrade backup. Native endpoint credentials remain in private machine-local files outside database backups.
 
@@ -24,6 +32,11 @@ Kanbi follows [Semantic Versioning](https://semver.org/). Release-specific upgra
 
 ### Fixed
 
+- Open Herdr app/core ticket agents as tabs in their calling Kanbi board’s space, including when another space has GUI focus. Resolve placement before starting the board or its agents, follow moved boards for new attempts, and preserve existing ticket tab/process identity on reopen.
+
+- Restore card fills, colors and selection styling in the separate Herdr app/core trial by clearing an inherited automation `NO_COLOR` flag. Verify real colored terminal paint at 160x45 and 80x24 instead of relying only on text snapshots. Normal CLI no-color preferences remain unchanged.
+
+- Require Go 1.26.11 to fix the net/http MaxBytesReader header race vulnerability GO-2026-6859 and restore the CI vulnerability scan.
 - Require Go 1.26.10 to fix the crypto/x509 certificate vulnerability GO-2026-6809 and restore the CI vulnerability scan.
 - Keep template picker/manager controls, status, harness labels, truncation cues, and nearby selection visible through empty, long-list, duplicate-name, delete, and 80x24 flows.
 - Reject explicitly blank template-ticket titles, preserve omitted-title fallback semantics, and enforce Unicode-aware case-insensitive template names across CRUD, lookup, and package import.

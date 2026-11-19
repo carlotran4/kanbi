@@ -216,3 +216,19 @@ func TestOperatorLifecycleReusesSessionAttemptsForEveryHarness(t *testing.T) {
 		})
 	}
 }
+
+func TestOperatorWakePreviewUsesDeliveryEnvelope(t *testing.T) {
+	m := NewManager(config.Defaults(config.Paths{ConfigFile: filepath.Join(t.TempDir(), "custom", "config.yaml")}), nil)
+	defer m.Close()
+	before, after := m.OperatorWakePreview(42)
+	prompt := "Check incoming requests.\nKeep each follow-up distinct."
+	actual := m.OperatorMessageNotice(42, storage.SessionMessage{ID: 17, Sender: 0, Body: "Wake reason: scheduled check\n\n" + prompt})
+	preview := before + "\n\n" + prompt + "\n\n" + strings.ReplaceAll(after, "<assigned on wake>", "17")
+	if preview != actual {
+		t.Fatalf("preview differs from delivery\n%s\n%s", preview, actual)
+	}
+	before, _ = m.OperatorWakePreview(0)
+	if !strings.Contains(before, "operators/<operator-id>/instructions.md") || strings.Contains(before, "operators/0/") {
+		t.Fatal(before)
+	}
+}

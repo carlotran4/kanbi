@@ -124,6 +124,9 @@ func fleetFind(panes []herdrmux.FleetPane, terminal string) (herdrmux.FleetPane,
 
 func (m *Manager) fleetPlan(ctx context.Context, boardID int64, width, height int) (*fleetJournal, multiplexer.FleetSummary, error) {
 	summary := multiplexer.FleetSummary{Scope: "all boards"}
+	if m.configuredKind() == multiplexer.KindHerdrCore {
+		return nil, summary, errors.New("Fleet currently requires the Herdr TUI host; use Herdr app native terminal layouts on core")
+	}
 	if m.Store == nil {
 		return nil, summary, errors.New("Fleet storage is unavailable")
 	}

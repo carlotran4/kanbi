@@ -10,11 +10,13 @@ import (
 	"github.com/carlotran4/kanbi/internal/tui/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type operatorActions interface {
 	ListOperators(context.Context) ([]storage.Operator, error)
 	ReadOperatorInstructions(int64) (string, error)
+	OperatorWakePreview(int64) (string, string)
 	SaveOperator(context.Context, storage.Operator, string) (storage.Operator, error)
 	OperatorAction(context.Context, int64, string) error
 }
@@ -27,6 +29,10 @@ type operatorUI struct {
 	index                int
 	field                int
 	scheduleEditing      bool
+	wakePreview          bool
+	wakePreviewScroll    int
+	wakeBefore           string
+	wakeAfter            string
 	editorGeneration     uint64
 	instructionsOriginal string
 	items                []storage.Operator
@@ -90,6 +96,9 @@ func (m *Model) editOperator(o storage.Operator) tea.Cmd {
 	u.editing = true
 	u.menu = false
 	u.scheduleEditing = false
+	u.wakePreview = false
+	u.wakePreviewScroll = 0
+	u.wakeBefore, u.wakeAfter = a.OperatorWakePreview(o.ID)
 	u.editorGeneration++
 	u.field = 0
 	u.error = ""
@@ -304,6 +313,27 @@ func (m Model) operatorsOverlay() string {
 // Scheduling has its own local editor and stays in the draft until the main save.
 func (m Model) updateOperatorEditor(key tea.KeyMsg, a operatorActions) (Model, tea.Cmd) {
 	u := &m.operators
+	if u.wakePreview {
+		switch key.String() {
+		case "esc", "ctrl+o":
+			u.wakePreview = false
+		case "j", "down":
+			u.wakePreviewScroll++
+		case "k", "up":
+			u.wakePreviewScroll = maxInt(0, u.wakePreviewScroll-1)
+		case "pgdown":
+			u.wakePreviewScroll += maxInt(1, m.height-9)
+		case "pgup":
+			u.wakePreviewScroll = maxInt(0, u.wakePreviewScroll-maxInt(1, m.height-9))
+		}
+		m.clampOperatorWakePreview()
+		return m, nil
+	}
+	if key.String() == "ctrl+o" && u.scheduleEditing {
+		u.wakePreview = true
+		u.wakePreviewScroll = 0
+		return m, nil
+	}
 	switch key.String() {
 	case "esc":
 		if u.scheduleEditing {
@@ -337,15 +367,20 @@ func (m Model) updateOperatorEditor(key tea.KeyMsg, a operatorActions) (Model, t
 		u.instructions.Blur()
 		u.scheduledPrompt.Blur()
 		if u.field == 6 {
-			return m, u.instructions.Focus()
+			cmd := u.instructions.Focus()
+			m.resizeOperatorEditors()
+			return m, cmd
 		}
 		if u.field == 5 {
-			return m, u.scheduledPrompt.Focus()
+			cmd := u.scheduledPrompt.Focus()
+			m.resizeOperatorEditors()
+			return m, cmd
 		}
 	case "enter":
 		if u.field == 7 {
 			u.scheduleEditing = true
 			u.field = 3
+			m.resizeOperatorEditors()
 			return m, nil
 		}
 		if u.field != 6 && u.field != 5 {
@@ -391,6 +426,7 @@ func (m Model) updateOperatorEditor(key tea.KeyMsg, a operatorActions) (Model, t
 			u.inputs[u.field].HandleKey(key.String(), key.Runes)
 		}
 	}
+	m.resizeOperatorEditors()
 	return m, nil
 }
 
@@ -418,6 +454,7 @@ func (m *Model) applyOperatorEditorResult(msg operatorEditorFinished) {
 	}
 	if msg.err != nil {
 		u.error = msg.err.Error()
+		m.resizeOperatorEditors()
 		return
 	}
 	if msg.field == 5 {
@@ -426,6 +463,7 @@ func (m *Model) applyOperatorEditorResult(msg operatorEditorFinished) {
 		u.instructions.SetValue(msg.text)
 	}
 	u.error = ""
+	m.resizeOperatorEditors()
 }
 
 func (m *Model) resizeOperatorEditors() {
@@ -433,7 +471,67 @@ func (m *Model) resizeOperatorEditors() {
 	m.operators.instructions.SetWidth(width)
 	m.operators.instructions.SetHeight(maxInt(2, minInt(24, m.height-16)))
 	m.operators.scheduledPrompt.SetWidth(width)
-	m.operators.scheduledPrompt.SetHeight(maxInt(2, minInt(10, m.height-17)))
+	before, after := m.operatorWakeInline(width)
+	fixed := 14 + len(before) + len(after)
+	if m.operators.error != "" {
+		fixed++
+	}
+	if m.operators.inputs[1].Value() == "claude" {
+		fixed++
+	}
+	m.operators.scheduledPrompt.SetHeight(maxInt(2, minInt(10, m.height-fixed)))
+	// Refresh viewport content, then let the shared textarea keep the cursor visible.
+	_ = m.operators.instructions.View()
+	_ = m.operators.scheduledPrompt.View()
+	m.operators.instructions, _ = m.operators.instructions.Update(tea.WindowSizeMsg{Width: width, Height: m.operators.instructions.Height()})
+	m.operators.scheduledPrompt, _ = m.operators.scheduledPrompt.Update(tea.WindowSizeMsg{Width: width, Height: m.operators.scheduledPrompt.Height()})
+	m.clampOperatorWakePreview()
+}
+
+// Inline context is shortened only when necessary; Ctrl+O exposes every line.
+func (m Model) operatorWakeInline(width int) ([]string, []string) {
+	before := strings.Split(ansi.Wrap(m.operators.wakeBefore, maxInt(1, width), ""), "\n")
+	after := strings.Split(ansi.Wrap(m.operators.wakeAfter, maxInt(1, width), ""), "\n")
+	if m.height < 32 {
+		// Always retain the trigger; long instruction paths can be read in full preview.
+		instruction := strings.SplitN(m.operators.wakeBefore, "\n\n", 2)[0]
+		before = operatorPreviewExcerpt(strings.Split(ansi.Wrap(instruction, maxInt(1, width), ""), "\n"), 2, width)
+		before = append(before, "Wake reason: scheduled check")
+		after = operatorPreviewExcerpt(after, 3, width)
+	}
+	return before, after
+}
+
+func operatorPreviewExcerpt(lines []string, limit, width int) []string {
+	if len(lines) <= limit {
+		return lines
+	}
+	out := append([]string(nil), lines[:limit]...)
+	out[limit-1] = ansi.Truncate(out[limit-1], maxInt(1, width-1), "") + "…"
+	return out
+}
+
+func (m Model) operatorWakePreviewLines() []string {
+	text := m.operators.wakeBefore + "\n\n" + m.operators.scheduledPrompt.Value() + "\n\n" + m.operators.wakeAfter
+	return strings.Split(ansi.Wrap(text, maxInt(1, inspectorPopupWidth(m.width)-6), ""), "\n")
+}
+func (m *Model) clampOperatorWakePreview() {
+	maxScroll := maxInt(0, len(m.operatorWakePreviewLines())-maxInt(1, m.height-9))
+	m.operators.wakePreviewScroll = minInt(maxScroll, maxInt(0, m.operators.wakePreviewScroll))
+}
+func (m Model) operatorWakePreviewView() string {
+	width := inspectorPopupWidth(m.width)
+	all := m.operatorWakePreviewLines()
+	rows := maxInt(1, m.height-9)
+	start := minInt(m.operators.wakePreviewScroll, maxInt(0, len(all)-rows))
+	end := minInt(len(all), start+rows)
+	lines := []string{lipgloss.NewStyle().Foreground(palette.muted).Render("Kanbi scheduled wake · read-only")}
+	if m.operators.inputs[1].Value() == "claude" {
+		lines[0] = lipgloss.NewStyle().Foreground(palette.muted).Render("Claude Code adds its own outer peer-message wrapper.")
+	}
+	lines = append(lines, all[start:end]...)
+	lines = append(lines, lipgloss.NewStyle().Foreground(palette.muted).Render(fmt.Sprintf("%d–%d / %d · ↑/↓ scroll · Esc/Ctrl+O back", start+1, end, len(all))))
+	return ticketInspectorBox(strings.Join(lines, "\n"), "Wake message preview", width)
 }
 
 func (m Model) operatorEditorDirty() bool {
@@ -443,6 +541,9 @@ func (m Model) operatorEditorDirty() bool {
 }
 
 func (m Model) operatorEditorView() string {
+	if m.operators.wakePreview {
+		return m.operatorWakePreviewView()
+	}
 	u := m.operators
 	outerWidth := inspectorPopupWidth(m.width)
 	width := outerWidth - 6
@@ -457,8 +558,8 @@ func (m Model) operatorEditorView() string {
 	footer := "Tab fields · Ctrl+E editor · Ctrl+S save · Esc cancel"
 	if u.scheduleEditing {
 		title = "Schedule · " + u.inputs[0].Value()
-		lines = append(lines, muted.Render("Repeat: cron / 15m / hourly / daily; empty = none"), "")
-		for i, label := range []string{"Repeat", "Timezone"} {
+
+		for i, label := range []string{"Repeat (cron / 15m / hourly / daily)", "Timezone"} {
 			field := i + 3
 			prefix := "  "
 			if u.field == field {
@@ -466,8 +567,19 @@ func (m Model) operatorEditorView() string {
 			}
 			lines = append(lines, modalLabeledInput(prefix+label+": ", u.inputs[field], u.field == field, width))
 		}
-		lines = append(lines, "", accent.Render("Scheduled prompt"), textareaOverlayView(u.scheduledPrompt), "", muted.Render("Fixed clock · while Kanbi is running"))
-		footer = "Tab fields · Ctrl+E editor · Ctrl+S done · Esc back"
+		before, after := m.operatorWakeInline(width)
+		lines = append(lines, "", muted.Render("Kanbi adds (read-only)"))
+		for _, line := range before {
+			lines = append(lines, muted.Render(line))
+		}
+		lines = append(lines, accent.Render("Your scheduled prompt · Ctrl+E editor"), textareaOverlayView(u.scheduledPrompt), muted.Render("Kanbi adds (read-only)"))
+		for _, line := range after {
+			lines = append(lines, muted.Render(line))
+		}
+		if u.inputs[1].Value() == "claude" {
+			lines = append(lines, muted.Render("Claude Code also adds its own peer-message wrapper."))
+		}
+		footer = "Tab fields · Ctrl+O preview · Ctrl+S done · Esc back"
 	} else {
 		meta := []string{muted.Render("workspace")}
 		if u.field == 1 {

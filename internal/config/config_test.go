@@ -413,3 +413,17 @@ func TestLoadRawNormalizesLegacyTimeoutAndIgnoresRetiredSettings(t *testing.T) {
 		t.Fatalf("timeout=%v err=%v", cfg.PromptReadyTimeout, err)
 	}
 }
+
+func TestHerdrCoreConfig(t *testing.T) {
+	cfg, err := Normalize(Config{Multiplexer: Multiplexer{Default: "herdr-core", HerdrCore: HerdrCore{Binary: "/custom/hc", Session: "sandbox", AppBinary: "/custom/app", FocusOnOpen: true}}}, Paths{}, NormalizeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Multiplexer.HerdrCore.Binary != "/custom/hc" || cfg.Multiplexer.HerdrCore.Session != "sandbox" || !cfg.Multiplexer.HerdrCore.FocusOnOpen || cfg.Multiplexer.Herdr.Binary != "herdr" {
+		t.Fatal(cfg.Multiplexer)
+	}
+	cfg, err = Normalize(Config{}, Paths{}, NormalizeOptions{Env: Env{DefaultMultiplexer: "herdr-core"}})
+	if err != nil || cfg.Multiplexer.HerdrCore.Binary != "hc" || cfg.Multiplexer.HerdrCore.Session != "default" {
+		t.Fatal(cfg, err)
+	}
+}

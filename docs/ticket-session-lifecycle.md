@@ -7,6 +7,8 @@ This document specializes `docs/state-management.md` for ticket/session commands
 - A **runtime container** is the live process container for an active session. This is a Herdr agent/pane in a workspace.
 - A **harness session ref** is the agent-native resume handle, when the harness exposes one.
 
+The same command rules apply on app/core. New attempts use the configured host; active attempts focus/close/observe through their persisted host. Core PID/creation/ownership checks reject replacement shells, and core status does not provide a resume ref. See [app/core](herdr-core.md).
+
 ## Lifecycle State Diagram
 
 ```mermaid
@@ -119,13 +121,21 @@ These rules apply to ordinary board controls. While the `/` title-search query h
 
 On a Git worktree board, a ticket that needs its first worktree requires an explicit new branch via `kanbi open T-001 --board "My Project" --branch my-ticket`. Kanbi prints this command pattern if the branch is missing. The board checkout must be clean. Use the interactive branch confirmation for a dirty checkout or an existing branch. A ticket with a prepared worktree reuses it on later opens. The first worktree start for a migrated ticket starts a fresh session and preserves the pre-migration history.
 
+### Session Settings
+
+`S` on a selected ticket opens session settings independently of runtime health, on named boards and Master. It displays the latest attempt's actual harness, activity/status and captured ref, separately from the ticket's fresh-launch harness preference. `e` opens the existing ticket editor focused on harness; Tab reaches the existing captured-ref field when present. Saving or cancelling returns to session settings. No second ref editor is introduced; missing refs still use repair.
+
+Harness preference changes do not close or replace an active attempt. Normal Enter focuses/resumes the existing conversation using its session's immutable harness, even when the ticket preference differs. The preference applies to a new conversation only. Editing an existing ref updates that attempt, not a future conversation.
+
+`f` shows consequences and requires Enter confirmation. Starting fresh closes any current active container using the ordinary close path before launching; close failure prevents launch. The new attempt uses the saved ticket harness and rendered prompt, never the prior conversation ref, and preserves every previous attempt. Launch failure remains recorded as an inactive error. With no history this starts the first conversation; Git-worktree preparation still requires its normal branch confirmation. Paused/archived tickets cannot bypass their normal admission rules. Escape cancels confirmation without changing sessions, or closes settings; saved editor changes remain saved independently of cancelling a later fresh action.
+
 ### Session Ref Editing And Repair
 
 When the latest session already has a non-blank harness session ref, the normal ticket editor shows it after the harness field. Tab or Shift+Tab can focus it, and saving the editor updates that same latest session attempt. Tickets without a stored ref omit the field; use the repair flow to supply a missing ref. Editing a ref never creates, deletes, or flattens session history.
 
 - `r` retries the open path.
 - `e` edits the session ref, saves it, then tries to open/resume.
-- `f` starts fresh with the rendered ticket prompt. The previous session history remains; legacy tmux and generic multiplexer references from that attempt are cleared from the new lifecycle request, and the new run becomes the only active session. It is launched through the currently configured multiplexer. Herdr launches use the configured Herdr session/workspace strategy.
+- `f` starts fresh with the rendered ticket prompt, closing an active agent first. The previous session history remains; legacy tmux and generic multiplexer references from that attempt are cleared from the new lifecycle request, and the new run becomes the only active session. It is launched through the currently configured multiplexer. Herdr launches use the configured Herdr session/workspace strategy.
 - `c` cancels.
 
 ### Workspace Resolution And Local Integration
@@ -207,3 +217,13 @@ a new attempt while preserving Operator identity/configuration/instructions/mail
 Stopping sends a normal interrupt and keeps the session; pausing only affects
 scheduled triggers. Deletion retires the address/triggers, preserves all history,
 and leaves an active terminal open. See [Operators](operators.md).
+
+## Scheduled prompts
+
+`W` queues a ticket-owned follow-up for a future instant. The existing scheduler
+uses normal open/start/resume policy without focusing the agent. Never-started
+tickets receive normal ticket context before the mailbox follow-up. Paused or
+archived work waits; repair, branch preflight and launch failures surface for
+manual attention. No automatic fresh or failed-launch retry is permitted. Once
+handed off, delivery stays bound to the exact session attempt and uses the normal
+mailbox receipt/uncertainty contract. See [scheduled prompts](scheduled-prompts.md).

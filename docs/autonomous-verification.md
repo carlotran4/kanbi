@@ -315,6 +315,12 @@ An autonomous agent should stop and ask before:
 - introducing external services
 - changing the command names for supported harnesses
 
+## App/core checks
+
+The desktop fixture explicitly clears inherited automation `NO_COLOR` and records real ANSI VT paints at 160x45 and 80x24. Require foreground colors plus distinct header/selected-card backgrounds; plain-text snapshots and the presence of cursor escape sequences alone do not establish visual parity. Preserve intentional no-color behavior in ordinary CLI runs.
+
+Run `go test ./internal/multiplexer/herdrcore ./internal/runtime ./internal/config ./internal/storage ./internal/boardruntime ./cmd/kanbi` for host changes. After deterministic checks, `KANBI_CORE_TESTS=1 go test -v ./internal/multiplexer/herdrcore -run '^TestRealCore$' -count=1` tests real transport in an owned session. `python3 scripts/herdr-core-smoke.py /path/to/kanbi` uses an owned app/core, offline harness and private DB for TUI/lifecycle validation at 160x45 and 80x24. Both clean up only their resources. See [contracts and evidence limits](herdr-core.md).
+
 ## Opt-In Real Multiplexer Checks
 
 The smoke and UI scripts run isolated Herdr servers and rendering clients, including in CI. Authenticated harness checks remain opt-in: `KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi,codex ./scripts/real-harness-lifecycle.sh` requires installed/authenticated agents and can consume quota. It confirms an actual model response and a finished or blocked agent before closing the pane, then verifies native resume, restored conversation output and preserved session history. Failed runs retain disposable artifacts for diagnosis. To verify manually, install Herdr, run `herdr` once, configure a disposable Kanbi config with `multiplexer.default: herdr`, run `kanbi doctor`, then open a disposable ticket and confirm the Herdr pane/agent is created and focusable.
@@ -410,7 +416,7 @@ The script records a timestamped result under ignored `dist/verification/` and u
 
 GitHub Actions runs formatting, unit/integration tests, the race detector, vet, vulnerability analysis, and an isolated Linux Herdr smoke job. Keep deterministic Herdr runtime tests in the normal CI suite; real harness/provider checks remain opt-in. The scheduled daily and manually dispatched CI workflow runs `scripts/soak-runtime.sh` for 60 seconds with the race detector; its fake provider and temporary databases require no credentials and leave no external resources.
 
-CI and release jobs select the Go patch recorded in `go.mod` with `go-version-file`; the minimum is Go 1.26.10, including the crypto/x509 certificate distrust fix for GO-2026-6809. Update that minimum when new security patches are required, so builds cannot silently select an older patch from the Actions version manifest. Dependabot checks Go modules and pinned GitHub Actions weekly.
+CI and release jobs select the Go patch recorded in `go.mod` with `go-version-file`; the minimum is Go 1.26.11, including the net/http MaxBytesReader header race fix for GO-2026-6859 and the earlier crypto/x509 certificate distrust fix for GO-2026-6809. Update that minimum when new security patches are required, so builds cannot silently select an older patch from the Actions version manifest. Dependabot checks Go modules and pinned GitHub Actions weekly.
 
 Supported release tags (`vMAJOR.MINOR.PATCH`, `vMAJOR.MINOR.PATCH-beta.N`, and `vMAJOR.MINOR.PATCH-rc.N`) trigger `.github/workflows/release.yml`. All `v0.x` and suffixed tags publish as prereleases; stable major versions remain workflow-locked until stable qualification is approved. Release builds use native GitHub runners because `go-sqlite3` requires CGO; the supported matrix is Linux and macOS on amd64 and arm64. Every native job validates `BUILDINFO.json`, database initialization, backup/restore, and the fake-harness Herdr lifecycle against the exact built binary. The bundle job requires four archives, verifies a shared `SHA256SUMS`, and records `BUNDLE_MANIFEST.txt`; workflow dispatch produces the same combined bundle without publishing. Before tagging, test the native local artifact path with:
 
@@ -454,6 +460,13 @@ See [the diagnosis, controlled reproduction, profiling commands, and limits](cpu
 
 ## Session mailbox (GH-396)
 
+The reusable implementation now lives in the versioned Poke module. Kanbi's
+focused tests continue covering its host policy and historical database contract.
+The Pi offline smoke resolves the receiver from the actual selected Poke module,
+so it tests the dependency's extension rather than a copied prototype. Run Poke's
+own Go/race/vet and Node receiver tests when changing that dependency, then pin
+the published version/checksum and rerun Kanbi's baseline and native fixtures.
+
 Run focused harness/runtime/storage/CLI tests for mailbox and native notification.
 They cover cross-connection notification claims, restart fencing, explicit retry,
 conversation identity checks, native socket frames, Codex recipient-home isolation,
@@ -486,10 +499,46 @@ edit fields/instructions, `Ctrl+S`, `p`, `Esc`, board navigation, `O`, `e`, canc
 `d`, cancel. Also check the Operator card fills/attention rails, `?` action list,
 single context-sensitive shortcut bar, empty list, selection-following overflow, and the 40-column
 right-aligned overlay at 80x24. Verify board preservation, focused controls and
-immutable harness editing. Use private fixtures and preserve direct file edits between wakes.
+immutable harness editing. In scheduling, verify the read-only envelope around
+the editable prompt, `Ctrl+O` full preview/scroll/back, long content at 80x24, and
+that only the user prompt is saved. Use private fixtures and preserve direct file edits between wakes.
 Authenticated lifecycle and production mailbox tests remain opt-in as documented
 above; distinguish deterministic adapter coverage from actual native model turns.
 
 For native Operator wake, direct instruction-file reload and wake-triggered resume,
 run `KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi,codex python3 scripts/prototypes/real-operators.py`.
 The test owns its database/config/Herdr server and retains failure evidence.
+
+## Scheduled ticket prompts (GH-398)
+
+`go test ./internal/storage ./internal/runtime ./internal/tui` covers future-time
+validation, pause/archive holds, atomic mailbox handoff, repeated-claim fencing,
+uncertain-delivery cancellation refusal, interrupted activation, start/resume/repair
+history and stable ticket-bound editor drafts. Native delivery retains the existing
+messaging adapter coverage; these tests do not assert authenticated model responses.
+
+The disposable Herdr UI was exercised at 160x45 and 80x24: choose Master, `W`,
+`n`, Tab, enter a follow-up, Ctrl+S, inspect pending, resize, open/cancel a draft,
+`x`, inspect cancelled, then open the same ticket from its named board. The time,
+textarea and save/cancel controls remain visible at both sizes; board overflow
+and navigation remain available after dismissal. Stop the owned fixture afterward.
+
+The queued-prompt card cue is also validated through the disposable UI at 160x45
+and 80x24: select a named board, `W`, `n`, Tab, enter a fixture follow-up, Ctrl+S,
+Esc; confirm `◷ Queued prompt` and its cyan rail without an added row or wrapping.
+Switch to Master, inspect the same ticket, cancel with `W`, `x`, Esc, and confirm
+the normal badge/selection rail returns immediately. Check vertical/horizontal
+overflow after dismissal and stop the fixture. Projection tests cover receipt,
+uncertain/deferred delivery, cancellation and cached named/Master views; card tests
+cover clock fit at minimum width and priority for input/permission/error/pause.
+
+## Development reload (GH-405)
+
+Run `go test ./internal/devreload ./internal/tui ./internal/boardruntime ./cmd/kanbi`
+for source fingerprints, failed/atomic builds, restart deferral and navigation
+restoration. In the owned UI fixture, launch the private binary with
+`KANBI_DEV_RELOAD=1 KANBI_DEV_ROOT=/path/to/checkout`, select a board/ticket,
+open an editor, and change a watched source. Verify the successful build waits
+until editor dismissal, then restores selection after restart. Repeat at 80x24;
+a compile failure must retain the running TUI and report the private compiler log.
+Return from Fleet before reload and always stop the owned fixture afterward.

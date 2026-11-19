@@ -118,6 +118,8 @@ type TicketProjection struct {
 	Position          int
 	ArchivedAt        sql.NullTime
 	FocusPaused       bool
+	// HasQueuedPrompt includes future wakeups and mailbox handoffs awaiting receipt.
+	HasQueuedPrompt bool
 	// FocusMember is a transient presentation annotation set by the app/TUI
 	// from global config; it is not durable ticket metadata.
 	FocusMember           bool

@@ -6,6 +6,13 @@ Built-in harness contracts are localized in `internal/harness/contracts.go`: com
 
 Currently supported: Pi, Codex, Copilot, Claude.
 
+Mailbox launch assets, native transports and per-thread identity setup are
+embedded from [Poke](https://github.com/carlotran4/poke). Kanbi still owns verified
+ref capture, lifecycle/container validation and the Copilot terminal fallback.
+The harness command names and start/resume contracts below are unchanged.
+
+On `herdr-core`, configured harness commands run directly with the same prompt and verified-ref contracts below. Core has no old Herdr `agent_session` report; extension/marker/history capture remains authoritative. No new harness command names or guessed resume handles are introduced. See [app/core verification](herdr-core.md#verification).
+
 ## Pi
 
 **Binary:** `pi`

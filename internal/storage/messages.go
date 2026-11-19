@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
+
+	"github.com/carlotran4/poke/mailbox"
 )
 
 // Messages deliberately retain endpoint IDs without cascading foreign keys:
@@ -32,128 +33,32 @@ func migrateMessages(ctx context.Context, tx *sql.Tx) error {
 	return err
 }
 
-type SessionMessage struct {
-	WakePrompt              string     `json:"wake_prompt,omitempty"`
-	NotificationStatus      string     `json:"notification_status"`
-	NotificationTransport   string     `json:"notification_transport"`
-	NotificationError       string     `json:"notification_error,omitempty"`
-	NotificationAttemptedAt *time.Time `json:"notification_attempted_at"`
-	ID                      int64      `json:"id"`
-	Sender                  int64      `json:"sender"`
-	Recipient               int64      `json:"recipient"`
-	RequestKey              string     `json:"request_key"`
-	Body                    string     `json:"body"`
-	ReplyTo                 int64      `json:"reply_to,omitempty"`
-	Depth                   int        `json:"depth"`
-	State                   string     `json:"state"`
-	CreatedAt               time.Time  `json:"created_at"`
-	NotifiedAt              *time.Time `json:"notified_at"`
-	AcknowledgedAt          *time.Time `json:"acknowledged_at"`
-}
-
-const messageSelect = `select id,sender,recipient,request_key,body,reply_to,depth,state,created_at,notified_at,acknowledged_at,notification_status,notification_transport,notification_error,notification_attempted_at from session_messages`
-
+// SessionMessage preserves the Kanbi JSON surface while Poke owns mailbox data.
+type SessionMessage = mailbox.Message
 type messageScanner interface{ Scan(...any) error }
 
-func scanMessage(row messageScanner) (m SessionMessage, err error) {
-	err = row.Scan(&m.ID, &m.Sender, &m.Recipient, &m.RequestKey, &m.Body, &m.ReplyTo, &m.Depth, &m.State, &m.CreatedAt, &m.NotifiedAt, &m.AcknowledgedAt, &m.NotificationStatus, &m.NotificationTransport, &m.NotificationError, &m.NotificationAttemptedAt)
-	return
-}
-
 func (s *Store) SessionMessage(ctx context.Context, id int64) (SessionMessage, error) {
-	return scanMessage(s.db.QueryRowContext(ctx, messageSelect+` where id=?`, id))
+	return mailbox.Get(ctx, s.db, id)
 }
-
-// SendSessionMessage commits before any notification. A retry must reuse its
-// sender-scoped key and identical content. Replies derive their destination from
-// the parent, never from caller-supplied addressing.
 func (s *Store) SendSessionMessage(ctx context.Context, sender, recipient int64, key, body string, replyTo int64) (SessionMessage, error) {
-	if sender == 0 || strings.TrimSpace(key) == "" || len(key) > 128 || strings.TrimSpace(body) == "" || len(body) > 16384 || replyTo < 0 {
-		return SessionMessage{}, errors.New("sender, request key (1–128 bytes), and body (1–16384 bytes) are required")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return SessionMessage{}, err
-	}
-	defer tx.Rollback()
-	// Reserve the write lock before reading, avoiding read-to-write lock upgrades.
-	if _, err = tx.ExecContext(ctx, `update session_messages set state=state where id=-1`); err != nil {
-		return SessionMessage{}, err
-	}
-	depth := 0
-	if replyTo != 0 {
-		parent, e := scanMessage(tx.QueryRowContext(ctx, messageSelect+` where id=?`, replyTo))
-		if e != nil {
-			return SessionMessage{}, e
+	return mailbox.Send(ctx, s.db, func(ctx context.Context, tx *sql.Tx, sender, recipient int64) error {
+		var err error
+		var active bool
+		if err = tx.QueryRowContext(ctx, `select s.is_active from sessions s left join operators o on o.id=s.operator_id where ((s.id=? and ?>0) or (s.operator_id=-? and ?<0)) and (s.operator_id is null or o.deleted_at is null) order by s.id desc limit 1`, sender, sender, sender, sender).Scan(&active); err != nil {
+			return fmt.Errorf("sender session: %w", err)
 		}
-		if parent.Recipient != sender {
-			return SessionMessage{}, errors.New("only the recipient may reply")
+		if !active {
+			return errors.New("sender session is closed")
 		}
-		recipient = parent.Sender
-		depth = parent.Depth + 1
-		if depth > 8 {
-			return SessionMessage{}, errors.New("reply limit reached (8 hops); start a human-reviewed thread")
+		var exists int
+		if err = tx.QueryRowContext(ctx, `select id from sessions where id=? and ?>0 and operator_id is null union all select id from operators where id=-? and ?<0 and deleted_at is null limit 1`, recipient, recipient, recipient, recipient).Scan(&exists); err != nil {
+			return fmt.Errorf("recipient session: %w", err)
 		}
-	}
-	if recipient == 0 || sender == recipient {
-		return SessionMessage{}, errors.New("a different recipient session is required")
-	}
-	existing, e := scanMessage(tx.QueryRowContext(ctx, messageSelect+` where sender=? and request_key=?`, sender, key))
-	if e == nil {
-		if existing.Recipient != recipient || existing.Body != body || existing.ReplyTo != replyTo {
-			return SessionMessage{}, errors.New("request key already used with different content")
-		}
-		return existing, tx.Commit()
-	}
-	if !errors.Is(e, sql.ErrNoRows) {
-		return SessionMessage{}, e
-	}
-	var active bool
-	if err = tx.QueryRowContext(ctx, `select s.is_active from sessions s left join operators o on o.id=s.operator_id where ((s.id=? and ?>0) or (s.operator_id=-? and ?<0)) and (s.operator_id is null or o.deleted_at is null) order by s.id desc limit 1`, sender, sender, sender, sender).Scan(&active); err != nil {
-		return SessionMessage{}, fmt.Errorf("sender session: %w", err)
-	}
-	if !active {
-		return SessionMessage{}, errors.New("sender session is closed")
-	}
-	var exists int
-	if err = tx.QueryRowContext(ctx, `select id from sessions where id=? and ?>0 and operator_id is null union all select id from operators where id=-? and ?<0 and deleted_at is null limit 1`, recipient, recipient, recipient, recipient).Scan(&exists); err != nil {
-		return SessionMessage{}, fmt.Errorf("recipient session: %w", err)
-	}
-	result, err := tx.ExecContext(ctx, `insert into session_messages(sender,recipient,request_key,body,reply_to,depth,created_at) values(?,?,?,?,?,?,?)`, sender, recipient, key, body, replyTo, depth, time.Now().UTC())
-	if err != nil {
-		return SessionMessage{}, err
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return SessionMessage{}, err
-	}
-	m, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+` where id=?`, id))
-	if err != nil {
-		return SessionMessage{}, err
-	}
-	return m, tx.Commit()
+		return nil
+	}, sender, recipient, key, body, replyTo)
 }
-
-// Inbox is non-consuming; notification is not acknowledgement.
-func (s *Store) SessionInbox(ctx context.Context, recipient int64, includeAcknowledged bool) ([]SessionMessage, error) {
-	query := messageSelect + ` where recipient=?`
-	if !includeAcknowledged {
-		query += ` and state<>'acknowledged'`
-	}
-	rows, err := s.db.QueryContext(ctx, query+` order by id limit 100`, recipient)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	messages := []SessionMessage{}
-	for rows.Next() {
-		m, e := scanMessage(rows)
-		if e != nil {
-			return nil, e
-		}
-		messages = append(messages, m)
-	}
-	return messages, rows.Err()
+func (s *Store) SessionInbox(ctx context.Context, recipient int64, all bool) ([]SessionMessage, error) {
+	return mailbox.Inbox(ctx, s.db, recipient, all)
 }
 
 // SessionNotificationInbox is the opt-in native receiver's preflight. Runtime
@@ -206,14 +111,12 @@ func (s *Store) SessionNotificationInbox(ctx context.Context, recipient int64) (
 // MarkMessageNotified records native acceptance, not model processing. Unknown
 // outcomes stay queued; native adapters must deduplicate by message ID.
 func (s *Store) MarkMessageNotified(ctx context.Context, recipient, id int64) error {
-	res, err := s.db.ExecContext(ctx, `update session_messages set state=case when state='queued' then 'notified' else state end,notified_at=coalesce(notified_at,?),notification_status='notified',notification_error='' where id=? and recipient=? and exists
+	return mailbox.Notified(ctx, s.db, recipient, id, mailbox.Guard{SQL: `exists
 (select 1 from sessions s left join tickets t on t.id=s.ticket_id left join boards b on b.id=t.board_id left join operators o on o.id=s.operator_id
-where ((s.id=session_messages.recipient and s.operator_id is null) or (-s.operator_id=session_messages.recipient and s.id=(select max(id) from sessions where operator_id=s.operator_id))) and s.is_active=1 and s.status not in ('starting','closing') and ((o.id is not null and o.deleted_at is null) or (t.focus_paused=0 and t.archived_at is null and b.archived_at is null)))`, time.Now().UTC(), id, recipient)
-	return requireAffected(res, err)
+where ((s.id=session_messages.recipient and s.operator_id is null) or (-s.operator_id=session_messages.recipient and s.id=(select max(id) from sessions where operator_id=s.operator_id))) and s.is_active=1 and s.status not in ('starting','closing') and ((o.id is not null and o.deleted_at is null) or (t.focus_paused=0 and t.archived_at is null and b.archived_at is null)))`})
 }
 func (s *Store) AcknowledgeSessionMessage(ctx context.Context, recipient, id int64) error {
-	res, err := s.db.ExecContext(ctx, `update session_messages set state='acknowledged',acknowledged_at=coalesce(acknowledged_at,?),notification_status='notified',notification_error='' where id=? and recipient=?`, time.Now().UTC(), id, recipient)
-	return requireAffected(res, err)
+	return mailbox.Acknowledge(ctx, s.db, recipient, id)
 }
 
 type MessageRecipient struct {

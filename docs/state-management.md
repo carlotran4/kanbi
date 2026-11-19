@@ -66,6 +66,10 @@ Focus Mode is a process-global configuration policy (`focus.enabled`, `focus.lim
 
 `pause_checkpoints` is append-only local metadata with `why`, `completed`, `next_action`, `paused_at`, and nullable `resumed_at`; a partial unique index permits at most one open checkpoint per ticket. Pausing closes any active session first. Only a successful close is followed by the transaction that writes the checkpoint and paused state. Leaving focus columns clears paused state and closes its open checkpoint. Backups and board packages preserve checkpoint history.
 
+## App/core references
+
+New app/core attempts store `multiplexer=herdr-core`, the configured core session in `mux_namespace`, the core address in `mux_container_id`, and core identity/ownership token/program PID/creation time in `mux_metadata`. New core metadata also records optional `space_id` presentation placement. It is separate from the core-session namespace. New attempts inherit the live calling board’s space; reopening retains the terminal’s actual labels. Older metadata without `space_id` remains valid and is not rewritten. Core recovery to a shell fails original-process validation. Existing rows and history are never converted. See [host details](herdr-core.md).
+
 ## Ticket Projection Data Flow
 
 ```mermaid
@@ -190,6 +194,7 @@ State bugs to avoid:
 - Do not treat Herdr `unknown`/unavailable agent state as authoritative; fall back to pane-output/harness detection.
 - Route Herdr operations through the stored container reference. Legacy tmux rows remain history; runtime removal never fabricates closure or Herdr IDs.
 - Do not create a new DB session row just because a valid active ticket window was opened again.
+- A ticket's editable harness is its fresh-conversation preference. Focus/resume uses the existing session's immutable harness; changing the preference never reinterprets its ref. Session settings (`S`) reuses the ticket editor and requires explicit confirmation for fresh. Fresh closes an active container before claiming a new attempt; cancellation is non-mutating and close failure prevents launch.
 - Do not let heuristic watcher output immediately overwrite a manual runtime override.
 - Do not close sessions from runtime detection; wait/permission classification is advisory and may be imperfect.
 - Do not infer session failure from errors printed in the agent transcript; only lifecycle/runtime operations can establish `error`.
@@ -212,6 +217,12 @@ owned temporary terminals with no ticket/session rows. Backup and board deletion
 require journal completion first. See [Fleet Mode](fleet-mode.md).
 
 ## Session mailbox
+
+The mailbox implementation is embedded from Poke while Kanbi retains ownership of
+the database and ordered migrations. Host eligibility is passed as atomic SQL
+guards; sends authorize endpoints inside the same write transaction. Runtime
+locks still serialize transport submission against close/rebind/Fleet. This
+extraction changes no schema, message IDs, session ownership or historical rows.
 
 Migrations 11–12 add a durable session-attempt mailbox and notification receipts independent of runtime state.
 Messages progress from `queued` to `notified` to `acknowledged`; explicit recipient
@@ -249,3 +260,17 @@ editor-ready signal projects as `ready`. Blocked input/permission,
 running and unknown states remain distinct and cannot authorize delivery. A failed
 start/resume records an error and waits for manual retry. No timer retries a failed
 turn or silently substitutes a fresh conversation.
+
+## Scheduled ticket prompts
+
+Migration 14 adds durable ticket-owned wakeups. They progress from `pending` to
+`activating` to `queued` (atomic mailbox handoff), or `failed` / `cancelled`.
+A queued row references the exact attempt's mailbox message and exposes its
+notification receipt; it never implies the agent completed the work. Ticket and
+board projections derive `HasQueuedPrompt` from pending/activating wakes or
+queued messages still awaiting notification receipt. The TUI uses it for the
+cyan clock badge and rail; runtime attention and paused labels keep priority.
+The existing
+joined scheduler owns activation under the runtime lock, preserves pause/archive
+holds and fails interrupted launches instead of retrying them. See
+[scheduled prompts](scheduled-prompts.md).

@@ -1,6 +1,8 @@
 # Architecture
 
-Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses a multiplexer runtime backend; Herdr is the only supported runtime.
+Kanbi is a Go/Bubble Tea TUI and CLI for supervising multiple resumable agent sessions across one or more kanban boards. The application keeps durable state in SQLite and uses a multiplexer runtime backend; The Herdr family is the only supported runtime (TUI or app/core).
+
+The Herdr family has two host adapters: `herdr` (existing TUI, default) and `herdr-core` (app/core). Both run the same Kanbi TUI and lifecycle policy. Core uses public generation-1 RPC over `hc connect`, independent argv launches and fenced program identities; active references retain their original host. No schema migration or graphical board is required. See [core host contracts and limitations](herdr-core.md).
 
 ## Core Model
 
@@ -76,6 +78,7 @@ Stop and ask before:
 | `internal/app` | Presentation-independent board, ticket, note, and session use-case orchestration, including post-save runtime effects and manager-owned mutation sync scheduling. |
 | `internal/boardruntime` | Starts the board process in the configured runtime, including Herdr availability, workspace, pane, environment, and attach orchestration. |
 | `internal/config` | Config loading, XDG/env path resolution, and applying built-in harness defaults from `internal/harness`. |
+| `internal/devreload` | Opt-in board-process source watcher, debounced development builds and atomic binary replacement; no daemon or agent ownership. |
 | `internal/buildinfo` | Release-injected semantic version, commit/build metadata, Go platform, and schema compatibility reporting. |
 | `internal/diagnostics` | Opt-in bounded private log writer and redacted support-bundle collection (`kanbi-support-bundle`). |
 | `internal/archiveutil` | Policy-free symlink-aware path containment, bounded ZIP reads, and regular-file extraction safety shared by archive formats. |
@@ -97,6 +100,14 @@ Stop and ask before:
 | `docs/` | Source-of-truth docs for state, lifecycle, harness contracts, verification, multi-board behavior, and archived product context. |
 
 ## Runtime Topology
+
+The opt-in [Herdr app proof of concept](herdr-app-poc.md) lives under
+`scripts/prototypes/herdr-app-poc`. It installs a separate native mod, private
+Kanbi database/configuration and a narrow CLI bridge to a private herdr-core
+session. It exercises existing Kanbi application actions without adding a
+supported production runtime or changing ordinary session ownership. Prototype
+container references must remain confined to that private database. Fleet and
+verified real-harness resume are not provided by the experiment.
 
 Kanbi runs in Herdr. Outside Herdr, the CLI creates a focused board workspace and attaches a client; inside Herdr it runs directly. `KANBI_INNER=1` prevents recursive launches. Each ticket attempt normally runs in its own tab/pane alongside the board or in its board/project workspace. Fleet temporarily gathers validated attempts into the board tab and restores their source tabs without relaunching them.
 
@@ -252,6 +263,16 @@ Operations support tools (`kanbi doctor`, opt-in diagnostics logging, `kanbi sup
 
 ## Session communication
 
+Kanbi embeds `github.com/carlotran4/poke`: its `mailbox` package owns the message
+model, idempotent sends, replies, inbox and notification state transitions; its
+`adapters` package owns native transports, launch assets and identity injection.
+Kanbi's storage adapter supplies transaction-local send authorization and atomic
+SQL delivery guards. The runtime retains cross-process lifecycle locks, verified
+refs, container validation, host notices and the Copilot terminal fallback.
+Kanbi owns its existing ordered migrations and Operator wake transactions. No
+message rows, IDs or schema versions change, and no standalone Poke database,
+registry, binary or background process is introduced into Kanbi.
+
 The [GH-396 mailbox](session-messaging.md) reuses SQLite and exact session-attempt
 IDs. Durable commits remain separate from native notification. Launch supplies
 identity, a bundled Pi extension, a scoped Claude registration plugin, and Codex's
@@ -280,3 +301,12 @@ and transactional wake-to-mailbox commits fence multiple board processes.
 TUI adds a collapsible peer to the board. No ticket proxy rows, extra broker,
 external scheduler, agent memory runtime or per-Operator service is introduced.
 See [Operators](operators.md) for controls, addressing and delivery limitations.
+
+## Scheduled ticket follow-ups
+
+Ticket-owned scheduled prompts reuse the Operator scheduler's existing joined
+in-process worker and the session mailbox transports. SQLite owns wake time,
+activation claim, failure and atomic mailbox handoff. The runtime lock serializes
+activation against other schedulers and lifecycle actions; normal lifecycle policy
+preserves verified resume refs and session history. The TUI `W` dialog owns only
+the draft and a stable ticket identity. See [scheduled prompts](scheduled-prompts.md).

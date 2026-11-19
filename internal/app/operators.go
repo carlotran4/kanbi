@@ -11,6 +11,7 @@ import (
 type OperatorManager interface {
 	SaveOperator(context.Context, storage.Operator, string) (storage.Operator, error)
 	ReadOperatorInstructions(int64) (string, error)
+	OperatorWakePreview(int64) (string, string)
 	PauseOperator(context.Context, int64, bool) error
 	OpenOperator(context.Context, int64, bool) error
 	RunOperator(context.Context, int64, string) error
@@ -68,6 +69,13 @@ func (s *Service) ReadOperatorInstructions(id int64) (string, error) {
 		return "", errors.New("operator runtime unavailable")
 	}
 	return m.ReadOperatorInstructions(id)
+}
+func (s *Service) OperatorWakePreview(id int64) (string, string) {
+	m, ok := s.Manager.(OperatorManager)
+	if !ok {
+		return "Operator runtime unavailable", ""
+	}
+	return m.OperatorWakePreview(id)
 }
 func (s *Service) SaveOperator(ctx context.Context, o storage.Operator, instructions string) (storage.Operator, error) {
 	m, ok := s.Manager.(OperatorManager)

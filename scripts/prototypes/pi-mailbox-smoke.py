@@ -76,13 +76,15 @@ def main():
     endpoint_dir = Path(str(root / 'kanbi.db') + '.messages')
     endpoint_dir.mkdir(mode=0o700)
     env['KANBI_MESSAGE_ENDPOINT_FILE'] = str(endpoint_dir / '2.json')
+    poke_dir = subprocess.check_output(['go', 'list', '-m', '-f', '{{.Dir}}',
+                                        'github.com/carlotran4/poke'], cwd=repo, text=True).strip()
     provider = root / 'provider.ts'
     provider.write_text(PROVIDER)
     stderr = open(root / 'stderr.log', 'w')
     log = open(root / 'events.log', 'w')
     process = subprocess.Popen(
         ['pi', '--mode', 'rpc', '--no-extensions', '-e', str(provider), '-e',
-         str(repo / 'scripts/prototypes/pi-mailbox.mjs'), '--provider', 'kanbi-offline',
+         str(Path(poke_dir) / 'adapters/pi.mjs'), '--provider', 'kanbi-offline',
          '--model', 'fixture', '--session-dir', str(root / 'sessions')],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, env=env,
         text=True, cwd=root)

@@ -17,7 +17,7 @@ field in the TUI ticket editor uses the configured default when saving.
 
 ## Herdr runtime
 
-Herdr is the sole runtime. Use Herdr 0.9.3 or newer with `agent start --kind` and `--pane`; unsupported command surfaces fail before launch. Defaults require no multiplexer configuration:
+The Herdr TUI host is the default. Use Herdr 0.9.3 or newer with `agent start --kind` and `--pane`; unsupported command surfaces fail before launch. Defaults require no multiplexer configuration:
 
 ```yaml
 multiplexer:
@@ -30,6 +30,10 @@ multiplexer:
 ```
 
 Explicit `multiplexer.default: tmux` (or `KANBI_MULTIPLEXER=tmux`) fails with migration guidance. Removed `tmux`, `tmux_session` YAML keys and `KANBI_TMUX_SESSION` are ignored; they do not launch tmux. Keep existing session history intact and follow [legacy-session migration](tmux-to-herdr-migration.md).
+
+## Herdr app/core
+
+Select `multiplexer.default: herdr-core` with `herdr_core.binary: hc`, `herdr_core.app_binary: herdr-app`, `herdr_core.session: default` and optional `herdr_core.focus_on_open: true`. Open the app on the same core session. The Kanbi TUI is unchanged. See [setup, lifecycle and host capability differences](herdr-core.md).
 
 ## Custom status bar
 

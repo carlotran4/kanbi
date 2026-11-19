@@ -59,8 +59,19 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 		if err != nil {
 			return err
 		}
-		if !fresh.SessionActive {
+		if !fresh.SessionID.Valid {
 			fresh.Harness = req.Ticket.Harness
+		}
+		// Existing conversations always belong to their original harness. The
+		// ticket preference applies only to a new conversation.
+		if !req.StartFresh && fresh.SessionID.Valid {
+			ses, ok, err := l.manager.Store.SessionByID(ctx, fresh.SessionID.Int64)
+			if err != nil {
+				return err
+			}
+			if ok {
+				fresh.Harness = ses.Harness
+			}
 		}
 		if req.Ticket.OperatorID != 0 {
 			fresh.Body = req.Ticket.Body
@@ -118,7 +129,7 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 		}
 	}
 
-	if req.Ticket.BoardWorktreeMode == storage.WorktreeModeGit && !req.Ticket.SessionActive {
+	if req.Ticket.BoardWorktreeMode == storage.WorktreeModeGit && (!req.Ticket.SessionActive || req.StartFresh) {
 		workspace, ok, err := l.manager.Store.CurrentWorkspace(ctx, req.Ticket.ID)
 		if err != nil {
 			return err
@@ -137,7 +148,15 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 			if err != nil {
 				return err
 			}
+			if !req.StartFresh {
+				fresh.Harness = req.Ticket.Harness
+			}
 			req.Ticket = fresh
+		}
+	}
+	if req.StartFresh && req.Ticket.SessionActive {
+		if err := l.manager.CloseSession(ctx, req.Ticket); err != nil {
+			return err
 		}
 	}
 	decision, err := l.Decide(ctx, req)
@@ -150,7 +169,11 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 			return nil
 		}
 		ref := ContainerRefFromTicket(decision.Ticket)
-		return l.manager.herdrAdapter().Focus(ctx, ref)
+		a, e := l.manager.multiplexerAdapter(ref.Kind)
+		if e != nil {
+			return e
+		}
+		return a.Focus(ctx, ref)
 	case lifecycleActionRepair:
 		return RepairNeededError{Ticket: decision.Ticket, Reason: decision.Reason}
 	case lifecycleActionStart, lifecycleActionResume:
@@ -176,10 +199,11 @@ func (l ticketLifecycle) Decide(ctx context.Context, req lifecycleRequest) (life
 		if containerRef.Name == "" {
 			containerRef.Name = name
 		}
-		if containerRef.Kind != multiplexer.KindHerdr {
+		if !supportedKind(containerRef.Kind) {
 			return lifecycleDecision{}, RepairNeededError{Ticket: ticket, Reason: "legacy runtime retired; close the old terminal externally before explicitly starting a new attempt"}
 		}
-		valid, validateErr := l.manager.herdrAdapter().Validate(ctx, containerRef)
+		a, _ := l.manager.multiplexerAdapter(containerRef.Kind)
+		valid, validateErr := a.Validate(ctx, containerRef)
 		if validateErr != nil {
 			return lifecycleDecision{}, validateErr
 		}
@@ -211,12 +235,12 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 	if sendPrompt {
 		renderedPrompt = prompt.Render(ticket.DisplayID, ticket.Title, ticket.Body)
 	}
-	muxKind := multiplexer.KindHerdr
+	muxKind := l.manager.configuredKind()
 	command, err := harness.StartCommand(l.manager.Config.Harnesses, ticket.Harness)
 	if err != nil {
 		return err
 	}
-	herdrPaneFirst := l.manager.herdrAdapter().UsesAgentStart(command, ticket.Harness)
+	herdrPaneFirst := muxKind == multiplexer.KindHerdr && l.manager.herdrAdapter().UsesAgentStart(command, ticket.Harness)
 	resuming := decision.Action == lifecycleActionResume
 	if resuming {
 		command, err = harness.ResumeCommand(l.manager.Config.Harnesses, ticket.Harness, ticket.SessionRef.String)
@@ -306,6 +330,9 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 
 	var containerRef multiplexer.ContainerRef
 	namespace := claim.MuxNamespace.String
+	if muxKind == multiplexer.KindHerdrCore {
+		namespace = l.manager.Config.Multiplexer.HerdrCore.Session
+	}
 	adapter, adapterErr := l.manager.multiplexerAdapter(muxKind)
 	if adapterErr != nil {
 		err = adapterErr
@@ -511,8 +538,8 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		}
 		cancel()
 	}
-	if l.manager.Config.Multiplexer.Herdr.FocusOnOpen && ctx.Value(operatorWakeContextKey{}) == nil {
-		return l.manager.herdrAdapter().Focus(ctx, containerRef)
+	if ((muxKind == multiplexer.KindHerdr && l.manager.Config.Multiplexer.Herdr.FocusOnOpen) || (muxKind == multiplexer.KindHerdrCore && l.manager.Config.Multiplexer.HerdrCore.FocusOnOpen)) && ctx.Value(operatorWakeContextKey{}) == nil {
+		return adapter.Focus(ctx, containerRef)
 	}
 	return nil
 }
@@ -521,5 +548,9 @@ func (l ticketLifecycle) cleanupLaunchedContainer(ctx context.Context, ref multi
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	cleanupCtx = multiplexer.WithOperationLock(cleanupCtx, multiplexer.OperationLock(ctx))
 	defer cancel()
-	return l.manager.herdrAdapter().Close(cleanupCtx, ref)
+	a, e := l.manager.multiplexerAdapter(ref.Kind)
+	if e != nil {
+		return e
+	}
+	return a.Close(cleanupCtx, ref)
 }
