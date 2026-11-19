@@ -40,7 +40,7 @@ for harness in "${harnesses[@]}"; do
   herdr pane get "$pane" >/dev/null
   # A startup ref can exist before the first turn is persisted. Wait for an
   # actual model response before terminating the process and testing resume.
-  if ! herdr pane wait-output "$pane" --regex '(?m)^\s*(?:•\s*)?KANBI_LIFECYCLE_OK\s*$' --source recent --timeout 120000 >"$TMP/$harness-response.json"; then
+  if ! herdr pane wait-output "$pane" --regex '(?m)^\s*(?:[•●]\s*)?KANBI_LIFECYCLE_OK\s*$' --source recent --timeout 120000 >"$TMP/$harness-response.json"; then
     herdr pane read "$pane" --source recent --format text >"$TMP/$harness-frame.txt" || true
     tail -40 "$TMP/$harness-frame.txt" >&2
     echo "$harness: no completed model response before resume test" >&2
@@ -63,7 +63,7 @@ for harness in "${harnesses[@]}"; do
   [[ "$(sqlite3 "$KANBI_DB" "select s.harness_session_ref $query;")" == "$ref" ]]
   [[ "$(sqlite3 "$KANBI_DB" "select sum(s.is_active) from sessions s join tickets t on t.id=s.ticket_id where t.display_id='$ticket';")" == 1 ]]
   resumed_pane="$(sqlite3 "$KANBI_DB" "select json_extract(s.mux_metadata,'$.pane_id') $query;")"
-  herdr pane wait-output "$resumed_pane" --regex '(?m)^\s*(?:•\s*)?KANBI_LIFECYCLE_OK\s*$' --source recent --timeout 30000 >"$TMP/$harness-resumed-history.json"
+  herdr pane wait-output "$resumed_pane" --regex '(?m)^\s*(?:[•●]\s*)?KANBI_LIFECYCLE_OK\s*$' --source recent --timeout 30000 >"$TMP/$harness-resumed-history.json"
   echo "$harness: PASS (launch, verified ref, focus, terminal exit, actual resume, preserved history)"
 done
 echo 'Real Herdr harness lifecycle: PASS'

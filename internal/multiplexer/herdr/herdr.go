@@ -416,7 +416,7 @@ func (a *Adapter) SubmitPrompt(ctx context.Context, ref multiplexer.ContainerRef
 }
 
 // Cold-start executable installers can resemble a working agent before its
-// editor exists. Confirm the observed Pi/Codex input surface before pasting.
+// editor exists. Confirm the observed harness input surface before pasting.
 func (a *Adapter) waitPromptEditor(ctx context.Context, ref multiplexer.ContainerRef, timeout time.Duration) error {
 	kind := refMeta(ref, "result.agent.agent", "agent.agent")
 	var pattern string
@@ -425,6 +425,9 @@ func (a *Adapter) waitPromptEditor(ctx context.Context, ref multiplexer.Containe
 		pattern = `(?m)^.*\d+(?:\.\d+)?%/\d+`
 	case "codex":
 		pattern = `(?m)^\s*›`
+	case "claude":
+		// Claude uses the same chevron as some shells. Require the editor borders.
+		pattern = `(?m)^[ \t]*─{3,}[ \t]*\r?\n[ \t]*❯[^\n]*\n[ \t]*─{3,}[ \t]*\r?$`
 	default:
 		return nil
 	}

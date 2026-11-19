@@ -77,9 +77,9 @@ func TestSubmitPromptRecoversStalledPasteWithoutResendingText(t *testing.T) {
 }
 
 func TestSubmitPromptRejectsInstallerWithoutEditor(t *testing.T) {
-	for _, kind := range []string{"pi", "codex"} {
+	for _, kind := range []string{"pi", "codex", "claude"} {
 		r := &fakeRunner{out: map[string]string{
-			"pane read pane-1 --source visible --format text": "mise downloading executable...",
+			"pane read pane-1 --source visible --format text": "project ❯ claude\nmise downloading executable...",
 		}}
 		a := NewAdapter(Config{})
 		a.Runner = r
@@ -93,6 +93,21 @@ func TestSubmitPromptRejectsInstallerWithoutEditor(t *testing.T) {
 				t.Fatalf("submitted to installer: %v", call)
 			}
 		}
+	}
+}
+
+func TestSubmitClaudePromptRecognizesEditor(t *testing.T) {
+	r := &fakeRunner{out: map[string]string{
+		"pane read pane-1 --source visible --format text": "Claude Code\n────────────\n❯ Try a prompt\n────────────",
+	}}
+	a := NewAdapter(Config{})
+	a.Runner = r
+	ref := multiplexer.ContainerRef{ID: "agent-1", Metadata: `{"pane_id":"pane-1","result":{"agent":{"agent":"claude"}}}`}
+	if err := a.SubmitPrompt(context.Background(), ref, "test prompt", time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.calls) != 2 || r.calls[1][1] != "agent" || r.calls[1][2] != "prompt" {
+		t.Fatalf("expected editor check followed by prompt submission, got %v", r.calls)
 	}
 }
 
