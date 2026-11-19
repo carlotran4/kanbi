@@ -230,28 +230,28 @@ func TestParseTemplateOptions(t *testing.T) {
 // ---- parseOpenArgs ----
 
 func TestParseOpenArgsDisplayID(t *testing.T) {
-	id, send, _, err := parseOpenArgs([]string{"T-001"})
-	if err != nil || id != "T-001" || send {
-		t.Fatalf("id=%q send=%v err=%v", id, send, err)
+	opts, err := parseOpenArgs([]string{"T-001"})
+	if err != nil || opts.displayID != "T-001" || opts.sendPrompt {
+		t.Fatalf("id=%q send=%v err=%v", opts.displayID, opts.sendPrompt, err)
 	}
 }
 
 func TestParseOpenArgsSendPrompt(t *testing.T) {
-	id, send, _, err := parseOpenArgs([]string{"T-001", "--send-prompt"})
-	if err != nil || id != "T-001" || !send {
-		t.Fatalf("id=%q send=%v err=%v", id, send, err)
+	opts, err := parseOpenArgs([]string{"T-001", "--send-prompt"})
+	if err != nil || opts.displayID != "T-001" || !opts.sendPrompt {
+		t.Fatalf("id=%q send=%v err=%v", opts.displayID, opts.sendPrompt, err)
 	}
 }
 
 func TestParseOpenArgsDoubleIDRejected(t *testing.T) {
-	_, _, _, err := parseOpenArgs([]string{"T-001", "T-002"})
+	_, err := parseOpenArgs([]string{"T-001", "T-002"})
 	if err == nil {
 		t.Fatal("expected error for double display ID")
 	}
 }
 
 func TestParseOpenArgsUnknownFlag(t *testing.T) {
-	_, _, _, err := parseOpenArgs([]string{"--foo"})
+	_, err := parseOpenArgs([]string{"--foo"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
 	}

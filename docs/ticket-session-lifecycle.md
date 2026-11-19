@@ -117,6 +117,8 @@ These rules apply to ordinary board controls. While the `/` title-search query h
 
 `kanbi open T-001 [--board NAME]` follows the default ticket action: a never-started ticket receives its rendered prompt; an existing session is focused, resumed, or reports repair-needed. Reopening never resends the ticket prompt. Paused tickets require checkpoint review in the TUI. The optional `--send-prompt` flag remains an explicit first-start request and rejects tickets with session history.
 
+On a Git worktree board, a ticket that needs its first worktree requires an explicit new branch via `kanbi open T-001 --board "My Project" --branch my-ticket`. Kanbi prints this command pattern if the branch is missing. The board checkout must be clean. Use the interactive branch confirmation for a dirty checkout or an existing branch. A ticket with a prepared worktree reuses it on later opens. The first worktree start for a migrated ticket starts a fresh session and preserves the pre-migration history.
+
 ### Session Ref Editing And Repair
 
 When the latest session already has a non-blank harness session ref, the normal ticket editor shows it after the harness field. Tab or Shift+Tab can focus it, and saving the editor updates that same latest session attempt. Tickets without a stored ref omit the field; use the repair flow to supply a missing ref. Editing a ref never creates, deletes, or flattens session history.

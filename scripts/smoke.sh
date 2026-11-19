@@ -132,4 +132,31 @@ herdr pane close "$pane" >/dev/null
 [[ "$(sqlite3 "$KANBI_DB" "select harness_session_ref from sessions where ticket_id=1 and is_active=1;")" == "$old_ref" ]]
 pane="$(sqlite3 "$KANBI_DB" "select json_extract(mux_metadata, '$.pane_id') from sessions where ticket_id=1 and is_active=1;")"
 herdr pane wait-output "$pane" --match "RESUMED $old_ref" --source recent --timeout 5000 >/dev/null
-echo "smoke ok (Herdr containers, prompts, refs, focus, actual resume, preserved attempts)"
+# A CLI-only first start can choose a branch on a worktree board.
+git init -q -b source "$TMP/project"
+git -C "$TMP/project" -c user.name=Smoke -c user.email=smoke@example.test commit -q --allow-empty -m source
+"$BIN" boards add "Worktree smoke" --cwd "$TMP/project" --worktree-mode git
+"$BIN" add "Worktree prompt" --board "Worktree smoke" --harness codex --body "Verify worktree launch"
+if missing_branch="$("$BIN" open T-001 --board "Worktree smoke" 2>&1)"; then
+  echo "worktree open succeeded without choosing a branch" >&2
+  exit 1
+fi
+[[ "$missing_branch" == *'--branch <new-branch-name>'* ]]
+[[ "$(sqlite3 "$KANBI_DB" "select count(*) from ticket_workspaces;")" == 0 ]]
+touch "$TMP/project/dirty"
+if dirty_source="$("$BIN" open T-001 --board "Worktree smoke" --branch smoke-ticket 2>&1)"; then
+  echo "worktree open succeeded with a dirty source checkout" >&2
+  exit 1
+fi
+[[ "$dirty_source" == *'uncommitted changes'* ]]
+rm "$TMP/project/dirty"
+"$BIN" open T-001 --board "Worktree smoke" --branch smoke-ticket
+worktree="$(sqlite3 "$KANBI_DB" "select launch_cwd from ticket_workspaces where branch_name='smoke-ticket';")"
+[[ "$(git -C "$worktree" branch --show-current)" == smoke-ticket ]]
+[[ "$(git -C "$TMP/project" branch --show-current)" == source ]]
+[[ "$(sqlite3 "$KANBI_DB" "select count(*) from sessions where launch_cwd='$worktree' and is_active=1;")" == 1 ]]
+pane="$(sqlite3 "$KANBI_DB" "select json_extract(mux_metadata, '$.pane_id') from sessions where launch_cwd='$worktree';")"
+herdr pane wait-output "$pane" --match "Verify worktree launch" --source recent --timeout 5000 >/dev/null
+"$BIN" open T-001 --board "Worktree smoke"
+[[ "$(sqlite3 "$KANBI_DB" "select count(*) from sessions where launch_cwd='$worktree';")" == 1 ]]
+echo "smoke ok (Herdr containers, prompts, refs, focus, actual resume, preserved attempts, CLI worktrees)"

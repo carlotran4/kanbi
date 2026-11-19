@@ -144,9 +144,12 @@ Manage durable ticket notes.`,
 	"state": `Usage: kanbi state [--board NAME] [--json]
 
 Show the current durable ticket/session projection.`,
-	"open": `Usage: kanbi open TICKET [--board NAME] [--json]
+	"open": `Usage: kanbi open TICKET [--board NAME] [--branch NAME] [--send-prompt] [--json]
 
-Start, focus, resume, or repair a ticket session according to its durable lifecycle.`,
+Start a ticket with its prompt, or focus or resume its session.
+For a ticket that needs a Git worktree, pass --branch NAME with a new branch
+name. The board checkout must be clean. Use the TUI to confirm an existing
+branch or dirty checkout. Subsequent opens can omit --branch.`,
 	"sync": `Usage: kanbi sync [--board NAME] [--json]
 
 Synchronize GitHub or Jira ticket metadata for one or all boards.`,
