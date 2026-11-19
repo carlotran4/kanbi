@@ -325,6 +325,10 @@ Run `go test ./internal/multiplexer/herdrcore ./internal/runtime ./internal/conf
 
 The smoke and UI scripts run isolated Herdr servers and rendering clients, including in CI. Authenticated harness checks remain opt-in: `KANBI_REAL_HARNESS_TESTS=1 KANBI_REAL_HARNESSES=pi,codex ./scripts/real-harness-lifecycle.sh` requires installed/authenticated agents and can consume quota. It confirms an actual model response and a finished or blocked agent before closing the pane, then verifies native resume, restored conversation output and preserved session history. Failed runs retain disposable artifacts for diagnosis. To verify manually, install Herdr, run `herdr` once, configure a disposable Kanbi config with `multiplexer.default: herdr`, run `kanbi doctor`, then open a disposable ticket and confirm the Herdr pane/agent is created and focusable.
 
+The [GH-407 Claude lifecycle report](claude-lifecycle-gh407.md) records live
+Codex bridge verification, startup fault injection, and the transcript checks
+for prompt acceptance and native resume.
+
 ## Opt-In Real Backend Smoke Tests
 
 Real ticket backend smoke tests are not part of normal smoke or CI because they can consume quota, mutate external projects, and depend on auth. For GitHub, use a disposable repository or a repository where temporary label-scoped issues are acceptable, then run:

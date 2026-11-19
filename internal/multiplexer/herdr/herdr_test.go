@@ -260,6 +260,34 @@ func TestLaunchPaneFirstCleansUpPaneWhenAgentStartFails(t *testing.T) {
 	}
 }
 
+func TestLaunchClaudeStartupBlockReportsRecoveryAndClosesPane(t *testing.T) {
+	const pane = "w1:p2"
+	const name = "b1-T-001-trust"
+	start := "agent start " + paneFirstAgentName(name, pane) + " --kind claude --pane " + pane + " --"
+	runner := &fakeRunner{
+		out: map[string]string{
+			"agent start --help": "--kind <KIND> --pane <ID>",
+			"tab create --workspace w1 --label " + name + " --no-focus": `{"result":{"root_pane":{"pane_id":"w1:p2"}}}`,
+			start: `{"error":{"code":"agent_not_ready","message":"agent is blocked during startup and is not ready"}}`,
+		},
+		err: map[string]error{start: errors.New("exit status 1")},
+	}
+	adapter := NewAdapter(Config{})
+	adapter.Runner = runner
+
+	ref, err := adapter.Launch(context.Background(), multiplexer.LaunchSpec{
+		Name: name, Namespace: "w1", AgentKind: "claude", Command: []string{"claude"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "review its startup prompts") ||
+		!strings.Contains(err.Error(), "Start fresh in Kanbi") || !strings.Contains(err.Error(), "agent_not_ready") {
+		t.Fatalf("startup error = %v", err)
+	}
+	if ref.Target() != "" || len(runner.calls) != 4 ||
+		strings.Join(runner.calls[3], " ") != "herdr pane close "+pane {
+		t.Fatalf("expected one start and cleanup without a prompt, got ref=%+v calls=%v", ref, runner.calls)
+	}
+}
+
 func TestLaunchCustomExecutableInRawPane(t *testing.T) {
 	r := &fakeRunner{out: map[string]string{"agent start --help": "--kind <KIND> --pane <ID>", "tab create --workspace w1 --label demo --no-focus": `{"result":{"root_pane":{"pane_id":"w1:p1"},"tab":{"tab_id":"w1:t1"}}}`}}
 	adapter := NewAdapter(Config{})

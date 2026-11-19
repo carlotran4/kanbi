@@ -219,7 +219,15 @@ func (a *Adapter) launchPaneFirst(ctx context.Context, spec multiplexer.LaunchSp
 		startOut, err = a.startAgentWhenPaneReady(ctx, args)
 	}
 	if err != nil {
-		return multiplexer.ContainerRef{}, cleanup(herdrCommandError("start agent", startOut, err))
+		cause := herdrCommandError("start agent", startOut, err)
+		if kind == "claude" {
+			response := parseObject(startOut)
+			if firstString(response, "error.code") == "agent_not_ready" &&
+				strings.Contains(firstString(response, "error.message"), "blocked during startup") {
+				cause = fmt.Errorf("Claude Code is waiting during startup. Open Claude Code directly in the ticket directory to review its startup prompts, then use Start fresh in Kanbi: %w", cause)
+			}
+		}
+		return multiplexer.ContainerRef{}, cleanup(cause)
 	}
 	startInfo := parseObject(startOut)
 	agentTarget := firstString(startInfo, "target", "agent_target", "agentTarget", "agent.name", "name", "result.agent.name")
@@ -368,6 +376,10 @@ func (a *Adapter) SendText(ctx context.Context, ref multiplexer.ContainerRef, te
 	return err
 }
 
+// ErrPromptAcceptanceTimeout indicates Herdr timed out after prompt submission
+// began and could not confirm acceptance.
+var ErrPromptAcceptanceTimeout = errors.New("Herdr could not confirm prompt acceptance")
+
 // SubmitPrompt uses Herdr's harness-aware submission instead of racing pasted
 // input with Enter. Wait only for acceptance, not the model's completed turn.
 func (a *Adapter) SubmitPrompt(ctx context.Context, ref multiplexer.ContainerRef, text string, timeout time.Duration) error {
@@ -398,6 +410,9 @@ func (a *Adapter) SubmitPrompt(ctx context.Context, ref multiplexer.ContainerRef
 	}
 	if err != nil {
 		cause := herdrCommandError("submit prompt", out, err)
+		if firstString(parseObject(out), "error.code") == "timeout" {
+			return fmt.Errorf("%w: %w", ErrPromptAcceptanceTimeout, cause)
+		}
 		if strings.Contains(out, "agent_not_running") {
 			// The last Codex editor frame can remain visible after its process
 			// exits. Herdr's error is authoritative; retain a known startup

@@ -105,6 +105,7 @@ Press `?` for controls. The important distinction is:
 
 Session resume depends on Kanbi capturing a verified session reference from the agent CLI. If a session cannot be resumed safely, Kanbi offers repair or start-fresh instead of guessing.
 When a launch failed, the repair screen also shows the saved failure so the original startup error remains visible.
+If Herdr reports Claude Code is blocked during startup, open Claude Code directly in the ticket directory and review its startup prompts. Then use **Start fresh** in Kanbi to run the ticket with its original prompt and retain the failed attempt in history.
 
 ## Useful commands
 

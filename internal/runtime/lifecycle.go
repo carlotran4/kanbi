@@ -12,6 +12,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/harness"
 	"github.com/carlotran4/kanbi/internal/kanban"
 	"github.com/carlotran4/kanbi/internal/multiplexer"
+	herdrmux "github.com/carlotran4/kanbi/internal/multiplexer/herdr"
 	"github.com/carlotran4/kanbi/internal/prompt"
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/storage"
@@ -449,6 +450,21 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 		} else {
 			promptErr = l.manager.WaitAndSendPrompt(ctx, adapter, containerRef, readOptions, renderedPrompt, ready, l.manager.Config.PromptReadyTimeout)
 		}
+		var confirmedClaudeRef string
+		if errors.Is(promptErr, herdrmux.ErrPromptAcceptanceTimeout) &&
+			ticket.Harness == "claude" && l.manager.nativeHarness("claude") {
+			// A short Claude turn can finish without Herdr observing the status
+			// transition. Require both the current pane's native identity and
+			// its persisted user prompt before treating the turn as accepted.
+			native, hasNative := l.manager.captureNativeSessionRef(ctx, containerRef, "claude")
+			if hasNative {
+				history, found := harness.CaptureSessionRefInCWD("claude", renderedPrompt, launchCWD, launchStartedAt)
+				if found && history == native {
+					confirmedClaudeRef = native
+					promptErr = nil
+				}
+			}
+		}
 		if promptErr != nil {
 			if cleanupErr := l.cleanupLaunchedContainer(ctx, containerRef); cleanupErr != nil {
 				promptErr = errors.Join(promptErr, fmt.Errorf("cleanup failed container: %w", cleanupErr))
@@ -456,9 +472,12 @@ func (l ticketLifecycle) launch(ctx context.Context, decision lifecycleDecision,
 			return PromptReadyError{WindowName: name, Prompt: renderedPrompt, Ready: ready, Err: failClaim(promptErr)}
 		}
 		promptSubmittedAt := time.Now().UTC()
-		out, _ := adapter.Read(ctx, containerRef, readOptions)
 		if l.manager.Store != nil {
-			ref, captured := harness.ParseSessionRef(out, harness.SessionRefPattern(l.manager.Config.Harnesses, ticket.Harness))
+			ref, captured := confirmedClaudeRef, confirmedClaudeRef != ""
+			if !captured {
+				out, _ := adapter.Read(ctx, containerRef, readOptions)
+				ref, captured = harness.ParseSessionRef(out, harness.SessionRefPattern(l.manager.Config.Harnesses, ticket.Harness))
+			}
 			if !captured && herdrPaneFirst {
 				// Pane-first launches deliver the prompt after the durable claim is
 				// completed. Capture synchronously so short-lived CLI commands do not

@@ -210,6 +210,59 @@ func TestPaneFirstHerdrPromptFailureClosesContainerAndDeactivatesClaim(t *testin
 	}
 }
 
+func TestClaudePromptAcceptanceTimeoutRequiresMatchingPaneHistory(t *testing.T) {
+	for _, historyRef := range []string{"native-claude-ref", "different-ref"} {
+		t.Run(historyRef, func(t *testing.T) {
+			configDir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+			store, ctx := newRuntimeTestStore(t)
+			view := defaultBoardView(t, ctx, store)
+			ticket := createTicket(t, ctx, store, view.Columns[0].ID, "Claude Timeout", "body", "claude")
+			projects := filepath.Join(configDir, "projects")
+			if err := os.Mkdir(projects, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			transcript := `{"type":"user","sessionId":` + jsonQuote(historyRef) +
+				`,"cwd":` + jsonQuote(view.Board.Workdir) + `,"timestamp":` + jsonQuote(time.Now().UTC().Format(time.RFC3339Nano)) +
+				`,"message":{"role":"user","content":"# T-001: Claude Timeout\n\nbody"}}`
+			if err := os.WriteFile(filepath.Join(projects, historyRef+".jsonl"), []byte(transcript), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			bin, logPath := writeFakeHerdr(t, map[string]string{
+				"workspace list":   `[]`,
+				"workspace create": `{"id":"ws-board","cwd":` + jsonQuote(view.Board.Workdir) + `}`,
+				"agent start":      `{"result":{"agent":{"name":"agent-789"}}}`,
+				"agent get":        claudeNativeRef,
+				"agent prompt":     "__STALLED__",
+				"agent wait":       "__TIMEOUT__",
+			})
+			cfg := config.Defaults(config.Paths{})
+			cfg.Multiplexer.Herdr.Binary = bin
+			manager := NewManager(cfg, store)
+			defer manager.Close()
+
+			openErr := manager.OpenTicket(ctx, ticket, true)
+			latest, found, err := store.LatestSession(ctx, ticket.ID)
+			log, readErr := os.ReadFile(logPath)
+			if err != nil || !found || readErr != nil {
+				t.Fatalf("latest session: found=%v err=%v readErr=%v", found, err, readErr)
+			}
+			if strings.Count(string(log), "agent prompt ") != 1 {
+				t.Fatalf("expected exactly one prompt submission, got %s", log)
+			}
+			if historyRef == "native-claude-ref" {
+				if openErr != nil || !latest.IsActive || latest.HarnessSessionRef.String != historyRef ||
+					strings.Contains(string(log), "pane close") {
+					t.Fatalf("confirmed prompt: session=%+v open error=%v log=%s", latest, openErr, log)
+				}
+			} else if openErr == nil || latest.IsActive || latest.Status != kanban.StateError ||
+				!strings.Contains(string(log), "pane close pane-123") {
+				t.Fatalf("unconfirmed prompt: session=%+v open error=%v log=%s", latest, openErr, log)
+			}
+		})
+	}
+}
+
 func TestOpenTicketWithHerdrPasteModeUsesHerdrInput(t *testing.T) {
 	store, ctx := newRuntimeTestStore(t)
 	view := defaultBoardView(t, ctx, store)
@@ -419,7 +472,12 @@ case "$1 $2" in
   "agent get") echo '` + responses["agent get"] + `' ;;
   "agent read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"error":{"code":"agent_not_found"}}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
   "pane read") if [ '` + responses["agent read"] + `' = '__ERROR__' ]; then exit 1; elif [ '` + responses["agent read"] + `' = '__NOT_FOUND__' ]; then echo '{"code":"pane_not_found"}'; exit 1; else echo '` + responses["agent read"] + `'; fi ;;
-  "agent prompt") if [ '` + responses["agent prompt"] + `' = '__ERROR__' ]; then echo 'prompt failed' >&2; exit 1; else echo '{"ok":true}'; fi ;;
+  "agent prompt") case '` + responses["agent prompt"] + `' in
+    '__ERROR__') echo 'prompt failed' >&2; exit 1 ;;
+    '__STALLED__') echo '{"error":{"code":"agent_prompt_stalled"}}'; exit 1 ;;
+    *) echo '{"ok":true}' ;;
+  esac ;;
+  "agent wait") if [ '` + responses["agent wait"] + `' = '__TIMEOUT__' ]; then echo '{"error":{"code":"timeout","message":"timed out waiting for agent status"}}'; exit 1; else echo '{"ok":true}'; fi ;;
   "pane send-text") if [ '` + responses["pane send-text"] + `' = '__ERROR__' ]; then echo 'send failed' >&2; exit 1; else echo '{"ok":true}'; fi ;;
   "pane send-keys") if [ '` + responses["pane send-keys"] + `' = '__ERROR__' ]; then echo 'keys failed' >&2; exit 1; else echo '{"ok":true}'; fi ;;
   *) echo '{}' ;;

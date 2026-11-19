@@ -552,11 +552,17 @@ func latestClaudeSession(promptText string, since time.Time) (string, bool) {
 }
 
 func latestClaudeSessionInCWD(promptText, cwd string, since time.Time) (string, bool) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", false
+	configDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if configDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		configDir = filepath.Join(home, ".claude")
+	} else if !filepath.IsAbs(configDir) {
+		configDir = filepath.Join(cwd, configDir)
 	}
-	root := filepath.Join(home, ".claude", "projects")
+	root := filepath.Join(configDir, "projects")
 	var bestID string
 	var bestTime time.Time
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
