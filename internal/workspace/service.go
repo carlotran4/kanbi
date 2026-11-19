@@ -49,12 +49,13 @@ type Service struct {
 // ProvisionOptions selects a stable ticket worktree. ExistingBranch must be
 // explicitly true to attach an already-created local branch.
 type ProvisionOptions struct {
-	BoardID        int64
-	BoardUUID      string
-	BoardCWD       string
-	TicketID       int64
-	Branch         string
-	ExistingBranch bool
+	BoardID            int64
+	BoardUUID          string
+	BoardCWD           string
+	TicketID           int64
+	Branch             string
+	ExistingBranch     bool
+	RequireCleanSource bool
 }
 
 // IntegrateOptions controls the conservative source-branch merge flow.
@@ -149,13 +150,16 @@ func (s *Service) Provision(ctx context.Context, opts ProvisionOptions) (storage
 	}
 	if opts.ExistingBranch != preflight.BranchExists {
 		if preflight.BranchExists {
-			return storage.Workspace{}, fmt.Errorf("branch %q already exists; explicit existing-branch selection is required", preflight.Branch)
+			return storage.Workspace{}, fmt.Errorf("branch %q already exists; choose a new branch or confirm the existing branch in the TUI", preflight.Branch)
 		}
 		return storage.Workspace{}, fmt.Errorf("existing branch %q was not found", preflight.Branch)
 	}
 	source, err := s.Git.InspectSource(ctx, opts.BoardCWD)
 	if err != nil {
 		return storage.Workspace{}, err
+	}
+	if opts.RequireCleanSource && source.Dirty {
+		return storage.Workspace{}, errors.New("board checkout has uncommitted changes; clean it or confirm the dirty checkout in the TUI")
 	}
 	branch := preflight.Branch
 	path, err := s.StablePath(opts.BoardUUID, opts.TicketID)

@@ -723,14 +723,14 @@ func TestClaudeDefaultUsesPromptArgumentMode(t *testing.T) {
 }
 
 func TestCaptureClaudeSessionRefFromProjectsDir(t *testing.T) {
-	home := t.TempDir()
+	configDir := t.TempDir()
 	cwd := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	promptText := "# T-001: Demo\n\nBody"
 
 	// Directory name doesn't matter — capture matches by the `cwd` field
 	// inside each jsonl entry, not by the encoded directory name.
-	projectDir := filepath.Join(home, ".claude", "projects", "encoded-cwd-arbitrary")
+	projectDir := filepath.Join(configDir, "projects", "encoded-cwd-arbitrary")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -773,6 +773,7 @@ func TestCaptureClaudeSessionRefHonorsSinceWindow(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	promptText := "# T-001: Demo\n\nBody"
 
 	projectDir := filepath.Join(home, ".claude", "projects", "encoded")

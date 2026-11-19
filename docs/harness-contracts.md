@@ -147,7 +147,7 @@ Primary capture uses Herdr's official Claude integration (`herdr integration ins
 If the integration is missing, outdated, or has not yet reported a ref, the following Claude history scan remains the fallback:
 
 
-Claude Code writes each session to `~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl`, where the directory name is the absolute working directory with `/` replaced by `-`. Each line is a JSON object; non-meta user turns have the shape:
+Claude Code writes each session to `$CLAUDE_CONFIG_DIR/projects/<encoded-cwd>/<session-uuid>.jsonl` (the config directory defaults to `~/.claude`), where the directory name is the absolute working directory with `/` replaced by `-`. Each line is a JSON object; non-meta user turns have the shape:
 
 ```json
 {"type":"user","isMeta":false,"sessionId":"<uuid>","cwd":"<absolute>","timestamp":"<RFC3339Nano>","message":{"role":"user","content":"<prompt>"}}

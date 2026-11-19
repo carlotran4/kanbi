@@ -16,6 +16,7 @@ import (
 	"github.com/carlotran4/kanbi/internal/prompt"
 	"github.com/carlotran4/kanbi/internal/session"
 	"github.com/carlotran4/kanbi/internal/storage"
+	"github.com/carlotran4/kanbi/internal/workspace"
 )
 
 type lifecycleAction = session.Action
@@ -31,6 +32,8 @@ type lifecycleRequest struct {
 	Ticket     storage.Ticket
 	SendPrompt bool
 	StartFresh bool
+	CLI        bool
+	Branch     string
 }
 
 type lifecycleDecision = session.Decision
@@ -84,6 +87,49 @@ func (l ticketLifecycle) Execute(ctx context.Context, req lifecycleRequest) erro
 		}
 		req.Ticket.BoardWorktreeMode = board.WorktreeMode
 	}
+	if req.CLI {
+		ticket := req.Ticket
+		if ticket.ArchivedAt.Valid {
+			return storage.ErrTicketArchived
+		}
+		if ticket.FocusPaused {
+			return fmt.Errorf("%s is paused; open Kanbi to review its checkpoint and resume it", ticket.DisplayID)
+		}
+		req.SendPrompt = req.SendPrompt || !ticket.SessionID.Valid
+		if req.Branch != "" && ticket.BoardWorktreeMode != storage.WorktreeModeGit {
+			return fmt.Errorf("--branch requires a Git worktree board; board %q uses a shared directory", ticket.BoardName)
+		}
+		if ticket.BoardWorktreeMode == storage.WorktreeModeGit {
+			current, exists, err := l.manager.Store.CurrentWorkspace(ctx, ticket.ID)
+			if err != nil {
+				return err
+			}
+			switch {
+			case exists:
+				if req.Branch != "" && req.Branch != current.BranchName {
+					return fmt.Errorf("%s already uses branch %q; omit --branch to reopen it", ticket.DisplayID, current.BranchName)
+				}
+			case ticket.SessionActive:
+				if req.Branch != "" {
+					return fmt.Errorf("%s already has an active session; omit --branch to focus it", ticket.DisplayID)
+				}
+			case req.Branch == "":
+				return fmt.Errorf("Git worktree required for board %q; run kanbi open %s --board %q --branch <new-branch-name>", ticket.BoardName, ticket.DisplayID, ticket.BoardName)
+			default:
+				_, err := l.manager.workspaceService().Provision(ctx, workspace.ProvisionOptions{
+					BoardID: ticket.BoardID, BoardUUID: ticket.BoardUUID, BoardCWD: ticket.BoardWorkdir,
+					TicketID: ticket.ID, Branch: req.Branch, RequireCleanSource: true,
+				})
+				if err != nil {
+					return fmt.Errorf("prepare ticket worktree: %w", err)
+				}
+				// Like the TUI, a migrated ticket starts its first attempt in the new worktree.
+				req.StartFresh = ticket.SessionID.Valid
+				req.SendPrompt = true
+			}
+		}
+	}
+
 	if req.Ticket.BoardWorktreeMode == storage.WorktreeModeGit && (!req.Ticket.SessionActive || req.StartFresh) {
 		workspace, ok, err := l.manager.Store.CurrentWorkspace(ctx, req.Ticket.ID)
 		if err != nil {

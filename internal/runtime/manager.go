@@ -262,6 +262,11 @@ func (m *Manager) OpenTicket(ctx context.Context, ticket storage.Ticket, sendPro
 	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt})
 }
 
+// OpenTicketCLI applies the default ticket action with an optional first-worktree branch.
+func (m *Manager) OpenTicketCLI(ctx context.Context, ticket storage.Ticket, sendPrompt bool, branch string) error {
+	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt, CLI: true, Branch: branch})
+}
+
 func (m *Manager) StartFreshTicket(ctx context.Context, ticket storage.Ticket, sendPrompt bool) error {
 	return m.lifecycle().Execute(ctx, lifecycleRequest{Ticket: ticket, SendPrompt: sendPrompt, StartFresh: true})
 }

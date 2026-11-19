@@ -978,24 +978,19 @@ func runOpen(ctx context.Context, cfg config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	displayID, sendPrompt, boardName, err := parseOpenArgs(cleaned)
+	opts, err := parseOpenArgs(cleaned)
 	if err != nil {
 		return err
 	}
-	if displayID == "" {
-		return fmt.Errorf("usage: kanbi open T-001 [--board NAME] [--send-prompt]")
+	if opts.displayID == "" {
+		return errors.New(commandHelp["open"])
 	}
 	return withCLIContext(ctx, cfg, func(cli *cliContext) error {
-		ticket, err := cli.ResolveTicket(displayID, boardName)
+		ticket, err := cli.ResolveTicket(opts.displayID, opts.boardName)
 		if err != nil {
 			return err
 		}
-		if ticket.FocusPaused {
-			return fmt.Errorf("%s is paused; open Kanbi to review its checkpoint and resume it", ticket.DisplayID)
-		}
-		// Match TUI Enter: first open submits the ticket; later opens focus or resume.
-		sendPrompt = sendPrompt || !ticket.SessionID.Valid
-		if err := cli.Manager().OpenTicket(ctx, ticket, sendPrompt); err != nil {
+		if err := cli.Manager().OpenTicketCLI(ctx, ticket, opts.sendPrompt, opts.branch); err != nil {
 			return err
 		}
 		if format.JSON {
@@ -1883,26 +1878,41 @@ func parseOptionalBoard(args []string) (string, error) {
 	return boardName, nil
 }
 
-func parseOpenArgs(args []string) (displayID string, sendPrompt bool, boardName string, err error) {
+type openOptions struct {
+	displayID  string
+	boardName  string
+	branch     string
+	sendPrompt bool
+}
+
+func parseOpenArgs(args []string) (openOptions, error) {
+	var opts openOptions
 	for i := 0; i < len(args); i++ {
-		switch args[i] {
+		switch flag := args[i]; flag {
 		case "--send-prompt":
-			sendPrompt = true
-		case "--board":
+			opts.sendPrompt = true
+		case "--board", "--branch":
 			i++
-			if i >= len(args) {
-				return "", false, "", fmt.Errorf("--board requires a value")
+			if i >= len(args) || strings.HasPrefix(args[i], "-") || strings.TrimSpace(args[i]) == "" {
+				return openOptions{}, fmt.Errorf("%s requires a value", flag)
 			}
-			boardName = args[i]
+			if flag == "--board" {
+				opts.boardName = args[i]
+			} else {
+				if opts.branch != "" {
+					return openOptions{}, errors.New("--branch can only be specified once")
+				}
+				opts.branch = args[i]
+			}
 		default:
-			if strings.HasPrefix(args[i], "-") {
-				return "", false, "", fmt.Errorf("unknown open flag %s", args[i])
+			if strings.HasPrefix(flag, "-") {
+				return openOptions{}, fmt.Errorf("unknown open flag %s", flag)
 			}
-			if displayID != "" {
-				return "", false, "", fmt.Errorf("open accepts one display id")
+			if opts.displayID != "" {
+				return openOptions{}, errors.New("open accepts one display id")
 			}
-			displayID = args[i]
+			opts.displayID = flag
 		}
 	}
-	return displayID, sendPrompt, boardName, nil
+	return opts, nil
 }
